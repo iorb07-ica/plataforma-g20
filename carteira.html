@@ -791,9 +791,13 @@ function buscarCotacoes(){
     renderPosicoes();
     if(document.getElementById('tab-graficos').style.display!=='none') renderGraficos();
 
-    // Importa proventos históricos automaticamente após atualizar cotações
-    importarTodosProventos(function(novos){
-      if(novos > 0) renderPosicoes(); // re-renderiza com proventos atualizados
+    // 1. Primeiro verifica splits/inplits e ajusta aportes
+    importarTodosSplits(function(splitsAjustados){
+      if(splitsAjustados > 0) renderPosicoes();
+      // 2. Depois importa proventos históricos
+      importarTodosProventos(function(novos){
+        if(novos > 0) renderPosicoes();
+      });
     });
   });
 }
@@ -912,7 +916,9 @@ function buscarUSTickersBatch(tickers, erros){
     for(var i=0; i<tickers.length; i+=BATCH) chunks.push(tickers.slice(i,i+BATCH));
 
     return Promise.all(chunks.map(function(chunk){
-      var url = PROXY_URL+'/api/quote?symbol='+encodeURIComponent(chunk.join(','));
+      // Yahoo Finance usa BRK-B (hífen), não BRK.B (ponto)
+    var apiChunk = chunk.map(function(t){ return t==='BRK.B'?'BRK-B':t; });
+    var url = PROXY_URL+'/api/quote?symbol='+encodeURIComponent(apiChunk.join(','));
       return fetch(url)
         .then(function(r){ return r.json(); })
         .then(function(d){
@@ -921,7 +927,8 @@ function buscarUSTickersBatch(tickers, erros){
             var tmp={}; tmp[d.symbol]=d; d=tmp;
           }
           chunk.forEach(function(ticker){
-            var item = d[ticker] || d[ticker.toUpperCase()];
+            var apiTicker = ticker==='BRK.B'?'BRK-B':ticker;
+            var item = d[ticker] || d[apiTicker] || d[ticker.toUpperCase()];
             if(!item || item.error || !item.price) return;
             cotacoes[ticker] = {
               preco:    item.price,
@@ -1716,6 +1723,83 @@ function importarTodosProventos(callback){
       console.log('[Proventos] '+total+' novo(s) importado(s)');
     } else if(total > 0){
       mostrarErros(['✅ '+total+' novo(s) provento(s) importado(s)!']);
+    }
+  });
+}
+
+
+// ============================================================
+// SPLITS / INPLITS — ajuste automático de quantidade
+// Busca histórico de splits via proxy e ajusta os aportes
+// ============================================================
+
+// Aplica splits nos aportes de um ticker
+// Ex: NVDA split 10:1 em 2023 → aportes anteriores têm qtd x10
+function aplicarSplitsAporte(ticker, splits){
+  if(!splits || !splits.length) return 0;
+  var aportes = loadData('aportes', []);
+  var alterados = 0;
+
+  // Para cada split, ajusta aportes ANTERIORES à data do split
+  splits.forEach(function(sp){
+    var ratio = sp.ratio; // ex: 10 para split 10:1
+    aportes.forEach(function(a){
+      if(a.ticker !== ticker) return;
+      if(a.data >= sp.date) return;         // aporte DEPOIS do split — não ajusta
+      if(a._splits_ajustados && a._splits_ajustados.indexOf(sp.date) >= 0) return; // já ajustado
+
+      // Ajusta quantidade e preço médio
+      a.qtd   = parseFloat((a.qtd * ratio).toFixed(8));
+      a.preco = parseFloat((a.preco / ratio).toFixed(8));
+
+      // Marca como ajustado para não duplicar
+      a._splits_ajustados = a._splits_ajustados || [];
+      a._splits_ajustados.push(sp.date);
+      alterados++;
+    });
+  });
+
+  if(alterados > 0) saveData('aportes', aportes);
+  return alterados;
+}
+
+// Busca splits de um ticker US via proxy e aplica nos aportes
+function importarSplitsUS(ticker){
+  if(!PROXY_URL) return Promise.resolve(0);
+  var dataCompra = dataPrimeiraCompra(ticker);
+  if(!dataCompra) return Promise.resolve(0);
+
+  // Yahoo Finance usa BRK-B
+  var apiSymbol = ticker === 'BRK.B' ? 'BRK-B' : ticker;
+  var url = PROXY_URL+'/api/splits?symbol='+encodeURIComponent(apiSymbol)+'&from='+dataCompra;
+
+  return fetch(url)
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(!d.splits || !d.splits.length) return 0;
+      var alterados = aplicarSplitsAporte(ticker, d.splits);
+      if(alterados > 0){
+        console.log('[Splits] '+ticker+': '+d.splits.length+' split(s) encontrado(s), '+alterados+' aporte(s) ajustado(s)');
+      }
+      return alterados;
+    })
+    .catch(function(){ return 0; });
+}
+
+// Importa splits de TODA a carteira US automaticamente
+function importarTodosSplits(callback){
+  var pos = calcPosicoes();
+  var posUS = pos.filter(function(p){ return !isBR(p.ticker, p.tipo); });
+  if(!posUS.length){ if(callback) callback(0); return; }
+
+  Promise.all(posUS.map(function(p){
+    return importarSplitsUS(p.ticker);
+  })).then(function(resultados){
+    var total = resultados.reduce(function(s,n){ return s+(n||0); }, 0);
+    if(callback) callback(total);
+    if(total > 0){
+      console.log('[Splits] Total de '+total+' aporte(s) ajustado(s) por splits/inplits');
+      renderPosicoes();
     }
   });
 }
