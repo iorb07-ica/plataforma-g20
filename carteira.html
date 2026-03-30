@@ -1191,7 +1191,7 @@ function getLogoHtml(ticker, tipo){
     return '<span class="asset-logo"><span class="logo-fallback">'+t.substring(0,3)+'</span></span>';
   }
   if(cached){
-    return '<span class="asset-logo"><img src="'+cached+'" alt="'+t+'" onerror="logoError(''+t+'')" loading="lazy"></span>';
+    return '<span class="asset-logo"><img src="'+cached+'" alt="'+t+'" onerror="logoError(this,\''+t+'\')" loading="lazy"></span>';
   }
 
   // Ainda não carregado: inicia fetch e retorna placeholder com iniciais
@@ -1278,16 +1278,16 @@ function tryLogoUrls(ticker, urls, idx){
     // Atualiza o placeholder inline se existir
     var el = document.getElementById('logo-'+ticker);
     if(el){
-      el.innerHTML = '<img src="'+urls[idx]+'" alt="'+ticker+'" onerror="logoError(''+ticker+'')" loading="lazy">';
+      el.innerHTML = '<img src="'+urls[idx]+'" alt="'+ticker+'" onerror="logoError(this,\''+ticker+'\')" loading="lazy">';
     }
   };
   img.onerror = function(){ tryLogoUrls(ticker, urls, idx+1); };
   img.src = urls[idx];
 }
 
-function logoError(ticker){
+function logoError(imgEl, ticker){
   _logoCache[ticker] = 'error';
-  var el = document.getElementById('logo-'+ticker);
+  var el = imgEl ? imgEl.closest('.asset-logo') : document.getElementById('logo-'+ticker);
   if(el) el.innerHTML = '<span class="logo-fallback">'+ticker.substring(0,3)+'</span>';
 }
 
@@ -3883,8 +3883,9 @@ function onColToggle(col, visible){
   var cols = getColsVisiveis();
   cols[col] = visible;
   saveColsVisiveis(cols);
-  aplicarColsVisiveis();
+  // Renderiza primeiro (cria tds com data-col), depois aplica visibilidade
   renderPosicoes();
+  aplicarColsVisiveis();
 }
 
 function resetCols(){
@@ -3898,22 +3899,27 @@ function resetCols(){
 function aplicarColsVisiveis(){
   var cols = getColsVisiveis();
 
-  // 1. Cabeçalhos
-  document.querySelectorAll('#theadRow th[data-col]').forEach(function(th){
-    var col = th.getAttribute('data-col');
-    var vis = cols[col] !== false;
-    th.style.display = vis ? '' : 'none';
-  });
+  // Injeta uma tag <style> com regras CSS para cada coluna oculta
+  // Isso garante que QUALQUER elemento com data-col=X some, mesmo após re-render
+  var styleId = 'g20-col-visibility';
+  var existing = document.getElementById(styleId);
+  if(!existing){
+    existing = document.createElement('style');
+    existing.id = styleId;
+    document.head.appendChild(existing);
+  }
 
-  // 2. Células do tbody — usa data-col injetado pelo renderPosicoes
-  document.querySelectorAll('#tbodyPosicoes tr').forEach(function(tr){
-    Array.from(tr.cells).forEach(function(td){
-      var col = td.getAttribute('data-col');
-      if(!col) return;
-      var vis = cols[col] !== false;
-      td.style.display = vis ? '' : 'none';
-    });
+  var rules = [];
+  var COL_KEYS = COL_DEFS.map(function(c){ return c.col; });
+  COL_KEYS.forEach(function(col){
+    var vis = cols[col] !== false;
+    if(!vis){
+      // Oculta th E td com esse data-col
+      rules.push('#theadRow th[data-col="'+col+'"] { display: none !important; }');
+      rules.push('#tbodyPosicoes td[data-col="'+col+'"] { display: none !important; }');
+    }
   });
+  existing.textContent = rules.join('\n');
 }
 
 // ============================================================
