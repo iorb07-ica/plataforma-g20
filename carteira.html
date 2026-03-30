@@ -237,19 +237,32 @@ tr:hover td{background:var(--sur2)}
 /* ─── LOGOS DE ATIVOS ─────────────────────────────── */
 .asset-logo{
   display:inline-flex;align-items:center;justify-content:center;
-  width:22px;height:22px;border-radius:5px;
+  width:32px;height:32px;border-radius:8px;
   background:var(--bg3);border:1px solid var(--border);
-  overflow:hidden;flex-shrink:0;vertical-align:middle;
-  margin-right:6px;position:relative;top:-1px
+  overflow:hidden;flex-shrink:0;
+  box-shadow:0 1px 4px rgba(0,0,0,.25);
+  transition:transform .15s,box-shadow .15s
 }
+.asset-logo:hover{transform:scale(1.12);box-shadow:0 3px 10px rgba(0,0,0,.4)}
 .asset-logo img{
   width:100%;height:100%;object-fit:contain;
-  display:block;border-radius:4px
+  display:block;border-radius:7px;padding:2px
 }
 .asset-logo .logo-fallback{
-  font-size:8px;font-weight:800;letter-spacing:-.5px;
-  color:var(--text2);line-height:1;text-align:center
+  font-size:9px;font-weight:800;letter-spacing:-.3px;
+  color:#fff;line-height:1;text-align:center;
+  width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+  border-radius:7px
 }
+/* Coluna de logo dedicada na tabela */
+td[data-col="logo"],th[data-col="logo"]{
+  width:44px;min-width:44px;max-width:44px;
+  padding:6px 4px 6px 10px !important;
+  vertical-align:middle
+}
+th[data-col="logo"]{text-align:center;color:var(--text3);font-size:9px}
+/* Ticker sem o logo inline — só texto */
+td[data-col="ticker"] .ticker-cell{display:flex;align-items:center;gap:0}
 /* Logo.dev key input no banner APIs */
 .logo-key-row{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
 .logo-key-row label{font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}
@@ -1182,21 +1195,40 @@ function salvarTokenLogoDev(){
 }
 
 // Retorna o HTML do logo (inline, com fallback)
+// Paleta de cores para fallback por tipo
+var LOGO_FALLBACK_COLORS = {
+  Acao:'linear-gradient(135deg,#1e3a5f,#2563eb)',
+  FII:'linear-gradient(135deg,#064e3b,#10b981)',
+  FIAGRO:'linear-gradient(135deg,#78350f,#f59e0b)',
+  Stock:'linear-gradient(135deg,#3b0764,#8b5cf6)',
+  REIT:'linear-gradient(135deg,#7f1d1d,#ef4444)',
+  ETF:'linear-gradient(135deg,#7c2d12,#f97316)',
+  Cripto:'linear-gradient(135deg,#78350f,#f7931a)'
+};
+
+function logoFallbackHtml(ticker, tipo){
+  var t   = ticker.replace(/\.SA$/i,'').toUpperCase();
+  var bg  = LOGO_FALLBACK_COLORS[tipo] || 'linear-gradient(135deg,#1f2937,#374151)';
+  var txt = t.length<=3 ? t : t.substring(0,2);
+  return '<span class="asset-logo"><span class="logo-fallback" style="background:'+bg+';font-size:'+(txt.length>2?'8':'10')+'px">'+txt+'</span></span>';
+}
+
 function getLogoHtml(ticker, tipo){
   var t = ticker.replace(/\.SA$/i,'').toUpperCase();
   var cached = _logoCache[t];
 
   if(cached === 'error' || cached === 'none'){
-    // Fallback: iniciais coloridas
-    return '<span class="asset-logo"><span class="logo-fallback">'+t.substring(0,3)+'</span></span>';
+    return logoFallbackHtml(ticker, tipo);
   }
   if(cached){
     return '<span class="asset-logo"><img src="'+cached+'" alt="'+t+'" onerror="logoError(this,\''+t+'\')" loading="lazy"></span>';
   }
 
-  // Ainda não carregado: inicia fetch e retorna placeholder com iniciais
+  // Ainda não carregado: inicia fetch async e retorna placeholder colorido
   fetchLogo(t, tipo);
-  return '<span class="asset-logo" id="logo-'+t+'"><span class="logo-fallback">'+t.substring(0,3)+'</span></span>';
+  var fb = logoFallbackHtml(ticker, tipo);
+  // Injeta id no span para atualizar depois
+  return fb.replace('class="asset-logo"', 'class="asset-logo" id="logo-'+t+'"');
 }
 
 function fetchLogo(ticker, tipo){
@@ -1207,56 +1239,104 @@ function fetchLogo(ticker, tipo){
   tryLogoUrls(ticker, urls, 0);
 }
 
+// Mapa de domínios para Clearbit — US stocks
+var US_CLEARBIT = {
+  AAPL:'apple.com',MSFT:'microsoft.com',GOOGL:'google.com',GOOG:'google.com',
+  AMZN:'amazon.com',NVDA:'nvidia.com',META:'meta.com',TSLA:'tesla.com',
+  NFLX:'netflix.com',AMD:'amd.com',INTC:'intel.com',ORCL:'oracle.com',
+  CRM:'salesforce.com',ADBE:'adobe.com',PYPL:'paypal.com',SHOP:'shopify.com',
+  UBER:'uber.com',SNAP:'snap.com',ASML:'asml.com',NVO:'novonordisk.com',
+  SAP:'sap.com',BABA:'alibaba.com','BRK.B':'berkshirehathaway.com',
+  'BRK-B':'berkshirehathaway.com',BRK:'berkshirehathaway.com',
+  JPM:'jpmorganchase.com',BAC:'bankofamerica.com',GS:'goldmansachs.com',
+  WFC:'wellsfargo.com',C:'citigroup.com',MS:'morganstanley.com',
+  V:'visa.com',MA:'mastercard.com',AXP:'americanexpress.com',
+  JNJ:'jnj.com',PFE:'pfizer.com',MRK:'merck.com',ABBV:'abbvie.com',
+  LLY:'lilly.com',UNH:'unitedhealthgroup.com',CVS:'cvshealth.com',
+  XOM:'exxonmobil.com',CVX:'chevron.com',COP:'conocophillips.com',
+  DIS:'disney.com',CMCSA:'comcast.com',NFLX:'netflix.com',
+  WMT:'walmart.com',COST:'costco.com',TGT:'target.com',
+  HD:'homedepot.com',LOW:'lowes.com',AMZN:'amazon.com',
+  ROL:'rollins.com',INTR:'inter.com',
+  SPY:'ssga.com',QQQ:'invesco.com',VTI:'vanguard.com',VOO:'vanguard.com',
+  IVV:'ishares.com',SCHD:'schwab.com',JEPI:'jpmorganchase.com',
+  JEPQ:'jpmorganchase.com',ARKK:'ark-invest.com',
+  COIN:'coinbase.com',SQ:'squareup.com',TWLO:'twilio.com',
+  ZM:'zoom.us',DOCU:'docusign.com',OKTA:'okta.com',SNOW:'snowflake.com',
+  DDOG:'datadoghq.com',NET:'cloudflare.com',CRWD:'crowdstrike.com',
+  PLTR:'palantir.com',RBLX:'roblox.com',HOOD:'robinhood.com',
+  ABNB:'airbnb.com',LYFT:'lyft.com',DASH:'doordash.com',
+  RIVN:'rivian.com',LCID:'lucidmotors.com',NIO:'nio.com',
+  BA:'boeing.com',LMT:'lockheedmartin.com',RTX:'rtx.com',
+  CAT:'caterpillar.com',DE:'deere.com',HON:'honeywell.com',
+  GE:'ge.com',MMM:'3m.com',EMR:'emerson.com',
+  PG:'pg.com',KO:'coca-cola.com',PEP:'pepsico.com',
+  MCD:'mcdonalds.com',SBUX:'starbucks.com',YUM:'yum.com',
+  NKE:'nike.com',LULU:'lululemon.com',VFC:'vfc.com',
+  T:'att.com',VZ:'verizon.com',TMUS:'t-mobile.com'
+};
+
 function buildLogoUrls(ticker, tipo){
   var t    = ticker.replace(/\.SA$/i,'').toUpperCase();
   var isBr = isBR(ticker, tipo||'Stock');
   var urls = [];
 
-  // 1. Logo.dev com publishable key (melhor qualidade, funciona para US e BR)
+  // ── CAMADA 1: TradingView CDN (global, sem autenticação) ──────
+  // TradingView mantém CDN público com logos de ativos globais
+  if(isBr){
+    // B3: formato EXCHANGE-TICKER
+    var brTv = t.replace(/F$|4$|3$|11$|5$|6$/,''); // tenta versão base
+    urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'--big.svg');
+    urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'.svg');
+    // Tenta com sufixo específico B3
+    urls.push('https://s3-symbol-logo.tradingview.com/'+brTv.toLowerCase()+'--big.svg');
+  } else {
+    urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'--big.svg');
+    urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'.svg');
+  }
+
+  // ── CAMADA 2: Logo.dev com publishable key ────────────────────
   if(tokenLogoDev){
     if(isBr){
-      var domain = BR_LOGO_DOMAINS[t];
-      if(domain) urls.push('https://img.logo.dev/'+domain+'?token='+tokenLogoDev+'&size=64&format=png');
+      var brDomainDev = BR_LOGO_DOMAINS[t];
+      if(brDomainDev){
+        urls.push('https://img.logo.dev/'+brDomainDev+'?token='+tokenLogoDev+'&size=128&format=png');
+      }
     } else {
-      // Logo.dev aceita ticker US diretamente via endpoint de stock
-      urls.push('https://img.logo.dev/ticker/'+t+'?token='+tokenLogoDev+'&size=64&format=png');
+      urls.push('https://img.logo.dev/ticker/'+t+'?token='+tokenLogoDev+'&size=128&format=png');
     }
   }
 
-  // 2. Clearbit (US, gratuito, sem key)
+  // ── CAMADA 3: Clearbit via domínio mapeado ────────────────────
   if(!isBr){
-    var clearbitDomains = {
-      AAPL:'apple.com',MSFT:'microsoft.com',GOOGL:'google.com',GOOG:'google.com',
-      AMZN:'amazon.com',NVDA:'nvidia.com',META:'meta.com',TSLA:'tesla.com',
-      NFLX:'netflix.com',AMD:'amd.com',INTC:'intel.com',ORCL:'oracle.com',
-      CRM:'salesforce.com',ADBE:'adobe.com',PYPL:'paypal.com',SHOP:'shopify.com',
-      UBER:'uber.com',LYFT:'lyft.com',SNAP:'snap.com',TWTR:'twitter.com',
-      ASML:'asml.com',NVO:'novonordisk.com',SAP:'sap.com',BABA:'alibaba.com',
-      BRK:'berkshirehathaway.com','BRK.B':'berkshirehathaway.com','BRK-B':'berkshirehathaway.com',
-      JPM:'jpmorganchase.com',BAC:'bankofamerica.com',GS:'goldmansachs.com',
-      V:'visa.com',MA:'mastercard.com',AXP:'americanexpress.com',
-      JNJ:'jnj.com',PFE:'pfizer.com',MRK:'merck.com',ABBV:'abbvie.com',
-      XOM:'exxonmobil.com',CVX:'chevron.com',
-      DIS:'disney.com',CMCSA:'comcast.com',
-      WMT:'walmart.com',COST:'costco.com',TGT:'target.com',
-      HD:'homedepot.com',LOW:'lowes.com',
-      ROL:'rollins.com',INTR:'inter.com',NVO:'novonordisk.com',
-      SPY:'ssga.com',QQQ:'invesco.com',VTI:'vanguard.com',VOO:'vanguard.com',
-      SCHD:'schwab.com',JEPI:'jpmorganchase.com',JEPQ:'jpmorganchase.com'
-    };
-    var domain = clearbitDomains[t];
-    if(domain) urls.push('https://logo.clearbit.com/'+domain+'?size=64');
+    var cbDomain = US_CLEARBIT[t];
+    if(cbDomain) urls.push('https://logo.clearbit.com/'+cbDomain+'?size=64');
   } else {
-    var brDomain = BR_LOGO_DOMAINS[t];
-    if(brDomain) urls.push('https://logo.clearbit.com/'+brDomain+'?size=64');
+    var brDomainCb = BR_LOGO_DOMAINS[t];
+    if(brDomainCb) urls.push('https://logo.clearbit.com/'+brDomainCb+'?size=64');
   }
 
-  // 3. Fallback genérico Logo.dev sem key (rate limited)
-  if(!tokenLogoDev){
-    if(!isBr){
-      // tenta domínio pelo ticker em lowercase
-      urls.push('https://logo.clearbit.com/'+t.toLowerCase()+'.com?size=64');
-    }
+  // ── CAMADA 4: EODHD logos (gratuito, sem key, global) ─────────
+  if(!isBr){
+    urls.push('https://eodhd.com/img/logos/US/'+t+'.png');
+  } else {
+    urls.push('https://eodhd.com/img/logos/BR/'+t+'.png');
+  }
+
+  // ── CAMADA 5: Brapi logo (B3 específico) ─────────────────────
+  if(isBr){
+    urls.push('https://brapi.dev/favicon.svg'); // fallback — tem logos de ações
+    // Tenta via endpoint público de informações
+    urls.push('https://raw.githubusercontent.com/thefintz/icones-b3/main/icones/'+t+'.png');
+  }
+
+  // ── CAMADA 6: Google Favicon (fallback universal via domínio) ──
+  if(!isBr){
+    var gDomain = US_CLEARBIT[t] || t.toLowerCase()+'.com';
+    urls.push('https://www.google.com/s2/favicons?domain='+gDomain+'&sz=64');
+  } else {
+    var brDomainG = BR_LOGO_DOMAINS[t];
+    if(brDomainG) urls.push('https://www.google.com/s2/favicons?domain='+brDomainG+'&sz=64');
   }
 
   return urls;
@@ -2214,7 +2294,8 @@ function renderPosicoes(){
       : '--';
 
     return '<tr>'
-      +'<td data-col="ticker"><span class="ticker-cell">'+getLogoHtml(p.ticker,p.tipo)+p.ticker+'</span></td>'
+      +'<td data-col="logo">'+getLogoHtml(p.ticker,p.tipo)+'</td>'+
+      '<td data-col="ticker"><span class="ticker-cell" style="font-weight:700;font-size:13px;letter-spacing:.3px">'+p.ticker+'</span></td>'
       +'<td data-col="nome" style="color:var(--text2);font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(cot&&cot.nome?cot.nome.substring(0,16):'--')+'</td>'
       +'<td data-col="tipo"><span class="badge badge-'+p.tipo+'">'+p.tipo+'</span></td>'
       +'<td data-col="mkt">'+mktBadge+'</td>'
@@ -3814,6 +3895,7 @@ document.addEventListener('keydown',function(e){
 // SELETOR DE COLUNAS
 // ============================================================
 var COL_DEFS = [
+  {col:'logo',    label:'Logo',        fixed:true},
   {col:'ticker',  label:'Ticker',      fixed:true},
   {col:'nome',    label:'Nome',        def:true},
   {col:'tipo',    label:'Tipo',        def:true},
