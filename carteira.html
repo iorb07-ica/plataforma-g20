@@ -205,11 +205,11 @@ tr:hover td{background:var(--sur2)}
     <!-- TOKEN BANNERS -->
     <div id="tokenBanner" class="token-banner">
       <h3>🔑 Tokens de API para cotações em tempo real</h3>
-      <p>Configure os tokens abaixo. Ambos têm plano <strong>gratuito</strong>. A taxa USD/BRL é atualizada automaticamente via fontes públicas.</p>
+      <p>🇧🇷 <strong>Brapi</strong> é obrigatória para ativos BR. &nbsp;|&nbsp; 🇺🇸 Ativos US usam <strong>Yahoo Finance automaticamente</strong> (sem token). O FMP é opcional como backup.</p>
       <div class="token-row">
         <div style="flex:1;min-width:200px">
           <div style="font-size:10px;font-weight:700;color:var(--green);margin-bottom:4px">
-            🇧🇷 BRAPI — B3 (Ações, FIIs, FIAGROs, ETFs BR)
+            🇧🇷 BRAPI — B3 (Ações, FIIs, FIAGROs, ETFs BR) <span style="color:var(--red)">obrigatório</span>
             <a href="https://brapi.dev" target="_blank" style="color:var(--gold);margin-left:6px;font-weight:400">Obter token grátis →</a>
           </div>
           <div style="display:flex;gap:6px;align-items:center">
@@ -220,14 +220,14 @@ tr:hover td{background:var(--sur2)}
         </div>
         <div style="flex:1;min-width:200px">
           <div style="font-size:10px;font-weight:700;color:var(--blue);margin-bottom:4px">
-            🇺🇸 FMP — NYSE/NASDAQ (Stocks, REITs, ETFs US)
-            <a href="https://financialmodelingprep.com/developer/docs" target="_blank" style="color:var(--gold);margin-left:6px;font-weight:400">Obter key grátis →</a>
+            🇺🇸 FMP — backup para Stocks US <span style="color:var(--text3)">(opcional)</span>
+            <a href="https://financialmodelingprep.com/developer/docs" target="_blank" style="color:var(--gold);margin-left:6px;font-weight:400">Obter key →</a>
           </div>
           <div style="display:flex;gap:6px;align-items:center">
-            <input class="token-input" id="tokenFmp" placeholder="Cole sua API Key do FMP aqui">
+            <input class="token-input" id="tokenFmp" placeholder="API Key FMP (opcional — fallback)">
             <button class="btn-sm btn-gold" onclick="salvarTokenFmp()">Salvar</button>
           </div>
-          <div style="font-size:10px;color:var(--text3);margin-top:3px">financialmodelingprep.com → Dashboard → API Key</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:3px">Ativos US já funcionam via Yahoo Finance sem token</div>
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;justify-content:flex-end">
           <button class="btn-sm btn-outline" onclick="limparTokens()">🗑 Limpar</button>
@@ -703,10 +703,8 @@ function buscarCotacoes(){
     mostrarAvisoToken('brapi');
     if(!temUS) return;
   }
-  if(temUS && !tokenFmp){
-    mostrarAvisoToken('fmp');
-    if(!temBR || !tokenBrapi) return;
-  }
+  // US: tenta Yahoo Finance (sem token) primeiro, FMP como opcional
+  // Não bloqueia se FMP não estiver configurado
 
   atualizarBadge('loading');
   document.getElementById('btnAtualizar').textContent = '⏳ Buscando...';
@@ -875,6 +873,75 @@ function corrigirTiposAportes(){
   } else {
     alert('✓ Todos os tipos já estão corretos.');
   }
+}
+
+
+// ============================================================
+// ATIVOS US — múltiplas fontes gratuitas com fallback
+// 1. Yahoo Finance query1 (CORS funciona em produção)
+// 2. Yahoo Finance query2 (fallback)
+// 3. FMP stable (se token configurado)
+// ============================================================
+function buscarUSTicker(ticker, erros){
+  // Tenta 3 URLs do Yahoo Finance em sequência
+  var urls = [
+    'https://query1.finance.yahoo.com/v8/finance/chart/'+ticker+'?interval=1d&range=1d&includePrePost=false',
+    'https://query2.finance.yahoo.com/v8/finance/chart/'+ticker+'?interval=1d&range=1d',
+    'https://query1.finance.yahoo.com/v7/finance/quote?symbols='+ticker
+  ];
+
+  function parseYahooV8(d){
+    var meta = d && d.chart && d.chart.result && d.chart.result[0] && d.chart.result[0].meta;
+    if(!meta || !meta.regularMarketPrice) return false;
+    var prev = meta.chartPreviousClose || meta.previousClose || meta.regularMarketPrice;
+    cotacoes[ticker] = {
+      preco:    meta.regularMarketPrice,
+      var:      prev ? ((meta.regularMarketPrice - prev) / prev * 100) : 0,
+      var1d:    meta.regularMarketPrice - prev,
+      nome:     meta.longName || meta.shortName || ticker,
+      dy:       0, mkt: 'US',
+      precoUSD: meta.regularMarketPrice,
+      fonte:    'Yahoo', ts: Date.now()
+    };
+    return true;
+  }
+
+  function parseYahooV7(d){
+    var q = d && d.quoteResponse && d.quoteResponse.result && d.quoteResponse.result[0];
+    if(!q || !q.regularMarketPrice) return false;
+    cotacoes[ticker] = {
+      preco:    q.regularMarketPrice,
+      var:      q.regularMarketChangePercent || 0,
+      var1d:    q.regularMarketChange || 0,
+      nome:     q.longName || q.shortName || ticker,
+      dy:       0, mkt: 'US',
+      precoUSD: q.regularMarketPrice,
+      fonte:    'Yahoo', ts: Date.now()
+    };
+    return true;
+  }
+
+  // Tenta cada URL em sequência
+  return fetch(urls[0], {headers:{'Accept':'application/json'}})
+    .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function(d){ if(!parseYahooV8(d)) throw new Error('vazio'); })
+    .catch(function(){
+      return fetch(urls[1], {headers:{'Accept':'application/json'}})
+        .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function(d){ if(!parseYahooV8(d)) throw new Error('vazio'); })
+        .catch(function(){
+          return fetch(urls[2], {headers:{'Accept':'application/json'}})
+            .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+            .then(function(d){ if(!parseYahooV7(d)) throw new Error('vazio v7'); })
+            .catch(function(){
+              // Último recurso: FMP se token disponível
+              if(tokenFmp){
+                return buscarFmpTicker(ticker, erros);
+              }
+              if(erros) erros.push(ticker+' — cotação indisponível (Yahoo bloqueou no localhost; funciona após deploy)');
+            });
+        });
+    });
 }
 
 // ============================================================
