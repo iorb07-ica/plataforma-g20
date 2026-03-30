@@ -280,7 +280,6 @@ tr:hover td{background:var(--sur2)}
         <div class="section-title">Minha Carteira</div>
         <div class="hdr-actions">
           <button class="btn-sm btn-outline" onclick="buscarCotacoes()" id="btnAtualizar">↻ Atualizar cotações</button>
-          <span id="autoRefreshInfo" style="font-size:11px;color:var(--text3);margin-left:4px"></span>
           <button class="btn-sm btn-gold" onclick="abrirModalAporte(null)">+ Novo Aporte</button>
         </div>
       </div>
@@ -766,11 +765,9 @@ function buscarCotacoes(){
     });
   }
 
-  // --- ATIVOS US: Twelve Data primeiro, Yahoo como fallback ---
+  // --- ATIVOS US: Twelve Data BATCH (1 req para todos) + Yahoo fallback ---
   if(temUS){
-    tickersUS.forEach(function(ticker){
-      promises.push(buscarUSTicker(ticker, erros));
-    });
+    promises.push(buscarUSTickersBatch(tickersUS, erros));
   }
 
   Promise.all(promises).then(function(){
@@ -782,7 +779,6 @@ function buscarCotacoes(){
       atualizarBadge('ok');
       saveCotacoesCache();
       showCacheInfo(Date.now());
-      iniciarAutoRefresh();
     } else {
       atualizarBadge('err');
     }
@@ -894,6 +890,67 @@ function corrigirTiposAportes(){
 // 2. Yahoo Finance query2 (fallback)
 // 3. FMP stable (se token configurado)
 // ============================================================
+
+// ============================================================
+// ATIVOS US — BATCH: 1 requisição para todos os tickers
+// Twelve Data suporta múltiplos tickers separados por vírgula
+// 1 req para toda a carteira = economia máxima de tokens
+// ============================================================
+function buscarUSTickersBatch(tickers, erros){
+  if(!tickers || !tickers.length) return Promise.resolve();
+
+  // Twelve Data: 2 tickers por req no plano gratuito
+  // 9 ativos = 5 reqs; 119 ativos = 60 reqs — muito eficiente!
+  if(tokenTwelve){
+    var BATCH_SIZE = 2;
+    var chunks = [];
+    for(var i=0; i<tickers.length; i+=BATCH_SIZE){
+      chunks.push(tickers.slice(i, i+BATCH_SIZE));
+    }
+
+    return Promise.all(chunks.map(function(chunk){
+      var url = TWELVE_URL+'/quote?symbol='+encodeURIComponent(chunk.join(','))+'&apikey='+tokenTwelve;
+      return fetch(url)
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          // 1 ticker: objeto direto; 2+ tickers: { AAPL: {...}, MSFT: {...} }
+          if(d && d.symbol && typeof d.close !== 'undefined'){
+            var tmp={}; tmp[d.symbol]=d; d=tmp;
+          }
+          chunk.forEach(function(ticker){
+            var item = d[ticker] || d[ticker.toUpperCase()];
+            if(!item || item.code || item.status==='error') return;
+            var preco = parseFloat(item.close || item.price || 0);
+            if(!preco || isNaN(preco)) return;
+            var prev = parseFloat(item.previous_close || preco);
+            cotacoes[ticker] = {
+              preco:preco, var:parseFloat(item.percent_change||0),
+              var1d:parseFloat(item.change||(preco-prev)),
+              nome:item.name||ticker, dy:0, mkt:'US',
+              precoUSD:preco, fonte:'TwelveData', ts:Date.now()
+            };
+          });
+        }).catch(function(){});
+    })).then(function(){
+      // Fallback Yahoo para tickers não encontrados
+      var naoEncontrados = tickers.filter(function(t){ return !cotacoes[t]; });
+      if(!naoEncontrados.length) return;
+      return Promise.all(naoEncontrados.map(function(ticker){
+        return tentarYahoo(ticker).catch(function(){
+          if(erros) erros.push(ticker+' — sem cotação');
+        });
+      }));
+    });
+  }
+
+  // Sem Twelve Data: Yahoo para cada ticker
+  return Promise.all(tickers.map(function(ticker){
+    return tentarYahoo(ticker).catch(function(){
+      if(erros) erros.push(ticker+' — configure Twelve Data');
+    });
+  }));
+}
+
 function buscarUSTicker(ticker, erros){
   // TWELVE DATA primeiro (confiável para qualquer ticker US + ADRs)
   if(tokenTwelve){
@@ -1671,7 +1728,6 @@ function toggleTheme(){var l=document.body.classList.toggle('light');document.ge
     atualizarBadge('ok');
     showCacheInfo(cache.ts);
     atualizarDisplayCambio(usdBRL);
-    iniciarAutoRefresh();
   }
 
   renderPosicoes();
