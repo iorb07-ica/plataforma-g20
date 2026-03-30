@@ -219,15 +219,15 @@ tr:hover td{background:var(--sur2)}
           <div style="font-size:10px;color:var(--text3);margin-top:3px">brapi.dev → Minha conta → Tokens</div>
         </div>
         <div style="flex:1;min-width:200px">
-          <div style="font-size:10px;font-weight:700;color:var(--blue);margin-bottom:4px">
-            🇺🇸 FMP — backup para Stocks US <span style="color:var(--text3)">(opcional)</span>
-            <a href="https://financialmodelingprep.com/developer/docs" target="_blank" style="color:var(--gold);margin-left:6px;font-weight:400">Obter key →</a>
+          <div style="font-size:10px;font-weight:700;color:#a78bfa;margin-bottom:4px">
+            🇺🇸 Twelve Data — fallback para ADRs e Stocks US <span style="color:var(--gold)">(recomendado)</span>
+            <a href="https://twelvedata.com" target="_blank" style="color:var(--gold);margin-left:6px;font-weight:400">Obter key grátis →</a>
           </div>
           <div style="display:flex;gap:6px;align-items:center">
-            <input class="token-input" id="tokenFmp" placeholder="API Key FMP (opcional — fallback)">
-            <button class="btn-sm btn-gold" onclick="salvarTokenFmp()">Salvar</button>
+            <input class="token-input" id="tokenTwelve" placeholder="API Key Twelve Data (twelvedata.com)">
+            <button class="btn-sm btn-gold" onclick="salvarTokenTwelve()">Salvar</button>
           </div>
-          <div style="font-size:10px;color:var(--text3);margin-top:3px">Ativos US já funcionam via Yahoo Finance sem token</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:3px">800 req/dia grátis · funciona para ASML, NVO e qualquer ADR</div>
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;justify-content:flex-end">
           <button class="btn-sm btn-outline" onclick="limparTokens()">🗑 Limpar</button>
@@ -526,6 +526,8 @@ var FMP_URL = FMP_URL_STABLE;
 
 var tokenBrapi  = '';
 var tokenFmp    = '';
+var tokenTwelve = '';  // Twelve Data — fallback para ADRs e stocks US
+var TWELVE_URL  = 'https://api.twelvedata.com';
 var cotacoes    = {};
 var usdBRL      = 5.85; // taxa de câmbio fallback
 var filtroAtivo = 'todos';
@@ -572,11 +574,21 @@ function salvarTokenFmp(){
   setTimeout(function(){ btn.textContent='Salvar'; btn.style.background=''; checkTokenBanner(); },1500);
   if(calcPosicoes().length) buscarCotacoes();
 }
+function salvarTokenTwelve(){
+  var t=document.getElementById('tokenTwelve').value.trim();
+  if(!t){alert('Cole a API Key do Twelve Data antes de salvar.');return;}
+  tokenTwelve=t; saveData('tokenTwelve',t);
+  var btn=event.target;
+  btn.textContent='✓ Salvo!'; btn.style.background='#2ecc71';
+  setTimeout(function(){ btn.textContent='Salvar'; btn.style.background=''; checkTokenBanner(); },1500);
+  if(calcPosicoes().length) buscarCotacoes();
+}
 function limparTokens(){
-  tokenBrapi=''; tokenFmp='';
-  saveData('tokenBrapi',''); saveData('tokenFmp','');
+  tokenBrapi=''; tokenFmp=''; tokenTwelve='';
+  saveData('tokenBrapi',''); saveData('tokenFmp',''); saveData('tokenTwelve','');
   document.getElementById('tokenBrapi').value='';
   document.getElementById('tokenFmp').value='';
+  if(document.getElementById('tokenTwelve')) document.getElementById('tokenTwelve').value='';
   atualizarBadge('sem');
 }
 function checkTokenBanner(){
@@ -890,57 +902,113 @@ function buscarUSTicker(ticker, erros){
     'https://query1.finance.yahoo.com/v7/finance/quote?symbols='+ticker
   ];
 
-  function parseYahooV8(d){
-    var meta = d && d.chart && d.chart.result && d.chart.result[0] && d.chart.result[0].meta;
-    if(!meta || !meta.regularMarketPrice) return false;
-    var prev = meta.chartPreviousClose || meta.previousClose || meta.regularMarketPrice;
-    cotacoes[ticker] = {
-      preco:    meta.regularMarketPrice,
-      var:      prev ? ((meta.regularMarketPrice - prev) / prev * 100) : 0,
-      var1d:    meta.regularMarketPrice - prev,
-      nome:     meta.longName || meta.shortName || ticker,
-      dy:       0, mkt: 'US',
-      precoUSD: meta.regularMarketPrice,
-      fonte:    'Yahoo', ts: Date.now()
+  function salvarCotacao(symbol, preco, varPct, var1d, nome){
+    if(!preco) return false;
+    cotacoes[symbol] = {
+      preco: preco, var: varPct||0, var1d: var1d||0,
+      nome: nome||symbol, dy: 0, mkt: 'US',
+      precoUSD: preco, fonte: 'Yahoo', ts: Date.now()
     };
     return true;
+  }
+
+  function parseYahooV8(d){
+    var res = d && d.chart && d.chart.result && d.chart.result[0];
+    if(!res) return false;
+    var meta = res.meta || {};
+    // Tenta pegar preço de múltiplos campos — ADRs às vezes usam campos diferentes
+    var preco = meta.regularMarketPrice
+             || meta.postMarketPrice
+             || meta.preMarketPrice
+             || (res.indicators && res.indicators.quote && res.indicators.quote[0]
+                 && res.indicators.quote[0].close
+                 && res.indicators.quote[0].close.filter(Boolean).pop())
+             || 0;
+    if(!preco) return false;
+    var prev = meta.chartPreviousClose || meta.previousClose || meta.regularMarketDayLow || preco;
+    var varPct = prev && prev !== preco ? ((preco - prev) / prev * 100) : 0;
+    return salvarCotacao(
+      meta.symbol || ticker, preco, varPct,
+      preco - prev, meta.longName || meta.shortName || meta.symbol || ''
+    );
   }
 
   function parseYahooV7(d){
     var q = d && d.quoteResponse && d.quoteResponse.result && d.quoteResponse.result[0];
     if(!q || !q.regularMarketPrice) return false;
-    cotacoes[ticker] = {
-      preco:    q.regularMarketPrice,
-      var:      q.regularMarketChangePercent || 0,
-      var1d:    q.regularMarketChange || 0,
-      nome:     q.longName || q.shortName || ticker,
-      dy:       0, mkt: 'US',
-      precoUSD: q.regularMarketPrice,
-      fonte:    'Yahoo', ts: Date.now()
-    };
-    return true;
+    return salvarCotacao(ticker, q.regularMarketPrice,
+      q.regularMarketChangePercent, q.regularMarketChange,
+      q.longName || q.shortName || '');
   }
 
-  // Tenta cada URL em sequência
-  return fetch(urls[0], {headers:{'Accept':'application/json'}})
-    .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
-    .then(function(d){ if(!parseYahooV8(d)) throw new Error('vazio'); })
-    .catch(function(){
-      return fetch(urls[1], {headers:{'Accept':'application/json'}})
-        .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
-        .then(function(d){ if(!parseYahooV8(d)) throw new Error('vazio'); })
-        .catch(function(){
-          return fetch(urls[2], {headers:{'Accept':'application/json'}})
-            .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
-            .then(function(d){ if(!parseYahooV7(d)) throw new Error('vazio v7'); })
-            .catch(function(){
-              // Último recurso: FMP se token disponível
-              if(tokenFmp){
-                return buscarFmpTicker(ticker, erros);
-              }
-              if(erros) erros.push(ticker+' — cotação indisponível (Yahoo bloqueou no localhost; funciona após deploy)');
-            });
-        });
+  // Tickers que às vezes precisam de sufixo no Yahoo mas funcionam sem ele na NASDAQ
+  // Ex: ASML funciona como ASML (NASDAQ) no Yahoo Finance
+  var tickersParaTentar = [ticker];
+
+  function tentarProxima(lista, idx){
+    if(idx >= lista.length){
+      if(tokenFmp) return buscarFmpTicker(ticker, erros);
+      if(erros) erros.push(ticker+' — cotação indisponível');
+      return Promise.resolve();
+    }
+    var t = lista[idx];
+    var u1 = 'https://query1.finance.yahoo.com/v8/finance/chart/'+t+'?interval=1d&range=1d&includePrePost=false';
+    var u2 = 'https://query2.finance.yahoo.com/v8/finance/chart/'+t+'?interval=1d&range=1d';
+    var u3 = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols='+t;
+
+    return fetch(u1, {headers:{'Accept':'application/json'}})
+      .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function(d){ if(!parseYahooV8(d)) return Promise.reject('vazio'); })
+      .catch(function(){
+        return fetch(u2, {headers:{'Accept':'application/json'}})
+          .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
+          .then(function(d){ if(!parseYahooV8(d)) return Promise.reject('vazio'); })
+          .catch(function(){
+            return fetch(u3, {headers:{'Accept':'application/json'}})
+              .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
+              .then(function(d){ if(!parseYahooV7(d)) return Promise.reject('vazio v7'); })
+              .catch(function(){
+                return tentarProxima(lista, idx+1);
+              });
+          });
+      });
+  }
+
+  return tentarProxima(tickersParaTentar, 0);
+}
+
+
+// ============================================================
+// TWELVE DATA — fallback para ADRs e stocks US (800 req/dia grátis)
+// ============================================================
+function buscarTwelveDataTicker(ticker, erros){
+  if(!tokenTwelve) return Promise.resolve();
+  var url = TWELVE_URL + '/price?symbol=' + ticker + '&apikey=' + tokenTwelve;
+  var urlQuote = TWELVE_URL + '/quote?symbol=' + ticker + '&apikey=' + tokenTwelve;
+
+  return fetch(urlQuote)
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      // Twelve Data retorna { code: 400 } em caso de erro
+      if(d.code || d.status === 'error') throw new Error(d.message || 'Ticker não encontrado');
+      var preco = parseFloat(d.close || d.price || 0);
+      if(!preco) throw new Error('preço zero');
+      var prev  = parseFloat(d.previous_close || preco);
+      var varPct = prev ? ((preco - prev) / prev * 100) : 0;
+      cotacoes[ticker] = {
+        preco:    preco,
+        var:      parseFloat(d.percent_change || varPct),
+        var1d:    parseFloat(d.change || (preco - prev)),
+        nome:     d.name || ticker,
+        dy:       0,
+        mkt:      'US',
+        precoUSD: preco,
+        fonte:    'TwelveData',
+        ts:       Date.now()
+      };
+    })
+    .catch(function(e){
+      if(erros) erros.push('TwelveData ['+ticker+'] – '+e.message);
     });
 }
 
@@ -1550,8 +1618,10 @@ function toggleTheme(){var l=document.body.classList.toggle('light');document.ge
   try{if(localStorage.getItem('g20-theme')==='light'){document.body.classList.add('light');document.getElementById('themeBtn').textContent='☀️';}}catch(e){}
   tokenBrapi=loadData('tokenBrapi','');
   tokenFmp=loadData('tokenFmp','');
+  tokenTwelve=loadData('tokenTwelve','');
   if(tokenBrapi) document.getElementById('tokenBrapi').value=tokenBrapi;
   if(tokenFmp) document.getElementById('tokenFmp').value=tokenFmp;
+  if(tokenTwelve && document.getElementById('tokenTwelve')) document.getElementById('tokenTwelve').value=tokenTwelve;
 
   // Aviso de file:// (CORS)
   if(window.location.protocol === 'file:'){
@@ -1566,13 +1636,14 @@ function toggleTheme(){var l=document.body.classList.toggle('light');document.ge
   function atualizarBtnApi(){
     var btn = document.getElementById('btnApiKey');
     if(!btn) return;
-    var temBrapi = tokenBrapi && tokenBrapi.length > 5;
-    var temFmp = tokenFmp && tokenFmp.length > 5;
-    if(temBrapi && temFmp){
+    var temBrapi  = tokenBrapi  && tokenBrapi.length > 5;
+    var temTwelve = tokenTwelve && tokenTwelve.length > 5;
+    var temFmp    = tokenFmp    && tokenFmp.length > 5;
+    if(temBrapi && temTwelve){
       btn.innerHTML = '🔑 APIs <span style="color:#2ecc71;font-size:10px">✓</span>';
       btn.style.borderColor = 'rgba(46,204,113,.4)';
       btn.style.color = '#2ecc71';
-    } else if(temBrapi || temFmp){
+    } else if(temBrapi){
       btn.innerHTML = '🔑 APIs <span style="color:#e8b84b;font-size:10px">½</span>';
       btn.style.borderColor = 'rgba(232,184,75,.5)';
       btn.style.color = 'var(--gold)';
