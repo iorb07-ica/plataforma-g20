@@ -814,11 +814,17 @@ function buscarSugestoesTicker(q){
 
 function selecionarSugestao(symbol, tipo){
   var input = document.getElementById('aporte_ticker');
-  var tipoSel = document.getElementById('aporte_tipo');
   if(input) input.value = symbol;
-  if(tipoSel && tipo) tipoSel.value = tipo;
+  // autoDetectTipo tem prioridade: regras locais são mais confiáveis que o proxy
+  // para tickers BR que o proxy às vezes classifica como Stock
   autoDetectTipo(symbol);
-  onTipoChange(tipo);
+  // Se autoDetect não detectou nada, usa o tipo do proxy como fallback
+  var sel = document.getElementById('aporte_tipo');
+  var hint = document.getElementById('tickerHint');
+  if(sel && tipo && (!hint || !hint.textContent)){
+    sel.value = tipo;
+    onTipoChange(tipo);
+  }
   fecharAutocomplete();
 }
 
@@ -1025,41 +1031,60 @@ function autoDetectTipo(ticker){
     return;
   }
 
-  var hint = document.getElementById('tickerHint');
+  // Normaliza: remove sufixo .SA antes de avaliar regras
+  var t = ticker.replace(/\.SA$/i, '').toUpperCase();
+
+  var hint  = document.getElementById('tickerHint');
   var label = document.getElementById('tipoAutoLabel');
-  var sel = document.getElementById('aporte_tipo');
+  var sel   = document.getElementById('aporte_tipo');
   var detected = null;
   var msg = '';
 
-  if(/^[A-Z]{4}11$/.test(ticker)){
-    detected = 'FII'; msg = '🇧🇷 Detectado: FII (B3)';
+  // ── REGRAS BR — prioridade absoluta ──
+
+  // FII: 4 letras + 11  (MXRF11, XPML11...)
+  if(/^[A-Z]{4}11$/.test(t)){
+    detected = 'FII'; msg = '\u{1F1E7}\u{1F1F7} Detectado: FII (B3)';
   }
-  else if(/^[A-Z]{4}[1-9]$/.test(ticker) || /^[A-Z]{4}3[AB]$/.test(ticker)){
-    detected = 'Acao'; msg = '🇧🇷 Detectado: Ação (B3)';
+  // .SA explícito digitado pelo usuário (ex: PETR4.SA)
+  else if(/\.SA$/i.test(ticker)){
+    detected = 'Acao'; msg = '\u{1F1E7}\u{1F1F7} Detectado: Ação (B3 — sufixo .SA)';
   }
-  else if(/^[A-Z]{3,5}\d{1,2}$/.test(ticker)){
-    detected = 'Acao'; msg = '🇧🇷 Detectado: Ação/FII (B3) — confirme o tipo';
+  // Ação clássica: 4 letras + dígito 1-9  (PETR4, VALE3, ITUB4...)
+  else if(/^[A-Z]{4}[1-9]$/.test(t)){
+    detected = 'Acao'; msg = '\u{1F1E7}\u{1F1F7} Detectado: Ação (B3)';
   }
-  else if(ETFS_US_CONHECIDOS.includes(ticker)){
-    detected = 'ETF'; msg = '🇺🇸 Detectado: ETF (US)';
+  // Ação com letra: BBDC3B, VALE3A
+  else if(/^[A-Z]{4}3[AB]$/.test(t)){
+    detected = 'Acao'; msg = '\u{1F1E7}\u{1F1F7} Detectado: Ação (B3)';
   }
-  else if(REITS_CONHECIDOS.includes(ticker)){
-    detected = 'REIT'; msg = '🇺🇸 Detectado: REIT (US)';
+  // Qualquer ticker com dígito no final (3-6 letras + 1-2 dígitos)
+  // cobre BBDC4, SANB11, CPLE6, GMAT3 — não confunde com listas US
+  else if(/^[A-Z]{3,6}\d{1,2}$/.test(t) && !ETFS_US_CONHECIDOS.includes(t) && !REITS_CONHECIDOS.includes(t)){
+    detected = 'Acao'; msg = '\u{1F1E7}\u{1F1F7} Detectado: Ação/FII (B3) — confirme o tipo';
   }
-  else if(/^[A-Z]{1,5}$/.test(ticker)){
-    detected = 'Stock'; msg = '🇺🇸 Detectado: Stock (US)';
+
+  // ── REGRAS US — só chegam aqui se não detectado como BR ──
+  else if(ETFS_US_CONHECIDOS.includes(t)){
+    detected = 'ETF'; msg = '\u{1F1FA}\u{1F1F8} Detectado: ETF (US)';
+  }
+  else if(REITS_CONHECIDOS.includes(t)){
+    detected = 'REIT'; msg = '\u{1F1FA}\u{1F1F8} Detectado: REIT (US)';
+  }
+  // Stock US: só letras, sem dígito, 1–5 chars (AAPL, MSFT, NVDA, BRK...)
+  else if(/^[A-Z]{1,5}$/.test(t)){
+    detected = 'Stock'; msg = '\u{1F1FA}\u{1F1F8} Detectado: Stock (US)';
   }
 
   if(detected){
     sel.value = detected;
-    onTipoChange(detected); // ← atualiza moeda automaticamente
+    onTipoChange(detected);
     label.textContent = '← detectado automaticamente';
-    hint.textContent = msg;
-    hint.style.color = detected === 'Acao' || detected === 'FII' || detected === 'FIAGRO'
-      ? '#2ecc71' : '#3b82f6';
+    hint.textContent  = msg;
+    hint.style.color  = ['Acao','FII','FIAGRO'].includes(detected) ? '#2ecc71' : '#3b82f6';
   } else {
     label.textContent = '';
-    hint.textContent = '';
+    hint.textContent  = '';
   }
 }
 
