@@ -248,6 +248,9 @@ tr:hover td{background:var(--sur2)}
   width:100%;height:100%;object-fit:contain;
   display:block;border-radius:7px;padding:2px
 }
+.asset-logo svg{
+  width:100%;height:100%;display:block;border-radius:7px
+}
 .asset-logo .logo-fallback{
   font-size:9px;font-weight:800;letter-spacing:-.3px;
   color:#fff;line-height:1;text-align:center;
@@ -1151,196 +1154,52 @@ function fmtDate(iso){
 // SISTEMA DE LOGOS AUTOMÁTICOS
 // ============================================================
 var tokenLogoDev = '';
-// Versão do cache de logos — incrementar força reload no browser
-var LOGO_VERSION = '2';
-var _logoCache   = {};    // ticker → url ou 'error'
-var _logoQueue   = {};    // ticker → em busca
-
-// Mapeamento manual para ativos BR sem domínio óbvio
-var BR_LOGO_DOMAINS = {
-  PETR4:'petrobras.com.br', VALE3:'vale.com', ITUB4:'itau.com.br',
-  BBDC4:'bradesco.com.br', ABEV3:'ambev.com.br', WEGE3:'weg.net',
-  MGLU3:'magazineluiza.com.br', RENT3:'localiza.com', BBAS3:'bb.com.br',
-  SUZB3:'suzano.com.br', RADL3:'drogasil.com.br', HAPV3:'hapvida.com.br',
-  LREN3:'lojasrenner.com.br', BRFS3:'brf-global.com', BEEF3:'minerbr.com.br',
-  CSAN3:'cosan.com', BPAC11:'btgpactual.com', ENEV3:'eneva.com.br',
-  PRIO3:'prioil.com.br', PRIO4:'prioil.com.br', VULC3:'vulcabras.com.br', 'VULC3.SA':'vulcabras.com.br',
-  EMBR3:'embraer.com', SBSP3:'sabesp.com.br', CPFE3:'cpfl.com.br',
-  KLBN11:'klabin.com.br', VIVT3:'vivo.com.br', CPLE6:'copel.com.br',
-  MRFG3:'marfrig.com.br', SLCE3:'slcagricola.com.br', JHSF3:'jhsf.com.br',
-  EQTL3:'equatorial.com.br', TRPL4:'isae.com.br', EGIE3:'engieinvestimentos.com.br',
-  HYPE3:'hypera.com.br', TOTS3:'totvs.com', MOVI3:'movida.com.br',
-  GMAT3:'grupo-mateus.com.br', SMTO3:'saomartinho.com.br',
-  // FIIs conhecidos — usa o gestor
-  MXRF11:'maxxparceiros.com.br', XPML11:'xpinvestimentos.com.br',
-  HGLG11:'cshg.com.br', KNRI11:'kinea.com.br', VISC11:'viscountysc.com.br',
-  BRCO11:'bresco.com.br', PVBI11:'vbifii.com.br', RECT11:'rreis.com.br'
-};
-
-// Domínio para tickers US: tenta logo.dev com ticker direto
-function getLogoDomain(ticker, tipo){
-  var t = ticker.replace(/\.SA$/i,'').toUpperCase();
-  // Mapeamento manual BR
-  if(BR_LOGO_DOMAINS[t]) return BR_LOGO_DOMAINS[t];
-  // US / Cripto: usa ticker direto com Logo.dev (eles têm banco de dados)
-  return null; // Logo.dev resolve pelo ticker diretamente
-}
-
-function salvarTokenLogoDev(){
-  var t = document.getElementById('tokenLogoDev').value.trim();
-  if(!t){ alert('Cole a publishable key do Logo.dev antes de salvar.'); return; }
-  tokenLogoDev = t; saveData('tokenLogoDev', t);
-  _logoCache = {}; _logoQueue = {};
-  var btn = event.target;
-  btn.textContent='✓ Salvo!'; btn.style.background='#2ecc71';
-  setTimeout(function(){ btn.textContent='Salvar'; btn.style.background=''; }, 1500);
-  renderPosicoes();
-}
-
-// Força reload de todos os logos (útil após configurar Logo.dev key)
-function recarregarLogos(){
-  _logoCache = {}; _logoQueue = {};
-  renderPosicoes();
-}
-
-// Retorna o HTML do logo (inline, com fallback)
-// Paleta de cores para fallback por tipo
-var LOGO_FALLBACK_COLORS = {
-  Acao:'linear-gradient(135deg,#1e3a5f,#2563eb)',
-  FII:'linear-gradient(135deg,#064e3b,#10b981)',
-  FIAGRO:'linear-gradient(135deg,#78350f,#f59e0b)',
-  Stock:'linear-gradient(135deg,#3b0764,#8b5cf6)',
-  REIT:'linear-gradient(135deg,#7f1d1d,#ef4444)',
-  ETF:'linear-gradient(135deg,#7c2d12,#f97316)',
-  Cripto:'linear-gradient(135deg,#78350f,#f7931a)'
-};
-
-function logoFallbackHtml(ticker, tipo){
-  var t   = ticker.replace(/\.SA$/i,'').toUpperCase();
-  var bg  = LOGO_FALLBACK_COLORS[tipo] || 'linear-gradient(135deg,#1f2937,#374151)';
-  var txt = t.length<=3 ? t : t.substring(0,2);
-  return '<span class="asset-logo"><span class="logo-fallback" style="background:'+bg+';font-size:'+(txt.length>2?'8':'10')+'px">'+txt+'</span></span>';
-}
-
-function getLogoHtml(ticker, tipo){
-  var t = ticker.replace(/\.SA$/i,'').toUpperCase();
-  var cached = _logoCache[t];
-
-  if(cached === 'error' || cached === 'none'){
-    return logoFallbackHtml(ticker, tipo);
-  }
-  if(cached){
-    return '<span class="asset-logo"><img src="'+cached+'" alt="'+t+'" onerror="logoError(this,\''+t+'\')" loading="lazy"></span>';
-  }
-
-  // Ainda não carregado: inicia fetch async e retorna placeholder colorido
-  fetchLogo(t, tipo);
-  var fb = logoFallbackHtml(ticker, tipo);
-  // Injeta id no span para atualizar depois
-  return fb.replace('class="asset-logo"', 'class="asset-logo" id="logo-'+t+'"');
-}
-
-function fetchLogo(ticker, tipo){
-  if(_logoQueue[ticker]) return; // já buscando
-  _logoQueue[ticker] = true;
-
-  var urls = buildLogoUrls(ticker, tipo);
-  tryLogoUrls(ticker, urls, 0);
-}
-
-// Mapa de domínios para Clearbit — US stocks
-var US_CLEARBIT = {
-  // ── Corrigidos manualmente (TradingView retorna logo errado) ──
-  AAPL:'apple.com',
-  'BRK.B':'berkshirehathaway.com','BRK-B':'berkshirehathaway.com',BRK:'berkshirehathaway.com',
-  ROL:'rollins.com',
-  INTR:'inter.com',
-  MU:'micron.com',
-  // ── Tech US ──
-  MSFT:'microsoft.com',GOOGL:'google.com',GOOG:'google.com',
-  AMZN:'amazon.com',NVDA:'nvidia.com',META:'meta.com',TSLA:'tesla.com',
-  NFLX:'netflix.com',AMD:'amd.com',INTC:'intel.com',ORCL:'oracle.com',
-  CRM:'salesforce.com',ADBE:'adobe.com',PYPL:'paypal.com',SHOP:'shopify.com',
-  UBER:'uber.com',SNAP:'snap.com',
-  COIN:'coinbase.com',SQ:'block.xyz',TWLO:'twilio.com',
-  ZM:'zoom.us',DOCU:'docusign.com',OKTA:'okta.com',SNOW:'snowflake.com',
-  DDOG:'datadoghq.com',NET:'cloudflare.com',CRWD:'crowdstrike.com',
-  PLTR:'palantir.com',RBLX:'roblox.com',HOOD:'robinhood.com',
-  ABNB:'airbnb.com',LYFT:'lyft.com',DASH:'doordash.com',
-  // ── Internacional ──
-  ASML:'asml.com',NVO:'novonordisk.com',SAP:'sap.com',BABA:'alibaba.com',
-  // ── Financeiras ──
-  JPM:'jpmorganchase.com',BAC:'bankofamerica.com',GS:'goldmansachs.com',
-  WFC:'wellsfargo.com',C:'citigroup.com',MS:'morganstanley.com',
-  V:'visa.com',MA:'mastercard.com',AXP:'americanexpress.com',
-  // ── Saúde ──
-  JNJ:'jnj.com',PFE:'pfizer.com',MRK:'merck.com',ABBV:'abbvie.com',
-  LLY:'lilly.com',UNH:'unitedhealthgroup.com',CVS:'cvshealth.com',
-  // ── Energia ──
-  XOM:'exxonmobil.com',CVX:'chevron.com',COP:'conocophillips.com',
-  // ── Consumo ──
-  DIS:'disney.com',CMCSA:'comcast.com',
-  WMT:'walmart.com',COST:'costco.com',TGT:'target.com',
-  HD:'homedepot.com',LOW:'lowes.com',
-  PG:'pg.com',KO:'coca-cola.com',PEP:'pepsico.com',
-  MCD:'mcdonalds.com',SBUX:'starbucks.com',YUM:'yum.com',
-  NKE:'nike.com',LULU:'lululemon.com',
-  // ── Industrial ──
-  BA:'boeing.com',LMT:'lockheedmartin.com',RTX:'rtx.com',
-  CAT:'caterpillar.com',DE:'deere.com',HON:'honeywell.com',
-  GE:'ge.com',MMM:'mmm.com',EMR:'emerson.com',
-  // ── Telecom ──
-  T:'att.com',VZ:'verizon.com',TMUS:'t-mobile.com',
-  // ── ETFs ──
-  SPY:'ssga.com',QQQ:'invesco.com',VTI:'vanguard.com',VOO:'vanguard.com',
-  IVV:'ishares.com',SCHD:'schwab.com',JEPI:'jpmorganchase.com',
-  JEPQ:'jpmorganchase.com',ARKK:'ark-invest.com',
-  // ── Veículos Elétricos ──
-  RIVN:'rivian.com',LCID:'lucidmotors.com',NIO:'nio.com'
-};
-
-// Versão do cache de logos — incrementar força reload no browser
-var LOGO_VERSION = '2';
+// Versão do cache — incrementar limpa cache HTTP do browser
+var LOGO_VERSION = '3';
 
 function buildLogoUrls(ticker, tipo){
   var t    = ticker.replace(/\.SA$/i,'').toUpperCase();
   var isBr = isBR(ticker, tipo||'Stock');
-  var v    = '&v='+LOGO_VERSION; // cache busting
   var urls = [];
+  var v    = '?v='+LOGO_VERSION;
 
-  // ── US STOCKS: prioridade Logo.dev ticker → EODHD → Clearbit ──
   if(!isBr){
-    // 1. Logo.dev com key (melhor, resolve qualquer ticker US pelo símbolo)
+    // ── US: Logo.dev (key) → EODHD → Clearbit → TradingView → Brandfetch ──
+
+    // 1. Logo.dev com publishable key — melhor fonte, resolve por ticker
     if(tokenLogoDev){
-      urls.push('https://img.logo.dev/ticker/'+t+'?token='+tokenLogoDev+'&size=128&format=png'+v);
+      urls.push('https://img.logo.dev/ticker/'+t+'?token='+tokenLogoDev+'&size=64&format=png');
     }
-    // 2. EODHD — base global, gratuito, ticker direto
+
+    // 2. EODHD — logos oficiais, gratuito, por ticker
     urls.push('https://eodhd.com/img/logos/US/'+t+'.png');
-    // 3. Clearbit via domínio mapeado (confiável mas limitado a mapeamento manual)
+
+    // 3. Clearbit via domínio mapeado
     var cbDomain = US_CLEARBIT[t] || US_CLEARBIT[ticker];
     if(cbDomain){
-      urls.push('https://logo.clearbit.com/'+cbDomain+'?size=128');
+      urls.push('https://logo.clearbit.com/'+cbDomain);
     }
-    // 4. TradingView — só para tickers SEM mapeamento (evita logos errados)
+
+    // 4. Brandfetch CDN — logos oficiais, gratuito
+    if(cbDomain){
+      urls.push('https://cdn.brandfetch.io/'+cbDomain+'/w/64/h/64/logo');
+    }
+
+    // 5. TradingView — somente para tickers sem mapeamento Clearbit
     if(!cbDomain){
       urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'--big.svg');
-      urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'.svg');
     }
-    // 5. Google Favicon via domínio
-    var gDomain = cbDomain || t.toLowerCase()+'.com';
-    urls.push('https://www.google.com/s2/favicons?domain='+gDomain+'&sz=64');
-  }
 
-  // ── BR STOCKS: prioridade GitHub icones-b3 → Logo.dev → EODHD → Clearbit ──
-  else {
-    var brDomain = BR_LOGO_DOMAINS[t] || BR_LOGO_DOMAINS[ticker];
+  } else {
+    // ── BR: GitHub icones-b3 → Logo.dev (key) → EODHD → Clearbit → TradingView ──
 
-    // 1. GitHub icones-b3 (repositório dedicado à B3, muito confiável)
+    // 1. GitHub icones-b3 — repositório com logos oficiais B3
     urls.push('https://raw.githubusercontent.com/thefintz/icones-b3/main/icones/'+t+'.png');
 
-    // 2. Logo.dev com key via domínio BR
+    // 2. Logo.dev com key via domínio
+    var brDomain = BR_LOGO_DOMAINS[t] || BR_LOGO_DOMAINS[ticker];
     if(tokenLogoDev && brDomain){
-      urls.push('https://img.logo.dev/'+brDomain+'?token='+tokenLogoDev+'&size=128&format=png'+v);
+      urls.push('https://img.logo.dev/'+brDomain+'?token='+tokenLogoDev+'&size=64&format=png');
     }
 
     // 3. EODHD BR
@@ -1348,21 +1207,13 @@ function buildLogoUrls(ticker, tipo){
 
     // 4. Clearbit via domínio mapeado
     if(brDomain){
-      urls.push('https://logo.clearbit.com/'+brDomain+'?size=128');
+      urls.push('https://logo.clearbit.com/'+brDomain);
+      urls.push('https://cdn.brandfetch.io/'+brDomain+'/w/64/h/64/logo');
     }
 
-    // 5. TradingView BR (funciona bem para ações BR)
-    var brTv = t.replace(/[0-9]+$/, ''); // remove dígitos: PETR4 → PETR
+    // 5. TradingView BR — sem cortar sufixos (PETR4, VALE3 funcionam direto)
     urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'--big.svg');
     urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'.svg');
-    if(brTv !== t){
-      urls.push('https://s3-symbol-logo.tradingview.com/'+brTv.toLowerCase()+'--big.svg');
-    }
-
-    // 6. Google Favicon
-    if(brDomain){
-      urls.push('https://www.google.com/s2/favicons?domain='+brDomain+'&sz=64');
-    }
   }
 
   return urls;
