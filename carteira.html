@@ -10,7 +10,7 @@
 :root{--bg:#090b0f;--bg2:#0f1117;--bg3:#171b23;--surface:#1c2030;--sur2:#242838;--border:rgba(255,255,255,0.08);--gold:#e8b84b;--gold2:#f5d07a;--red:#e63946;--green:#2ecc71;--blue:#3498db;--purple:#9b59b6;--orange:#e67e22;--text:#f4f6fa;--text2:#b0bac8;--text3:#6b7a94;--ease:cubic-bezier(.4,0,.2,1);--sidebar:200px}
 .light{--bg:#f0f3f8;--bg2:#e5e9f2;--bg3:#d5dae6;--surface:#fff;--sur2:#f2f4f9;--border:rgba(0,0,0,.08);--text:#0b0d14;--text2:#4a526a;--text3:#8892a8}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html{scroll-behavior:smooth}
-body{background:var(--bg);color:var(--text);font-family:"DM Sans",sans-serif;min-height:100vh;overflow-x:auto;display:flex}
+body{background:var(--bg);color:var(--text);font-family:"DM Sans",sans-serif;min-height:100vh;overflow-x:hidden;display:flex}
 button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .sidebar{width:var(--sidebar);min-height:100vh;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;z-index:100;transition:transform .3s var(--ease)}
 @media(max-width:768px){.sidebar{transform:translateX(-100%)}.sidebar.open{transform:translateX(0)}.overlay{display:block!important}}
@@ -471,17 +471,7 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
    RESPONSIVO MOBILE + ZOOM ADAPTATIVO
 ═══════════════════════════════════════ */
 
-/* Fontes fluidas — crescem com a viewport, nunca quebram o layout */
-:root {
-  --fs-base:   clamp(11px, 1.1vw, 14px);
-  --fs-small:  clamp(9px,  0.9vw, 11px);
-  --fs-stat:   clamp(16px, 2vw,   28px);
-  --fs-label:  clamp(9px,  0.8vw, 11px);
-}
-
-/* Aplica fontes fluidas — apenas onde não conflita com Chart.js */
-.stat-val { font-size: var(--fs-stat) !important; }
-.stat-label { font-size: var(--fs-label) !important; }
+/* Stats: fontes responsivas sem clamp para evitar conflito com Chart.js */
 
 /* Tabela sempre scrollável horizontalmente */
 .table-wrap {
@@ -499,8 +489,6 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
 
 /* ── MOBILE (≤768px) ── */
 @media(max-width:768px){
-  /* Reset zoom no mobile — usa CSS responsivo */
-  html { zoom: unset !important; }
 
   .sidebar { transform: translateX(-100%); }
   .sidebar.open { transform: translateX(0); }
@@ -814,13 +802,7 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
       <span id="cambioDisplay" style="font-size:11px;color:var(--text3);padding:4px 10px;background:var(--surface);border:1px solid var(--border);border-radius:6px;cursor:default" title="Taxa USD/BRL utilizada nos cálculos — atualizada automaticamente"></span>
       <button class="btn-icon" onclick="document.getElementById('tokenBanner').style.display='block'" title="Configurar tokens API" style="font-size:14px;border-color:rgba(232,184,75,.5);color:var(--gold)" id="btnApiKey">🔑 APIs</button>
       <button id="themeBtn" class="btn-icon" onclick="toggleTheme()">🌙</button>
-      <button id="zoomIndicator" onclick="resetZoom()" title="Zoom atual — clique para resetar para 100%" style="
-        font-size:10px;font-weight:700;color:var(--text3);
-        background:transparent;border:1px solid var(--border);
-        border-radius:6px;padding:3px 7px;cursor:pointer;
-        font-family:'DM Sans',sans-serif;letter-spacing:.3px;
-        display:none
-      ">100%</button>
+
     </div>
   </div>
 
@@ -4200,9 +4182,20 @@ function showTab(t){
     b.classList.toggle('on',tabs[i]===t);
   });
   if(t==='posicoes') { renderPosicoes(); setTimeout(function(){ aplicarOrdemColunas(); aplicarColsVisiveis(); },30); }
-  if(t==='graficos') renderGraficos();
+  if(t==='graficos'){
+    renderGraficos();
+    // Chart.js precisa do resize após a aba ficar visível
+    setTimeout(function(){
+      Object.values(chartsInstances||{}).forEach(function(c){
+        if(c && typeof c.resize==='function') c.resize();
+      });
+    }, 60);
+  }
   if(t==='aportes') renderAportes();
-  if(t==='dividendos') renderDividendos();
+  if(t==='dividendos'){
+    // Small delay para garantir que o DOM está visível antes de renderizar
+    setTimeout(renderDividendos, 30);
+  }
   if(t==='rebalancear') calcularRebalanceamento();
 }
 
@@ -4441,61 +4434,21 @@ function closeSidebar(){document.getElementById('sidebar').classList.remove('ope
 function toggleTheme(){var l=document.body.classList.toggle('light');document.getElementById('themeBtn').textContent=l?'☀️':'🌙';try{localStorage.setItem('g20-theme',l?'light':'dark');}catch(e){}}
 
 // ============================================================
-// AUTO-ZOOM ADAPTATIVO
-// — Abaixo de 1280px: reduz escala para caber tudo na tela
-// — Acima de 1280px:  aumenta escala proporcionalmente
-//   até um máximo de 1.4 (sem cortar conteúdo)
-// — Mobile (≤768px):  desativa zoom, usa CSS responsivo
+// LAYOUT FLUIDO — sem zoom JS, apenas CSS responsivo
+// Chart.js não é compatível com document.documentElement.style.zoom
 // ============================================================
+window.resetZoom = function(){ /* no-op */ };
+
+// Resize charts quando janela muda
 (function(){
-  var MIN_W    = 1280;  // largura base de referência do layout
-  var ZOOM_MIN = 0.55;  // zoom mínimo (tela muito pequena)
-  var ZOOM_MAX = 1.40;  // zoom máximo (tela muito grande)
   var _zt;
-
-  function aplicarZoom(){
-    var vw = window.innerWidth;
-
-    // Mobile: remove zoom e deixa CSS responsivo agir
-    if(vw <= 768){
-      document.documentElement.style.zoom = '';
-      return;
-    }
-
-    // Calcula zoom proporcional à largura
-    // < 1280px → zoom < 1 (encolhe pra caber)
-    // > 1280px → zoom > 1 (cresce pra aproveitar espaço)
-    var zoom = vw / MIN_W;
-    zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom));
-    zoom = Math.round(zoom * 100) / 100; // evita subpixel jitter
-
-    document.documentElement.style.zoom = zoom;
-
-    // Notifica Chart.js para recalcular dimensões após zoom
-    setTimeout(function(){
+  window.addEventListener('resize', function(){
+    clearTimeout(_zt);
+    _zt = setTimeout(function(){
       Object.values(chartsInstances||{}).forEach(function(c){
         if(c && typeof c.resize === 'function') c.resize();
       });
-    }, 120);
-
-    // Atualiza indicador visual se existir
-    var ind = document.getElementById('zoomIndicator');
-    if(ind){
-      ind.textContent = Math.round(zoom * 100) + '%';
-      ind.style.display = (zoom !== 1) ? 'block' : 'none';
-    }
-  }
-
-  window.resetZoom = function(){
-    document.documentElement.style.zoom = '1';
-    var ind = document.getElementById('zoomIndicator');
-    if(ind) ind.textContent = '100%';
-  };
-
-  aplicarZoom();
-  window.addEventListener('resize', function(){
-    clearTimeout(_zt);
-    _zt = setTimeout(aplicarZoom, 60);
+    }, 150);
   });
 })();
 
