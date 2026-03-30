@@ -234,6 +234,26 @@ tr:hover td{background:var(--sur2)}
 .prov-val{font-weight:700;font-size:13px;text-align:right}
 .prov-total{font-size:11px;color:var(--green);text-align:right;margin-top:1px}
 
+/* ─── LOGOS DE ATIVOS ─────────────────────────────── */
+.asset-logo{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:22px;height:22px;border-radius:5px;
+  background:var(--bg3);border:1px solid var(--border);
+  overflow:hidden;flex-shrink:0;vertical-align:middle;
+  margin-right:6px;position:relative;top:-1px
+}
+.asset-logo img{
+  width:100%;height:100%;object-fit:contain;
+  display:block;border-radius:4px
+}
+.asset-logo .logo-fallback{
+  font-size:8px;font-weight:800;letter-spacing:-.5px;
+  color:var(--text2);line-height:1;text-align:center
+}
+/* Logo.dev key input no banner APIs */
+.logo-key-row{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+.logo-key-row label{font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}
+
 /* Autocomplete ticker */
 .ticker-autocomplete {
   position: absolute;
@@ -586,6 +606,17 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
             <button class="btn-sm btn-gold" onclick="salvarTokenTwelve()">Salvar</button>
           </div>
           <div style="font-size:10px;color:var(--text3);margin-top:3px">800 req/dia grátis · funciona para ASML, NVO e qualquer ADR</div>
+        </div>
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:10px;font-weight:700;color:#f59e0b;margin-bottom:4px">
+            🖼 Logo.dev — logos automáticos dos ativos <span style="color:var(--text3)">(opcional)</span>
+            <a href="https://logo.dev" target="_blank" style="color:var(--gold);margin-left:6px;font-weight:400">Obter key grátis →</a>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input class="token-input" id="tokenLogoDev" placeholder="pk_... (Logo.dev publishable key)">
+            <button class="btn-sm btn-gold" onclick="salvarTokenLogoDev()">Salvar</button>
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-top:3px">logo.dev → API Keys → Publishable Key (grátis até 5k req/mês)</div>
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;justify-content:flex-end">
           <button class="btn-sm btn-outline" onclick="limparTokens()">🗑 Limpar</button>
@@ -1103,6 +1134,164 @@ function fmtDate(iso){
 }
 
 // ============================================================
+// SISTEMA DE LOGOS AUTOMÁTICOS
+// ============================================================
+var tokenLogoDev = '';
+var _logoCache   = {};    // ticker → url ou 'error'
+var _logoQueue   = {};    // ticker → [callbacks]
+
+// Mapeamento manual para ativos BR sem domínio óbvio
+var BR_LOGO_DOMAINS = {
+  PETR4:'petrobras.com.br', VALE3:'vale.com', ITUB4:'itau.com.br',
+  BBDC4:'bradesco.com.br', ABEV3:'ambev.com.br', WEGE3:'weg.net',
+  MGLU3:'magazineluiza.com.br', RENT3:'localiza.com', BBAS3:'bb.com.br',
+  SUZB3:'suzano.com.br', RADL3:'drogasil.com.br', HAPV3:'hapvida.com.br',
+  LREN3:'lojasrenner.com.br', BRFS3:'brf-global.com', BEEF3:'minerbr.com.br',
+  CSAN3:'cosan.com', BPAC11:'btgpactual.com', ENEV3:'eneva.com.br',
+  PRIO3:'prioil.com.br', PRIO4:'prioil.com.br', VULC3:'vulcabras.com.br',
+  EMBR3:'embraer.com', SBSP3:'sabesp.com.br', CPFE3:'cpfl.com.br',
+  KLBN11:'klabin.com.br', VIVT3:'vivo.com.br', CPLE6:'copel.com.br',
+  MRFG3:'marfrig.com.br', SLCE3:'slcagricola.com.br', JHSF3:'jhsf.com.br',
+  EQTL3:'equatorial.com.br', TRPL4:'isae.com.br', EGIE3:'engieinvestimentos.com.br',
+  HYPE3:'hypera.com.br', TOTS3:'totvs.com', MOVI3:'movida.com.br',
+  GMAT3:'grupo-mateus.com.br', SMTO3:'saomartinho.com.br',
+  // FIIs conhecidos — usa o gestor
+  MXRF11:'maxxparceiros.com.br', XPML11:'xpinvestimentos.com.br',
+  HGLG11:'cshg.com.br', KNRI11:'kinea.com.br', VISC11:'viscountysc.com.br',
+  BRCO11:'bresco.com.br', PVBI11:'vbifii.com.br', RECT11:'rreis.com.br'
+};
+
+// Domínio para tickers US: tenta logo.dev com ticker direto
+function getLogoDomain(ticker, tipo){
+  var t = ticker.replace(/\.SA$/i,'').toUpperCase();
+  // Mapeamento manual BR
+  if(BR_LOGO_DOMAINS[t]) return BR_LOGO_DOMAINS[t];
+  // US / Cripto: usa ticker direto com Logo.dev (eles têm banco de dados)
+  return null; // Logo.dev resolve pelo ticker diretamente
+}
+
+function salvarTokenLogoDev(){
+  var t = document.getElementById('tokenLogoDev').value.trim();
+  if(!t){ alert('Cole a publishable key do Logo.dev antes de salvar.'); return; }
+  tokenLogoDev = t; saveData('tokenLogoDev', t);
+  _logoCache = {}; // limpa cache para recarregar logos
+  var btn = event.target;
+  btn.textContent='✓ Salvo!'; btn.style.background='#2ecc71';
+  setTimeout(function(){ btn.textContent='Salvar'; btn.style.background=''; }, 1500);
+  renderPosicoes(); // re-renderiza com logos
+}
+
+// Retorna o HTML do logo (inline, com fallback)
+function getLogoHtml(ticker, tipo){
+  var t = ticker.replace(/\.SA$/i,'').toUpperCase();
+  var cached = _logoCache[t];
+
+  if(cached === 'error' || cached === 'none'){
+    // Fallback: iniciais coloridas
+    return '<span class="asset-logo"><span class="logo-fallback">'+t.substring(0,3)+'</span></span>';
+  }
+  if(cached){
+    return '<span class="asset-logo"><img src="'+cached+'" alt="'+t+'" onerror="logoError(''+t+'')" loading="lazy"></span>';
+  }
+
+  // Ainda não carregado: inicia fetch e retorna placeholder com iniciais
+  fetchLogo(t, tipo);
+  return '<span class="asset-logo" id="logo-'+t+'"><span class="logo-fallback">'+t.substring(0,3)+'</span></span>';
+}
+
+function fetchLogo(ticker, tipo){
+  if(_logoQueue[ticker]) return; // já buscando
+  _logoQueue[ticker] = true;
+
+  var urls = buildLogoUrls(ticker, tipo);
+  tryLogoUrls(ticker, urls, 0);
+}
+
+function buildLogoUrls(ticker, tipo){
+  var t    = ticker.replace(/\.SA$/i,'').toUpperCase();
+  var isBr = isBR(ticker, tipo||'Stock');
+  var urls = [];
+
+  // 1. Logo.dev com publishable key (melhor qualidade, funciona para US e BR)
+  if(tokenLogoDev){
+    if(isBr){
+      var domain = BR_LOGO_DOMAINS[t];
+      if(domain) urls.push('https://img.logo.dev/'+domain+'?token='+tokenLogoDev+'&size=64&format=png');
+    } else {
+      // Logo.dev aceita ticker US diretamente via endpoint de stock
+      urls.push('https://img.logo.dev/ticker/'+t+'?token='+tokenLogoDev+'&size=64&format=png');
+    }
+  }
+
+  // 2. Clearbit (US, gratuito, sem key)
+  if(!isBr){
+    var clearbitDomains = {
+      AAPL:'apple.com',MSFT:'microsoft.com',GOOGL:'google.com',GOOG:'google.com',
+      AMZN:'amazon.com',NVDA:'nvidia.com',META:'meta.com',TSLA:'tesla.com',
+      NFLX:'netflix.com',AMD:'amd.com',INTC:'intel.com',ORCL:'oracle.com',
+      CRM:'salesforce.com',ADBE:'adobe.com',PYPL:'paypal.com',SHOP:'shopify.com',
+      UBER:'uber.com',LYFT:'lyft.com',SNAP:'snap.com',TWTR:'twitter.com',
+      ASML:'asml.com',NVO:'novonordisk.com',SAP:'sap.com',BABA:'alibaba.com',
+      BRK:'berkshirehathaway.com','BRK.B':'berkshirehathaway.com','BRK-B':'berkshirehathaway.com',
+      JPM:'jpmorganchase.com',BAC:'bankofamerica.com',GS:'goldmansachs.com',
+      V:'visa.com',MA:'mastercard.com',AXP:'americanexpress.com',
+      JNJ:'jnj.com',PFE:'pfizer.com',MRK:'merck.com',ABBV:'abbvie.com',
+      XOM:'exxonmobil.com',CVX:'chevron.com',
+      DIS:'disney.com',CMCSA:'comcast.com',
+      WMT:'walmart.com',COST:'costco.com',TGT:'target.com',
+      HD:'homedepot.com',LOW:'lowes.com',
+      ROL:'rollins.com',INTR:'inter.com',NVO:'novonordisk.com',
+      SPY:'ssga.com',QQQ:'invesco.com',VTI:'vanguard.com',VOO:'vanguard.com',
+      SCHD:'schwab.com',JEPI:'jpmorganchase.com',JEPQ:'jpmorganchase.com'
+    };
+    var domain = clearbitDomains[t];
+    if(domain) urls.push('https://logo.clearbit.com/'+domain+'?size=64');
+  } else {
+    var brDomain = BR_LOGO_DOMAINS[t];
+    if(brDomain) urls.push('https://logo.clearbit.com/'+brDomain+'?size=64');
+  }
+
+  // 3. Fallback genérico Logo.dev sem key (rate limited)
+  if(!tokenLogoDev){
+    if(!isBr){
+      // tenta domínio pelo ticker em lowercase
+      urls.push('https://logo.clearbit.com/'+t.toLowerCase()+'.com?size=64');
+    }
+  }
+
+  return urls;
+}
+
+function tryLogoUrls(ticker, urls, idx){
+  if(idx >= urls.length){
+    _logoCache[ticker] = 'error';
+    _logoQueue[ticker] = false;
+    return;
+  }
+  var img = new Image();
+  img.onload = function(){
+    if(img.naturalWidth < 4 || img.naturalHeight < 4){
+      tryLogoUrls(ticker, urls, idx+1); return;
+    }
+    _logoCache[ticker] = urls[idx];
+    _logoQueue[ticker] = false;
+    // Atualiza o placeholder inline se existir
+    var el = document.getElementById('logo-'+ticker);
+    if(el){
+      el.innerHTML = '<img src="'+urls[idx]+'" alt="'+ticker+'" onerror="logoError(''+ticker+'')" loading="lazy">';
+    }
+  };
+  img.onerror = function(){ tryLogoUrls(ticker, urls, idx+1); };
+  img.src = urls[idx];
+}
+
+function logoError(ticker){
+  _logoCache[ticker] = 'error';
+  var el = document.getElementById('logo-'+ticker);
+  if(el) el.innerHTML = '<span class="logo-fallback">'+ticker.substring(0,3)+'</span>';
+}
+
+// ============================================================
 // DETECÇÃO DE MERCADO (BR vs US)
 // ============================================================
 var US_TYPES = ['Stock','REIT','ETF','Cripto'];
@@ -1142,11 +1331,13 @@ function salvarTokenTwelve(){
   if(calcPosicoes().length) buscarCotacoes();
 }
 function limparTokens(){
-  tokenBrapi=''; tokenFmp=''; tokenTwelve='';
-  saveData('tokenBrapi',''); saveData('tokenFmp',''); saveData('tokenTwelve','');
+  tokenBrapi=''; tokenFmp=''; tokenTwelve=''; tokenLogoDev='';
+  saveData('tokenBrapi',''); saveData('tokenFmp',''); saveData('tokenTwelve',''); saveData('tokenLogoDev','');
   document.getElementById('tokenBrapi').value='';
   document.getElementById('tokenFmp').value='';
   if(document.getElementById('tokenTwelve')) document.getElementById('tokenTwelve').value='';
+  if(document.getElementById('tokenLogoDev')) document.getElementById('tokenLogoDev').value='';
+  _logoCache = {};
   atualizarBadge('sem');
 }
 function checkTokenBanner(){
@@ -2023,22 +2214,22 @@ function renderPosicoes(){
       : '--';
 
     return '<tr>'
-      +'<td><span class="ticker-cell">'+p.ticker+'</span></td>'
-      +'<td style="color:var(--text2);font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(cot&&cot.nome?cot.nome.substring(0,16):'--')+'</td>'
-      +'<td><span class="badge badge-'+p.tipo+'">'+p.tipo+'</span></td>'
-      +'<td>'+mktBadge+'</td>'
-      +'<td class="r">'+p.qtd.toFixed(p.qtd%1===0?0:2)+'</td>'
-      +'<td class="r">'+fmt(r.pm, isUS)+'</td>'
-      +'<td class="r">'+cotStr+'</td>'
-      +'<td class="r">'+varStr+'</td>'
-      +'<td class="r">'+fmt(p.totalInv, isUS)+'</td>'
-      +'<td class="r" style="color:var(--text2)">'+pctCart+'</td>'
-      +'<td class="r">'+posStr+'</td>'
-      +'<td class="r">'+resStr+'</td>'
-      +'<td class="r">'+rentStr+'</td>'
-      +'<td class="r">'+provStr+'</td>'
-      +'<td class="r">'+trStr+'</td>'
-      +'<td style="white-space:nowrap">'+
+      +'<td data-col="ticker"><span class="ticker-cell">'+getLogoHtml(p.ticker,p.tipo)+p.ticker+'</span></td>'
+      +'<td data-col="nome" style="color:var(--text2);font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(cot&&cot.nome?cot.nome.substring(0,16):'--')+'</td>'
+      +'<td data-col="tipo"><span class="badge badge-'+p.tipo+'">'+p.tipo+'</span></td>'
+      +'<td data-col="mkt">'+mktBadge+'</td>'
+      +'<td data-col="qtd" class="r">'+p.qtd.toFixed(p.qtd%1===0?0:2)+'</td>'
+      +'<td data-col="pm" class="r">'+fmt(r.pm, isUS)+'</td>'
+      +'<td data-col="cotacao" class="r">'+cotStr+'</td>'
+      +'<td data-col="vardia" class="r">'+varStr+'</td>'
+      +'<td data-col="totalInv" class="r">'+fmt(p.totalInv, isUS)+'</td>'
+      +'<td data-col="pctCart" class="r" style="color:var(--text2)">'+pctCart+'</td>'
+      +'<td data-col="posicao" class="r">'+posStr+'</td>'
+      +'<td data-col="result" class="r">'+resStr+'</td>'
+      +'<td data-col="rentPct" class="r">'+rentStr+'</td>'
+      +'<td data-col="proventos" class="r">'+provStr+'</td>'
+      +'<td data-col="totalRet" class="r">'+trStr+'</td>'
+      +'<td data-col="acoes" style="white-space:nowrap">'+
       '<button class="action-btn" onclick="abrirDrawer(\''+p.ticker+'\',\''+p.tipo+'\',\''+( (cot&&cot.nome)?cot.nome.substring(0,20):'')+'\');" title="Ver transações" style="margin-right:3px">📋</button>'+
       '<button class="btn-add-inline" onclick="abrirModalAporte(\''+p.ticker+'\')" title="Novo aporte">＋</button>'+
       '</td>'
@@ -3706,22 +3897,21 @@ function resetCols(){
 
 function aplicarColsVisiveis(){
   var cols = getColsVisiveis();
-  var ths = document.querySelectorAll('#theadRow th[data-col]');
-  ths.forEach(function(th){
+
+  // 1. Cabeçalhos
+  document.querySelectorAll('#theadRow th[data-col]').forEach(function(th){
     var col = th.getAttribute('data-col');
     var vis = cols[col] !== false;
     th.style.display = vis ? '' : 'none';
   });
-  // tbody: índice de cada th → mesma coluna no td
-  var thsAll = document.querySelectorAll('#theadRow th');
-  thsAll.forEach(function(th, i){
-    var col = th.getAttribute('data-col');
-    if(!col) return;
-    var vis = cols[col] !== false;
-    // aplica a todos os tds na mesma coluna
-    document.querySelectorAll('#tbodyPosicoes tr').forEach(function(tr){
-      var td = tr.cells[i];
-      if(td) td.style.display = vis ? '' : 'none';
+
+  // 2. Células do tbody — usa data-col injetado pelo renderPosicoes
+  document.querySelectorAll('#tbodyPosicoes tr').forEach(function(tr){
+    Array.from(tr.cells).forEach(function(td){
+      var col = td.getAttribute('data-col');
+      if(!col) return;
+      var vis = cols[col] !== false;
+      td.style.display = vis ? '' : 'none';
     });
   });
 }
@@ -3889,10 +4079,12 @@ function aplicarOrdemColunas(){
   tokenBrapi=loadData('tokenBrapi','');
   tokenFmp=loadData('tokenFmp','');
   tokenTwelve=loadData('tokenTwelve','');
+  tokenLogoDev=loadData('tokenLogoDev','');
   function setElVal(id, val){ var el=document.getElementById(id); if(el&&val) el.value=val; }
   setElVal('tokenBrapi', tokenBrapi);
   setElVal('tokenFmp', tokenFmp);
   setElVal('tokenTwelve', tokenTwelve);
+  setElVal('tokenLogoDev', tokenLogoDev);
 
   if(window.location.protocol === 'file:'){
     var corsWarn = document.createElement('div');
