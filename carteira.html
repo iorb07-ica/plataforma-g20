@@ -149,6 +149,62 @@ tr:hover td{background:var(--sur2)}
 /* US/BR badges */
 .mkt-br{background:rgba(46,204,113,.1);color:#2ecc71;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:700}
 .mkt-us{background:rgba(52,152,219,.1);color:#3498db;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:700}
+
+/* Autocomplete ticker */
+.ticker-autocomplete {
+  position: absolute;
+  z-index: 9999;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  max-height: 280px;
+  overflow-y: auto;
+  width: 100%;
+  top: 100%;
+  left: 0;
+  margin-top: 2px;
+}
+.ticker-autocomplete-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.ticker-autocomplete-item:last-child { border-bottom: none; }
+.ticker-autocomplete-item:hover, .ticker-autocomplete-item.active {
+  background: rgba(232,184,75,0.08);
+}
+.tac-symbol {
+  font-family: monospace;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--gold);
+  min-width: 72px;
+}
+.tac-name {
+  font-size: 12px;
+  color: var(--text2);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tac-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+.tac-loading {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text3);
+  text-align: center;
+}
 </style>
 </head>
 <body>
@@ -417,7 +473,14 @@ tr:hover td{background:var(--sur2)}
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Ticker</label>
-        <input class="form-control" id="aporte_ticker" placeholder="Ex: PETR4, AAPL" oninput="this.value=this.value.toUpperCase(); autoDetectTipo(this.value)">
+        <div style="position:relative">
+          <input class="form-control" id="aporte_ticker" placeholder="Ex: PETR4, AAPL, BTC"
+            autocomplete="off"
+            oninput="this.value=this.value.toUpperCase(); autoDetectTipo(this.value); buscarSugestoesTicker(this.value)"
+            onkeydown="navegarAutocomplete(event)"
+            onblur="setTimeout(function(){fecharAutocomplete()},200)">
+          <div id="tickerAutocomplete" class="ticker-autocomplete" style="display:none"></div>
+        </div>
         <div id="tickerHint" style="font-size:10px;color:var(--text3);margin-top:3px;height:14px"></div>
       </div>
       <div class="form-group">
@@ -520,6 +583,7 @@ tr:hover td{background:var(--sur2)}
 // CONFIG APIs
 // ============================================================
 var BRAPI_URL = 'https://brapi.dev/api';
+var PROXY_URL  = 'https://g20-proxy.vercel.app';
 var FMP_URL_V3 = 'https://financialmodelingprep.com/api/v3';
 var FMP_URL_V4 = 'https://financialmodelingprep.com/api/v4';
 var FMP_URL_STABLE = 'https://financialmodelingprep.com/stable';
@@ -540,7 +604,8 @@ var TWELVE_URL  = 'https://api.twelvedata.com';
 var cotacoes    = {};
 var usdBRL      = 5.85; // taxa de câmbio fallback
 var filtroAtivo = 'todos';
-var sortCol = 'posicao', sortAsc = false;
+var sortCol = 'posicao';
+var sortAsc = false;
 var modoMoeda = 'BRL';
 var chartsInstances = {};
 var autoRefreshTimer = null;
@@ -710,18 +775,117 @@ function buscarTaxaCambioFallback2(){
 // BUSCA COTAÇÕES — ARQUITETURA HÍBRIDA BR + US
 // ============================================================
 
+
+// ============================================================
+// AUTOCOMPLETE TICKER — busca global via proxy Vercel
+// ============================================================
+var _autocompleteTimer = null;
+var _autocompleteIdx = -1;
+
+function buscarSugestoesTicker(q){
+  var box = document.getElementById('tickerAutocomplete');
+  if(!box) return;
+  if(!q || q.length < 2){ fecharAutocomplete(); return; }
+
+  // Debounce 300ms
+  clearTimeout(_autocompleteTimer);
+  _autocompleteTimer = setTimeout(function(){
+    if(!PROXY_URL){ fecharAutocomplete(); return; }
+    box.innerHTML = '<div class="tac-loading">Buscando...</div>';
+    box.style.display = 'block';
+    _autocompleteIdx = -1;
+
+    fetch(PROXY_URL+'/api/search?q='+encodeURIComponent(q))
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var results = d.results || [];
+        if(!results.length){
+          box.innerHTML = '<div class="tac-loading">Nenhum resultado</div>';
+          return;
+        }
+        box.innerHTML = results.map(function(item, i){
+          var badgeColor = {
+            'Stock':'#4a9eff','REIT':'#a78bfa','ETF':'#34d399',
+            'Acao':'#60a5fa','FII':'#f59e0b','FIAGRO':'#fb923c',
+            'Cripto':'#f7931a'
+          }[item.g20tipo] || '#888';
+          return '<div class="ticker-autocomplete-item" '+
+            'onmousedown="selecionarSugestao(''+item.symbol+'',''+item.g20tipo+'')" '+
+            'data-idx="'+i+'">'+
+            '<span class="tac-symbol">'+item.symbol+'</span>'+
+            '<span class="tac-name">'+item.name+'</span>'+
+            '<span class="tac-badge" style="background:'+badgeColor+'22;color:'+badgeColor+';border:1px solid '+badgeColor+'44">'+item.g20tipo+'</span>'+
+          '</div>';
+        }).join('');
+      })
+      .catch(function(){ fecharAutocomplete(); });
+  }, 300);
+}
+
+function selecionarSugestao(symbol, tipo){
+  var input = document.getElementById('aporte_ticker');
+  var tipoSel = document.getElementById('aporte_tipo');
+  if(input) input.value = symbol;
+  if(tipoSel && tipo) tipoSel.value = tipo;
+  autoDetectTipo(symbol);
+  onTipoChange(tipo);
+  fecharAutocomplete();
+}
+
+function fecharAutocomplete(){
+  var box = document.getElementById('tickerAutocomplete');
+  if(box) box.style.display = 'none';
+  _autocompleteIdx = -1;
+}
+
+function navegarAutocomplete(e){
+  var box = document.getElementById('tickerAutocomplete');
+  if(!box || box.style.display === 'none') return;
+  var items = box.querySelectorAll('.ticker-autocomplete-item');
+  if(!items.length) return;
+
+  if(e.key === 'ArrowDown'){
+    e.preventDefault();
+    _autocompleteIdx = Math.min(_autocompleteIdx+1, items.length-1);
+  } else if(e.key === 'ArrowUp'){
+    e.preventDefault();
+    _autocompleteIdx = Math.max(_autocompleteIdx-1, -1);
+  } else if(e.key === 'Enter' && _autocompleteIdx >= 0){
+    e.preventDefault();
+    items[_autocompleteIdx].dispatchEvent(new MouseEvent('mousedown'));
+    return;
+  } else if(e.key === 'Escape'){
+    fecharAutocomplete();
+    return;
+  }
+
+  items.forEach(function(el, i){
+    el.classList.toggle('active', i === _autocompleteIdx);
+    if(i === _autocompleteIdx) el.scrollIntoView({block:'nearest'});
+  });
+}
+
 // ============================================================
 // CRIPTO — helpers para modal de aporte
 // ============================================================
 function onTipoChange(tipo){
   var moedaSel = document.getElementById('aporte_preco_moeda');
   var moedaLabel = document.getElementById('aporte_preco_moeda_label');
-  if(tipo === 'Cripto'){
+  var isUS = ['Stock','REIT','ETF','Cripto'].indexOf(tipo) >= 0;
+  var isBRTipo = ['Acao','FII','FIAGRO'].indexOf(tipo) >= 0;
+
+  if(isUS){
+    // Ativos US: mostra select e define default como USD
     moedaSel.style.display = 'block';
-    atualizarLabelMoeda();
+    moedaSel.value = 'USD';
+    if(moedaLabel) moedaLabel.textContent = '(US$)';
+    moedaLabel.style.color = '#64b4ff';
   } else {
+    // Ativos BR: esconde select, fixa em BRL
     moedaSel.style.display = 'none';
+    moedaSel.value = 'BRL';
     if(moedaLabel) moedaLabel.textContent = '(R$)';
+    moedaLabel.style.color = 'var(--gold)';
   }
 }
 
@@ -918,6 +1082,7 @@ function autoDetectTipo(ticker){
 
   if(detected){
     sel.value = detected;
+    onTipoChange(detected); // atualiza label de moeda automaticamente
     label.textContent = '← detectado automaticamente';
     hint.textContent = msg;
     hint.style.color = detected === 'Acao' || detected === 'FII' || detected === 'FIAGRO'
@@ -1557,6 +1722,11 @@ function abrirModalAporte(ticker){
   document.getElementById('aporte_qtd').value='';
   document.getElementById('aporte_preco').value='';
   document.getElementById('aporte_obs').value='';
+  // Atualiza label de moeda baseado no tipo atual
+  var tipoAtual = document.getElementById('aporte_tipo').value;
+  onTipoChange(tipoAtual);
+  // Se ticker foi passado, autodetect já vai chamar onTipoChange
+  if(ticker && typeof ticker==='string') autoDetectTipo(ticker);
   document.getElementById('modalAporte').classList.add('show');
 }
 function fecharModal(id){document.getElementById(id).classList.remove('show');}
@@ -1568,9 +1738,10 @@ function salvarAporte(){
   var qtd=parseFloat(document.getElementById('aporte_qtd').value);
   var preco=parseFloat(document.getElementById('aporte_preco').value);
   var obs=document.getElementById('aporte_obs').value.trim();
-  // Para Cripto em USD: converte para BRL
+  // Para ativos US em USD: converte para BRL usando taxa atual
   var moedaInputEl = document.getElementById('aporte_preco_moeda');
-  if(tipo === 'Cripto' && moedaInputEl && moedaInputEl.value === 'USD' && usdBRL > 0){
+  var isUSType = ['Stock','REIT','ETF','Cripto'].indexOf(tipo) >= 0;
+  if(isUSType && moedaInputEl && moedaInputEl.value === 'USD' && usdBRL > 0){
     preco = preco * usdBRL;
   }
   if(!ticker||!data||isNaN(qtd)||isNaN(preco)||qtd<=0||preco<=0){alert('Preencha todos os campos obrigatórios.');return;}
