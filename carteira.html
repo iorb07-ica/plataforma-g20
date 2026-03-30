@@ -238,24 +238,36 @@ tr:hover td{background:var(--sur2)}
 .asset-logo{
   display:inline-flex;align-items:center;justify-content:center;
   width:32px;height:32px;border-radius:8px;
-  background:var(--bg3);border:1px solid var(--border);
+  background:#ffffff;
+  border:1px solid rgba(0,0,0,.09);
   overflow:hidden;flex-shrink:0;
-  box-shadow:0 1px 4px rgba(0,0,0,.25);
+  box-shadow:0 1px 6px rgba(0,0,0,.18);
   transition:transform .15s,box-shadow .15s
 }
-.asset-logo:hover{transform:scale(1.12);box-shadow:0 3px 10px rgba(0,0,0,.4)}
+/* Modo escuro: mantém fundo branco (logos ficam visíveis) com borda sutil */
+body:not(.light) .asset-logo{
+  background:#ffffff;
+  border-color:rgba(255,255,255,.12);
+  box-shadow:0 1px 8px rgba(0,0,0,.4)
+}
+/* Modo claro: borda levemente mais escura */
+.light .asset-logo{
+  background:#ffffff;
+  border-color:rgba(0,0,0,.1)
+}
+.asset-logo:hover{transform:scale(1.12);box-shadow:0 3px 14px rgba(0,0,0,.35)}
 .asset-logo img{
-  width:100%;height:100%;object-fit:contain;
-  display:block;border-radius:7px;padding:2px
+  width:100%;height:100%;
+  object-fit:contain;display:block;
+  padding:3px;box-sizing:border-box
 }
-.asset-logo svg{
-  width:100%;height:100%;display:block;border-radius:7px
-}
+.asset-logo svg{width:100%;height:100%;display:block}
 .asset-logo .logo-fallback{
   font-size:9px;font-weight:800;letter-spacing:-.3px;
   color:#fff;line-height:1;text-align:center;
-  width:100%;height:100%;display:flex;align-items:center;justify-content:center;
-  border-radius:7px
+  width:100%;height:100%;
+  display:flex;align-items:center;justify-content:center;
+  border-radius:inherit
 }
 /* Coluna de logo dedicada na tabela */
 td[data-col="logo"],th[data-col="logo"]{
@@ -1224,7 +1236,8 @@ function recarregarLogos(){
 }
 
 // Versão do cache — incrementar limpa cache HTTP do browser
-var LOGO_VERSION = '3';
+// Versão única por sessão — garante que o browser não use cache de logos antigos
+var LOGO_VERSION = 'v5_'+(Date.now()+'').slice(-7);
 
 // Mapa domínios para Clearbit/Brandfetch — US stocks
 var US_CLEARBIT = {
@@ -1251,65 +1264,65 @@ var US_CLEARBIT = {
 function buildLogoUrls(ticker, tipo){
   var t    = ticker.replace(/\.SA$/i,'').toUpperCase();
   var isBr = isBR(ticker, tipo||'Stock');
+  var cb   = '?_v='+LOGO_VERSION;
   var urls = [];
-  var v    = '?v='+LOGO_VERSION;
 
+  // ── US ────────────────────────────────────────────────────────
   if(!isBr){
-    // ── US: Logo.dev (key) → EODHD → Clearbit → TradingView → Brandfetch ──
 
-    // 1. Logo.dev com publishable key — melhor fonte, resolve por ticker
+    // 1. Logo.dev com key (melhor fonte — resolve qualquer ticker por símbolo)
     if(tokenLogoDev){
       urls.push('https://img.logo.dev/ticker/'+t+'?token='+tokenLogoDev+'&size=64&format=png');
     }
 
-    // 2. EODHD — logos oficiais, gratuito, por ticker
+    // 2. Yahoo Finance logo (oficial, por ticker, sem key)
+    urls.push('https://query2.finance.yahoo.com/v1/finance/logobycompany?symbol='+t+'&lang=en-US');
+
+    // 3. EODHD por ticker
     urls.push('https://eodhd.com/img/logos/US/'+t+'.png');
 
-    // 3. Clearbit via domínio mapeado
-    var cbDomain = US_CLEARBIT[t] || US_CLEARBIT[ticker];
-    if(cbDomain){
-      urls.push('https://logo.clearbit.com/'+cbDomain);
-    }
+    // 4. Clearbit — só para domínios com mapeamento confiável
+    var cbDomain = US_CLEARBIT[t];
+    if(cbDomain) urls.push('https://logo.clearbit.com/'+cbDomain);
 
-    // 4. Brandfetch CDN — logos oficiais, gratuito
-    if(cbDomain){
-      urls.push('https://cdn.brandfetch.io/'+cbDomain+'/w/64/h/64/logo');
-    }
+    // 5. Brandfetch
+    if(cbDomain) urls.push('https://cdn.brandfetch.io/'+cbDomain+'/w/64/h/64/logo');
 
-    // 5. TradingView — somente para tickers sem mapeamento Clearbit
+    // 6. TradingView — apenas para tickers sem mapeamento
     if(!cbDomain){
       urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'--big.svg');
     }
 
+  // ── BR ────────────────────────────────────────────────────────
   } else {
-    // ── BR: GitHub icones-b3 → Logo.dev (key) → EODHD → Clearbit → TradingView ──
 
-    // 1. GitHub icones-b3 — repositório com logos oficiais B3
-    urls.push('https://raw.githubusercontent.com/thefintz/icones-b3/main/icones/'+t+'.png');
-
-    // 2. Logo.dev com key via domínio
-    var brDomain = BR_LOGO_DOMAINS[t] || BR_LOGO_DOMAINS[ticker];
-    if(tokenLogoDev && brDomain){
-      urls.push('https://img.logo.dev/'+brDomain+'?token='+tokenLogoDev+'&size=64&format=png');
+    // 1. Logo.dev com key por ticker B3
+    if(tokenLogoDev){
+      urls.push('https://img.logo.dev/ticker/'+t+'.SA?token='+tokenLogoDev+'&size=64&format=png');
     }
 
-    // 3. EODHD BR
+    // 2. GitHub icones-b3 (repositório dedicado à B3)
+    urls.push('https://raw.githubusercontent.com/thefintz/icones-b3/main/icones/'+t+'.png');
+
+    // 3. Yahoo Finance logo BR
+    urls.push('https://query2.finance.yahoo.com/v1/finance/logobycompany?symbol='+t+'.SA&lang=pt-BR');
+
+    // 4. EODHD BR
     urls.push('https://eodhd.com/img/logos/BR/'+t+'.png');
 
-    // 4. Clearbit via domínio mapeado
+    // 5. Clearbit + Brandfetch via domínio mapeado
+    var brDomain = BR_LOGO_DOMAINS[t];
     if(brDomain){
       urls.push('https://logo.clearbit.com/'+brDomain);
       urls.push('https://cdn.brandfetch.io/'+brDomain+'/w/64/h/64/logo');
     }
 
-    // 5. TradingView BR — sem cortar sufixos (PETR4, VALE3 funcionam direto)
+    // 6. TradingView BR
     urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'--big.svg');
-    urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'.svg');
   }
 
   return urls;
 }
-
 function tryLogoUrls(ticker, urls, idx){
   if(idx >= urls.length){
     _logoCache[ticker] = 'error';
@@ -1317,13 +1330,19 @@ function tryLogoUrls(ticker, urls, idx){
     return;
   }
   var img = new Image();
+  img.crossOrigin = 'anonymous';
   img.onload = function(){
-    if(img.naturalWidth < 4 || img.naturalHeight < 4){
+    // Rejeita imagens muito pequenas (provavelmente placeholder/erro)
+    if(img.naturalWidth < 8 || img.naturalHeight < 8){
+      tryLogoUrls(ticker, urls, idx+1); return;
+    }
+    // Rejeita imagens gigantes com aspecto muito desproporcional (banner, não logo)
+    var ratio = img.naturalWidth / img.naturalHeight;
+    if(ratio > 5 || ratio < 0.2){
       tryLogoUrls(ticker, urls, idx+1); return;
     }
     _logoCache[ticker] = urls[idx];
     _logoQueue[ticker] = false;
-    // Atualiza o placeholder inline se existir
     var el = document.getElementById('logo-'+ticker);
     if(el){
       el.innerHTML = '<img src="'+urls[idx]+'" alt="'+ticker+'" onerror="logoError(this,\''+ticker+'\')" loading="lazy">';
