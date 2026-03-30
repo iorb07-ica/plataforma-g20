@@ -957,23 +957,26 @@ function buscarUSTicker(ticker, erros){
     var u3 = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols='+t;
 
     return fetch(u1, {headers:{'Accept':'application/json'}})
-      .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
-      .then(function(d){ if(!parseYahooV8(d)) return Promise.reject('vazio'); })
-      .catch(function(){
+      .then(function(r){ return r.ok ? r.json() : Promise.reject('HTTP '+r.status); })
+      .then(function(d){ if(!parseYahooV8(d)) throw new Error('sem preco v8-u1'); })
+      .catch(function(e1){
+        if(cotacoes[ticker]) return; // já achou em outra tentativa
         return fetch(u2, {headers:{'Accept':'application/json'}})
-          .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
-          .then(function(d){ if(!parseYahooV8(d)) return Promise.reject('vazio'); })
-          .catch(function(){
+          .then(function(r){ return r.ok ? r.json() : Promise.reject('HTTP '+r.status); })
+          .then(function(d){ if(!parseYahooV8(d)) throw new Error('sem preco v8-u2'); })
+          .catch(function(e2){
+            if(cotacoes[ticker]) return;
             return fetch(u3, {headers:{'Accept':'application/json'}})
-              .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
-              .then(function(d){ if(!parseYahooV7(d)) return Promise.reject('vazio v7'); })
-              .catch(function(){
-                // Yahoo esgotado — chama Twelve Data se token disponível
+              .then(function(r){ return r.ok ? r.json() : Promise.reject('HTTP '+r.status); })
+              .then(function(d){ if(!parseYahooV7(d)) throw new Error('sem preco v7'); })
+              .catch(function(e3){
+                if(cotacoes[ticker]) return;
+                // Yahoo esgotado — chama Twelve Data
                 if(tokenTwelve){
                   return buscarTwelveDataTicker(ticker, erros);
                 }
                 if(tokenFmp) return buscarFmpTicker(ticker, erros);
-                if(erros) erros.push(ticker+' — configure Twelve Data para ADRs (ASML, NVO etc.)');
+                if(erros) erros.push(ticker+' — configure Twelve Data para ADRs');
               });
           });
       });
