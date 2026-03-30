@@ -511,7 +511,6 @@ tr:hover td{background:var(--sur2)}
 // CONFIG APIs
 // ============================================================
 var BRAPI_URL = 'https://brapi.dev/api';
-var PROXY_URL  = 'https://g20-proxy.vercel.app';
 var FMP_URL_V3 = 'https://financialmodelingprep.com/api/v3';
 var FMP_URL_V4 = 'https://financialmodelingprep.com/api/v4';
 var FMP_URL_STABLE = 'https://financialmodelingprep.com/stable';
@@ -1257,6 +1256,12 @@ function renderPosicoes(){
     else if(sortCol==='rentPreco'){va=a.rentPreco;vb=b.rentPreco;}
     else if(sortCol==='proventos'){va=a.prov;vb=b.prov;}
     else if(sortCol==='totalReturn'){va=a.totalRetPct;vb=b.totalRetPct;}
+    else if(sortCol==='nome'){va=a.nome||a.p.ticker;vb=b.nome||b.p.ticker;}
+    else if(sortCol==='tipo'){va=a.p.tipo||'';vb=b.p.tipo||'';}
+    else if(sortCol==='mkt'){va=a.p.mkt||'';vb=b.p.mkt||'';}
+    else if(sortCol==='cotacao'){va=a.cotacao||0;vb=b.cotacao||0;}
+    else if(sortCol==='varDia'){va=a.varDia||0;vb=b.varDia||0;}
+    else if(sortCol==='pctCart'){va=a.pctCart||0;vb=b.pctCart||0;}
     else{va=a.posVal;vb=b.posVal;}
     if(typeof va==='string') return sortAsc?va.localeCompare(vb):vb.localeCompare(va);
     return sortAsc?va-vb:vb-va;
@@ -1479,7 +1484,47 @@ function renderAportes(){
   var aportes=loadData('aportes',[]);
   var tbody=document.getElementById('tbodyAportes');
   if(!aportes.length){tbody.innerHTML='<tr><td colspan="9" style="text-align:center;padding:48px;color:var(--text3)">Nenhum aporte registrado.</td></tr>';return;}
-  tbody.innerHTML=aportes.slice().sort(function(a,b){return b.data.localeCompare(a.data);}).map(function(a){
+
+  // Gerar eventos de splits para mostrar na timeline
+  var splitEvents = [];
+  aportes.forEach(function(a){
+    if(a._splits_ajustados && a._splits_ajustados.length){
+      a._splits_ajustados.forEach(function(dataEvento){
+        // Evitar duplicatas
+        var existe = splitEvents.find(function(e){ return e.ticker===a.ticker && e.data===dataEvento; });
+        if(!existe){
+          splitEvents.push({
+            tipo: 'split',
+            ticker: a.ticker,
+            data: dataEvento,
+            label: 'Split/Inplit detectado'
+          });
+        }
+      });
+    }
+  });
+
+  // Buscar splits do localStorage para ter o ratio
+  var splitData = loadData('splits_cache', {});
+
+  // Combinar aportes + eventos de split em ordem cronológica reversa
+  var todos = aportes.map(function(a){ return {tipo:'aporte', data:a.data, item:a}; });
+  splitEvents.forEach(function(e){ todos.push({tipo:'split', data:e.data, item:e}); });
+  todos.sort(function(a,b){ return b.data.localeCompare(a.data); });
+
+  tbody.innerHTML=todos.map(function(entry){
+    if(entry.tipo === 'split'){
+      var e = entry.item;
+      var cached = splitData[e.ticker];
+      var ratio = cached ? (cached.find(function(s){ return s.date===e.data; })||{}).ratio : null;
+      var ratioStr = ratio ? (ratio > 1 ? 'Split '+ratio.toFixed(0)+':1' : 'Inplit 1:'+Math.round(1/ratio)) : 'Split/Inplit';
+      return '<tr style="background:rgba(232,184,75,0.06);border-left:3px solid var(--gold)">'+
+        '<td><span style="font-size:11px;color:var(--gold)">'+e.data+'</span></td>'+
+        '<td><span class="ticker-cell">'+e.ticker+'</span></td>'+
+        '<td colspan="6"><span style="color:var(--gold);font-size:12px">🔀 '+ratioStr+' — Quantidades ajustadas automaticamente</span></td>'+
+        '<td></td></tr>';
+    }
+    var a = entry.item;
     var total=a.qtd*a.preco;
     var mktBadge=isBR(a.ticker,a.tipo)?'<span class="mkt-br">BR</span>':'<span class="mkt-us">US</span>';
     return '<tr>'
@@ -1778,6 +1823,12 @@ function importarSplitsUS(ticker){
     .then(function(r){ return r.json(); })
     .then(function(d){
       if(!d.splits || !d.splits.length) return 0;
+      // Salva splits no cache para exibir na aba Aportes
+      if(d.splits && d.splits.length){
+        var cache = loadData('splits_cache', {});
+        cache[ticker] = d.splits;
+        saveData('splits_cache', cache);
+      }
       var alterados = aplicarSplitsAporte(ticker, d.splits);
       if(alterados > 0){
         console.log('[Splits] '+ticker+': '+d.splits.length+' split(s) encontrado(s), '+alterados+' aporte(s) ajustado(s)');
