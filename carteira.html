@@ -2,15 +2,15 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=3.0">
 <title>Carteira G20 - G20 Masterclass</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#090b0f;--bg2:#0f1117;--bg3:#171b23;--surface:#1c2030;--sur2:#242838;--border:rgba(255,255,255,0.08);--gold:#e8b84b;--gold2:#f5d07a;--red:#e63946;--green:#2ecc71;--blue:#3498db;--purple:#9b59b6;--orange:#e67e22;--text:#f4f6fa;--text2:#b0bac8;--text3:#6b7a94;--ease:cubic-bezier(.4,0,.2,1);--sidebar:220px}
+:root{--bg:#090b0f;--bg2:#0f1117;--bg3:#171b23;--surface:#1c2030;--sur2:#242838;--border:rgba(255,255,255,0.08);--gold:#e8b84b;--gold2:#f5d07a;--red:#e63946;--green:#2ecc71;--blue:#3498db;--purple:#9b59b6;--orange:#e67e22;--text:#f4f6fa;--text2:#b0bac8;--text3:#6b7a94;--ease:cubic-bezier(.4,0,.2,1);--sidebar:200px}
 .light{--bg:#f0f3f8;--bg2:#e5e9f2;--bg3:#d5dae6;--surface:#fff;--sur2:#f2f4f9;--border:rgba(0,0,0,.08);--text:#0b0d14;--text2:#4a526a;--text3:#8892a8}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html{scroll-behavior:smooth}
-body{background:var(--bg);color:var(--text);font-family:"DM Sans",sans-serif;min-height:100vh;overflow-x:hidden;display:flex}
+body{background:var(--bg);color:var(--text);font-family:"DM Sans",sans-serif;min-height:100vh;overflow-x:auto;display:flex}
 button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .sidebar{width:var(--sidebar);min-height:100vh;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;z-index:100;transition:transform .3s var(--ease)}
 @media(max-width:768px){.sidebar{transform:translateX(-100%)}.sidebar.open{transform:translateX(0)}.overlay{display:block!important}}
@@ -80,7 +80,7 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .search-input{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 12px;border-radius:8px;font-size:12px;font-family:inherit;min-width:160px}
 .search-input:focus{outline:none;border-color:var(--gold)}
 /* TABLE */
-.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text3);padding:10px 14px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none;transition:color .2s}
 th:hover{color:var(--gold)}
@@ -1151,8 +1151,10 @@ function fmtDate(iso){
 // SISTEMA DE LOGOS AUTOMÁTICOS
 // ============================================================
 var tokenLogoDev = '';
+// Versão do cache de logos — incrementar força reload no browser
+var LOGO_VERSION = '2';
 var _logoCache   = {};    // ticker → url ou 'error'
-var _logoQueue   = {};    // ticker → [callbacks]
+var _logoQueue   = {};    // ticker → em busca
 
 // Mapeamento manual para ativos BR sem domínio óbvio
 var BR_LOGO_DOMAINS = {
@@ -1297,69 +1299,70 @@ var US_CLEARBIT = {
   RIVN:'rivian.com',LCID:'lucidmotors.com',NIO:'nio.com'
 };
 
+// Versão do cache de logos — incrementar força reload no browser
+var LOGO_VERSION = '2';
+
 function buildLogoUrls(ticker, tipo){
   var t    = ticker.replace(/\.SA$/i,'').toUpperCase();
   var isBr = isBR(ticker, tipo||'Stock');
+  var v    = '&v='+LOGO_VERSION; // cache busting
   var urls = [];
 
-  // ── CAMADA 1: Clearbit via domínio mapeado (mais preciso para US conhecidos) ──
-  // Para tickers mapeados, Clearbit é mais confiável que TradingView
+  // ── US STOCKS: prioridade Logo.dev ticker → EODHD → Clearbit ──
   if(!isBr){
-    var cbDomain = US_CLEARBIT[t] || US_CLEARBIT[ticker];
-    if(cbDomain) urls.push('https://logo.clearbit.com/'+cbDomain+'?size=128');
-  } else {
-    var brDomainCb = BR_LOGO_DOMAINS[t] || BR_LOGO_DOMAINS[ticker];
-    if(brDomainCb) urls.push('https://logo.clearbit.com/'+brDomainCb+'?size=128');
-  }
-
-  // ── CAMADA 2: Logo.dev com publishable key (alta qualidade global) ──
-  if(tokenLogoDev){
-    if(isBr){
-      var brDomainDev = BR_LOGO_DOMAINS[t] || BR_LOGO_DOMAINS[ticker];
-      if(brDomainDev){
-        urls.push('https://img.logo.dev/'+brDomainDev+'?token='+tokenLogoDev+'&size=128&format=png');
-      }
-    } else {
-      urls.push('https://img.logo.dev/ticker/'+t+'?token='+tokenLogoDev+'&size=128&format=png');
+    // 1. Logo.dev com key (melhor, resolve qualquer ticker US pelo símbolo)
+    if(tokenLogoDev){
+      urls.push('https://img.logo.dev/ticker/'+t+'?token='+tokenLogoDev+'&size=128&format=png'+v);
     }
-  }
-
-  // ── CAMADA 3: TradingView CDN (global, funciona bem para maioria) ──
-  if(isBr){
-    var brTv = t.replace(/F$|4$|3$|11$|5$|6$/,'');
-    urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'--big.svg');
-    urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'.svg');
-    urls.push('https://s3-symbol-logo.tradingview.com/'+brTv.toLowerCase()+'--big.svg');
-  } else {
-    // Só usa TradingView para tickers NÃO mapeados no Clearbit (evita logos errados)
-    var cbDomainCheck = US_CLEARBIT[t] || US_CLEARBIT[ticker];
-    if(!cbDomainCheck){
+    // 2. EODHD — base global, gratuito, ticker direto
+    urls.push('https://eodhd.com/img/logos/US/'+t+'.png');
+    // 3. Clearbit via domínio mapeado (confiável mas limitado a mapeamento manual)
+    var cbDomain = US_CLEARBIT[t] || US_CLEARBIT[ticker];
+    if(cbDomain){
+      urls.push('https://logo.clearbit.com/'+cbDomain+'?size=128');
+    }
+    // 4. TradingView — só para tickers SEM mapeamento (evita logos errados)
+    if(!cbDomain){
       urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'--big.svg');
       urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'.svg');
     }
-  }
-
-  // ── CAMADA 4: EODHD logos (gratuito, sem key, global) ─────────
-  if(!isBr){
-    urls.push('https://eodhd.com/img/logos/US/'+t+'.png');
-  } else {
-    urls.push('https://eodhd.com/img/logos/BR/'+t+'.png');
-  }
-
-  // ── CAMADA 5: Brapi logo (B3 específico) ─────────────────────
-  if(isBr){
-    urls.push('https://brapi.dev/favicon.svg'); // fallback — tem logos de ações
-    // Tenta via endpoint público de informações
-    urls.push('https://raw.githubusercontent.com/thefintz/icones-b3/main/icones/'+t+'.png');
-  }
-
-  // ── CAMADA 6: Google Favicon (fallback universal via domínio) ──
-  if(!isBr){
-    var gDomain = US_CLEARBIT[t] || t.toLowerCase()+'.com';
+    // 5. Google Favicon via domínio
+    var gDomain = cbDomain || t.toLowerCase()+'.com';
     urls.push('https://www.google.com/s2/favicons?domain='+gDomain+'&sz=64');
-  } else {
-    var brDomainG = BR_LOGO_DOMAINS[t];
-    if(brDomainG) urls.push('https://www.google.com/s2/favicons?domain='+brDomainG+'&sz=64');
+  }
+
+  // ── BR STOCKS: prioridade GitHub icones-b3 → Logo.dev → EODHD → Clearbit ──
+  else {
+    var brDomain = BR_LOGO_DOMAINS[t] || BR_LOGO_DOMAINS[ticker];
+
+    // 1. GitHub icones-b3 (repositório dedicado à B3, muito confiável)
+    urls.push('https://raw.githubusercontent.com/thefintz/icones-b3/main/icones/'+t+'.png');
+
+    // 2. Logo.dev com key via domínio BR
+    if(tokenLogoDev && brDomain){
+      urls.push('https://img.logo.dev/'+brDomain+'?token='+tokenLogoDev+'&size=128&format=png'+v);
+    }
+
+    // 3. EODHD BR
+    urls.push('https://eodhd.com/img/logos/BR/'+t+'.png');
+
+    // 4. Clearbit via domínio mapeado
+    if(brDomain){
+      urls.push('https://logo.clearbit.com/'+brDomain+'?size=128');
+    }
+
+    // 5. TradingView BR (funciona bem para ações BR)
+    var brTv = t.replace(/[0-9]+$/, ''); // remove dígitos: PETR4 → PETR
+    urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'--big.svg');
+    urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'.svg');
+    if(brTv !== t){
+      urls.push('https://s3-symbol-logo.tradingview.com/'+brTv.toLowerCase()+'--big.svg');
+    }
+
+    // 6. Google Favicon
+    if(brDomain){
+      urls.push('https://www.google.com/s2/favicons?domain='+brDomain+'&sz=64');
+    }
   }
 
   return urls;
@@ -1400,6 +1403,8 @@ function logoError(imgEl, ticker){
 var US_TYPES = ['Stock','REIT','ETF','Cripto'];
 function isBR(ticker, tipo) {
   if (US_TYPES.includes(tipo)) return false;
+  // Tickers com sufixo .SA são sempre BR
+  if (/\.SA$/i.test(ticker)) return true;
   return /\d$/.test(ticker) || ['Acao','FII','FIAGRO'].includes(tipo);
 }
 
@@ -1620,20 +1625,22 @@ function buscarSugestoesTicker(q){
 
 function selecionarSugestao(symbol, tipo){
   var input = document.getElementById('aporte_ticker');
-  if(input) input.value = symbol;
 
-  // corrigirTipoProxy garante que tickers BR não virem Stock e
-  // que ETF/REIT/Cripto do proxy sejam respeitados
+  // Para ativos BR: remove o sufixo .SA que o Yahoo/proxy adiciona
+  // VULC3.SA → VULC3, PETR4.SA → PETR4, VALE3.SA → VALE3
   var tipoFinal = corrigirTipoProxy(symbol, tipo);
+  var flagBR    = ['Acao','FII','FIAGRO'].includes(tipoFinal);
+  var tickerFinal = flagBR ? symbol.replace(/\.SA$/i,'').toUpperCase() : symbol.toUpperCase();
+
+  if(input) input.value = tickerFinal;
+
   var sel = document.getElementById('aporte_tipo');
   if(sel) sel.value = tipoFinal;
   onTipoChange(tipoFinal);
 
-  // Atualiza hint/label sem chamar autoDetectTipo (que sobrescreveria o tipo)
-  var flagBR = ['Acao','FII','FIAGRO'].includes(tipoFinal);
-  var hint = document.getElementById('tickerHint');
+  var hint  = document.getElementById('tickerHint');
   var label = document.getElementById('tipoAutoLabel');
-  if(hint) { hint.textContent = flagBR ? '\u{1F1E7}\u{1F1F7} ' + tipoFinal + ' (B3)' : '\u{1F1FA}\u{1F1F8} ' + tipoFinal + ' (US)'; hint.style.color = flagBR ? '#2ecc71' : '#3b82f6'; }
+  if(hint)  { hint.textContent  = flagBR ? '\u{1F1E7}\u{1F1F7} ' + tipoFinal + ' (B3)' : '\u{1F1FA}\u{1F1F8} ' + tipoFinal + ' (US)'; hint.style.color = flagBR ? '#2ecc71' : '#3b82f6'; }
   if(label) { label.textContent = '← detectado automaticamente'; }
 
   fecharAutocomplete();
@@ -1758,7 +1765,14 @@ function buscarCotacoes(){
 
   if(temBR && tokenBrapi){
     tickersBR.forEach(function(ticker){
-      var url = BRAPI_URL+'/quote/'+ticker+'?range=1d&interval=1d&token='+tokenBrapi;
+      // Normaliza: remove .SA e valida que é um ticker B3 (tem dígito no final ou é FII)
+      var tickerB3 = ticker.replace(/\.SA$/i, '').toUpperCase();
+      // Pula tickers puramente alfabéticos sem dígito (ex: AAPL classificado como Acao por engano)
+      if(!/\d/.test(tickerB3)){
+        erros.push(tickerB3+' — tipo "Acao" mas parece Stock US. Edite e mude o tipo para Stock.');
+        return;
+      }
+      var url = BRAPI_URL+'/quote/'+tickerB3+'?range=1d&interval=1d&token='+tokenBrapi;
       promises.push(
         fetch(url)
           .then(function(r){
@@ -1769,7 +1783,7 @@ function buscarCotacoes(){
             if(d.error){ throw new Error(d.message||'Erro Brapi'); }
             if(d.results && d.results[0]){
               var r = d.results[0];
-              cotacoes[r.symbol] = {
+              var cotObj = {
                 preco: r.regularMarketPrice || 0,
                 var:   r.regularMarketChangePercent || 0,
                 var1d: r.regularMarketChange || 0,
@@ -1778,12 +1792,15 @@ function buscarCotacoes(){
                 mkt:   'BR',
                 ts:    Date.now()
               };
+              // Armazena tanto pelo símbolo retornado quanto pelo ticker original
+              cotacoes[r.symbol] = cotObj;
+              if(ticker !== r.symbol) cotacoes[ticker] = cotObj; // ex: VULC3.SA → também salva como VULC3.SA
             } else {
               erros.push(ticker+' — não encontrado na Brapi');
             }
           })
           .catch(function(e){
-            erros.push('Brapi ['+ticker+'] – '+e.message);
+            erros.push('Brapi ['+tickerB3+'] – '+e.message);
           })
       );
     });
@@ -1908,24 +1925,33 @@ function corrigirTiposAportes(){
   aportes = aportes.map(function(a){
     var tipoOriginal = a.tipo;
     var ticker = a.ticker;
-    var novoTipo = tipoOriginal;
-    if(/^[A-Z]{4}11$/.test(ticker)) novoTipo = 'FII';
-    else if(/^[A-Z]{4}[1-9]$/.test(ticker)) novoTipo = 'Acao';
-    else if(ETFS_US_CONHECIDOS.includes(ticker)) novoTipo = 'ETF';
-    else if(REITS_CONHECIDOS.includes(ticker)) novoTipo = 'REIT';
-    else if(/^[A-Z]{1,5}$/.test(ticker)) novoTipo = 'Stock';
-    if(novoTipo !== tipoOriginal){
+    var novoTicker = ticker;
+    var novoTipo   = tipoOriginal;
+
+    // ── Normaliza sufixo .SA: VULC3.SA → VULC3 ──────────────────
+    if(/\.SA$/i.test(ticker)){
+      novoTicker = ticker.replace(/\.SA$/i,'').toUpperCase();
+      novoTipo   = 'Acao';
+    }
+    // ── Corrige tipos incorretos ──────────────────────────────────
+    else if(/^[A-Z]{4}11$/.test(novoTicker)) novoTipo = 'FII';
+    else if(/^[A-Z]{4}[1-9]$/.test(novoTicker)) novoTipo = 'Acao';
+    else if(ETFS_US_CONHECIDOS.includes(novoTicker)) novoTipo = 'ETF';
+    else if(REITS_CONHECIDOS.includes(novoTicker)) novoTipo = 'REIT';
+    else if(/^[A-Z]{1,5}$/.test(novoTicker)) novoTipo = 'Stock';
+
+    if(novoTicker !== ticker || novoTipo !== tipoOriginal){
       corrigidos++;
-      return Object.assign({}, a, {tipo: novoTipo});
+      return Object.assign({}, a, {ticker: novoTicker, tipo: novoTipo});
     }
     return a;
   });
   if(corrigidos > 0){
     saveData('aportes', aportes);
-    alert('✅ ' + corrigidos + ' ativo(s) corrigido(s)!\nEx: AAPL → Stock, QQQ → ETF\nA tabela será atualizada.');
+    alert('✅ ' + corrigidos + ' ativo(s) corrigido(s)!\nEx: VULC3.SA → VULC3, AAPL → Stock\nA tabela será atualizada.');
     renderPosicoes();
   } else {
-    alert('✓ Todos os tipos já estão corretos.');
+    alert('✓ Todos os tipos e tickers já estão corretos.');
   }
 }
 
@@ -3892,6 +3918,44 @@ function closeSidebar(){document.getElementById('sidebar').classList.remove('ope
 function toggleTheme(){var l=document.body.classList.toggle('light');document.getElementById('themeBtn').textContent=l?'☀️':'🌙';try{localStorage.setItem('g20-theme',l?'light':'dark');}catch(e){}}
 
 // ============================================================
+// AUTO-ZOOM — ajusta escala para o dashboard caber na tela
+// ============================================================
+(function(){
+  // Largura mínima desejada do dashboard (sidebar + conteúdo)
+  var MIN_CONTENT_WIDTH = 1280;
+  // Zoom mínimo e máximo permitidos
+  var ZOOM_MIN = 0.6;
+  var ZOOM_MAX = 1.0;
+
+  function aplicarZoom(){
+    var vw = window.innerWidth;
+    // Só aplica em desktop (>768px) — mobile usa o layout responsivo
+    if(vw <= 768){ document.documentElement.style.zoom = ''; return; }
+
+    var zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, vw / MIN_CONTENT_WIDTH));
+    // Arredonda para 2 casas para evitar subpixel flickering
+    zoom = Math.round(zoom * 100) / 100;
+    document.documentElement.style.zoom = zoom;
+    // Salva preferência do usuário se ele ajustou manualmente
+    try{ localStorage.setItem('g20-zoom', zoom); }catch(e){}
+  }
+
+  // Reseta zoom manualmente (botão 100%)
+  window.resetZoom = function(){
+    document.documentElement.style.zoom = '1';
+    try{ localStorage.removeItem('g20-zoom'); }catch(e){}
+  };
+
+  // Aplica ao carregar e ao redimensionar
+  aplicarZoom();
+  var _zoomTimer;
+  window.addEventListener('resize', function(){
+    clearTimeout(_zoomTimer);
+    _zoomTimer = setTimeout(aplicarZoom, 80);
+  });
+})();
+
+// ============================================================
 // ESC — fecha qualquer overlay aberto
 // ============================================================
 document.addEventListener('keydown',function(e){
@@ -4248,6 +4312,23 @@ function aplicarOrdemColunas(){
     showCacheInfo(cache.ts);
     atualizarDisplayCambio(usdBRL);
   }
+
+  // Normaliza silenciosamente tickers .SA já salvos (ex: VULC3.SA → VULC3)
+  (function normalizarTickersSA(){
+    var aportes = loadData('aportes', []);
+    var changed = false;
+    aportes = aportes.map(function(a){
+      if(/\.SA$/i.test(a.ticker)){
+        changed = true;
+        return Object.assign({}, a, {
+          ticker: a.ticker.replace(/\.SA$/i,'').toUpperCase(),
+          tipo: a.tipo === 'Stock' ? 'Acao' : a.tipo // corrige tipo se veio errado
+        });
+      }
+      return a;
+    });
+    if(changed) saveData('aportes', aportes);
+  })();
 
   renderPosicoes();
   // Aplica visibilidade de colunas após render
