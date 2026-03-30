@@ -587,29 +587,26 @@ var PROXY_URL  = 'https://g20-proxy.vercel.app';
 var FMP_URL_V3 = 'https://financialmodelingprep.com/api/v3';
 var FMP_URL_V4 = 'https://financialmodelingprep.com/api/v4';
 var FMP_URL_STABLE = 'https://financialmodelingprep.com/stable';
-// Fontes alternativas de câmbio (gratuitas, sem autenticação)
 var FX_SOURCES = [
   'https://economia.awesomeapi.com.br/json/last/USD-BRL',
   'https://open.er-api.com/v6/latest/USD'
 ];
-// Plano Brapi: 1 ticker por request no gratuito
 var BRAPI_BATCH_SIZE = 1;
-// FMP: novo endpoint estável (pós-agosto 2025)
 var FMP_URL = FMP_URL_STABLE;
 
 var tokenBrapi  = '';
 var tokenFmp    = '';
-var tokenTwelve = '';  // Twelve Data — fallback para ADRs e stocks US
+var tokenTwelve = '';
 var TWELVE_URL  = 'https://api.twelvedata.com';
 var cotacoes    = {};
-var usdBRL      = 5.85; // taxa de câmbio fallback
+var usdBRL      = 5.85;
 var filtroAtivo = 'todos';
 var sortCol = 'posicao';
 var sortAsc = false;
 var modoMoeda = 'BRL';
 var chartsInstances = {};
 var autoRefreshTimer = null;
-var AUTO_REFRESH_MIN = 15; // minutos
+var AUTO_REFRESH_MIN = 15;
 
 // ============================================================
 // STORAGE
@@ -621,7 +618,6 @@ function saveData(k,v){try{localStorage.setItem('g20_'+k,JSON.stringify(v));}cat
 // DETECÇÃO DE MERCADO (BR vs US)
 // ============================================================
 var US_TYPES = ['Stock','REIT','ETF','Cripto'];
-// Tickers BR: terminam em número (PETR4, MXRF11) ou são índices BR
 function isBR(ticker, tipo) {
   if (US_TYPES.includes(tipo)) return false;
   return /\d$/.test(ticker) || ['Acao','FII','FIAGRO'].includes(tipo);
@@ -703,7 +699,7 @@ function atualizarCountdown(){
 // ============================================================
 // CACHE INTELIGENTE (15 min)
 // ============================================================
-var CACHE_TTL = 15 * 60 * 1000; // 15 minutos
+var CACHE_TTL = 15 * 60 * 1000;
 function getCachedCotacoes(){
   var c = loadData('cotacoesCache', null);
   if(!c) return null;
@@ -721,15 +717,13 @@ function showCacheInfo(ts){
 }
 
 // ============================================================
-// TAXA DE CÂMBIO USD/BRL — múltiplas fontes com fallback
+// TAXA DE CÂMBIO USD/BRL
 // ============================================================
 function buscarTaxaCambio(){
-  // 1ª tentativa: FMP (se token disponível)
   if(tokenFmp){
     return fetch(FMP_URL+'/fx/USDBRL?apikey='+tokenFmp)
       .then(function(r){ return r.json(); })
       .then(function(d){
-        // FMP retorna array ou objeto dependendo do plano
         var rate = null;
         if(Array.isArray(d) && d[0] && d[0].ask) rate = parseFloat(d[0].ask);
         else if(Array.isArray(d) && d[0] && d[0].price) rate = parseFloat(d[0].price);
@@ -743,7 +737,6 @@ function buscarTaxaCambio(){
 }
 
 function buscarTaxaCambioFallback(){
-  // AwesomeAPI Brasil (gratuita, sem token)
   return fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL')
     .then(function(r){ return r.json(); })
     .then(function(d){
@@ -757,7 +750,6 @@ function buscarTaxaCambioFallback(){
 }
 
 function buscarTaxaCambioFallback2(){
-  // ExchangeRate-API (gratuita, sem token)
   return fetch('https://open.er-api.com/v6/latest/USD')
     .then(function(r){ return r.json(); })
     .then(function(d){
@@ -765,19 +757,13 @@ function buscarTaxaCambioFallback2(){
         var rate = parseFloat(d.rates.BRL);
         if(rate > 3 && rate < 20){ usdBRL = rate; return rate; }
       }
-      // Último recurso: manter valor atual
       return usdBRL;
     })
     .catch(function(){ return usdBRL; });
 }
 
 // ============================================================
-// BUSCA COTAÇÕES — ARQUITETURA HÍBRIDA BR + US
-// ============================================================
-
-
-// ============================================================
-// AUTOCOMPLETE TICKER — busca global via proxy Vercel
+// AUTOCOMPLETE TICKER
 // ============================================================
 var _autocompleteTimer = null;
 var _autocompleteIdx = -1;
@@ -787,7 +773,6 @@ function buscarSugestoesTicker(q){
   if(!box) return;
   if(!q || q.length < 2){ fecharAutocomplete(); return; }
 
-  // Debounce 300ms
   clearTimeout(_autocompleteTimer);
   _autocompleteTimer = setTimeout(function(){
     if(!PROXY_URL){ fecharAutocomplete(); return; }
@@ -871,26 +856,23 @@ function navegarAutocomplete(e){
 }
 
 // ============================================================
-// CRIPTO — helpers para modal de aporte
+// MOEDA NO MODAL — lógica central
 // ============================================================
 function onTipoChange(tipo){
   var moedaSel = document.getElementById('aporte_preco_moeda');
   var moedaLabel = document.getElementById('aporte_preco_moeda_label');
   var isUS = ['Stock','REIT','ETF','Cripto'].indexOf(tipo) >= 0;
-  var isBRTipo = ['Acao','FII','FIAGRO'].indexOf(tipo) >= 0;
 
   if(isUS){
-    // Ativos US: mostra select e define default como USD
+    // Ativo internacional: mostra select de moeda, default USD
     moedaSel.style.display = 'block';
     moedaSel.value = 'USD';
-    if(moedaLabel) moedaLabel.textContent = '(US$)';
-    moedaLabel.style.color = '#64b4ff';
+    if(moedaLabel){ moedaLabel.textContent = '(US$)'; moedaLabel.style.color = '#64b4ff'; }
   } else {
-    // Ativos BR: esconde select, fixa em BRL
+    // Ativo nacional: esconde select, fixa em BRL
     moedaSel.style.display = 'none';
     moedaSel.value = 'BRL';
-    if(moedaLabel) moedaLabel.textContent = '(R$)';
-    moedaLabel.style.color = 'var(--gold)';
+    if(moedaLabel){ moedaLabel.textContent = '(R$)'; moedaLabel.style.color = 'var(--gold)'; }
   }
 }
 
@@ -899,12 +881,14 @@ function atualizarLabelMoeda(){
   var moedaLabel = document.getElementById('aporte_preco_moeda_label');
   if(!moedaSel || !moedaLabel) return;
   moedaLabel.textContent = moedaSel.value === 'USD' ? '(US$)' : '(R$)';
+  moedaLabel.style.color = moedaSel.value === 'USD' ? '#64b4ff' : 'var(--gold)';
 }
 
-// Busca cotação de cripto via proxy (Yahoo Finance: BTC-USD etc.)
+// ============================================================
+// CRIPTO
+// ============================================================
 function buscarCotacaoCripto(ticker){
   if(!PROXY_URL) return;
-  // Normaliza ticker: BTC → BTC-USD, BTC-USD → BTC-USD
   var sym = ticker.includes('-') ? ticker : ticker+'-USD';
   var url = PROXY_URL+'/api/quote?symbol='+encodeURIComponent(sym);
   return fetch(url)
@@ -912,7 +896,7 @@ function buscarCotacaoCripto(ticker){
     .then(function(d){
       if(d && d.price){
         cotacoes[ticker] = {
-          preco:    d.price * usdBRL, // converte USD→BRL para compatibilidade
+          preco:    d.price * usdBRL,
           var:      parseFloat(d.changePercent||0),
           var1d:    parseFloat(d.change||0) * usdBRL,
           nome:     d.name || ticker,
@@ -937,13 +921,10 @@ function buscarCotacoes(){
   var temBR = tickersBR.length > 0;
   var temUS = tickersUS.length > 0;
 
-  // Valida tokens necessários
   if(temBR && !tokenBrapi){
     mostrarAvisoToken('brapi');
     if(!temUS) return;
   }
-  // US: tenta Yahoo Finance (sem token) primeiro, FMP como opcional
-  // Não bloqueia se FMP não estiver configurado
 
   atualizarBadge('loading');
   document.getElementById('btnAtualizar').textContent = '⏳ Buscando...';
@@ -952,14 +933,12 @@ function buscarCotacoes(){
   var promises = [];
   var erros = [];
 
-  // --- Câmbio: sempre buscar se tiver ativos US ---
   if(temUS){
     promises.push(buscarTaxaCambio().then(function(rate){
       atualizarDisplayCambio(rate);
     }));
   }
 
-  // --- BRAPI: 1 ticker por request (limite do plano gratuito) ---
   if(temBR && tokenBrapi){
     tickersBR.forEach(function(ticker){
       var url = BRAPI_URL+'/quote/'+ticker+'?range=1d&interval=1d&token='+tokenBrapi;
@@ -993,12 +972,10 @@ function buscarCotacoes(){
     });
   }
 
-  // --- ATIVOS US: proxy Vercel ---
   if(temUS){
     promises.push(buscarUSTickersBatch(tickersUS, erros));
   }
 
-  // --- CRIPTO: via proxy Yahoo Finance (BTC-USD, ETH-USD...) ---
   var tickersCripto = pos.filter(function(p){ return p.tipo==='Cripto'; }).map(function(p){ return p.ticker; });
   if(tickersCripto.length && PROXY_URL){
     promises.push(
@@ -1026,10 +1003,8 @@ function buscarCotacoes(){
     renderPosicoes();
     if(document.getElementById('tab-graficos').style.display!=='none') renderGraficos();
 
-    // 1. Primeiro verifica splits/inplits e ajusta aportes
     importarTodosSplits(function(splitsAjustados){
       if(splitsAjustados > 0) renderPosicoes();
-      // 2. Depois importa proventos históricos
       importarTodosProventos(function(novos){
         if(novos > 0) renderPosicoes();
       });
@@ -1040,10 +1015,6 @@ function buscarCotacoes(){
 // ============================================================
 // AUTO-DETECÇÃO DE TIPO POR TICKER
 // ============================================================
-// FIIs terminam em 11 (MXRF11, XPML11, HGLG11...)
-// FIAGROs terminam em 11 também mas têm padrão AGRO/FIAG — sem como distinguir, deixa usuário
-// Stocks US: tickers sem número, 1-5 letras
-// REITs US conhecidos
 var REITS_CONHECIDOS = ['O','SPG','VNQ','NNN','STAG','WPC','VICI','MPW','AMT','PLD','PSA','EXR','AVB','EQR','MAA','UDR','AIV','CPT','KIM','REG','BXP','SLG','HIW','CIO','DEI','PDM','VTR','WELL','OHI','HR','PEAK','SNH','LTC','SBRA','CTRE','NXRT','IRT','APTS','BRT','PLYM'];
 var ETFS_US_CONHECIDOS = ['SPY','QQQ','IWM','DIA','GLD','SLV','TLT','AGG','LQD','HYG','XLE','XLF','XLK','XLV','XLI','XLY','XLP','XLU','XLB','XLRE','VTI','VOO','IVV','VEA','VWO','EFA','EEM','VNQ','SCHD','JEPI','JEPQ','QYLD','XYLD','RYLD','NUSI'];
 
@@ -1060,34 +1031,28 @@ function autoDetectTipo(ticker){
   var detected = null;
   var msg = '';
 
-  // FII: 4 letras + 11 (ex: MXRF11, XPML11)
   if(/^[A-Z]{4}11$/.test(ticker)){
     detected = 'FII'; msg = '🇧🇷 Detectado: FII (B3)';
   }
-  // Ação BR: 4 letras + 1 dígito 1-9 (ex: PETR4, VALE3, ITUB4)
   else if(/^[A-Z]{4}[1-9]$/.test(ticker) || /^[A-Z]{4}3[AB]$/.test(ticker)){
     detected = 'Acao'; msg = '🇧🇷 Detectado: Ação (B3)';
   }
-  // Ação BR com 5 letras + dígito (ex: BBDC4, SANB11)
   else if(/^[A-Z]{3,5}\d{1,2}$/.test(ticker)){
     detected = 'Acao'; msg = '🇧🇷 Detectado: Ação/FII (B3) — confirme o tipo';
   }
-  // ETF US conhecido
   else if(ETFS_US_CONHECIDOS.includes(ticker)){
     detected = 'ETF'; msg = '🇺🇸 Detectado: ETF (US)';
   }
-  // REIT US conhecido
   else if(REITS_CONHECIDOS.includes(ticker)){
     detected = 'REIT'; msg = '🇺🇸 Detectado: REIT (US)';
   }
-  // Stock US: só letras, 1-5 chars (ex: AAPL, MSFT, AMZN, GOOGL, TSLA)
   else if(/^[A-Z]{1,5}$/.test(ticker)){
     detected = 'Stock'; msg = '🇺🇸 Detectado: Stock (US)';
   }
 
   if(detected){
     sel.value = detected;
-    onTipoChange(detected); // atualiza label de moeda automaticamente
+    onTipoChange(detected); // ← atualiza moeda automaticamente
     label.textContent = '← detectado automaticamente';
     hint.textContent = msg;
     hint.style.color = detected === 'Acao' || detected === 'FII' || detected === 'FIAGRO'
@@ -1106,7 +1071,6 @@ function corrigirTiposAportes(){
   var corrigidos = 0;
   aportes = aportes.map(function(a){
     var tipoOriginal = a.tipo;
-    // Roda a mesma lógica de detecção
     var ticker = a.ticker;
     var novoTipo = tipoOriginal;
     if(/^[A-Z]{4}11$/.test(ticker)) novoTipo = 'FII';
@@ -1129,36 +1093,23 @@ function corrigirTiposAportes(){
   }
 }
 
-
 // ============================================================
-// ATIVOS US — múltiplas fontes gratuitas com fallback
-// 1. Yahoo Finance query1 (CORS funciona em produção)
-// 2. Yahoo Finance query2 (fallback)
-// 3. FMP stable (se token configurado)
-// ============================================================
-
-// ============================================================
-// ATIVOS US — BATCH: 1 requisição para todos os tickers
-// Twelve Data suporta múltiplos tickers separados por vírgula
-// 1 req para toda a carteira = economia máxima de tokens
+// ATIVOS US — BATCH
 // ============================================================
 function buscarUSTickersBatch(tickers, erros){
   if(!tickers || !tickers.length) return Promise.resolve();
 
-  // Usa proxy Vercel — sem CORS, funciona para qualquer ticker
   if(PROXY_URL){
-    var BATCH = 10; // proxy aguenta mais tickers por req
+    var BATCH = 10;
     var chunks = [];
     for(var i=0; i<tickers.length; i+=BATCH) chunks.push(tickers.slice(i,i+BATCH));
 
     return Promise.all(chunks.map(function(chunk){
-      // Yahoo Finance usa BRK-B (hífen), não BRK.B (ponto)
-    var apiChunk = chunk.map(function(t){ return t==='BRK.B'?'BRK-B':t; });
-    var url = PROXY_URL+'/api/quote?symbol='+encodeURIComponent(apiChunk.join(','));
+      var apiChunk = chunk.map(function(t){ return t==='BRK.B'?'BRK-B':t; });
+      var url = PROXY_URL+'/api/quote?symbol='+encodeURIComponent(apiChunk.join(','));
       return fetch(url)
         .then(function(r){ return r.json(); })
         .then(function(d){
-          // 1 ticker: objeto direto; múltiplos: {AAPL:{...}, MSFT:{...}}
           if(d && d.symbol && d.price !== undefined){
             var tmp={}; tmp[d.symbol]=d; d=tmp;
           }
@@ -1180,7 +1131,6 @@ function buscarUSTickersBatch(tickers, erros){
           });
         }).catch(function(){});
     })).then(function(){
-      // Fallback Yahoo para tickers não encontrados
       var falhos = tickers.filter(function(t){ return !cotacoes[t]; });
       if(!falhos.length) return;
       return Promise.all(falhos.map(function(ticker){
@@ -1191,7 +1141,6 @@ function buscarUSTickersBatch(tickers, erros){
     });
   }
 
-  // Sem proxy: Yahoo direto
   return Promise.all(tickers.map(function(ticker){
     return tentarYahoo(ticker).catch(function(){
       if(erros) erros.push(ticker+' — sem cotação');
@@ -1200,18 +1149,15 @@ function buscarUSTickersBatch(tickers, erros){
 }
 
 function buscarUSTicker(ticker, erros){
-  // TWELVE DATA primeiro (confiável para qualquer ticker US + ADRs)
   if(tokenTwelve){
     return buscarTwelveDataTicker(ticker, null)
       .then(function(){
-        if(cotacoes[ticker]) return; // Twelve Data funcionou!
-        // Fallback: Yahoo Finance
+        if(cotacoes[ticker]) return;
         return tentarYahoo(ticker).catch(function(){
           if(erros) erros.push(ticker+' — sem cotação disponível');
         });
       });
   }
-  // Sem Twelve Data: só Yahoo
   return tentarYahoo(ticker).catch(function(){
     if(erros) erros.push(ticker+' — sem cotação (configure Twelve Data)');
   });
@@ -1272,10 +1218,8 @@ function tentarYahoo(ticker){
     });
 }
 
-
-
 // ============================================================
-// TWELVE DATA — fallback para ADRs e stocks US (800 req/dia grátis)
+// TWELVE DATA
 // ============================================================
 function buscarTwelveDataTicker(ticker, erros){
   if(!tokenTwelve) return Promise.resolve();
@@ -1307,7 +1251,7 @@ function buscarTwelveDataTicker(ticker, erros){
 }
 
 // ============================================================
-// FMP — busca 1 ticker com fallback /stable/quote → /api/v3/quote
+// FMP
 // ============================================================
 function buscarFmpTicker(ticker, erros){
   var urlStable = 'https://financialmodelingprep.com/stable/quote?symbol='+ticker+'&apikey='+tokenFmp;
@@ -1356,7 +1300,6 @@ function mostrarAvisoToken(api){
     brapi: '⚠️ Token Brapi não configurado.\nClique no ícone 🔑 no topo para adicionar.',
     fmp:   '⚠️ API Key do FMP não configurada.\nClique no ícone 🔑 no topo para adicionar.'
   };
-  // Mostra banner em vez de alert
   document.getElementById('tokenBanner').style.display='block';
   var el = document.getElementById('apiStatusMsg');
   if(!el){
@@ -1412,7 +1355,6 @@ function getProventosAtivo(ticker){
 function totalProventosAtivo(ticker, tipo){
   return getProventosAtivo(ticker).reduce(function(s,d){
     var val = d.valor * (d.qtdEx||0);
-    // US: converte USD→BRL
     if(!isBR(ticker,tipo)) val *= usdBRL;
     return s + val;
   },0);
@@ -1435,10 +1377,6 @@ function sortBy(col){
   renderPosicoes();
 }
 
-
-// ============================================================
-// TOGGLE MOEDA — alterna entre BRL e USD na exibição
-// ============================================================
 function toggleMoeda(){
   modoMoeda = modoMoeda === 'BRL' ? 'USD' : 'BRL';
   var btn = document.getElementById('btnMoeda');
@@ -1457,7 +1395,6 @@ function renderPosicoes(){
   var divRec = divs.filter(function(d){return d.data<new Date().toISOString().split('T')[0];})
                    .reduce(function(s,d){return s+(d.valor*(d.qtdEx||0));},0);
 
-  // Filtra
   if(filtroAtivo!=='todos') pos=pos.filter(function(p){return p.tipo===filtroAtivo;});
   if(search) pos=pos.filter(function(p){return p.ticker.includes(search);});
 
@@ -1468,7 +1405,6 @@ function renderPosicoes(){
     return;
   }
 
-  // Calcula métricas
   var totalInvGlobal=0, totalPosGlobal=0, totalProvGlobal=0;
   var rows = pos.map(function(p){
     var pm = p.qtd>0 ? p.totalInv/p.qtd : 0;
@@ -1495,7 +1431,6 @@ function renderPosicoes(){
     };
   });
 
-  // Sort
   rows.sort(function(a,b){
     var va,vb;
     if(sortCol==='ticker'){va=a.p.ticker;vb=b.p.ticker;}
@@ -1507,26 +1442,18 @@ function renderPosicoes(){
     else if(sortCol==='rentPreco'){va=a.rentPreco;vb=b.rentPreco;}
     else if(sortCol==='proventos'){va=a.prov;vb=b.prov;}
     else if(sortCol==='totalReturn'){va=a.totalRetPct;vb=b.totalRetPct;}
-    else if(sortCol==='nome'){va=a.nome||a.p.ticker;vb=b.nome||b.p.ticker;}
-    else if(sortCol==='tipo'){va=a.p.tipo||'';vb=b.p.tipo||'';}
-    else if(sortCol==='mkt'){va=a.p.mkt||'';vb=b.p.mkt||'';}
-    else if(sortCol==='cotacao'){va=a.cotacao||0;vb=b.cotacao||0;}
-    else if(sortCol==='varDia'){va=a.varDia||0;vb=b.varDia||0;}
-    else if(sortCol==='pctCart'){va=a.pctCart||0;vb=b.pctCart||0;}
     else{va=a.posVal;vb=b.posVal;}
     if(typeof va==='string') return sortAsc?va.localeCompare(vb):vb.localeCompare(va);
     return sortAsc?va-vb:vb-va;
   });
 
-  // Formatação depende do modo de moeda
   var fmtBRL = function(v){return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});};
   var fmtUSD = function(v){return '$ '+(v/usdBRL).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});};
   var fmt = function(v, isUS){
     if(modoMoeda === 'USD'){
-      // Em modo USD: ativos US em USD, ativos BR em BRL (mantém original)
       return isUS ? fmtUSD(v) : fmtBRL(v);
     }
-    return fmtBRL(v); // modo BRL: tudo em reais
+    return fmtBRL(v);
   };
   var fmtPct = function(v){return (v>=0?'+':'')+v.toFixed(2)+'%';};
 
@@ -1597,7 +1524,6 @@ function atualizarStats(inv, pos, res, divRec, prov){
     document.getElementById('statLucro').textContent=(res>=0?'+':'')+fmt(res);
     document.getElementById('statLucro').className='stat-val '+(res>=0?'up':'down');
     document.getElementById('statPct').textContent=inv>0?((res/inv*100).toFixed(2)+'%'):'';
-    // Total Return
     var totalRet = res + (prov||0);
     var totalRetPct = inv>0?(totalRet/inv*100):0;
     document.getElementById('statTotalReturn').textContent=(totalRet>=0?'+':'')+fmt(totalRet);
@@ -1612,7 +1538,7 @@ function atualizarStats(inv, pos, res, divRec, prov){
 }
 
 // ============================================================
-// GRÁFICOS (Chart.js)
+// GRÁFICOS
 // ============================================================
 var COLORS_TIPO = {
   Acao:'#3498db', FII:'#2ecc71', FIAGRO:'#f1c40f',
@@ -1627,7 +1553,6 @@ function renderGraficos(){
   var pos = calcPosicoes();
   if(!pos.length) return;
 
-  // Calcula posição atual de cada ativo
   var totalPos = 0;
   var posData = pos.map(function(p){
     var cot = cotacoes[p.ticker];
@@ -1646,7 +1571,6 @@ function renderGraficos(){
   var textColor = darkMode?'#8a95a8':'#4a526a';
   Chart.defaults.color = textColor;
 
-  // 1. DONUT — Alocação por Tipo
   destroyChart('chartTipo');
   var byTipo = {};
   posData.forEach(function(d){
@@ -1660,14 +1584,12 @@ function renderGraficos(){
     data:{labels:tipoLabels,datasets:[{data:tipoVals,backgroundColor:tipoCores,borderWidth:0,hoverOffset:6}]},
     options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){var pct=(c.raw/totalPos*100).toFixed(1);return c.label+': R$ '+c.raw.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})+' ('+pct+'%)';}}}}}
   });
-  // Legend manual
   var leg=document.getElementById('legendTipo');
   leg.innerHTML=tipoLabels.map(function(t,i){
     var pct=(tipoVals[i]/totalPos*100).toFixed(1);
     return '<div class="legend-item"><div class="legend-dot" style="background:'+tipoCores[i]+'"></div><div class="legend-label">'+t+'</div><div class="legend-val">'+pct+'%</div></div>';
   }).join('');
 
-  // 2. BAR — Top 10 posições
   destroyChart('chartTop');
   var top10=posData.slice().sort(function(a,b){return b.posVal-a.posVal;}).slice(0,10);
   var ctxTop=document.getElementById('chartTop').getContext('2d');
@@ -1677,7 +1599,6 @@ function renderGraficos(){
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:gridColor}},y:{grid:{color:gridColor},ticks:{callback:function(v){return 'R$'+v.toLocaleString('pt-BR',{maximumFractionDigits:0});}}}}}
   });
 
-  // 3. BAR — Rentabilidade preço vs total return (só ativos com cotação)
   destroyChart('chartRent');
   var rentData=posData.filter(function(d){return cotacoes[d.ticker];}).slice().sort(function(a,b){return b.totalRetPct-a.totalRetPct;}).slice(0,10);
   var ctxRent=document.getElementById('chartRent').getContext('2d');
@@ -1693,7 +1614,6 @@ function renderGraficos(){
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top'}},scales:{x:{grid:{color:gridColor}},y:{grid:{color:gridColor},ticks:{callback:function(v){return v+'%';}}}}}
   });
 
-  // 4. BAR — Proventos por mês
   destroyChart('chartProv');
   var divs=loadData('dividendos',[]).filter(function(d){return d.data<new Date().toISOString().split('T')[0];});
   var byMonth={};
@@ -1711,30 +1631,39 @@ function renderGraficos(){
 }
 
 // ============================================================
-// APORTES
+// APORTES — MODAL
 // ============================================================
+
+// ★ PATCH: abrirModalAporte
+// - Sem ticker: reseta para Acao → moeda automática = R$
+// - Com ticker: autoDetectTipo detecta e onTipoChange sincroniza moeda
 function abrirModalAporte(ticker){
   var today=new Date().toISOString().split('T')[0];
   document.getElementById('aporte_editId').value='';
   document.getElementById('modalAporteTitulo').childNodes[0].textContent='Registrar Aporte ';
-  if(ticker && typeof ticker==='string' && !ticker.match(/^\d+$/)){
-    document.getElementById('aporte_ticker').value=ticker;
-  } else {
-    document.getElementById('aporte_ticker').value='';
-  }
   document.getElementById('aporte_op').value='C';
   document.getElementById('aporte_data').value=today;
   document.getElementById('aporte_qtd').value='';
   document.getElementById('aporte_preco').value='';
   document.getElementById('aporte_obs').value='';
-  // Atualiza label de moeda baseado no tipo atual
-  var tipoAtual = document.getElementById('aporte_tipo').value;
-  onTipoChange(tipoAtual);
-  // Se ticker foi passado, autodetect já vai chamar onTipoChange
-  if(ticker && typeof ticker==='string') autoDetectTipo(ticker);
+  document.getElementById('tickerHint').textContent='';
+  document.getElementById('tipoAutoLabel').textContent='';
+
+  if(ticker && typeof ticker==='string' && !ticker.match(/^\d+$/)){
+    document.getElementById('aporte_ticker').value=ticker;
+    autoDetectTipo(ticker); // chama onTipoChange internamente → moeda correta
+  } else {
+    document.getElementById('aporte_ticker').value='';
+    // Reseta para Acao (BR) como padrão → garante label R$
+    document.getElementById('aporte_tipo').value='Acao';
+    onTipoChange('Acao');
+  }
+
   document.getElementById('modalAporte').classList.add('show');
 }
+
 function fecharModal(id){document.getElementById(id).classList.remove('show');}
+
 function salvarAporte(){
   var ticker=document.getElementById('aporte_ticker').value.trim().toUpperCase();
   var tipo=document.getElementById('aporte_tipo').value;
@@ -1743,7 +1672,6 @@ function salvarAporte(){
   var qtd=parseFloat(document.getElementById('aporte_qtd').value);
   var preco=parseFloat(document.getElementById('aporte_preco').value);
   var obs=document.getElementById('aporte_obs').value.trim();
-  // Para ativos US em USD: converte para BRL usando taxa atual
   var moedaInputEl = document.getElementById('aporte_preco_moeda');
   var isUSType = ['Stock','REIT','ETF','Cripto'].indexOf(tipo) >= 0;
   if(isUSType && moedaInputEl && moedaInputEl.value === 'USD' && usdBRL > 0){
@@ -1759,18 +1687,18 @@ function salvarAporte(){
   renderPosicoes();
   if(document.getElementById('tab-aportes').style.display!=='none')renderAportes();
 }
+
 function excluirAporte(id){if(!confirm('Excluir este aporte?'))return;var aportes=loadData('aportes',[]).filter(function(a){return a.id!==id;});saveData('aportes',aportes);renderPosicoes();renderAportes();}
+
 function renderAportes(){
   var aportes=loadData('aportes',[]);
   var tbody=document.getElementById('tbodyAportes');
   if(!aportes.length){tbody.innerHTML='<tr><td colspan="9" style="text-align:center;padding:48px;color:var(--text3)">Nenhum aporte registrado.</td></tr>';return;}
 
-  // Gerar eventos de splits para mostrar na timeline
   var splitEvents = [];
   aportes.forEach(function(a){
     if(a._splits_ajustados && a._splits_ajustados.length){
       a._splits_ajustados.forEach(function(dataEvento){
-        // Evitar duplicatas
         var existe = splitEvents.find(function(e){ return e.ticker===a.ticker && e.data===dataEvento; });
         if(!existe){
           splitEvents.push({
@@ -1784,10 +1712,8 @@ function renderAportes(){
     }
   });
 
-  // Buscar splits do localStorage para ter o ratio
   var splitData = loadData('splits_cache', {});
 
-  // Combinar aportes + eventos de split em ordem cronológica reversa
   var todos = aportes.map(function(a){ return {tipo:'aporte', data:a.data, item:a}; });
   splitEvents.forEach(function(e){ todos.push({tipo:'split', data:e.data, item:e}); });
   todos.sort(function(a,b){ return b.data.localeCompare(a.data); });
@@ -1822,6 +1748,8 @@ function renderAportes(){
       +'</td></tr>';
   }).join('');
 }
+
+// ★ PATCH: editarAporte — onTipoChange sincroniza moeda ao editar
 function editarAporte(id){
   var ap=loadData('aportes',[]).find(function(a){return a.id===id;});
   if(!ap)return;
@@ -1829,6 +1757,7 @@ function editarAporte(id){
   document.getElementById('modalAporteTitulo').childNodes[0].textContent='Editar Aporte ';
   document.getElementById('aporte_ticker').value=ap.ticker;
   document.getElementById('aporte_tipo').value=ap.tipo;
+  onTipoChange(ap.tipo); // ★ sincroniza label de moeda ao editar
   document.getElementById('aporte_op').value=ap.op;
   document.getElementById('aporte_data').value=ap.data;
   document.getElementById('aporte_qtd').value=ap.qtd;
@@ -1866,11 +1795,7 @@ function salvarDividendo(){
 
 // ============================================================
 // PROVENTOS AUTOMÁTICOS HISTÓRICOS
-// Calcula quanto o usuário recebeu desde a data de compra
-// BR: Brapi | US: Twelve Data
 // ============================================================
-
-// Calcula quantas ações o usuário tinha em uma data específica
 function qtdNaData(ticker, dataAlvo){
   var aportes = loadData('aportes',[]).filter(function(a){ return a.ticker===ticker; });
   aportes.sort(function(a,b){ return a.data.localeCompare(b.data); });
@@ -1884,32 +1809,26 @@ function qtdNaData(ticker, dataAlvo){
   return Math.max(0, qtd);
 }
 
-// Data da primeira compra de um ticker
 function dataPrimeiraCompra(ticker){
   var aportes = loadData('aportes',[]).filter(function(a){ return a.ticker===ticker && a.op==='C'; });
   if(!aportes.length) return null;
   return aportes.sort(function(a,b){ return a.data.localeCompare(b.data); })[0].data;
 }
 
-// Importa proventos históricos BR
-// Tenta: 1º Dados de Mercado (gratuito) → 2º Brapi (com token)
 function importarProventosBR(ticker){
   var dataCompra = dataPrimeiraCompra(ticker);
   if(!dataCompra) return Promise.resolve(0);
 
-  // Tenta Dados de Mercado (gratuito, sem token)
   return fetch('https://api.dadosdemercado.com.br/v1/companies/'+ticker+'/dividends')
     .then(function(r){
       if(!r.ok) throw new Error('HTTP '+r.status);
       return r.json();
     })
     .then(function(d){
-      // Dados de Mercado retorna array de dividendos
       var divs = Array.isArray(d) ? d : (d.data || d.dividends || []);
       return salvarProventosBR(ticker, divs, dataCompra, 'DadosMercado');
     })
     .catch(function(){
-      // Fallback: Brapi
       if(!tokenBrapi) return 0;
       return fetch(BRAPI_URL+'/quote/'+ticker+'?dividends=true&token='+tokenBrapi)
         .then(function(r){ return r.json(); })
@@ -1923,7 +1842,6 @@ function importarProventosBR(ticker){
     });
 }
 
-// Salva proventos BR no localStorage normalizando formato de ambas as APIs
 function salvarProventosBR(ticker, divs, dataCompra, fonte){
   if(!divs || !divs.length) return 0;
   var stored = loadData('dividendos',[]);
@@ -1931,17 +1849,15 @@ function salvarProventosBR(ticker, divs, dataCompra, fonte){
   var novos  = 0;
 
   divs.forEach(function(dv){
-    // Normaliza campos — Dados de Mercado vs Brapi têm nomes diferentes
     var dataPag = (dv.payment_date || dv.paymentDate || dv.date || '').substring(0,10);
     var dataEx  = (dv.ex_date || dv.lastDatePrior || dv.exDate || dataPag).substring(0,10);
     var valor   = parseFloat(dv.value || dv.rate || dv.amount || 0);
     var tipo    = dv.type || dv.label || dv.kind || 'Dividendo';
 
     if(!dataPag || !valor) return;
-    if(dataPag < dataCompra) return; // antes da compra
-    if(dataPag > hoje) return;       // futuro
+    if(dataPag < dataCompra) return;
+    if(dataPag > hoje) return;
 
-    // Evita duplicata
     var existe = stored.find(function(x){
       return x.ticker===ticker && x.data===dataPag && Math.abs(x.valor-valor)<0.0001;
     });
@@ -1967,16 +1883,11 @@ function salvarProventosBR(ticker, divs, dataCompra, fonte){
   return novos;
 }
 
-// Importa proventos históricos de um ativo US via Twelve Data
 function importarProventosUS(ticker){
   var dataCompra = dataPrimeiraCompra(ticker);
   if(!dataCompra) return Promise.resolve(0);
 
-  // Usa proxy Vercel — Yahoo Finance sem CORS
   var apiSymbol = ticker === 'BRK.B' ? 'BRK-B' : (isBR(ticker,'') ? ticker+'.SA' : ticker);
-  // Busca desde data de compra até 1 ano no futuro (captura proventos declarados)
-  var umAnoFuturo = new Date();
-  umAnoFuturo.setFullYear(umAnoFuturo.getFullYear()+1);
   var url = PROXY_URL+'/api/dividends?symbol='+encodeURIComponent(apiSymbol)+'&from='+dataCompra;
 
   return fetch(url)
@@ -2020,7 +1931,6 @@ function importarProventosUS(ticker){
     .catch(function(){ return 0; });
 }
 
-// Importa proventos de TODA a carteira automaticamente
 function importarTodosProventos(callback){
   var pos = calcPosicoes();
   if(!pos.length){ if(callback) callback(0); return; }
@@ -2032,14 +1942,8 @@ function importarTodosProventos(callback){
   var posUS = pos.filter(function(p){ return !isBR(p.ticker, p.tipo); });
 
   var promises = [];
-
-  posBR.forEach(function(p){
-    promises.push(importarProventosBR(p.ticker));
-  });
-
-  posUS.forEach(function(p){
-    promises.push(importarProventosUS(p.ticker));
-  });
+  posBR.forEach(function(p){ promises.push(importarProventosBR(p.ticker)); });
+  posUS.forEach(function(p){ promises.push(importarProventosUS(p.ticker)); });
 
   Promise.all(promises).then(function(resultados){
     var total = resultados.reduce(function(s,n){ return s+(n||0); }, 0);
@@ -2048,7 +1952,6 @@ function importarTodosProventos(callback){
     renderPosicoes();
     if(callback) callback(total);
     if(total > 0 && callback && callback.toString().includes('renderPosicoes')){
-      // Chamado automaticamente — notificação silenciosa
       console.log('[Proventos] '+total+' novo(s) importado(s)');
     } else if(total > 0){
       mostrarErros(['✅ '+total+' novo(s) provento(s) importado(s)!']);
@@ -2056,32 +1959,24 @@ function importarTodosProventos(callback){
   });
 }
 
-
 // ============================================================
-// SPLITS / INPLITS — ajuste automático de quantidade
-// Busca histórico de splits via proxy e ajusta os aportes
+// SPLITS / INPLITS
 // ============================================================
-
-// Aplica splits nos aportes de um ticker
-// Ex: NVDA split 10:1 em 2023 → aportes anteriores têm qtd x10
 function aplicarSplitsAporte(ticker, splits){
   if(!splits || !splits.length) return 0;
   var aportes = loadData('aportes', []);
   var alterados = 0;
 
-  // Para cada split, ajusta aportes ANTERIORES à data do split
   splits.forEach(function(sp){
-    var ratio = sp.ratio; // ex: 10 para split 10:1
+    var ratio = sp.ratio;
     aportes.forEach(function(a){
       if(a.ticker !== ticker) return;
-      if(a.data >= sp.date) return;         // aporte DEPOIS do split — não ajusta
-      if(a._splits_ajustados && a._splits_ajustados.indexOf(sp.date) >= 0) return; // já ajustado
+      if(a.data >= sp.date) return;
+      if(a._splits_ajustados && a._splits_ajustados.indexOf(sp.date) >= 0) return;
 
-      // Ajusta quantidade e preço médio
       a.qtd   = parseFloat((a.qtd * ratio).toFixed(8));
       a.preco = parseFloat((a.preco / ratio).toFixed(8));
 
-      // Marca como ajustado para não duplicar
       a._splits_ajustados = a._splits_ajustados || [];
       a._splits_ajustados.push(sp.date);
       alterados++;
@@ -2092,13 +1987,11 @@ function aplicarSplitsAporte(ticker, splits){
   return alterados;
 }
 
-// Busca splits de um ticker US via proxy e aplica nos aportes
 function importarSplitsUS(ticker){
   if(!PROXY_URL) return Promise.resolve(0);
   var dataCompra = dataPrimeiraCompra(ticker);
   if(!dataCompra) return Promise.resolve(0);
 
-  // Yahoo Finance usa BRK-B
   var apiSymbol = ticker === 'BRK.B' ? 'BRK-B' : ticker;
   var url = PROXY_URL+'/api/splits?symbol='+encodeURIComponent(apiSymbol)+'&from='+dataCompra;
 
@@ -2106,7 +1999,6 @@ function importarSplitsUS(ticker){
     .then(function(r){ return r.json(); })
     .then(function(d){
       if(!d.splits || !d.splits.length) return 0;
-      // Salva splits no cache para exibir na aba Aportes
       if(d.splits && d.splits.length){
         var cache = loadData('splits_cache', {});
         cache[ticker] = d.splits;
@@ -2121,7 +2013,6 @@ function importarSplitsUS(ticker){
     .catch(function(){ return 0; });
 }
 
-// Importa splits de TODA a carteira US automaticamente
 function importarTodosSplits(callback){
   var pos = calcPosicoes();
   var posUS = pos.filter(function(p){ return !isBR(p.ticker, p.tipo); });
@@ -2160,7 +2051,6 @@ function buscarDividendos(){
           });
           saveData('dividendos',divs);
         }
-        // Splits/Grupamentos
         if(d.results&&d.results[0]&&d.results[0].dividendsData&&d.results[0].dividendsData.stockDividends){
           var splits=loadData('splits',[]);
           d.results[0].dividendsData.stockDividends.forEach(function(sv){
@@ -2175,6 +2065,7 @@ function buscarDividendos(){
       }).catch(function(){});
   })).then(function(){renderDividendos();renderPosicoes();alert('Proventos e eventos corporativos importados!');});
 }
+
 function renderDividendos(){
   var divs=loadData('dividendos',[]);
   var hoje=new Date().toISOString().split('T')[0];
@@ -2189,7 +2080,6 @@ function renderDividendos(){
     +futuros.map(function(d){
       var total=d.valor*(d.qtdEx||0);
       var hoje2 = new Date().toISOString().split('T')[0];
-      // Aprovado = data-ex já passou mas pagamento futuro | Provisionado = data-ex no futuro
       var isAprovado = d.datex && d.datex < hoje2;
       var statusLabel = isAprovado
         ? '<span style="font-size:10px;background:rgba(100,200,100,0.2);color:var(--green);padding:2px 6px;border-radius:4px">✓ Aprovado</span>'
@@ -2216,11 +2106,11 @@ function renderDividendos(){
     rEl.innerHTML='<div class="section-hdr" style="margin-bottom:10px"><div class="section-title" style="font-size:16px">📊 Histórico Recebido</div><span style="color:var(--green);font-weight:700">Total: '+fmt(totalRec)+'</span></div>'
     +recebidos.map(function(d){
       var total=d.valor*(d.qtdEx||0);
-      var statusTag = d.fonte && d.fonte.indexOf('Auto')>=0 
-        ? '<span style="font-size:9px;background:rgba(100,200,100,0.15);color:var(--green);padding:1px 5px;border-radius:3px;margin-left:4px">Auto</span>' 
+      var statusTag = d.fonte && d.fonte.indexOf('Auto')>=0
+        ? '<span style="font-size:9px;background:rgba(100,200,100,0.15);color:var(--green);padding:1px 5px;border-radius:3px;margin-left:4px">Auto</span>'
         : '';
-      var datexInfo = d.datex && d.datex !== d.data 
-        ? '<span style="color:var(--text3);font-size:10px"> · Data-EX: '+d.datex+'</span>' 
+      var datexInfo = d.datex && d.datex !== d.data
+        ? '<span style="color:var(--text3);font-size:10px"> · Data-EX: '+d.datex+'</span>'
         : '';
       return '<div class="div-card">'+
         '<span class="ticker-cell" style="min-width:70px">'+d.ticker+'</span>'+
@@ -2322,13 +2212,11 @@ function toggleTheme(){var l=document.body.classList.toggle('light');document.ge
   tokenBrapi=loadData('tokenBrapi','');
   tokenFmp=loadData('tokenFmp','');
   tokenTwelve=loadData('tokenTwelve','');
-  // Preenche campos de token com segurança
   function setElVal(id, val){ var el=document.getElementById(id); if(el&&val) el.value=val; }
   setElVal('tokenBrapi', tokenBrapi);
   setElVal('tokenFmp', tokenFmp);
   setElVal('tokenTwelve', tokenTwelve);
 
-  // Aviso de file:// (CORS)
   if(window.location.protocol === 'file:'){
     var corsWarn = document.createElement('div');
     corsWarn.style.cssText = 'background:rgba(232,184,75,.12);border:1px solid rgba(232,184,75,.4);border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:12px;color:var(--gold);display:flex;align-items:center;gap:10px';
@@ -2337,14 +2225,12 @@ function toggleTheme(){var l=document.body.classList.toggle('light');document.ge
     if(content) content.insertBefore(corsWarn, content.firstChild);
   }
 
-  // Indicadores visuais de status dos tokens no botão
   function atualizarBtnApi(){
     try {
     var btn = document.getElementById('btnApiKey');
     if(!btn) return;
     var temBrapi  = tokenBrapi  && tokenBrapi.length > 5;
     var temTwelve = tokenTwelve && tokenTwelve.length > 5;
-    var temFmp    = tokenFmp    && tokenFmp.length > 5;
     if(temBrapi && temTwelve){
       btn.innerHTML = '🔑 APIs <span style="color:#2ecc71;font-size:10px">✓</span>';
       btn.style.borderColor = 'rgba(46,204,113,.4)';
@@ -2361,23 +2247,19 @@ function toggleTheme(){var l=document.body.classList.toggle('light');document.ge
     } catch(e) { console.warn('atualizarBtnApi erro:', e); }
   }
   atualizarBtnApi();
-  // Reatualiza após salvar tokens
   var _origSalvarBrapi = salvarTokenBrapi;
   salvarTokenBrapi = function(){ _origSalvarBrapi.apply(this, arguments); atualizarBtnApi(); };
   var _origSalvarFmp = salvarTokenFmp;
   salvarTokenFmp = function(){ _origSalvarFmp.apply(this, arguments); atualizarBtnApi(); };
 
-  // Mostra banner se algum token faltar
   if(!tokenBrapi || !tokenFmp) {
     document.getElementById('tokenBanner').style.display = 'block';
   } else {
     document.getElementById('tokenBanner').style.display = 'none';
   }
 
-  // Exibe taxa de câmbio atual
   atualizarDisplayCambio(usdBRL);
 
-  // Carrega cache de cotações
   var cache = getCachedCotacoes();
   if(cache){
     cotacoes = cache.cotacoes;
@@ -2389,7 +2271,6 @@ function toggleTheme(){var l=document.body.classList.toggle('light');document.ge
 
   renderPosicoes();
 
-  // Se tiver tokens configurados e posições, busca cotações frescas se cache expirado
   if((tokenBrapi || tokenFmp) && calcPosicoes().length && !cache){
     setTimeout(buscarCotacoes, 500);
   }
