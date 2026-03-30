@@ -280,6 +280,7 @@ tr:hover td{background:var(--sur2)}
         <div class="section-title">Minha Carteira</div>
         <div class="hdr-actions">
           <button class="btn-sm btn-outline" onclick="buscarCotacoes()" id="btnAtualizar">↻ Atualizar cotações</button>
+          <button class="btn-sm btn-outline" id="btnMoeda" onclick="toggleMoeda()" style="font-size:11px" title="Alternar exibição BRL / USD">🇧🇷 BRL</button>
           <button class="btn-sm btn-gold" onclick="abrirModalAporte(null)">+ Novo Aporte</button>
         </div>
       </div>
@@ -294,6 +295,7 @@ tr:hover td{background:var(--sur2)}
         <button class="filter-btn" onclick="setFiltro('Stock',this)">Stocks</button>
         <button class="filter-btn" onclick="setFiltro('REIT',this)">REITs</button>
         <button class="filter-btn" onclick="setFiltro('ETF',this)">ETFs</button>
+        <button class="filter-btn" onclick="setFiltro('Cripto',this)">Cripto</button>
       </div>
 
       <div class="table-wrap">
@@ -420,9 +422,10 @@ tr:hover td{background:var(--sur2)}
       </div>
       <div class="form-group">
         <label class="form-label">Tipo <span id="tipoAutoLabel" style="color:var(--gold);font-size:10px"></span></label>
-        <select class="form-control" id="aporte_tipo">
+        <select class="form-control" id="aporte_tipo" onchange="onTipoChange(this.value)">
           <option>Acao</option><option>FII</option><option>FIAGRO</option>
           <option>Stock</option><option>REIT</option><option>ETF</option>
+          <option>Cripto</option>
         </select>
       </div>
     </div>
@@ -444,8 +447,14 @@ tr:hover td{background:var(--sur2)}
         <input class="form-control" type="number" id="aporte_qtd" placeholder="0" min="0.001" step="any">
       </div>
       <div class="form-group">
-        <label class="form-label">Preço Unit. (R$)</label>
-        <input class="form-control" type="number" id="aporte_preco" placeholder="0,00" min="0.01" step="any">
+        <label class="form-label">Preço Unit. <span id="aporte_preco_moeda_label" style="color:var(--gold)">(R$)</span></label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input class="form-control" type="number" id="aporte_preco" placeholder="0,00" min="0.0000001" step="any" style="flex:1">
+          <select class="form-control" id="aporte_preco_moeda" style="width:80px;display:none" onchange="atualizarLabelMoeda()">
+            <option value="BRL">R$</option>
+            <option value="USD">US$</option>
+          </select>
+        </div>
       </div>
     </div>
     <div class="form-group">
@@ -546,7 +555,7 @@ function saveData(k,v){try{localStorage.setItem('g20_'+k,JSON.stringify(v));}cat
 // ============================================================
 // DETECÇÃO DE MERCADO (BR vs US)
 // ============================================================
-var US_TYPES = ['Stock','REIT','ETF'];
+var US_TYPES = ['Stock','REIT','ETF','Cripto'];
 // Tickers BR: terminam em número (PETR4, MXRF11) ou são índices BR
 function isBR(ticker, tipo) {
   if (US_TYPES.includes(tipo)) return false;
@@ -700,6 +709,55 @@ function buscarTaxaCambioFallback2(){
 // ============================================================
 // BUSCA COTAÇÕES — ARQUITETURA HÍBRIDA BR + US
 // ============================================================
+
+// ============================================================
+// CRIPTO — helpers para modal de aporte
+// ============================================================
+function onTipoChange(tipo){
+  var moedaSel = document.getElementById('aporte_preco_moeda');
+  var moedaLabel = document.getElementById('aporte_preco_moeda_label');
+  if(tipo === 'Cripto'){
+    moedaSel.style.display = 'block';
+    atualizarLabelMoeda();
+  } else {
+    moedaSel.style.display = 'none';
+    if(moedaLabel) moedaLabel.textContent = '(R$)';
+  }
+}
+
+function atualizarLabelMoeda(){
+  var moedaSel = document.getElementById('aporte_preco_moeda');
+  var moedaLabel = document.getElementById('aporte_preco_moeda_label');
+  if(!moedaSel || !moedaLabel) return;
+  moedaLabel.textContent = moedaSel.value === 'USD' ? '(US$)' : '(R$)';
+}
+
+// Busca cotação de cripto via proxy (Yahoo Finance: BTC-USD etc.)
+function buscarCotacaoCripto(ticker){
+  if(!PROXY_URL) return;
+  // Normaliza ticker: BTC → BTC-USD, BTC-USD → BTC-USD
+  var sym = ticker.includes('-') ? ticker : ticker+'-USD';
+  var url = PROXY_URL+'/api/quote?symbol='+encodeURIComponent(sym);
+  return fetch(url)
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(d && d.price){
+        cotacoes[ticker] = {
+          preco:    d.price * usdBRL, // converte USD→BRL para compatibilidade
+          var:      parseFloat(d.changePercent||0),
+          var1d:    parseFloat(d.change||0) * usdBRL,
+          nome:     d.name || ticker,
+          dy:       0,
+          mkt:      'Cripto',
+          precoUSD: d.price,
+          fonte:    'Proxy-Cripto',
+          ts:       Date.now()
+        };
+      }
+    })
+    .catch(function(){});
+}
+
 function buscarCotacoes(){
   var pos = calcPosicoes();
   if(!pos.length){ alert('Registre aportes primeiro.'); return; }
@@ -766,9 +824,17 @@ function buscarCotacoes(){
     });
   }
 
-  // --- ATIVOS US: Twelve Data BATCH (1 req para todos) + Yahoo fallback ---
+  // --- ATIVOS US: proxy Vercel ---
   if(temUS){
     promises.push(buscarUSTickersBatch(tickersUS, erros));
+  }
+
+  // --- CRIPTO: via proxy Yahoo Finance (BTC-USD, ETH-USD...) ---
+  var tickersCripto = pos.filter(function(p){ return p.tipo==='Cripto'; }).map(function(p){ return p.ticker; });
+  if(tickersCripto.length && PROXY_URL){
+    promises.push(
+      Promise.all(tickersCripto.map(function(t){ return buscarCotacaoCripto(t); }))
+    );
   }
 
   Promise.all(promises).then(function(){
@@ -1199,6 +1265,21 @@ function sortBy(col){
   renderPosicoes();
 }
 
+
+// ============================================================
+// TOGGLE MOEDA — alterna entre BRL e USD na exibição
+// ============================================================
+function toggleMoeda(){
+  modoMoeda = modoMoeda === 'BRL' ? 'USD' : 'BRL';
+  var btn = document.getElementById('btnMoeda');
+  if(btn){
+    btn.textContent = modoMoeda === 'BRL' ? '🇧🇷 BRL' : '🇺🇸 USD';
+    btn.style.borderColor = modoMoeda === 'USD' ? 'rgba(100,180,255,0.5)' : '';
+    btn.style.color = modoMoeda === 'USD' ? '#64b4ff' : '';
+  }
+  renderPosicoes();
+}
+
 function renderPosicoes(){
   var pos = calcPosicoes();
   var search = (document.getElementById('searchTicker').value||'').toUpperCase();
@@ -1267,21 +1348,37 @@ function renderPosicoes(){
     return sortAsc?va-vb:vb-va;
   });
 
-  var fmt = function(v){return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});};
+  // Formatação depende do modo de moeda
+  var fmtBRL = function(v){return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});};
+  var fmtUSD = function(v){return '$ '+(v/usdBRL).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});};
+  var fmt = function(v, isUS){
+    if(modoMoeda === 'USD'){
+      // Em modo USD: ativos US em USD, ativos BR em BRL (mantém original)
+      return isUS ? fmtUSD(v) : fmtBRL(v);
+    }
+    return fmtBRL(v); // modo BRL: tudo em reais
+  };
   var fmtPct = function(v){return (v>=0?'+':'')+v.toFixed(2)+'%';};
 
   tbody.innerHTML = rows.map(function(r){
     var p=r.p, cot=r.cot;
     var pctCart = totalPosGlobal>0 ? (r.posVal/totalPosGlobal*100).toFixed(1)+'%' : '--';
-    var mktBadge = isBR(p.ticker,p.tipo)
-      ? '<span class="mkt-br">BR</span>'
-      : '<span class="mkt-us">US</span>';
-    var cotStr = cot ? fmt(r.cotBRL) : '<span class="cot-loading">--</span>';
+    var mktBadge = p.tipo==='Cripto'
+      ? '<span style="background:rgba(247,147,26,0.15);color:#f7931a;border:1px solid rgba(247,147,26,0.3);border-radius:4px;padding:1px 5px;font-size:10px;font-weight:700">₿</span>'
+      : isBR(p.ticker,p.tipo)
+        ? '<span class="mkt-br">BR</span>'
+        : '<span class="mkt-us">US</span>';
+    var isUS = !isBR(p.ticker, p.tipo);
+    var cotStr = cot
+      ? (modoMoeda==='USD' && isUS
+          ? '<span style="color:#64b4ff">$ '+( (cot.precoUSD||r.cotBRL/usdBRL)).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span>'
+          : fmt(r.cotBRL, false))
+      : '<span class="cot-loading">--</span>';
     var varStr = cot ? '<span class="var-'+(cot.var>=0?'pos':'neg')+'">'+(cot.var>=0?'+':'')+cot.var.toFixed(2)+'%</span>' : '--';
-    var posStr = cot ? fmt(r.posVal) : '--';
-    var resStr = cot ? '<span class="var-'+(r.result>=0?'pos':'neg')+'">'+(r.result>=0?'+':'')+fmt(r.result)+'</span>' : '--';
+    var posStr = cot ? fmt(r.posVal, isUS) : '--';
+    var resStr = cot ? '<span class="var-'+(r.result>=0?'pos':'neg')+'">'+(r.result>=0?'+':'')+fmt(r.result, isUS)+'</span>' : '--';
     var rentStr = cot ? '<span class="var-'+(r.rentPreco>=0?'pos':'neg')+'">'+fmtPct(r.rentPreco)+'</span>' : '--';
-    var provStr = r.prov>0 ? '<span style="color:var(--gold)">'+fmt(r.prov)+'</span>' : '<span style="color:var(--text3)">--</span>';
+    var provStr = r.prov>0 ? '<span style="color:var(--gold)">'+fmt(r.prov, isUS)+'</span>' : '<span style="color:var(--text3)">--</span>';
     var trStr = cot
       ? '<span class="total-return var-'+(r.totalRetPct>=0?'pos':'neg')+'">'+fmtPct(r.totalRetPct)+'</span>'
       : '--';
@@ -1292,10 +1389,10 @@ function renderPosicoes(){
       +'<td><span class="badge badge-'+p.tipo+'">'+p.tipo+'</span></td>'
       +'<td>'+mktBadge+'</td>'
       +'<td class="r">'+p.qtd.toFixed(p.qtd%1===0?0:2)+'</td>'
-      +'<td class="r">'+fmt(r.pm)+'</td>'
+      +'<td class="r">'+fmt(r.pm, isUS)+'</td>'
       +'<td class="r">'+cotStr+'</td>'
       +'<td class="r">'+varStr+'</td>'
-      +'<td class="r">'+fmt(p.totalInv)+'</td>'
+      +'<td class="r">'+fmt(p.totalInv, isUS)+'</td>'
       +'<td class="r" style="color:var(--text2)">'+pctCart+'</td>'
       +'<td class="r">'+posStr+'</td>'
       +'<td class="r">'+resStr+'</td>'
@@ -1314,6 +1411,8 @@ function renderPosicoes(){
 // ============================================================
 function atualizarStats(inv, pos, res, divRec, prov){
   var fmt=function(v){return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});};
+  var fmtUSD2=function(v){return '$ '+(v/usdBRL).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});};
+  var fmtPat = modoMoeda==='USD' ? fmtUSD2 : fmt;
   document.getElementById('statAportado').textContent=fmt(inv);
   document.getElementById('statNAtivos').textContent=calcPosicoes().length+' ativos';
   document.getElementById('statDivRecebidos').textContent=fmt(divRec||0);
@@ -1321,7 +1420,7 @@ function atualizarStats(inv, pos, res, divRec, prov){
   document.getElementById('statDivDY').textContent='DY acum. '+dyAcum;
 
   if(pos>0){
-    document.getElementById('statPatrimonio').textContent=fmt(pos);
+    document.getElementById('statPatrimonio').textContent=fmtPat(pos);
     var pct=inv>0?((pos-inv)/inv*100):0;
     document.getElementById('statRentTotal').textContent=(pct>=0?'+':'')+pct.toFixed(2)+'%';
     document.getElementById('statRentTotal').className='stat-sub '+(pct>=0?'up':'down');
@@ -1469,6 +1568,11 @@ function salvarAporte(){
   var qtd=parseFloat(document.getElementById('aporte_qtd').value);
   var preco=parseFloat(document.getElementById('aporte_preco').value);
   var obs=document.getElementById('aporte_obs').value.trim();
+  // Para Cripto em USD: converte para BRL
+  var moedaInputEl = document.getElementById('aporte_preco_moeda');
+  if(tipo === 'Cripto' && moedaInputEl && moedaInputEl.value === 'USD' && usdBRL > 0){
+    preco = preco * usdBRL;
+  }
   if(!ticker||!data||isNaN(qtd)||isNaN(preco)||qtd<=0||preco<=0){alert('Preencha todos os campos obrigatórios.');return;}
   var aportes=loadData('aportes',[]);
   var id=document.getElementById('aporte_editId').value;
@@ -1693,7 +1797,10 @@ function importarProventosUS(ticker){
   if(!dataCompra) return Promise.resolve(0);
 
   // Usa proxy Vercel — Yahoo Finance sem CORS
-  var apiSymbol = isBR(ticker,'') ? ticker+'.SA' : ticker;
+  var apiSymbol = ticker === 'BRK.B' ? 'BRK-B' : (isBR(ticker,'') ? ticker+'.SA' : ticker);
+  // Busca desde data de compra até 1 ano no futuro (captura proventos declarados)
+  var umAnoFuturo = new Date();
+  umAnoFuturo.setFullYear(umAnoFuturo.getFullYear()+1);
   var url = PROXY_URL+'/api/dividends?symbol='+encodeURIComponent(apiSymbol)+'&from='+dataCompra;
 
   return fetch(url)
@@ -1901,13 +2008,56 @@ function renderDividendos(){
   var rEl=document.getElementById('divRecebidos');
   var fmt=function(v){return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});};
   if(futuros.length){
-    fEl.innerHTML='<div class="section-hdr" style="margin-bottom:10px"><div class="section-title" style="font-size:16px">📅 Proventos a Receber</div></div>'
-    +futuros.map(function(d){var total=d.valor*(d.qtdEx||0);return '<div class="div-card"><span class="ticker-cell" style="min-width:70px">'+d.ticker+'</span><span class="div-datex">Data-EX: '+(d.datex||'--')+'</span><div class="div-info"><div class="tipo">'+d.tipo+'</div><div class="desc">R$ '+d.valor.toFixed(4)+'/cota · '+(d.qtdEx||0)+' cotas</div></div><div class="div-valor"><div class="val">'+fmt(total)+'</div><div class="data">Pag: '+d.data+'</div></div></div>';}).join('');
+    var totalFut = futuros.reduce(function(s,d){return s+d.valor*(d.qtdEx||0);},0);
+    fEl.innerHTML='<div class="section-hdr" style="margin-bottom:10px"><div class="section-title" style="font-size:16px">📅 Proventos a Receber</div><span style="color:var(--gold);font-weight:700">Previsto: '+fmt(totalFut)+'</span></div>'
+    +futuros.map(function(d){
+      var total=d.valor*(d.qtdEx||0);
+      var hoje2 = new Date().toISOString().split('T')[0];
+      // Aprovado = data-ex já passou mas pagamento futuro | Provisionado = data-ex no futuro
+      var isAprovado = d.datex && d.datex < hoje2;
+      var statusLabel = isAprovado
+        ? '<span style="font-size:10px;background:rgba(100,200,100,0.2);color:var(--green);padding:2px 6px;border-radius:4px">✓ Aprovado</span>'
+        : '<span style="font-size:10px;background:rgba(232,184,75,0.2);color:var(--gold);padding:2px 6px;border-radius:4px">⏳ Provisionado</span>';
+      return '<div class="div-card" style="border-left:3px solid '+(isAprovado?'var(--green)':'var(--gold)')+'">'+
+        '<span class="ticker-cell" style="min-width:70px">'+d.ticker+'</span>'+
+        '<div class="div-info">'+
+          '<div class="tipo" style="display:flex;align-items:center;gap:6px">'+d.tipo+' '+statusLabel+'</div>'+
+          '<div class="desc" style="font-size:11px;color:var(--text3);margin-top:2px">'+
+            'Data-EX: <strong>'+(d.datex||'--')+'</strong> · '+
+            'Data-COM: <strong>'+(d.datacom||d.datex||'--')+'</strong> · '+
+            'R$ '+d.valor.toFixed(4)+'/cota · '+(d.qtdEx||0)+' cotas'+
+          '</div>'+
+        '</div>'+
+        '<div class="div-valor">'+
+          '<div class="val">'+fmt(total)+'</div>'+
+          '<div class="data">Pag: '+d.data+'</div>'+
+        '</div>'+
+      '</div>';
+    }).join('');
   } else fEl.innerHTML='';
   if(recebidos.length){
     var totalRec=recebidos.reduce(function(s,d){return s+d.valor*(d.qtdEx||0);},0);
     rEl.innerHTML='<div class="section-hdr" style="margin-bottom:10px"><div class="section-title" style="font-size:16px">📊 Histórico Recebido</div><span style="color:var(--green);font-weight:700">Total: '+fmt(totalRec)+'</span></div>'
-    +recebidos.map(function(d){var total=d.valor*(d.qtdEx||0);return '<div class="div-card"><span class="ticker-cell" style="min-width:70px">'+d.ticker+'</span><div class="div-info"><div class="tipo">'+d.tipo+'</div><div class="desc">R$ '+d.valor.toFixed(4)+'/cota · '+(d.qtdEx||0)+' cotas</div></div><div class="div-valor"><div class="val">'+fmt(total)+'</div><div class="data">'+d.data+'</div></div></div>';}).join('');
+    +recebidos.map(function(d){
+      var total=d.valor*(d.qtdEx||0);
+      var statusTag = d.fonte && d.fonte.indexOf('Auto')>=0 
+        ? '<span style="font-size:9px;background:rgba(100,200,100,0.15);color:var(--green);padding:1px 5px;border-radius:3px;margin-left:4px">Auto</span>' 
+        : '';
+      var datexInfo = d.datex && d.datex !== d.data 
+        ? '<span style="color:var(--text3);font-size:10px"> · Data-EX: '+d.datex+'</span>' 
+        : '';
+      return '<div class="div-card">'+
+        '<span class="ticker-cell" style="min-width:70px">'+d.ticker+'</span>'+
+        '<div class="div-info">'+
+          '<div class="tipo">'+d.tipo+statusTag+'</div>'+
+          '<div class="desc">R$ '+d.valor.toFixed(4)+'/cota · '+(d.qtdEx||0)+' cotas'+datexInfo+'</div>'+
+        '</div>'+
+        '<div class="div-valor">'+
+          '<div class="val">'+fmt(total)+'</div>'+
+          '<div class="data">Pag: '+d.data+'</div>'+
+        '</div>'+
+      '</div>';
+    }).join('');
   } else {
     rEl.innerHTML='<div class="empty-state"><div class="ico">💰</div><p>Nenhum provento registrado ainda.</p><button class="btn-sm btn-gold" style="margin-top:12px" onclick="abrirModalDividendo()">+ Registrar Manualmente</button></div>';
   }
