@@ -905,43 +905,42 @@ function corrigirTiposAportes(){
 function buscarUSTickersBatch(tickers, erros){
   if(!tickers || !tickers.length) return Promise.resolve();
 
-  // Twelve Data: 2 tickers por req no plano gratuito
-  // 9 ativos = 5 reqs; 119 ativos = 60 reqs — muito eficiente!
-  if(tokenTwelve){
-    var BATCH_SIZE = 2;
+  // Usa proxy Vercel — sem CORS, funciona para qualquer ticker
+  if(PROXY_URL){
+    var BATCH = 10; // proxy aguenta mais tickers por req
     var chunks = [];
-    for(var i=0; i<tickers.length; i+=BATCH_SIZE){
-      chunks.push(tickers.slice(i, i+BATCH_SIZE));
-    }
+    for(var i=0; i<tickers.length; i+=BATCH) chunks.push(tickers.slice(i,i+BATCH));
 
     return Promise.all(chunks.map(function(chunk){
-      var url = TWELVE_URL+'/quote?symbol='+encodeURIComponent(chunk.join(','))+'&apikey='+tokenTwelve;
+      var url = PROXY_URL+'/api/quote?symbol='+encodeURIComponent(chunk.join(','));
       return fetch(url)
         .then(function(r){ return r.json(); })
         .then(function(d){
-          // Normaliza: 1 ticker retorna objeto direto, 2+ retorna {TICKER: {...}}
-          if(d && d.symbol && (d.close !== undefined || d.price !== undefined)){
+          // 1 ticker: objeto direto; múltiplos: {AAPL:{...}, MSFT:{...}}
+          if(d && d.symbol && d.price !== undefined){
             var tmp={}; tmp[d.symbol]=d; d=tmp;
           }
           chunk.forEach(function(ticker){
             var item = d[ticker] || d[ticker.toUpperCase()];
-            if(!item || item.code || item.status==='error') return;
-            var preco = parseFloat(item.close || item.price || 0);
-            if(!preco || isNaN(preco)) return;
-            var prev = parseFloat(item.previous_close || preco);
+            if(!item || item.error || !item.price) return;
             cotacoes[ticker] = {
-              preco:preco, var:parseFloat(item.percent_change||0),
-              var1d:parseFloat(item.change||(preco-prev)),
-              nome:item.name||ticker, dy:0, mkt:'US',
-              precoUSD:preco, fonte:'TwelveData', ts:Date.now()
+              preco:    item.price,
+              var:      parseFloat(item.changePercent||0),
+              var1d:    parseFloat(item.change||0),
+              nome:     item.name||ticker,
+              dy:       0,
+              mkt:      'US',
+              precoUSD: item.price,
+              fonte:    'Proxy',
+              ts:       Date.now()
             };
           });
         }).catch(function(){});
     })).then(function(){
       // Fallback Yahoo para tickers não encontrados
-      var naoEncontrados = tickers.filter(function(t){ return !cotacoes[t]; });
-      if(!naoEncontrados.length) return;
-      return Promise.all(naoEncontrados.map(function(ticker){
+      var falhos = tickers.filter(function(t){ return !cotacoes[t]; });
+      if(!falhos.length) return;
+      return Promise.all(falhos.map(function(ticker){
         return tentarYahoo(ticker).catch(function(){
           if(erros) erros.push(ticker+' — sem cotação');
         });
@@ -949,10 +948,10 @@ function buscarUSTickersBatch(tickers, erros){
     });
   }
 
-  // Sem Twelve Data: Yahoo para cada ticker
+  // Sem proxy: Yahoo direto
   return Promise.all(tickers.map(function(ticker){
     return tentarYahoo(ticker).catch(function(){
-      if(erros) erros.push(ticker+' — configure Twelve Data');
+      if(erros) erros.push(ticker+' — sem cotação');
     });
   }));
 }
@@ -1637,14 +1636,12 @@ function salvarProventosBR(ticker, divs, dataCompra, fonte){
 
 // Importa proventos históricos de um ativo US via Twelve Data
 function importarProventosUS(ticker){
-  if(!tokenTwelve) return Promise.resolve();
   var dataCompra = dataPrimeiraCompra(ticker);
-  if(!dataCompra) return Promise.resolve();
+  if(!dataCompra) return Promise.resolve(0);
 
-  var hoje = new Date().toISOString().split('T')[0];
-  var url = TWELVE_URL+'/dividends?symbol='+ticker+
-            '&start_date='+dataCompra+'&end_date='+hoje+
-            '&apikey='+tokenTwelve;
+  // Usa proxy Vercel — Yahoo Finance sem CORS
+  var apiSymbol = isBR(ticker,'') ? ticker+'.SA' : ticker;
+  var url = PROXY_URL+'/api/dividends?symbol='+encodeURIComponent(apiSymbol)+'&from='+dataCompra;
 
   return fetch(url)
     .then(function(r){ return r.json(); })
@@ -1652,32 +1649,31 @@ function importarProventosUS(ticker){
       if(!d.dividends || !d.dividends.length) return 0;
 
       var stored = loadData('dividendos',[]);
-      var novos = 0;
+      var hoje   = new Date().toISOString().split('T')[0];
+      var novos  = 0;
 
       d.dividends.forEach(function(dv){
-        var dataPag = dv.payment_date || dv.date || '';
-        var dataEx  = dv.ex_date || dataPag;
-        if(!dataPag) return;
+        var dataPag = dv.date || '';
+        if(!dataPag || dataPag > hoje) return;
 
-        // Verifica se já existe
         var existe = stored.find(function(x){
           return x.ticker===ticker && x.data===dataPag && Math.abs(x.valor-dv.amount)<0.001;
         });
         if(existe) return;
 
-        var qtd = qtdNaData(ticker, dataEx);
+        var qtd = qtdNaData(ticker, dataPag);
         if(qtd <= 0) return;
 
         stored.push({
-          id:        Date.now().toString()+Math.random(),
-          ticker:    ticker,
-          tipo:      'Dividendo',
-          data:      dataPag,
-          datex:     dataEx,
-          valor:     parseFloat(dv.amount || 0),
-          qtdEx:     qtd,
-          fonte:     'Auto-US',
-          moeda:     'USD'
+          id:     Date.now().toString()+Math.random(),
+          ticker: ticker,
+          tipo:   'Dividendo',
+          data:   dataPag,
+          datex:  dataPag,
+          valor:  parseFloat(dv.amount||0),
+          qtdEx:  qtd,
+          fonte:  'Auto-Proxy',
+          moeda:  'USD'
         });
         novos++;
       });
@@ -1685,7 +1681,7 @@ function importarProventosUS(ticker){
       if(novos > 0) saveData('dividendos', stored);
       return novos;
     })
-    .catch(function(){});
+    .catch(function(){ return 0; });
 }
 
 // Importa proventos de TODA a carteira automaticamente
