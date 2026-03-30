@@ -345,14 +345,53 @@ tr:hover td{background:var(--sur2)}
 .csp-reset-btn:hover{border-color:var(--gold);color:var(--gold)}
 
 /* ═══════════════════════════════════════
-   RESIZE DE COLUNAS
+   RESIZE + DRAG-REORDER DE COLUNAS
 ═══════════════════════════════════════ */
-th{position:relative}
+th{position:relative;user-select:none}
+
+/* Alça de resize — visível com indicador "⟺" */
 .th-resizer{
-  position:absolute;right:0;top:0;height:100%;width:5px;
-  cursor:col-resize;background:transparent;z-index:10;transition:background .15s
+  position:absolute;right:-1px;top:0;height:100%;width:10px;
+  cursor:col-resize;z-index:20;
+  display:flex;align-items:center;justify-content:center
 }
-.th-resizer:hover,.th-resizer.dragging{background:rgba(232,184,75,.6);border-radius:2px}
+/* trilha visual permanente */
+.th-resizer::before{
+  content:'';display:block;
+  width:3px;height:60%;border-radius:2px;
+  background:rgba(255,255,255,0.08);
+  transition:background .15s,height .15s,width .15s
+}
+/* ao hover: destaca a trilha e muda cursor */
+.th-resizer:hover::before,
+.th-resizer.dragging::before{
+  background:var(--gold);width:3px;height:80%;
+  box-shadow:0 0 6px rgba(232,184,75,.5)
+}
+/* cursor de resize global durante drag */
+body.col-resizing,body.col-resizing *{cursor:col-resize!important}
+
+/* Drag-to-reorder */
+th.th-dragging{opacity:.45;cursor:grabbing!important}
+th.th-drag-over-left::before{
+  content:'';position:absolute;left:-2px;top:0;bottom:0;width:3px;
+  background:var(--gold);border-radius:2px;
+  box-shadow:0 0 8px rgba(232,184,75,.6)
+}
+th.th-drag-over-right::after{
+  content:'';position:absolute;right:-2px;top:0;bottom:0;width:3px;
+  background:var(--gold);border-radius:2px;
+  box-shadow:0 0 8px rgba(232,184,75,.6)
+}
+/* Handle de drag — ícone ⠿ à esquerda do texto */
+.th-drag-handle{
+  display:inline-block;
+  color:rgba(255,255,255,0.2);font-size:13px;
+  margin-right:5px;cursor:grab;
+  transition:color .15s;vertical-align:middle;
+  line-height:1
+}
+th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
 
 /* ═══════════════════════════════════════
    BOTÃO + INLINE
@@ -579,21 +618,21 @@ th{position:relative}
         <table>
           <thead>
             <tr id="theadRow">
-              <th data-col="ticker" onclick="sortBy('ticker')">Ticker <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
-              <th data-col="nome">Nome<div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
-              <th data-col="tipo">Tipo<div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
-              <th data-col="mkt">Mkt<div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
-              <th data-col="qtd" onclick="sortBy('qtd')" class="r">Qtd <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
-              <th data-col="pm" onclick="sortBy('pm')" class="r">PM <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
-              <th data-col="cotacao" class="r">Cotação<div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
-              <th data-col="vardia" class="r">Var. Dia<div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
-              <th data-col="totalInv" onclick="sortBy('totalInv')" class="r">Total Inv. <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
-              <th data-col="pctCart" class="r">% Cart.<div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
-              <th data-col="posicao" onclick="sortBy('posicao')" class="r">Posição <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
-              <th data-col="result" onclick="sortBy('result')" class="r">Result. <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
-              <th data-col="rentPct" onclick="sortBy('rentPreco')" class="r">Rent.% <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
-              <th data-col="proventos" onclick="sortBy('proventos')" class="r">Proventos <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
-              <th data-col="totalRet" onclick="sortBy('totalReturn')" class="r">Total Ret.% <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
+              <th data-col="ticker" onclick="thClick('ticker')" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>Ticker <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
+              <th data-col="nome" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>Nome<div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
+              <th data-col="tipo" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>Tipo<div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
+              <th data-col="mkt" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>Mkt<div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
+              <th data-col="qtd" class="r" onclick="thClick('qtd')" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>Qtd <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
+              <th data-col="pm" class="r" onclick="thClick('pm')" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>PM <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
+              <th data-col="cotacao" class="r" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>Cotação<div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
+              <th data-col="vardia" class="r" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>Var. Dia<div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
+              <th data-col="totalInv" class="r" onclick="thClick('totalInv')" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>Total Inv. <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
+              <th data-col="pctCart" class="r" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>% Cart.<div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
+              <th data-col="posicao" class="r" onclick="thClick('posicao')" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>Posição <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
+              <th data-col="result" class="r" onclick="thClick('result')" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>Result. <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
+              <th data-col="rentPct" class="r" onclick="thClick('rentPreco')" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>Rent.% <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
+              <th data-col="proventos" class="r" onclick="thClick('proventos')" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>Proventos <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
+              <th data-col="totalRet" class="r" onclick="thClick('totalReturn')" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>Total Ret.% <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
               <th data-col="acoes" style="width:72px"></th>
             </tr>
           </thead>
@@ -702,7 +741,10 @@ th{position:relative}
     <div id="tab-aportes" style="display:none">
       <div class="section-hdr">
         <div class="section-title">Histórico de Aportes</div>
-        <button class="btn-sm btn-gold" onclick="abrirModalAporte(null)">+ Registrar Aporte</button>
+        <div class="hdr-actions">
+          <input class="search-input" id="searchAporte" placeholder="🔍 Buscar ticker ou obs..." oninput="renderAportes()" style="min-width:200px">
+          <button class="btn-sm btn-gold" onclick="abrirModalAporte(null)">＋ Registrar Aporte</button>
+        </div>
       </div>
       <div class="table-wrap">
         <table>
@@ -723,8 +765,9 @@ th{position:relative}
       <div class="section-hdr">
         <div class="section-title">Dividendos & Proventos</div>
         <div class="hdr-actions">
-          <button class="btn-sm btn-gold" id="btnImportarProventos" onclick="importarTodosProventos()" title="Importa automaticamente todos os proventos históricos desde a data de cada compra">📥 Importar Proventos Históricos</button>
-          <button class="btn-sm btn-outline" onclick="buscarDividendos()">↻ Brapi (BR)</button>
+          <input class="search-input" id="searchProv" placeholder="🔍 Buscar ticker..." oninput="renderDividendos()" style="min-width:160px">
+          <button class="btn-sm btn-gold" id="btnImportarProventos" onclick="importarTodosProventos()" title="Importa automaticamente todos os proventos históricos desde a data de cada compra">📥 Importar</button>
+          <button class="btn-sm btn-outline" onclick="buscarDividendos()">↻ Brapi</button>
           <button class="btn-sm btn-outline" onclick="abrirModalDividendo()">+ Manual</button>
         </div>
       </div>
@@ -2082,6 +2125,9 @@ function fmtBRL(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits
 function fmtBRL2(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 
 // ── DESEMPENHO card ──────────────────────────────────────────
+// ============================================================
+// GRÁFICOS — DESEMPENHO
+// ============================================================
 function renderGDesempenho(pos, posData, totalPos, totalInv){
   var totalProv = posData.reduce(function(s,d){ return s+d.prov; },0);
   var result    = totalPos - totalInv;
@@ -2089,44 +2135,42 @@ function renderGDesempenho(pos, posData, totalPos, totalInv){
   var pctRes    = totalInv>0?(result/totalInv*100):0;
   var pctTR     = totalInv>0?(totalRet/totalInv*100):0;
 
-  // Rentabilidade do dia
   var varDia = 0;
   posData.forEach(function(d){
     var cot = cotacoes[d.ticker];
     if(!cot) return;
-    var cotBRL = isBR(d.ticker,d.tipo)?cot.preco:cot.preco*usdBRL;
     var p = pos.find(function(pp){ return pp.ticker===d.ticker; });
     if(p) varDia += cot.var1d * p.qtd * (isBR(d.ticker,d.tipo)?1:usdBRL);
   });
   var pctDia = totalPos>0?(varDia/totalPos*100):0;
 
-  var rows = [
-    {lbl:'Patrimônio',   val:fmtBRL2(totalPos), pct:null, cls:'gold'},
-    {lbl:'Custo',        val:fmtBRL2(totalInv), pct:null, cls:''},
-    {lbl:'Proventos',    val:fmtBRL2(totalProv),pct:null, cls:'up'},
-    {lbl:'',             val:'',                pct:null, cls:'', sep:true},
-    {lbl:'Rentabilidade',val:'',                pct:null, cls:'', hdr:true},
-    {lbl:'Hoje',         val:(varDia>=0?'+':'')+fmtBRL2(varDia), pct:(pctDia>=0?'+':'')+pctDia.toFixed(2)+'%', cls:varDia>=0?'up':'dn'},
-    {lbl:'Total',        val:(result>=0?'+':'')+fmtBRL2(result),  pct:(pctRes>=0?'+':'')+pctRes.toFixed(2)+'%', cls:result>=0?'up':'dn'},
-    {lbl:'Total + Prov.',val:(totalRet>=0?'+':'')+fmtBRL2(totalRet),pct:(pctTR>=0?'+':'')+pctTR.toFixed(2)+'%', cls:totalRet>=0?'up':'dn'}
-  ];
-
-  document.getElementById('gDesempenho').innerHTML = rows.filter(function(r){ return !r.sep && !r.hdr; }).map(function(r){
+  function row(lbl, val, pct, cls){
+    var color = cls==='up'?'var(--green)':cls==='dn'?'var(--red)':cls==='gold'?'var(--gold)':'var(--text)';
+    var pctHtml = pct!==null
+      ? '<span style="font-size:11px;font-weight:700;color:'+color+';margin-left:6px">'+pct+'</span>' : '';
     return '<div class="g-desemp-row">'+
-      '<span class="g-desemp-label">'+r.lbl+'</span>'+
-      '<span>'+
-        '<span class="g-desemp-val" style="color:var(--'+( r.cls==='gold'?'gold':r.cls==='up'?'green':r.cls==='dn'?'red':'text')+')">'+r.val+'</span>'+
-        (r.pct?'<span class="g-desemp-pct" style="color:var(--'+(r.cls==='up'?'green':r.cls==='dn'?'red':'text3')+')">'+r.pct+'</span>':'')+ 
-      '</span>'+
-    '</div>';
-  }).join('');
+      '<span class="g-desemp-label">'+lbl+'</span>'+
+      '<span style="display:flex;align-items:center">'+
+        '<span class="g-desemp-val" style="color:'+color+'">'+val+'</span>'+pctHtml+
+      '</span></div>';
+  }
+
+  var f2 = fmtBRL2;
+  document.getElementById('gDesempenho').innerHTML =
+    row('Patrimônio',   f2(totalPos),  null, 'gold') +
+    row('Custo',        f2(totalInv),  null, '') +
+    row('Proventos',    f2(totalProv), null, 'up') +
+    '<div style="height:1px;background:var(--border);margin:4px 0"></div>'+
+    '<div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);padding:6px 0 2px">Rentabilidade</div>'+
+    row('Hoje',         (varDia>=0?'+':'')+f2(varDia),     (pctDia>=0?'+':'')+pctDia.toFixed(2)+'%',  varDia>=0?'up':'dn') +
+    row('Total',        (result>=0?'+':'')+f2(result),     (pctRes>=0?'+':'')+pctRes.toFixed(2)+'%',   result>=0?'up':'dn') +
+    row('Total + Prov.',(totalRet>=0?'+':'')+f2(totalRet), (pctTR>=0?'+':'')+pctTR.toFixed(2)+'%',    totalRet>=0?'up':'dn');
 }
 
-// ── DONUTS meta / atual ──────────────────────────────────────
+// ── DONUTS ─────────────────────────────────────────────────────
 var META_DEFAULTS = {Acao:45,FII:15,FIAGRO:0,Stock:15,REIT:5,ETF:10,Cripto:10};
-function getMeta(){
-  return loadData('carteiraMeta', META_DEFAULTS);
-}
+function getMeta(){ return loadData('carteiraMeta', META_DEFAULTS); }
+
 function salvarMeta(){
   var meta = {};
   var campos = {Acao:'metaAcao',FII:'metaFii',FIAGRO:'metaFiagro',Stock:'metaStock',REIT:'metaReit',ETF:'metaEtf',Cripto:'metaCripto'};
@@ -2140,6 +2184,7 @@ function salvarMeta(){
   toggleEditMeta();
   renderGraficos();
 }
+
 function toggleEditMeta(){
   var ed = document.getElementById('metaEditor');
   var showing = ed.style.display !== 'none';
@@ -2148,7 +2193,6 @@ function toggleEditMeta(){
     var meta = getMeta();
     var campos = {Acao:'metaAcao',FII:'metaFii',FIAGRO:'metaFiagro',Stock:'metaStock',REIT:'metaReit',ETF:'metaEtf',Cripto:'metaCripto'};
     Object.keys(campos).forEach(function(k){ document.getElementById(campos[k]).value = meta[k]||0; });
-    // live sum
     var inputs = ed.querySelectorAll('input');
     inputs.forEach(function(inp){
       inp.oninput = function(){
@@ -2163,155 +2207,169 @@ function toggleEditMeta(){
 
 function renderDonut(canvasId, labels, vals, cores, legendId, centerEl, centerText){
   destroyChart(canvasId);
-  var total = vals.reduce(function(s,v){ return s+v; },0);
   var ctx = document.getElementById(canvasId);
   if(!ctx) return;
 
+  // Gradient borders per segment
   chartsInstances[canvasId] = new Chart(ctx.getContext('2d'),{
     type:'doughnut',
     data:{
       labels:labels,
       datasets:[{
         data:vals,
-        backgroundColor:cores,
+        backgroundColor: cores.map(function(c){ return c+'cc'; }),
+        borderColor: cores,
         borderWidth:2,
-        borderColor: document.body.classList.contains('light')?'#f0f3f8':'#1c2030',
-        hoverOffset:8,
-        hoverBorderWidth:0
+        hoverBackgroundColor: cores,
+        hoverBorderWidth:0,
+        hoverOffset:10
       }]
     },
     options:{
-      responsive:true, maintainAspectRatio:false, cutout:'72%',
-      animation:{ animateRotate:true, duration:700 },
+      responsive:true, maintainAspectRatio:false, cutout:'74%',
+      animation:{ animateRotate:true, duration:800, easing:'easeOutQuart' },
       plugins:{
         legend:{display:false},
-        tooltip:{callbacks:{label:function(c){
-          return ' '+c.label+': '+(c.raw).toFixed(1)+'%';
-        }}}
+        tooltip:{
+          backgroundColor:'rgba(9,11,15,0.95)',
+          borderColor:'rgba(255,255,255,0.1)',
+          borderWidth:1,
+          padding:12,
+          titleFont:{size:12,weight:'700'},
+          bodyFont:{size:12},
+          callbacks:{label:function(c){
+            return '  '+c.label+':  '+c.raw.toFixed(1)+'%';
+          }}
+        }
       }
     }
   });
 
-  if(centerEl){ centerEl.querySelector('.val').textContent = centerText; }
-
+  if(centerEl){
+    centerEl.querySelector('.val').textContent = centerText;
+  }
   if(legendId){
     document.getElementById(legendId).innerHTML = labels.map(function(l,i){
-      return '<div class="g-leg-item"><div class="g-leg-dot" style="background:'+cores[i]+'"></div>'+l+'<span class="g-leg-pct">'+vals[i].toFixed(1)+'%</span></div>';
+      return '<div class="g-leg-item">'+
+        '<div class="g-leg-dot" style="background:'+cores[i]+'"></div>'+
+        l+'<span class="g-leg-pct">'+vals[i].toFixed(1)+'%</span>'+
+      '</div>';
     }).join('');
   }
 }
 
-// ── EVOLUÇÃO stacked area ────────────────────────────────────
+// ── EVOLUÇÃO STACKED AREA ──────────────────────────────────────
+var grfPeriodo = 'tudo';
+function setGrfPeriodo(p, btn){
+  grfPeriodo = p;
+  document.querySelectorAll('.g-tab-chart').forEach(function(b){ b.classList.remove('on'); });
+  if(btn) btn.classList.add('on');
+  renderChartEvolucao();
+}
+
 function renderChartEvolucao(){
   var aportes = loadData('aportes',[]);
   if(!aportes.length){ destroyChart('chartEvolucao'); return; }
-
   aportes.sort(function(a,b){ return a.data.localeCompare(b.data); });
-  var dataInicio = aportes[0].data.substring(0,7);
-  var hoje = new Date();
 
-  // Gera lista de meses desde o inicio
+  var hoje = new Date();
+  var dataInicio = aportes[0].data.substring(0,7);
   var meses = [];
   var cur = new Date(dataInicio+'-01');
   var limite = new Date(hoje.getFullYear(), hoje.getMonth()+1, 1);
 
-  // Filtro de período
   if(grfPeriodo !== 'tudo'){
     var anos = grfPeriodo==='1a'?1:grfPeriodo==='3a'?3:5;
     var inicio = new Date(hoje.getFullYear()-anos, hoje.getMonth(), 1);
-    if(cur < inicio) cur = inicio;
+    if(cur < inicio) cur = new Date(inicio);
   }
-
   while(cur < limite){
     meses.push(cur.getFullYear()+'-'+(cur.getMonth()<9?'0':'')+(cur.getMonth()+1));
     cur.setMonth(cur.getMonth()+1);
   }
 
-  // Para cada mês, calcula patrimônio por tipo (usando preço médio de aporte como proxy)
   var tipos = ['Acao','FII','FIAGRO','Stock','REIT','ETF','Cripto'];
-  var datasets = {};
-  tipos.forEach(function(t){ datasets[t] = []; });
+  var datasets = {}; tipos.forEach(function(t){ datasets[t]=[]; });
 
   meses.forEach(function(mes){
-    var cutoff = mes+'-31'; // até o fim do mês
     var pos = {};
     aportes.forEach(function(a){
       if(a.data.substring(0,7) > mes) return;
       if(!pos[a.ticker]) pos[a.ticker]={ticker:a.ticker,tipo:a.tipo,qtd:0,totalInv:0};
-      var p = pos[a.ticker];
+      var p=pos[a.ticker];
       if(a.op==='C'){p.qtd+=a.qtd;p.totalInv+=a.qtd*a.preco;}
       else{var pm=p.qtd>0?p.totalInv/p.qtd:0;p.totalInv-=a.qtd*pm;p.qtd-=a.qtd;}
     });
-
-    var byTipo = {};
-    tipos.forEach(function(t){ byTipo[t]=0; });
+    var byTipo={}; tipos.forEach(function(t){ byTipo[t]=0; });
     Object.values(pos).forEach(function(p){
       if(p.qtd<=0.001) return;
-      // Usa cotação atual se disponível, senão usa custo
-      var cot = cotacoes[p.ticker];
       var val;
-      if(cot && mes === meses[meses.length-1]){
-        var cotBRL = isBR(p.ticker,p.tipo)?cot.preco:cot.preco*usdBRL;
-        val = p.qtd * cotBRL;
-      } else {
-        val = p.totalInv; // custo histórico como proxy
-      }
-      var tipo = p.tipo||'Acao';
-      byTipo[tipo] = (byTipo[tipo]||0) + val;
+      var cot = cotacoes[p.ticker];
+      if(cot && mes===meses[meses.length-1]){
+        val = p.qtd*(isBR(p.ticker,p.tipo)?cot.preco:cot.preco*usdBRL);
+      } else { val=p.totalInv; }
+      byTipo[p.tipo||'Acao']=(byTipo[p.tipo||'Acao']||0)+val;
     });
-
     tipos.forEach(function(t){ datasets[t].push(byTipo[t]||0); });
   });
 
   destroyChart('chartEvolucao');
-  var gc = gGridColor(), tc = gTextColor();
-  Chart.defaults.color = tc;
+  Chart.defaults.color = gTextColor();
+  var gc = gGridColor();
 
-  // Só inclui tipos que tenham algum valor
-  var dsAtivos = tipos.filter(function(t){
-    return datasets[t].some(function(v){ return v>0; });
-  });
+  var dsAtivos = tipos.filter(function(t){ return datasets[t].some(function(v){ return v>0; }); });
+
+  // Gradients criados no momento do render
+  var canvasEl = document.getElementById('chartEvolucao');
+  if(!canvasEl) return;
+  var ctx2 = canvasEl.getContext('2d');
 
   var chartDatasets = dsAtivos.map(function(t){
+    var baseColor = COLORS_TIPO[t]||'#888';
     var alpha = COLORS_TIPO_ALPHA[t]||'rgba(100,100,100,';
+    // gradient fill
+    var grad = ctx2.createLinearGradient(0,0,0,280);
+    grad.addColorStop(0, alpha+'0.55)');
+    grad.addColorStop(1, alpha+'0.02)');
     return {
-      label: t,
-      data: datasets[t],
-      backgroundColor: alpha+'0.75)',
-      borderColor: COLORS_TIPO[t]||'#888',
-      borderWidth: 1.5,
-      fill: true,
-      tension: 0.4,
-      pointRadius: 0,
-      pointHoverRadius: 4,
-      pointHoverBackgroundColor: COLORS_TIPO[t]||'#888'
+      label:t, data:datasets[t],
+      backgroundColor:grad,
+      borderColor:baseColor,
+      borderWidth:1.5,
+      fill:true, tension:0.35,
+      pointRadius:0, pointHoverRadius:5,
+      pointHoverBackgroundColor:'#fff',
+      pointHoverBorderColor:baseColor,
+      pointHoverBorderWidth:2
     };
   });
 
-  var ctx = document.getElementById('chartEvolucao');
-  if(!ctx) return;
-  chartsInstances['chartEvolucao'] = new Chart(ctx.getContext('2d'),{
+  chartsInstances['chartEvolucao'] = new Chart(ctx2,{
     type:'line',
     data:{ labels:meses, datasets:chartDatasets },
     options:{
       responsive:true, maintainAspectRatio:false,
       interaction:{ mode:'index', intersect:false },
-      animation:{ duration:600 },
-      stacked: true,
+      animation:{ duration:700, easing:'easeOutQuart' },
+      stacked:true,
       plugins:{
         legend:{display:false},
         tooltip:{
-          backgroundColor:'rgba(15,17,23,0.92)',
+          backgroundColor:'rgba(9,11,15,0.95)',
           borderColor:'rgba(255,255,255,0.08)',
-          borderWidth:1,
-          padding:12,
+          borderWidth:1, padding:14,
+          titleFont:{size:11,weight:'600'},
+          bodyFont:{size:12},
           callbacks:{
-            label:function(c){
-              return ' '+c.dataset.label+': '+fmtBRL(c.raw);
+            title:function(items){
+              var p=items[0].label.split('-');
+              var mn=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+              return mn[parseInt(p[1])-1]+'/'+p[0];
             },
+            label:function(c){ return '  '+c.dataset.label+':  '+fmtBRL(c.raw); },
             footer:function(items){
-              var total = items.reduce(function(s,i){ return s+i.raw; },0);
-              return 'Total: '+fmtBRL(total);
+              var t=items.reduce(function(s,i){ return s+i.raw; },0);
+              return '  Total: '+fmtBRL(t);
             }
           }
         }
@@ -2319,91 +2377,110 @@ function renderChartEvolucao(){
       scales:{
         x:{
           stacked:true,
-          grid:{color:gc},
+          grid:{color:gc,drawBorder:false},
+          border:{display:false},
           ticks:{
-            maxTicksLimit:12,
+            maxTicksLimit:12, color:gTextColor(),
             callback:function(val,i){
               var l=this.getLabelForValue(val);
-              var parts=l.split('-');
-              var mns=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
-              return mns[parseInt(parts[1])-1]+'/'+parts[0].substring(2);
+              if(!l) return '';
+              var p=l.split('-');
+              var mn=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+              return mn[parseInt(p[1])-1]+'/'+p[0].substring(2);
             }
           }
         },
         y:{
           stacked:true,
-          grid:{color:gc},
-          ticks:{callback:function(v){
-            if(v>=1000000) return 'R$'+(v/1000000).toFixed(1)+'M';
-            if(v>=1000) return 'R$'+(v/1000).toFixed(0)+'k';
-            return 'R$'+v;
-          }}
+          grid:{color:gc,drawBorder:false},
+          border:{display:false},
+          ticks:{
+            color:gTextColor(),
+            callback:function(v){
+              if(v>=1000000) return 'R$'+(v/1000000).toFixed(1)+'M';
+              if(v>=1000)    return 'R$'+(v/1000).toFixed(0)+'k';
+              return 'R$'+v;
+            }
+          }
         }
       }
     }
   });
 
-  // Legend
   document.getElementById('gLegendEvolucao').innerHTML = dsAtivos.map(function(t){
-    return '<div class="g-leg-item"><div class="g-leg-dot" style="background:'+COLORS_TIPO[t]+'"></div>'+t+'</div>';
+    return '<div class="g-leg-item">'+
+      '<div class="g-leg-dot" style="background:'+COLORS_TIPO[t]+'"></div>'+t+
+    '</div>';
   }).join('');
 }
 
-// ── RENTABILIDADE por ativo ──────────────────────────────────
+// ── RENTABILIDADE ──────────────────────────────────────────────
 function renderChartRent(posData){
   destroyChart('chartRent');
   var rentData = posData.filter(function(d){ return cotacoes[d.ticker]; })
     .slice().sort(function(a,b){ return b.totalRetPct-a.totalRetPct; }).slice(0,12);
-
+  if(!rentData.length) return;
   var gc = gGridColor();
-  var ctx = document.getElementById('chartRent');
-  if(!ctx || !rentData.length) return;
 
-  chartsInstances['chartRent'] = new Chart(ctx.getContext('2d'),{
+  chartsInstances['chartRent'] = new Chart(
+    document.getElementById('chartRent').getContext('2d'),{
     type:'bar',
     data:{
       labels: rentData.map(function(d){ return d.ticker; }),
       datasets:[
         {
-          label:'Rent. Preço %',
-          data: rentData.map(function(d){ return parseFloat(d.rentPreco.toFixed(2)); }),
+          label:'Rent. Preço',
+          data: rentData.map(function(d){ return +d.rentPreco.toFixed(2); }),
           backgroundColor: rentData.map(function(d){
-            return d.rentPreco>=0?'rgba(59,130,246,0.75)':'rgba(239,68,68,0.75)';
+            return d.rentPreco>=0?'rgba(59,130,246,0.8)':'rgba(239,68,68,0.8)';
           }),
-          borderRadius:5, borderSkipped:false
+          borderRadius:{topLeft:5,topRight:5,bottomLeft:0,bottomRight:0},
+          borderSkipped:false, barPercentage:0.55, categoryPercentage:0.75
         },
         {
-          label:'Total Return %',
-          data: rentData.map(function(d){ return parseFloat(d.totalRetPct.toFixed(2)); }),
+          label:'Total Return',
+          data: rentData.map(function(d){ return +d.totalRetPct.toFixed(2); }),
           backgroundColor:'rgba(232,184,75,0.85)',
-          borderRadius:5, borderSkipped:false
+          borderRadius:{topLeft:5,topRight:5,bottomLeft:0,bottomRight:0},
+          borderSkipped:false, barPercentage:0.55, categoryPercentage:0.75
         }
       ]
     },
     options:{
       responsive:true, maintainAspectRatio:false,
-      animation:{duration:500},
+      animation:{ duration:600, easing:'easeOutQuart' },
       plugins:{
         legend:{
           position:'top',
-          labels:{boxWidth:10,padding:16,font:{size:11}}
+          labels:{
+            boxWidth:10, boxHeight:10, borderRadius:3,
+            padding:18, font:{size:11}, color:gTextColor(),
+            usePointStyle:true, pointStyle:'rectRounded'
+          }
         },
         tooltip:{
-          backgroundColor:'rgba(15,17,23,0.92)',
+          backgroundColor:'rgba(9,11,15,0.95)',
           borderColor:'rgba(255,255,255,0.08)',
-          borderWidth:1,
-          callbacks:{ label:function(c){ return ' '+c.dataset.label+': '+c.raw.toFixed(2)+'%'; }}
+          borderWidth:1, padding:12,
+          callbacks:{ label:function(c){ return '  '+c.dataset.label+':  '+c.raw.toFixed(2)+'%'; }}
         }
       },
       scales:{
-        x:{grid:{color:gc}, ticks:{font:{size:11}}},
-        y:{grid:{color:gc}, ticks:{callback:function(v){ return v+'%'; }}}
+        x:{grid:{display:false},border:{display:false},ticks:{color:gTextColor(),font:{size:11,weight:'700'}}},
+        y:{
+          grid:{color:gc,drawBorder:false},border:{display:false},
+          ticks:{color:gTextColor(),callback:function(v){ return v+'%'; }},
+          // zero line destacada
+          afterDataLimits:function(scale){
+            if(scale.min > 0) scale.min = 0;
+          }
+        }
       }
     }
   });
 }
 
-// ── PROVENTOS por mês ────────────────────────────────────────
+// ── PROVENTOS POR MÊS ──────────────────────────────────────────
 function renderChartProv(){
   destroyChart('chartProv');
   var divs = loadData('dividendos',[]).filter(function(d){
@@ -2411,171 +2488,179 @@ function renderChartProv(){
   });
   var byMonth = {};
   divs.forEach(function(d){
-    var m = d.data.substring(0,7);
-    byMonth[m] = (byMonth[m]||0) + d.valor*(d.qtdEx||0);
+    var m=d.data.substring(0,7);
+    byMonth[m]=(byMonth[m]||0)+d.valor*(d.qtdEx||0);
   });
   var months = Object.keys(byMonth).sort().slice(-18);
   if(!months.length) return;
 
   var gc = gGridColor();
+  var ctx3 = document.getElementById('chartProv').getContext('2d');
   var maxVal = Math.max.apply(null, months.map(function(m){ return byMonth[m]||0; }));
-  var ctx = document.getElementById('chartProv');
-  if(!ctx) return;
 
-  chartsInstances['chartProv'] = new Chart(ctx.getContext('2d'),{
+  // Gradient fill para barras
+  var grad = ctx3.createLinearGradient(0,0,0,260);
+  grad.addColorStop(0,'rgba(16,185,129,0.9)');
+  grad.addColorStop(1,'rgba(16,185,129,0.25)');
+
+  var mn = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+
+  chartsInstances['chartProv'] = new Chart(ctx3,{
     type:'bar',
     data:{
       labels: months.map(function(m){
-        var parts=m.split('-');
-        var mns=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
-        return mns[parseInt(parts[1])-1]+'/'+parts[0].substring(2);
+        var p=m.split('-'); return mn[parseInt(p[1])-1]+'/'+p[0].substring(2);
       }),
       datasets:[{
-        label:'Proventos (R$)',
+        label:'Proventos',
         data: months.map(function(m){ return byMonth[m]||0; }),
-        backgroundColor: months.map(function(m){
-          var v = byMonth[m]||0;
-          var alpha = 0.4 + 0.5*(maxVal>0?v/maxVal:0);
-          return 'rgba(16,185,129,'+alpha.toFixed(2)+')';
-        }),
-        borderRadius:6, borderSkipped:false
+        backgroundColor: grad,
+        borderRadius:{topLeft:6,topRight:6,bottomLeft:0,bottomRight:0},
+        borderSkipped:false, barPercentage:0.65
       }]
     },
     options:{
       responsive:true, maintainAspectRatio:false,
-      animation:{duration:500},
+      animation:{ duration:600, easing:'easeOutQuart' },
       plugins:{
         legend:{display:false},
         tooltip:{
-          backgroundColor:'rgba(15,17,23,0.92)',
+          backgroundColor:'rgba(9,11,15,0.95)',
           borderColor:'rgba(255,255,255,0.08)',
-          borderWidth:1,
-          callbacks:{ label:function(c){ return ' '+fmtBRL2(c.raw); }}
+          borderWidth:1, padding:12,
+          callbacks:{
+            label:function(c){ return '  '+fmtBRL2(c.raw); },
+            afterLabel:function(c){
+              return '  '+((maxVal>0?(c.raw/maxVal*100):0).toFixed(1))+'% do pico';
+            }
+          }
         }
       },
       scales:{
-        x:{grid:{color:gc}, ticks:{font:{size:10}}},
-        y:{grid:{color:gc}, ticks:{callback:function(v){
-          if(v>=1000) return 'R$'+(v/1000).toFixed(1)+'k';
-          return 'R$'+v.toFixed(0);
-        }}}
+        x:{grid:{display:false},border:{display:false},ticks:{color:gTextColor(),font:{size:10}}},
+        y:{
+          grid:{color:gc,drawBorder:false},border:{display:false},
+          ticks:{color:gTextColor(),callback:function(v){
+            if(v>=1000) return 'R$'+(v/1000).toFixed(1)+'k';
+            return 'R$'+v.toFixed(0);
+          }}
+        }
       }
     }
   });
 }
 
-// ── TOP 10 posições ──────────────────────────────────────────
+// ── TOP 10 POSIÇÕES (barras horizontais) ────────────────────────
 function renderChartTop(posData){
   destroyChart('chartTop');
   var top10 = posData.slice().sort(function(a,b){ return b.posVal-a.posVal; }).slice(0,10);
+  if(!top10.length) return;
   var gc = gGridColor();
-  var ctx = document.getElementById('chartTop');
-  if(!ctx || !top10.length) return;
 
-  chartsInstances['chartTop'] = new Chart(ctx.getContext('2d'),{
+  chartsInstances['chartTop'] = new Chart(
+    document.getElementById('chartTop').getContext('2d'),{
     type:'bar',
     data:{
       labels: top10.map(function(d){ return d.ticker; }),
       datasets:[{
-        label:'Posição (R$)',
+        label:'Posição',
         data: top10.map(function(d){ return d.posVal; }),
         backgroundColor: top10.map(function(d,i){
-          var alpha = COLORS_TIPO_ALPHA[d.tipo]||'rgba(100,100,100,';
-          return alpha+(0.6+0.4*(1-i/top10.length)).toFixed(2)+')';
+          var a = COLORS_TIPO_ALPHA[d.tipo]||'rgba(100,100,100,';
+          return a+(0.7+0.28*(1-i/top10.length)).toFixed(2)+')';
         }),
         borderColor: top10.map(function(d){ return COLORS_TIPO[d.tipo]||'#888'; }),
-        borderWidth: 1,
-        borderRadius: 6, borderSkipped:false
+        borderWidth:1.5,
+        borderRadius:{topLeft:0,topRight:6,bottomLeft:0,bottomRight:6},
+        borderSkipped:'left', barPercentage:0.65
       }]
     },
     options:{
       responsive:true, maintainAspectRatio:false,
-      animation:{duration:500},
       indexAxis:'y',
+      animation:{ duration:600, easing:'easeOutQuart' },
       plugins:{
         legend:{display:false},
         tooltip:{
-          backgroundColor:'rgba(15,17,23,0.92)',
+          backgroundColor:'rgba(9,11,15,0.95)',
           borderColor:'rgba(255,255,255,0.08)',
-          borderWidth:1,
-          callbacks:{ label:function(c){ return ' '+fmtBRL2(c.raw); }}
+          borderWidth:1, padding:12,
+          callbacks:{ label:function(c){ return '  '+fmtBRL2(c.raw); }}
         }
       },
       scales:{
-        x:{grid:{color:gc}, ticks:{callback:function(v){
-          if(v>=1000000) return 'R$'+(v/1000000).toFixed(1)+'M';
-          if(v>=1000) return 'R$'+(v/1000).toFixed(0)+'k';
-          return 'R$'+v;
-        }}},
-        y:{grid:{color:'transparent'}, ticks:{font:{size:12,weight:'700'}}}
+        x:{
+          grid:{color:gc,drawBorder:false},border:{display:false},
+          ticks:{color:gTextColor(),callback:function(v){
+            if(v>=1000000) return 'R$'+(v/1000000).toFixed(1)+'M';
+            if(v>=1000)    return 'R$'+(v/1000).toFixed(0)+'k';
+            return 'R$'+v;
+          }}
+        },
+        y:{grid:{display:false},border:{display:false},ticks:{color:gTextColor(),font:{size:12,weight:'700'}}}
       }
     }
   });
 }
 
-// ── ORQUESTRADOR principal ───────────────────────────────────
+// ── ORQUESTRADOR ────────────────────────────────────────────────
 function renderGraficos(){
   var pos = calcPosicoes();
   if(!pos.length) return;
 
   Chart.defaults.color = gTextColor();
+  Chart.defaults.font.family = '"DM Sans", sans-serif';
 
-  var totalPos = 0, totalInv = 0;
+  var totalPos=0, totalInv=0;
   var posData = pos.map(function(p){
-    var cot = cotacoes[p.ticker];
-    var cotBRL = cot ? (isBR(p.ticker,p.tipo)?cot.preco:cot.preco*usdBRL) : 0;
-    var posVal = cot ? p.qtd*cotBRL : p.totalInv;
-    totalPos += posVal; totalInv += p.totalInv;
-    var prov = totalProventosAtivo(p.ticker,p.tipo);
-    var result = posVal - p.totalInv;
-    var rentPreco = p.totalInv>0?(result/p.totalInv*100):0;
-    var totalRetPct = p.totalInv>0?((result+prov)/p.totalInv*100):0;
+    var cot=cotacoes[p.ticker];
+    var cotBRL=cot?(isBR(p.ticker,p.tipo)?cot.preco:cot.preco*usdBRL):0;
+    var posVal=cot?p.qtd*cotBRL:p.totalInv;
+    totalPos+=posVal; totalInv+=p.totalInv;
+    var prov=totalProventosAtivo(p.ticker,p.tipo);
+    var result=posVal-p.totalInv;
+    var rentPreco=p.totalInv>0?(result/p.totalInv*100):0;
+    var totalRetPct=p.totalInv>0?((result+prov)/p.totalInv*100):0;
     return {ticker:p.ticker,tipo:p.tipo,posVal:posVal,totalInv:p.totalInv,
             rentPreco:rentPreco,totalRetPct:totalRetPct,prov:prov};
   });
 
-  // 1. Desempenho
   renderGDesempenho(pos, posData, totalPos, totalInv);
 
-  // 2. Donuts
+  // Donuts
   var tipos = Object.keys(COLORS_TIPO);
   var meta  = getMeta();
 
-  // Meta donut (% fixos)
-  var metaLabels=[], metaVals=[], metaCores=[];
+  var metaLabels=[],metaVals=[],metaCores=[];
   tipos.forEach(function(t){
-    var v = meta[t]||0;
-    if(v>0){ metaLabels.push(t); metaVals.push(v); metaCores.push(COLORS_TIPO[t]); }
+    var v=meta[t]||0;
+    if(v>0){metaLabels.push(t);metaVals.push(v);metaCores.push(COLORS_TIPO[t]);}
   });
-  renderDonut('chartMeta', metaLabels, metaVals, metaCores, 'gLegendMeta',
-    document.getElementById('gMetaCenter'), 'Meta');
+  renderDonut('chartMeta',metaLabels,metaVals,metaCores,'gLegendMeta',
+    document.getElementById('gMetaCenter'),'Meta');
 
-  // Atual donut (% do patrimônio)
-  var byTipo = {};
+  var byTipo={};
   posData.forEach(function(d){ byTipo[d.tipo]=(byTipo[d.tipo]||0)+d.posVal; });
-  var atLabels=[], atVals=[], atCores=[];
+  var atLabels=[],atVals=[],atCores=[];
   tipos.forEach(function(t){
-    if(byTipo[t]){ atLabels.push(t); atVals.push(totalPos>0?(byTipo[t]/totalPos*100):0); atCores.push(COLORS_TIPO[t]); }
+    if(byTipo[t]){
+      atLabels.push(t);
+      atVals.push(totalPos>0?(byTipo[t]/totalPos*100):0);
+      atCores.push(COLORS_TIPO[t]);
+    }
   });
-  renderDonut('chartAtual', atLabels, atVals, atCores, 'gLegendAtual',
-    document.getElementById('gAtualCenter'), 'Atual');
-  var atualCenter = document.getElementById('gAtualPct');
-  if(atualCenter && totalPos>0){
-    var pctRes = totalInv>0?((totalPos-totalInv)/totalInv*100):0;
-    atualCenter.textContent = (pctRes>=0?'+':'')+pctRes.toFixed(1)+'%';
-    atualCenter.style.color = pctRes>=0?'var(--green)':'var(--red)';
+  renderDonut('chartAtual',atLabels,atVals,atCores,'gLegendAtual',
+    document.getElementById('gAtualCenter'),'Atual');
+  var atualCenter=document.getElementById('gAtualPct');
+  if(atualCenter&&totalPos>0){
+    var pctRes=totalInv>0?((totalPos-totalInv)/totalInv*100):0;
+    atualCenter.textContent=(pctRes>=0?'+':'')+pctRes.toFixed(1)+'%';
+    atualCenter.style.color=pctRes>=0?'var(--green)':'var(--red)';
   }
 
-  // 3. Evolução stacked
   renderChartEvolucao();
-
-  // 4. Rentabilidade
   renderChartRent(posData);
-
-  // 5. Proventos
   renderChartProv();
-
-  // 6. Top 10
   renderChartTop(posData);
 }
 
@@ -2640,9 +2725,14 @@ function salvarAporte(){
 function excluirAporte(id){if(!confirm('Excluir este aporte?'))return;var aportes=loadData('aportes',[]).filter(function(a){return a.id!==id;});saveData('aportes',aportes);renderPosicoes();renderAportes();}
 
 function renderAportes(){
+  var searchEl = document.getElementById('searchAporte');
+  var busca = searchEl ? searchEl.value.trim().toUpperCase() : '';
   var aportes=loadData('aportes',[]);
+  if(busca) aportes = aportes.filter(function(a){
+    return a.ticker.includes(busca) || (a.obs||'').toUpperCase().includes(busca);
+  });
   var tbody=document.getElementById('tbodyAportes');
-  if(!aportes.length){tbody.innerHTML='<tr><td colspan="9" style="text-align:center;padding:48px;color:var(--text3)">Nenhum aporte registrado.</td></tr>';return;}
+  if(!aportes.length){tbody.innerHTML='<tr><td colspan="9" style="text-align:center;padding:48px;color:var(--text3)">'+(busca?'Nenhum resultado para "'+busca+'"':'Nenhum aporte registrado.')+'</td></tr>';return;}
 
   var splitEvents = [];
   aportes.forEach(function(a){
@@ -3016,7 +3106,10 @@ function buscarDividendos(){
 }
 
 function renderDividendos(){
+  var searchEl = document.getElementById('searchProv');
+  var busca = searchEl ? searchEl.value.trim().toUpperCase() : '';
   var divs=loadData('dividendos',[]);
+  if(busca) divs = divs.filter(function(d){ return d.ticker.toUpperCase().includes(busca); });
   var hoje=new Date().toISOString().split('T')[0];
   var futuros=divs.filter(function(d){return d.data>=hoje;}).sort(function(a,b){return a.data.localeCompare(b.data);});
   var recebidos=divs.filter(function(d){return d.data<hoje;}).sort(function(a,b){return b.data.localeCompare(a.data);});
@@ -3133,7 +3226,7 @@ function showTab(t){
     var tabs=['posicoes','graficos','aportes','dividendos','importar'];
     b.classList.toggle('on',tabs[i]===t);
   });
-  if(t==='posicoes') { renderPosicoes(); setTimeout(aplicarColsVisiveis,30); }
+  if(t==='posicoes') { renderPosicoes(); setTimeout(function(){ aplicarOrdemColunas(); aplicarColsVisiveis(); },30); }
   if(t==='graficos') renderGraficos();
   if(t==='aportes') renderAportes();
   if(t==='dividendos') renderDividendos();
@@ -3255,9 +3348,10 @@ function onColToggle(col, visible){
 
 function resetCols(){
   saveData('colsVisiveis', null);
+  saveData('colOrdem', null);
   renderColCheckList();
-  aplicarColsVisiveis();
-  renderPosicoes();
+  // Reload page to fully reset column order (simplest approach)
+  location.reload();
 }
 
 function aplicarColsVisiveis(){
@@ -3283,20 +3377,25 @@ function aplicarColsVisiveis(){
 }
 
 // ============================================================
-// RESIZE DE COLUNAS
+// RESIZE + DRAG-REORDER DE COLUNAS
 // ============================================================
-var _resizeData = null;
+var _resizeData    = null;
+var _resizeDidMove = false;  // flag: se moveu durante mousedown do resizer
 
+// ── RESIZE ───────────────────────────────────────────────────
 function initResize(e, resizer){
   e.preventDefault();
   e.stopPropagation();
+  _resizeDidMove = false;
   var th = resizer.parentElement;
   _resizeData = {
     th: th,
+    resizer: resizer,
     startX: e.clientX,
     startW: th.offsetWidth
   };
   resizer.classList.add('dragging');
+  document.body.classList.add('col-resizing');
   document.addEventListener('mousemove', doResize);
   document.addEventListener('mouseup', stopResize);
 }
@@ -3304,18 +3403,132 @@ function initResize(e, resizer){
 function doResize(e){
   if(!_resizeData) return;
   var diff = e.clientX - _resizeData.startX;
-  var newW = Math.max(48, _resizeData.startW + diff);
+  if(Math.abs(diff) > 2) _resizeDidMove = true;
+  var newW = Math.max(50, _resizeData.startW + diff);
   _resizeData.th.style.width = newW + 'px';
   _resizeData.th.style.minWidth = newW + 'px';
 }
 
-function stopResize(){
+function stopResize(e){
   if(_resizeData){
-    document.querySelectorAll('.th-resizer.dragging').forEach(function(r){ r.classList.remove('dragging'); });
+    _resizeData.resizer.classList.remove('dragging');
+    // Bloqueia o click do th que viria logo após o mouseup
+    if(_resizeDidMove){
+      var th = _resizeData.th;
+      th._skipNextClick = true;
+      setTimeout(function(){ th._skipNextClick = false; }, 50);
+    }
     _resizeData = null;
   }
+  document.body.classList.remove('col-resizing');
   document.removeEventListener('mousemove', doResize);
   document.removeEventListener('mouseup', stopResize);
+}
+
+// thClick — substitui onclick direto no th para bloquear sort durante/após resize
+function thClick(sortKey){
+  var th = event.currentTarget;
+  if(th._skipNextClick) return;
+  if(_resizeData) return;
+  sortBy(sortKey);
+}
+
+// ── DRAG-TO-REORDER ──────────────────────────────────────────
+var _dragSrcTh = null;
+
+function thDragStart(e, th){
+  // Se o drag começa pelo resizer, cancela o drag de reorder
+  if(e.target.classList.contains('th-resizer')){
+    e.preventDefault(); return;
+  }
+  _dragSrcTh = th;
+  th.classList.add('th-dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', th.dataset.col||'');
+  // ghost image: usa o próprio th
+  e.dataTransfer.setDragImage(th, 20, th.offsetHeight/2);
+}
+
+function thDragOver(e, th){
+  if(!_dragSrcTh || th === _dragSrcTh || th.dataset.col === 'acoes') return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  // Determina se drop é à esquerda ou direita do centro
+  var rect = th.getBoundingClientRect();
+  var mid  = rect.left + rect.width / 2;
+  th.classList.remove('th-drag-over-left','th-drag-over-right');
+  th.classList.add(e.clientX < mid ? 'th-drag-over-left' : 'th-drag-over-right');
+}
+
+function thDragLeave(th){
+  th.classList.remove('th-drag-over-left','th-drag-over-right');
+}
+
+function thDrop(e, targetTh){
+  e.preventDefault();
+  if(!_dragSrcTh || targetTh === _dragSrcTh) return;
+  if(targetTh.dataset.col === 'acoes') return;
+
+  var row   = document.getElementById('theadRow');
+  var ths   = Array.from(row.children);
+  var srcIdx= ths.indexOf(_dragSrcTh);
+  var tgtIdx= ths.indexOf(targetTh);
+
+  // Decide inserção antes ou depois
+  var rect  = targetTh.getBoundingClientRect();
+  var after = e.clientX > rect.left + rect.width / 2;
+
+  targetTh.classList.remove('th-drag-over-left','th-drag-over-right');
+  if(after){
+    targetTh.parentNode.insertBefore(_dragSrcTh, targetTh.nextSibling);
+  } else {
+    targetTh.parentNode.insertBefore(_dragSrcTh, targetTh);
+  }
+
+  // Reordena os tds de cada linha para acompanhar
+  var tbody = document.getElementById('tbodyPosicoes');
+  Array.from(tbody.rows).forEach(function(tr){
+    var tds = Array.from(tr.cells);
+    if(tds.length < ths.length) return;
+    var movedTd = tds[srcIdx];
+    if(!movedTd) return;
+    if(after){
+      tr.insertBefore(movedTd, tds[tgtIdx] ? tds[tgtIdx].nextSibling : null);
+    } else {
+      tr.insertBefore(movedTd, tds[tgtIdx]||null);
+    }
+  });
+
+  // Salva nova ordem de colunas
+  salvarOrdemColunas();
+}
+
+function thDragEnd(th){
+  th.classList.remove('th-dragging');
+  document.querySelectorAll('#theadRow th').forEach(function(t){
+    t.classList.remove('th-drag-over-left','th-drag-over-right');
+  });
+  _dragSrcTh = null;
+}
+
+function salvarOrdemColunas(){
+  var ths = Array.from(document.querySelectorAll('#theadRow th[data-col]'));
+  var ordem = ths.map(function(th){ return th.dataset.col; });
+  saveData('colOrdem', ordem);
+}
+
+function aplicarOrdemColunas(){
+  var ordem = loadData('colOrdem', null);
+  if(!ordem || !ordem.length) return;
+  var row = document.getElementById('theadRow');
+  if(!row) return;
+  ordem.forEach(function(col){
+    var th = row.querySelector('[data-col="'+col+'"]');
+    if(th) row.appendChild(th); // move para o fim em sequência
+  });
+  // Garante que "acoes" fique sempre no fim
+  var acoesTh = row.querySelector('[data-col="acoes"]');
+  if(acoesTh) row.appendChild(acoesTh);
 }
 
 // ============================================================
@@ -3385,7 +3598,7 @@ function stopResize(){
 
   renderPosicoes();
   // Aplica visibilidade de colunas após render
-  setTimeout(aplicarColsVisiveis, 50);
+  setTimeout(function(){ aplicarOrdemColunas(); aplicarColsVisiveis(); }, 50);
 
   if((tokenBrapi || tokenFmp) && calcPosicoes().length && !cache){
     setTimeout(buscarCotacoes, 500);
