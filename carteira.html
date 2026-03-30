@@ -895,7 +895,24 @@ function corrigirTiposAportes(){
 // 3. FMP stable (se token configurado)
 // ============================================================
 function buscarUSTicker(ticker, erros){
+  // TWELVE DATA primeiro (confiável para qualquer ticker US + ADRs)
+  if(tokenTwelve){
+    return buscarTwelveDataTicker(ticker, null)
+      .then(function(){
+        if(cotacoes[ticker]) return; // Twelve Data funcionou!
+        // Fallback: Yahoo Finance
+        return tentarYahoo(ticker).catch(function(){
+          if(erros) erros.push(ticker+' — sem cotação disponível');
+        });
+      });
+  }
+  // Sem Twelve Data: só Yahoo
+  return tentarYahoo(ticker).catch(function(){
+    if(erros) erros.push(ticker+' — sem cotação (configure Twelve Data)');
+  });
+}
 
+function tentarYahoo(ticker){
   function salvarCotacao(symbol, preco, varPct, var1d, nome){
     if(!preco || preco <= 0) return false;
     cotacoes[symbol] = {
@@ -912,7 +929,7 @@ function buscarUSTicker(ticker, erros){
     var meta = res.meta || {};
     var preco = meta.regularMarketPrice || 0;
     if(!preco && res.indicators && res.indicators.quote && res.indicators.quote[0]){
-      var closes = (res.indicators.quote[0].close || []).filter(Boolean);
+      var closes = (res.indicators.quote[0].close||[]).filter(Boolean);
       if(closes.length) preco = closes[closes.length-1];
     }
     if(!preco) preco = meta.postMarketPrice || meta.preMarketPrice || 0;
@@ -931,42 +948,26 @@ function buscarUSTicker(ticker, erros){
       q.longName||q.shortName||'');
   }
 
-  function tentarYahoo(){
-    var u1 = 'https://query1.finance.yahoo.com/v8/finance/chart/'+ticker+'?interval=1d&range=1d';
-    var u2 = 'https://query2.finance.yahoo.com/v8/finance/chart/'+ticker+'?interval=1d&range=1d';
-    var u3 = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols='+ticker;
-    return fetch(u1,{headers:{Accept:'application/json'}})
-      .then(function(r){return r.ok?r.json():Promise.reject(r.status);})
-      .then(function(d){if(!parseYahooV8(d))throw new Error('zero');})
-      .catch(function(){
-        return fetch(u2,{headers:{Accept:'application/json'}})
-          .then(function(r){return r.ok?r.json():Promise.reject(r.status);})
-          .then(function(d){if(!parseYahooV8(d))throw new Error('zero');})
-          .catch(function(){
-            return fetch(u3,{headers:{Accept:'application/json'}})
-              .then(function(r){return r.ok?r.json():Promise.reject(r.status);})
-              .then(function(d){if(!parseYahooV7(d))throw new Error('zero v7');});
-          });
-      });
-  }
+  var u1 = 'https://query1.finance.yahoo.com/v8/finance/chart/'+ticker+'?interval=1d&range=1d';
+  var u2 = 'https://query2.finance.yahoo.com/v8/finance/chart/'+ticker+'?interval=1d&range=1d';
+  var u3 = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols='+ticker;
 
-  // Twelve Data disponível: roda Yahoo e Twelve em PARALELO
-  // Usa o que retornar preço válido primeiro
-  if(tokenTwelve){
-    return Promise.all([
-      tentarYahoo().catch(function(){}),
-      buscarTwelveDataTicker(ticker, null)
-    ]).then(function(){
-      if(!cotacoes[ticker] && erros)
-        erros.push(ticker+' — Yahoo e Twelve Data sem cotação');
+  return fetch(u1,{headers:{Accept:'application/json'}})
+    .then(function(r){return r.ok?r.json():Promise.reject(r.status);})
+    .then(function(d){if(!parseYahooV8(d))throw new Error('zero');})
+    .catch(function(){
+      return fetch(u2,{headers:{Accept:'application/json'}})
+        .then(function(r){return r.ok?r.json():Promise.reject(r.status);})
+        .then(function(d){if(!parseYahooV8(d))throw new Error('zero');})
+        .catch(function(){
+          return fetch(u3,{headers:{Accept:'application/json'}})
+            .then(function(r){return r.ok?r.json():Promise.reject(r.status);})
+            .then(function(d){if(!parseYahooV7(d))throw new Error('zero v7');});
+        });
     });
-  }
-
-  // Sem Twelve Data: só Yahoo
-  return tentarYahoo().catch(function(){
-    if(erros) erros.push(ticker+' — Yahoo sem cotação (configure Twelve Data)');
-  });
 }
+
+
 
 // ============================================================
 // TWELVE DATA — fallback para ADRs e stocks US (800 req/dia grátis)
