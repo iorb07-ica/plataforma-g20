@@ -916,16 +916,23 @@ function buscarUSTicker(ticker, erros){
     var res = d && d.chart && d.chart.result && d.chart.result[0];
     if(!res) return false;
     var meta = res.meta || {};
-    // Tenta pegar preço de múltiplos campos — ADRs às vezes usam campos diferentes
-    var preco = meta.regularMarketPrice
-             || meta.postMarketPrice
-             || meta.preMarketPrice
-             || (res.indicators && res.indicators.quote && res.indicators.quote[0]
-                 && res.indicators.quote[0].close
-                 && res.indicators.quote[0].close.filter(Boolean).pop())
-             || 0;
-    if(!preco) return false;
-    var prev = meta.chartPreviousClose || meta.previousClose || meta.regularMarketDayLow || preco;
+
+    // Tenta pegar preço de múltiplos campos
+    var preco = meta.regularMarketPrice || 0;
+
+    // Se preço vier zero (ADRs europeus), tenta pegar do último candle
+    if(!preco && res.indicators && res.indicators.quote && res.indicators.quote[0]){
+      var closes = res.indicators.quote[0].close || [];
+      var lastClose = closes.filter(Boolean).pop();
+      if(lastClose) preco = lastClose;
+    }
+
+    // Tenta outros campos de preço
+    if(!preco) preco = meta.postMarketPrice || meta.preMarketPrice || meta.regularMarketDayHigh || 0;
+
+    if(!preco || preco <= 0) return false; // rejeita — vai para fallback Twelve Data
+
+    var prev = meta.chartPreviousClose || meta.previousClose || preco;
     var varPct = prev && prev !== preco ? ((preco - prev) / prev * 100) : 0;
     return salvarCotacao(
       meta.symbol || ticker, preco, varPct,
