@@ -371,8 +371,9 @@ tr:hover td{background:var(--sur2)}
       <div class="section-hdr">
         <div class="section-title">Dividendos & Proventos</div>
         <div class="hdr-actions">
-          <button class="btn-sm btn-outline" onclick="buscarDividendos()">↻ Buscar da API</button>
-          <button class="btn-sm btn-gold" onclick="abrirModalDividendo()">+ Registrar Manualmente</button>
+          <button class="btn-sm btn-gold" id="btnImportarProventos" onclick="importarTodosProventos()" title="Importa automaticamente todos os proventos históricos desde a data de cada compra">📥 Importar Proventos Históricos</button>
+          <button class="btn-sm btn-outline" onclick="buscarDividendos()">↻ Brapi (BR)</button>
+          <button class="btn-sm btn-outline" onclick="abrirModalDividendo()">+ Manual</button>
         </div>
       </div>
       <div id="divFuturos"></div>
@@ -789,6 +790,11 @@ function buscarCotacoes(){
 
     renderPosicoes();
     if(document.getElementById('tab-graficos').style.display!=='none') renderGraficos();
+
+    // Importa proventos históricos automaticamente após atualizar cotações
+    importarTodosProventos(function(novos){
+      if(novos > 0) renderPosicoes(); // re-renderiza com proventos atualizados
+    });
   });
 }
 
@@ -913,8 +919,8 @@ function buscarUSTickersBatch(tickers, erros){
       return fetch(url)
         .then(function(r){ return r.json(); })
         .then(function(d){
-          // 1 ticker: objeto direto; 2+ tickers: { AAPL: {...}, MSFT: {...} }
-          if(d && d.symbol && typeof d.close !== 'undefined'){
+          // Normaliza: 1 ticker retorna objeto direto, 2+ retorna {TICKER: {...}}
+          if(d && d.symbol && (d.close !== undefined || d.price !== undefined)){
             var tmp={}; tmp[d.symbol]=d; d=tmp;
           }
           chunk.forEach(function(ticker){
@@ -1525,6 +1531,199 @@ function salvarDividendo(){
   renderDividendos();
   renderPosicoes();
 }
+
+// ============================================================
+// PROVENTOS AUTOMÁTICOS HISTÓRICOS
+// Calcula quanto o usuário recebeu desde a data de compra
+// BR: Brapi | US: Twelve Data
+// ============================================================
+
+// Calcula quantas ações o usuário tinha em uma data específica
+function qtdNaData(ticker, dataAlvo){
+  var aportes = loadData('aportes',[]).filter(function(a){ return a.ticker===ticker; });
+  aportes.sort(function(a,b){ return a.data.localeCompare(b.data); });
+  var qtd = 0;
+  aportes.forEach(function(a){
+    if(a.data <= dataAlvo){
+      if(a.op==='C') qtd += a.qtd;
+      else qtd -= a.qtd;
+    }
+  });
+  return Math.max(0, qtd);
+}
+
+// Data da primeira compra de um ticker
+function dataPrimeiraCompra(ticker){
+  var aportes = loadData('aportes',[]).filter(function(a){ return a.ticker===ticker && a.op==='C'; });
+  if(!aportes.length) return null;
+  return aportes.sort(function(a,b){ return a.data.localeCompare(b.data); })[0].data;
+}
+
+// Importa proventos históricos BR
+// Tenta: 1º Dados de Mercado (gratuito) → 2º Brapi (com token)
+function importarProventosBR(ticker){
+  var dataCompra = dataPrimeiraCompra(ticker);
+  if(!dataCompra) return Promise.resolve(0);
+
+  // Tenta Dados de Mercado (gratuito, sem token)
+  return fetch('https://api.dadosdemercado.com.br/v1/companies/'+ticker+'/dividends')
+    .then(function(r){
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return r.json();
+    })
+    .then(function(d){
+      // Dados de Mercado retorna array de dividendos
+      var divs = Array.isArray(d) ? d : (d.data || d.dividends || []);
+      return salvarProventosBR(ticker, divs, dataCompra, 'DadosMercado');
+    })
+    .catch(function(){
+      // Fallback: Brapi
+      if(!tokenBrapi) return 0;
+      return fetch(BRAPI_URL+'/quote/'+ticker+'?dividends=true&token='+tokenBrapi)
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if(!d.results || !d.results[0]) return 0;
+          var res = d.results[0];
+          var divs = res.dividendsData && res.dividendsData.cashDividends || [];
+          return salvarProventosBR(ticker, divs, dataCompra, 'Brapi');
+        })
+        .catch(function(){ return 0; });
+    });
+}
+
+// Salva proventos BR no localStorage normalizando formato de ambas as APIs
+function salvarProventosBR(ticker, divs, dataCompra, fonte){
+  if(!divs || !divs.length) return 0;
+  var stored = loadData('dividendos',[]);
+  var hoje   = new Date().toISOString().split('T')[0];
+  var novos  = 0;
+
+  divs.forEach(function(dv){
+    // Normaliza campos — Dados de Mercado vs Brapi têm nomes diferentes
+    var dataPag = (dv.payment_date || dv.paymentDate || dv.date || '').substring(0,10);
+    var dataEx  = (dv.ex_date || dv.lastDatePrior || dv.exDate || dataPag).substring(0,10);
+    var valor   = parseFloat(dv.value || dv.rate || dv.amount || 0);
+    var tipo    = dv.type || dv.label || dv.kind || 'Dividendo';
+
+    if(!dataPag || !valor) return;
+    if(dataPag < dataCompra) return; // antes da compra
+    if(dataPag > hoje) return;       // futuro
+
+    // Evita duplicata
+    var existe = stored.find(function(x){
+      return x.ticker===ticker && x.data===dataPag && Math.abs(x.valor-valor)<0.0001;
+    });
+    if(existe) return;
+
+    var qtd = qtdNaData(ticker, dataEx || dataPag);
+    if(qtd <= 0) return;
+
+    stored.push({
+      id:     Date.now().toString()+Math.random(),
+      ticker: ticker,
+      tipo:   tipo,
+      data:   dataPag,
+      datex:  dataEx,
+      valor:  valor,
+      qtdEx:  qtd,
+      fonte:  'Auto-'+fonte
+    });
+    novos++;
+  });
+
+  if(novos > 0) saveData('dividendos', stored);
+  return novos;
+}
+
+// Importa proventos históricos de um ativo US via Twelve Data
+function importarProventosUS(ticker){
+  if(!tokenTwelve) return Promise.resolve();
+  var dataCompra = dataPrimeiraCompra(ticker);
+  if(!dataCompra) return Promise.resolve();
+
+  var hoje = new Date().toISOString().split('T')[0];
+  var url = TWELVE_URL+'/dividends?symbol='+ticker+
+            '&start_date='+dataCompra+'&end_date='+hoje+
+            '&apikey='+tokenTwelve;
+
+  return fetch(url)
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(!d.dividends || !d.dividends.length) return 0;
+
+      var stored = loadData('dividendos',[]);
+      var novos = 0;
+
+      d.dividends.forEach(function(dv){
+        var dataPag = dv.payment_date || dv.date || '';
+        var dataEx  = dv.ex_date || dataPag;
+        if(!dataPag) return;
+
+        // Verifica se já existe
+        var existe = stored.find(function(x){
+          return x.ticker===ticker && x.data===dataPag && Math.abs(x.valor-dv.amount)<0.001;
+        });
+        if(existe) return;
+
+        var qtd = qtdNaData(ticker, dataEx);
+        if(qtd <= 0) return;
+
+        stored.push({
+          id:        Date.now().toString()+Math.random(),
+          ticker:    ticker,
+          tipo:      'Dividendo',
+          data:      dataPag,
+          datex:     dataEx,
+          valor:     parseFloat(dv.amount || 0),
+          qtdEx:     qtd,
+          fonte:     'Auto-US',
+          moeda:     'USD'
+        });
+        novos++;
+      });
+
+      if(novos > 0) saveData('dividendos', stored);
+      return novos;
+    })
+    .catch(function(){});
+}
+
+// Importa proventos de TODA a carteira automaticamente
+function importarTodosProventos(callback){
+  var pos = calcPosicoes();
+  if(!pos.length){ if(callback) callback(0); return; }
+
+  var btn = document.getElementById('btnImportarProventos');
+  if(btn){ btn.textContent='⏳ Buscando...'; btn.disabled=true; }
+
+  var posBR = pos.filter(function(p){ return isBR(p.ticker, p.tipo); });
+  var posUS = pos.filter(function(p){ return !isBR(p.ticker, p.tipo); });
+
+  var promises = [];
+
+  posBR.forEach(function(p){
+    promises.push(importarProventosBR(p.ticker));
+  });
+
+  posUS.forEach(function(p){
+    promises.push(importarProventosUS(p.ticker));
+  });
+
+  Promise.all(promises).then(function(resultados){
+    var total = resultados.reduce(function(s,n){ return s+(n||0); }, 0);
+    if(btn){ btn.textContent='📥 Importar Proventos'; btn.disabled=false; }
+    renderDividendos();
+    renderPosicoes();
+    if(callback) callback(total);
+    if(total > 0 && callback && callback.toString().includes('renderPosicoes')){
+      // Chamado automaticamente — notificação silenciosa
+      console.log('[Proventos] '+total+' novo(s) importado(s)');
+    } else if(total > 0){
+      mostrarErros(['✅ '+total+' novo(s) provento(s) importado(s)!']);
+    }
+  });
+}
+
 function buscarDividendos(){
   if(!tokenBrapi){alert('Configure o token da Brapi para buscar proventos automaticamente.');return;}
   var pos=calcPosicoes();
