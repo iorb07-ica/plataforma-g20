@@ -736,6 +736,7 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
         <table>
           <thead>
             <tr id="theadRow">
+              <th data-col="logo" style="width:44px;min-width:44px;max-width:44px;text-align:center;padding:4px"></th>
               <th data-col="ticker" onclick="thClick('ticker')" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>Ticker <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
               <th data-col="nome" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>Nome<div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
               <th data-col="tipo" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>Tipo<div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
@@ -3964,10 +3965,15 @@ var COL_DEFS = [
 
 function getColsVisiveis(){
   var saved = loadData('colsVisiveis', null);
-  if(saved) return saved;
   var def = {};
-  COL_DEFS.forEach(function(c){ def[c.col] = c.fixed || c.def; });
-  return def;
+  COL_DEFS.forEach(function(c){ def[c.col] = c.fixed ? true : !!c.def; });
+  if(!saved) return def;
+  // Mescla: respeita saved mas força fixed=true
+  COL_DEFS.forEach(function(c){
+    if(c.fixed) saved[c.col] = true;         // fixas sempre visíveis
+    if(saved[c.col] === undefined) saved[c.col] = def[c.col]; // novas colunas
+  });
+  return saved;
 }
 
 function saveColsVisiveis(obj){ saveData('colsVisiveis', obj); }
@@ -3997,25 +4003,31 @@ function renderColCheckList(){
   var cols = getColsVisiveis();
   var el = document.getElementById('colCheckList');
   el.innerHTML = COL_DEFS.map(function(c){
-    var checked = cols[c.col] !== false;
-    var isFixed = !!c.fixed;
-    var disabledAttr = isFixed ? ' disabled' : '';
+    var isFixed  = !!c.fixed;
+    var checked  = isFixed ? true : (cols[c.col] !== false);
     var fixedClass = isFixed ? ' fixed-col' : '';
-    return '<label class="col-check-item'+fixedClass+'">'+
-      '<input type="checkbox"'+(checked?' checked':'')+disabledAttr+
+    var fixedTip   = isFixed ? ' title="Coluna fixa — sempre visível"' : '';
+    var fixedLabel = isFixed ? ' <span style="font-size:9px;opacity:.5">(fixo)</span>' : '';
+    return '<label class="col-check-item'+fixedClass+'"'+fixedTip+'>'+
+      '<input type="checkbox"'+(checked?' checked':'')+(isFixed?' disabled':'')+
         (isFixed ? '' : ' onchange="onColToggle(\''+c.col+'\',this.checked)"')+'>'+
-      c.label+
+      c.label + fixedLabel +
     '</label>';
   }).join('');
 }
 
 function onColToggle(col, visible){
+  // Nunca oculta colunas fixas
+  var def = COL_DEFS.find(function(c){ return c.col === col; });
+  if(def && def.fixed) return;
+
   var cols = getColsVisiveis();
   cols[col] = visible;
   saveColsVisiveis(cols);
-  // Renderiza primeiro (cria tds com data-col), depois aplica visibilidade
-  renderPosicoes();
+
+  // CSS injection já cuida de tudo — não precisa re-render completo
   aplicarColsVisiveis();
+  renderColCheckList(); // atualiza o painel
 }
 
 function resetCols(){
@@ -4040,11 +4052,14 @@ function aplicarColsVisiveis(){
   }
 
   var rules = [];
-  var COL_KEYS = COL_DEFS.map(function(c){ return c.col; });
-  COL_KEYS.forEach(function(col){
-    var vis = cols[col] !== false;
+  // Mapa de colunas fixas para não ocultar nunca
+  var fixedSet = {};
+  COL_DEFS.forEach(function(c){ if(c.fixed) fixedSet[c.col] = true; });
+
+  COL_DEFS.forEach(function(c){
+    var col = c.col;
+    var vis = c.fixed ? true : (cols[col] !== false); // fixas sempre visíveis
     if(!vis){
-      // Oculta th E td com esse data-col
       rules.push('#theadRow th[data-col="'+col+'"] { display: none !important; }');
       rules.push('#tbodyPosicoes td[data-col="'+col+'"] { display: none !important; }');
     }
