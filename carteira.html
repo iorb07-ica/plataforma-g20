@@ -2051,16 +2051,13 @@ function buscarPrecoDia(){
   if(!hint) return;
   if(!ticker || !data){ hint.innerHTML = ''; return; }
 
-  // Cancela busca anterior
   clearTimeout(_precoDiaTimer);
-  hint.innerHTML = '<span style="color:var(--text3)">⏳ Buscando preço...</span>';
+  hint.innerHTML = '<span style="color:var(--text3)">⏳ buscando preço...</span>';
 
   _precoDiaTimer = setTimeout(function(){
     var tipo = (document.getElementById('aporte_tipo')||{value:'Acao'}).value;
     var isBRticker = ['Acao','FII','FIAGRO'].indexOf(tipo) >= 0;
     var symbol = isBRticker ? ticker+'.SA' : ticker;
-
-    // Yahoo Finance: range cobrindo a data ± 5 dias, intervalo diário
     var url = PROXY_URL+'/api/history-date?symbol='+encodeURIComponent(symbol)+'&date='+encodeURIComponent(data);
 
     fetch(url)
@@ -2068,12 +2065,13 @@ function buscarPrecoDia(){
       .then(function(d){
         if(d && d.close && d.close > 0){
           var preco = d.close;
-          var precoFmt = isBRticker
-            ? 'R$ '+preco.toFixed(2)
-            : '$ '+preco.toFixed(2);
-          hint.innerHTML =
-            '<span style="color:var(--green)">✓ Fechamento '+data.split('-').reverse().join('/')+': <strong>'+precoFmt+'</strong></span>'+
-            ' <button type="button" onclick="usarPrecoDia('+preco+')" style="font-size:10px;background:rgba(46,204,113,.15);border:1px solid rgba(46,204,113,.4);color:var(--green);padding:1px 7px;border-radius:4px;cursor:pointer">Usar</button>';
+          // Preenche o campo automaticamente
+          var input = document.getElementById('aporte_preco');
+          if(input) input.value = preco.toFixed(2);
+          // Hint discreto embaixo
+          var dataExib = (d.date||data).split('-').reverse().join('/');
+          var precoFmt = isBRticker ? 'R$ '+preco.toFixed(2) : '$ '+preco.toFixed(2);
+          hint.innerHTML = '<span style="color:var(--text3)">✓ Fechamento '+dataExib+' · '+precoFmt+' · Yahoo Finance</span>';
         } else {
           hint.innerHTML = '<span style="color:var(--text3)">Preço não encontrado para esta data</span>';
         }
@@ -2082,13 +2080,6 @@ function buscarPrecoDia(){
         hint.innerHTML = '<span style="color:var(--text3)">Não foi possível buscar o preço</span>';
       });
   }, 600);
-}
-
-function usarPrecoDia(preco){
-  var input = document.getElementById('aporte_preco');
-  if(input){ input.value = preco.toFixed(2); }
-  var hint = document.getElementById('precoDiaHint');
-  if(hint) hint.innerHTML = '<span style="color:var(--gold)">✓ Preço aplicado</span>';
 }
 
 // ============================================================
