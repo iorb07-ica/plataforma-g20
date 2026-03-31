@@ -2055,85 +2055,24 @@ function atualizarLabelMoeda(){
 // Chamado quando o proxy não retorna dados históricos para .SA
 // ============================================================
 function calcularRefsBR(symbolSA, cotObj){
-  // Yahoo Finance: 2 anos de dados diários — cobre YTD, 6M, 3M, 1M, 1W
-  var now   = Math.floor(Date.now()/1000);
-  var from  = now - 2*365*86400;
-  var url1  = 'https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(symbolSA)+'?interval=1d&period1='+from+'&period2='+now;
-  var url2  = 'https://query2.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(symbolSA)+'?interval=1d&period1='+from+'&period2='+now;
+  // Roteia pelo proxy Vercel para evitar CORS do Yahoo Finance
+  var url1  = PROXY_URL+'/api/history-br?symbol='+encodeURIComponent(symbolSA);
+  var url2  = url1; // fallback igual, proxy já tem retry interno
 
-  function parseYahooHist(data){
-    var res = data && data.chart && data.chart.result && data.chart.result[0];
-    if(!res) return null;
-    var tss    = res.timestamp || [];
-    var closes = (res.indicators && res.indicators.quote && res.indicators.quote[0] && res.indicators.quote[0].close) || [];
-    if(!tss.length) return null;
-
-    // Monta array {date, close, dow}
-    var hist = [];
-    tss.forEach(function(ts,i){
-      if(closes[i] == null) return;
-      var d = new Date(ts*1000);
-      hist.push({
-        date: d.toISOString().split('T')[0],
-        close: closes[i],
-        dow: d.getDay()
-      });
-    });
-    hist.sort(function(a,b){ return a.date.localeCompare(b.date); });
-    return hist;
-  }
-
-  function computeRefs(hist){
-    function closest(targetDate){
-      var t = targetDate.toISOString().split('T')[0];
-      var candidates = hist.filter(function(p){ return p.date <= t; });
-      return candidates.length ? candidates[candidates.length-1] : null;
-    }
-    var now    = new Date();
-    var lastFri = [...hist].reverse().find(function(p){ return p.dow===5; }) || null;
-    var d30    = new Date(now); d30.setDate(d30.getDate()-30);
-    var d3m    = new Date(now); d3m.setMonth(d3m.getMonth()-3);
-    var d6m    = new Date(now); d6m.setMonth(d6m.getMonth()-6);
-    var dYTD   = new Date(now.getFullYear()-1, 11, 31);
-    var d5y    = new Date(now); d5y.setFullYear(d5y.getFullYear()-5);
-    return {
-      refSemana: lastFri,
-      ref30d:    closest(d30),
-      ref3m:     closest(d3m),
-      ref6m:     closest(d6m),
-      refYTD:    closest(dYTD),
-      ref5y:     closest(d5y)
-    };
-  }
-
-  function apply(refs){
-    cotObj.refSemana = refs.refSemana;
-    cotObj.ref30d    = refs.ref30d;
-    cotObj.ref3m     = refs.ref3m;
-    cotObj.ref6m     = refs.ref6m;
-    cotObj.refYTD    = refs.refYTD;
-    cotObj.ref5y     = refs.ref5y;
-    // Força re-render da tabela com os novos dados
-    setTimeout(function(){ renderPosicoes(); }, 0);
-  }
-
-  fetch(url1, {headers:{Accept:'application/json'}})
+  // O proxy retorna {refSemana, ref30d, ref3m, ref6m, refYTD, ref5y} já calculados
+  fetch(url1)
     .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
-    .then(function(data){
-      var hist = parseYahooHist(data);
-      if(!hist || hist.length < 5) throw new Error('sem hist');
-      apply(computeRefs(hist));
+    .then(function(d){
+      if(!d || d.error) return;
+      cotObj.refSemana = d.refSemana || null;
+      cotObj.ref30d    = d.ref30d    || null;
+      cotObj.ref3m     = d.ref3m     || null;
+      cotObj.ref6m     = d.ref6m     || null;
+      cotObj.refYTD    = d.refYTD    || null;
+      cotObj.ref5y     = d.ref5y     || null;
+      setTimeout(function(){ renderPosicoes(); }, 0);
     })
-    .catch(function(){
-      fetch(url2, {headers:{Accept:'application/json'}})
-        .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
-        .then(function(data){
-          var hist = parseYahooHist(data);
-          if(!hist || hist.length < 5) return;
-          apply(computeRefs(hist));
-        })
-        .catch(function(){});
-    });
+    .catch(function(){});
 }
 
 // ============================================================
@@ -3964,7 +3903,7 @@ function importarProventosBR(ticker){
   var dataCompra = dataPrimeiraCompra(ticker);
   if(!dataCompra) return Promise.resolve(0);
 
-  return fetch('https://api.dadosdemercado.com.br/v1/companies/'+ticker+'/dividends')
+  return fetch(PROXY_URL+'/api/dividends?ticker='+encodeURIComponent(ticker))
     .then(function(r){
       if(!r.ok) throw new Error('HTTP '+r.status);
       return r.json();
@@ -4237,8 +4176,8 @@ function importarBonificacoesBR(ticker, tipo){
   var dataCompra = dataPrimeiraCompra(ticker);
   if(!dataCompra) return Promise.resolve(0);
 
-  // DadosMercado — mesmo endpoint que já usamos para dividendos, gratuito
-  var url = 'https://api.dadosdemercado.com.br/v1/companies/'+ticker+'/bonuses';
+  // Roteado pelo proxy Vercel para evitar CORS
+  var url = PROXY_URL+'/api/bonuses?ticker='+encodeURIComponent(ticker);
 
   return fetch(url)
     .then(function(r){
