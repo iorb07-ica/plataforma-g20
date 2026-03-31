@@ -1370,7 +1370,7 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
       </div>
       <div class="form-group">
         <label class="form-label">Data</label>
-        <input class="form-control" type="date" id="aporte_data">
+        <input class="form-control" type="date" id="aporte_data" onchange="buscarPrecoDia()">
       </div>
     </div>
     <div class="form-row">
@@ -1387,6 +1387,7 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
             <option value="USD">US$</option>
           </select>
         </div>
+        <div id="precoDiaHint" style="font-size:10px;margin-top:4px;height:16px;display:flex;align-items:center;gap:6px"></div>
       </div>
     </div>
     <div class="form-group">
@@ -1973,6 +1974,7 @@ function selecionarSugestao(symbol, tipo){
   if(label) { label.textContent = '← detectado automaticamente'; }
 
   fecharAutocomplete();
+  buscarPrecoDia();
 }
 
 function fecharAutocomplete(){
@@ -2035,6 +2037,58 @@ function atualizarLabelMoeda(){
   if(!moedaSel || !moedaLabel) return;
   moedaLabel.textContent = moedaSel.value === 'USD' ? '(US$)' : '(R$)';
   moedaLabel.style.color = moedaSel.value === 'USD' ? '#64b4ff' : 'var(--gold)';
+}
+
+// ============================================================
+// BUSCA PREÇO HISTÓRICO DO DIA (Yahoo Finance via Proxy)
+// ============================================================
+var _precoDiaTimer = null;
+
+function buscarPrecoDia(){
+  var ticker  = (document.getElementById('aporte_ticker')||{value:''}).value.trim().toUpperCase();
+  var data    = (document.getElementById('aporte_data')||{value:''}).value;
+  var hint    = document.getElementById('precoDiaHint');
+  if(!hint) return;
+  if(!ticker || !data){ hint.innerHTML = ''; return; }
+
+  // Cancela busca anterior
+  clearTimeout(_precoDiaTimer);
+  hint.innerHTML = '<span style="color:var(--text3)">⏳ Buscando preço...</span>';
+
+  _precoDiaTimer = setTimeout(function(){
+    var tipo = (document.getElementById('aporte_tipo')||{value:'Acao'}).value;
+    var isBRticker = ['Acao','FII','FIAGRO'].indexOf(tipo) >= 0;
+    var symbol = isBRticker ? ticker+'.SA' : ticker;
+
+    // Yahoo Finance: range cobrindo a data ± 5 dias, intervalo diário
+    var url = PROXY_URL+'/api/history-date?symbol='+encodeURIComponent(symbol)+'&date='+encodeURIComponent(data);
+
+    fetch(url)
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d && d.close && d.close > 0){
+          var preco = d.close;
+          var precoFmt = isBRticker
+            ? 'R$ '+preco.toFixed(2)
+            : '$ '+preco.toFixed(2);
+          hint.innerHTML =
+            '<span style="color:var(--green)">✓ Fechamento '+data.split('-').reverse().join('/')+': <strong>'+precoFmt+'</strong></span>'+
+            ' <button type="button" onclick="usarPrecoDia('+preco+')" style="font-size:10px;background:rgba(46,204,113,.15);border:1px solid rgba(46,204,113,.4);color:var(--green);padding:1px 7px;border-radius:4px;cursor:pointer">Usar</button>';
+        } else {
+          hint.innerHTML = '<span style="color:var(--text3)">Preço não encontrado para esta data</span>';
+        }
+      })
+      .catch(function(){
+        hint.innerHTML = '<span style="color:var(--text3)">Não foi possível buscar o preço</span>';
+      });
+  }, 600);
+}
+
+function usarPrecoDia(preco){
+  var input = document.getElementById('aporte_preco');
+  if(input){ input.value = preco.toFixed(2); }
+  var hint = document.getElementById('precoDiaHint');
+  if(hint) hint.innerHTML = '<span style="color:var(--gold)">✓ Preço aplicado</span>';
 }
 
 // ============================================================
