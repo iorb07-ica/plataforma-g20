@@ -2131,42 +2131,40 @@ function buscarCotacoes(){
           // 2ª tentativa: Brapi (fallback se tiver token)
           if(!tokenBrapi) throw new Error('sem cotação');
           var url = BRAPI_URL+'/quote/'+tickerB3+'?range=1y&interval=1d&token='+tokenBrapi;
-      promises.push(
-        fetch(url)
-          .then(function(r){
-            if(!r.ok) throw new Error('HTTP '+r.status);
-            return r.json();
-          })
-          .then(function(d){
-            if(d.error){ throw new Error(d.message||'Erro Brapi'); }
-            if(d.results && d.results[0]){
-              var r = d.results[0];
-              var hist = (r.historicalDataPrice||[]).filter(function(h){return h.close;}).map(function(h){return{date:new Date(h.date*1000).toISOString().split('T')[0],close:h.close,dow:new Date(h.date*1000).getDay()};}).sort(function(a,b){return a.date.localeCompare(b.date);});
-function _cb(tgt){var t=tgt.toISOString().split('T')[0];var b=hist.filter(function(p){return p.date<=t;});return b[b.length-1]||null;}
-var _t=new Date(),_lf=[...hist].reverse().find(function(p){return p.dow===5;})||null;
-var _d30=new Date(_t);_d30.setDate(_d30.getDate()-30);
-var _d3m=new Date(_t);_d3m.setMonth(_d3m.getMonth()-3);
-var _d6m=new Date(_t);_d6m.setMonth(_d6m.getMonth()-6);
-var _dytd=new Date(_t.getFullYear()-1,11,31);
-var cotObj = {
-preco: r.regularMarketPrice || 0,
-var:   r.regularMarketChangePercent || 0,
-var1d: r.regularMarketChange || 0,
-nome:  r.shortName || r.longName || '',
-dy:    r.dividendYield || 0,
-mkt:   'BR',
-ts:    Date.now(),
-refSemana:_lf, ref30d:_cb(_d30), ref3m:_cb(_d3m), ref6m:_cb(_d6m), refYTD:_cb(_dytd), ref5y:null
-};
-              // Armazena tanto pelo símbolo retornado quanto pelo ticker original
-              cotacoes[r.symbol] = cotObj;
-              if(ticker !== r.symbol) cotacoes[ticker] = cotObj; // ex: VULC3.SA → também salva como VULC3.SA
-            } else {
-              erros.push(ticker+' — não encontrado');
-            }
-          }).catch(function(e){
-            erros.push('BR fallback ['+tickerB3+'] - '+e.message);
-          });
+          return fetch(url)
+            .then(function(r){
+              if(!r.ok) throw new Error('HTTP '+r.status);
+              return r.json();
+            })
+            .then(function(d){
+              if(d.error){ throw new Error(d.message||'Erro Brapi'); }
+              if(d.results && d.results[0]){
+                var r = d.results[0];
+                var hist = (r.historicalDataPrice||[]).filter(function(h){return h.close;}).map(function(h){return{date:new Date(h.date*1000).toISOString().split('T')[0],close:h.close,dow:new Date(h.date*1000).getDay()};}).sort(function(a,b){return a.date.localeCompare(b.date);});
+                function _cb(tgt){var t=tgt.toISOString().split('T')[0];var b=hist.filter(function(p){return p.date<=t;});return b[b.length-1]||null;}
+                var _t=new Date(),_lf=[...hist].reverse().find(function(p){return p.dow===5;})||null;
+                var _d30=new Date(_t);_d30.setDate(_d30.getDate()-30);
+                var _d3m=new Date(_t);_d3m.setMonth(_d3m.getMonth()-3);
+                var _d6m=new Date(_t);_d6m.setMonth(_d6m.getMonth()-6);
+                var _dytd=new Date(_t.getFullYear()-1,11,31);
+                var cotObj = {
+                  preco: r.regularMarketPrice || 0,
+                  var:   r.regularMarketChangePercent || 0,
+                  var1d: r.regularMarketChange || 0,
+                  nome:  r.shortName || r.longName || '',
+                  dy:    r.dividendYield || 0,
+                  mkt:   'BR',
+                  ts:    Date.now(),
+                  refSemana:_lf, ref30d:_cb(_d30), ref3m:_cb(_d3m), ref6m:_cb(_d6m), refYTD:_cb(_dytd), ref5y:null
+                };
+                cotacoes[r.symbol] = cotObj;
+                if(ticker !== r.symbol) cotacoes[ticker] = cotObj;
+              } else {
+                erros.push(ticker+' — não encontrado');
+              }
+            }).catch(function(e){
+              erros.push('BR fallback ['+tickerB3+'] - '+e.message);
+            });
         }).catch(function(e){
           erros.push('BR proxy ['+tickerB3+'] - '+e.message);
         })
