@@ -1666,7 +1666,7 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
       </div>
       <div class="form-group">
         <label class="form-label">Data</label>
-        <input class="form-control" type="date" id="aporte_data" onchange="buscarPrecoDia()">
+        <input class="form-control" type="date" id="aporte_data" onchange="if(!document.getElementById('aporte_editId').value) buscarPrecoDia()">
       </div>
     </div>
     <div class="form-row">
@@ -2281,7 +2281,9 @@ function selecionarSugestao(symbol, tipo){
   if(label) { label.textContent = '← detectado automaticamente'; }
 
   fecharAutocomplete();
-  buscarPrecoDia();
+  // Só busca preço se não estiver editando
+  var editId = document.getElementById('aporte_editId');
+  if(!editId || !editId.value) buscarPrecoDia();
 }
 
 function fecharAutocomplete(){
@@ -2397,13 +2399,26 @@ function buscarPrecoDia(){
       .then(function(d){
         if(d && d.close && d.close > 0){
           var preco = d.close;
-          // Preenche o campo automaticamente
-          var input = document.getElementById('aporte_preco');
-          if(input) input.value = preco.toFixed(2);
-          // Hint discreto embaixo
           var dataExib = (d.date||data).split('-').reverse().join('/');
           var precoFmt = isBRticker ? 'R$ '+preco.toFixed(2) : '$ '+preco.toFixed(2);
-          hint.innerHTML = '<span style="color:var(--text3)">✓ Fechamento '+dataExib+' · '+precoFmt+' · Yahoo Finance</span>';
+          // Só preenche se o campo estiver vazio (não sobrescreve o que o usuário digitou)
+          var input = document.getElementById('aporte_preco');
+          var campoVazio = !input || !input.value || parseFloat(input.value) === 0;
+          if(input && campoVazio){
+            input.value = preco.toFixed(2);
+            hint.innerHTML = '<span style="color:var(--text3)">✓ Fechamento '+dataExib+' · '+precoFmt+' · Yahoo Finance</span>';
+          } else {
+            // Campo já tem valor — mostra sugestão discreta
+            hint.innerHTML = '<span style="color:var(--text3)">Sugestão: <strong style="color:var(--gold)">'+precoFmt+'</strong> ('+dataExib+') · <span id="btnUsarPreco" style="cursor:pointer;text-decoration:underline;color:var(--gold)">Usar</span></span>';
+            var btnUsar = document.getElementById('btnUsarPreco');
+            if(btnUsar){ btnUsar.setAttribute('data-preco', preco.toFixed(2));
+              btnUsar.addEventListener('click', function(){
+                var inp = document.getElementById('aporte_preco');
+                if(inp) inp.value = this.getAttribute('data-preco');
+                hint.innerHTML = '<span style="color:var(--text3)">✓ Preço aplicado</span>';
+              });
+            }
+          }
         } else {
           hint.innerHTML = '<span style="color:var(--text3)">Preço não encontrado para esta data</span>';
         }
