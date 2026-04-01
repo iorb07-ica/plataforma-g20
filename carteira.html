@@ -3903,26 +3903,41 @@ function importarProventosBR(ticker){
   var dataCompra = dataPrimeiraCompra(ticker);
   if(!dataCompra) return Promise.resolve(0);
 
-  return fetch(PROXY_URL+'/api/dividends?ticker='+encodeURIComponent(ticker))
-    .then(function(r){
-      if(!r.ok) throw new Error('HTTP '+r.status);
-      return r.json();
-    })
+  // 1ª tentativa: Yahoo Finance via proxy (gratuito, sem token)
+  var tickerSA = ticker+'.SA';
+  var from = Math.floor(new Date(dataCompra).getTime()/1000);
+  var urlDiv = PROXY_URL+'/api/dividends-br?symbol='+encodeURIComponent(tickerSA)+'&from='+from;
+
+  return fetch(urlDiv)
+    .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
     .then(function(d){
-      var divs = Array.isArray(d) ? d : (d.data || d.dividends || []);
-      return salvarProventosBR(ticker, divs, dataCompra, 'DadosMercado');
+      var divs = Array.isArray(d) ? d : (d.dividends || []);
+      return salvarProventosBR(ticker, divs, dataCompra, 'Yahoo');
     })
     .catch(function(){
-      if(!tokenBrapi) return 0;
-      return fetch(BRAPI_URL+'/quote/'+ticker+'?dividends=true&token='+tokenBrapi)
-        .then(function(r){ return r.json(); })
-        .then(function(d){
-          if(!d.results || !d.results[0]) return 0;
-          var res = d.results[0];
-          var divs = res.dividendsData && res.dividendsData.cashDividends || [];
-          return salvarProventosBR(ticker, divs, dataCompra, 'Brapi');
+      // 2ª tentativa: DadosMercado (gratuito quando disponível)
+      return fetch('https://api.dadosdemercado.com.br/v1/companies/'+ticker+'/dividends')
+        .then(function(r){
+          if(!r.ok) throw new Error('HTTP '+r.status);
+          return r.json();
         })
-        .catch(function(){ return 0; });
+        .then(function(d){
+          var divs = Array.isArray(d) ? d : (d.data || d.dividends || []);
+          return salvarProventosBR(ticker, divs, dataCompra, 'DadosMercado');
+        })
+        .catch(function(){
+          // 3ª tentativa: Brapi (requer token)
+          if(!tokenBrapi) return 0;
+          return fetch(BRAPI_URL+'/quote/'+ticker+'?dividends=true&token='+tokenBrapi)
+            .then(function(r){ return r.json(); })
+            .then(function(d){
+              if(!d.results || !d.results[0]) return 0;
+              var res = d.results[0];
+              var divs = res.dividendsData && res.dividendsData.cashDividends || [];
+              return salvarProventosBR(ticker, divs, dataCompra, 'Brapi');
+            })
+            .catch(function(){ return 0; });
+        });
     });
 }
 
@@ -4204,6 +4219,13 @@ function importarBonificacoesBR(ticker, tipo){
 }
 
 function importarTodasBonificacoes(callback){
+  // DESATIVADO — APIs de bonificação BR exigem plano pago (Brapi Basic ou DadosMercado)
+  // Para reativar: remova este bloco e descomente o código original abaixo
+  // Registre bonificações manualmente como compra com preço = valor patrimonial
+  if(callback) callback(0);
+}
+/* CÓDIGO ORIGINAL — reativar quando tiver API com acesso a stockDividends/bonuses:
+function importarTodasBonificacoes_ATIVO(callback){
   var pos = calcPosicoes();
   var posBR = pos.filter(function(p){ return isBR(p.ticker, p.tipo); });
   if(!posBR.length){ if(callback) callback(0); return; }
@@ -4220,6 +4242,7 @@ function importarTodasBonificacoes(callback){
     if(callback) callback(total);
   });
 }
+*/
 
 function buscarDividendos(){
   if(!tokenBrapi){alert('Configure o token da Brapi para buscar proventos automaticamente.');return;}
