@@ -132,7 +132,7 @@ tr:hover td{background:var(--sur2)}
 .div-datex{font-size:11px;color:var(--text3);min-width:90px}
 .div-valor{text-align:right;min-width:90px}.div-valor .val{font-weight:700;font-size:15px}.div-valor .data{font-size:11px;color:var(--text3);margin-top:2px}
 /* MODAL */
-.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center;padding:16px}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:400;align-items:center;justify-content:center;padding:16px}
 .modal.show{display:flex}
 .modal-box{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:440px;max-height:90vh;overflow-y:auto}
 .modal-title{font-size:16px;font-weight:700;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center}
@@ -274,7 +274,7 @@ tr:hover td{background:var(--sur2)}
 .mkt-us{background:rgba(52,152,219,.1);color:#3498db;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:700}
 
 /* ── DRAWER TRANSAÇÕES POR ATIVO ── */
-.drawer-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:300;backdrop-filter:blur(2px)}
+.drawer-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:300}
 .drawer-overlay.show{display:block}
 .drawer{position:fixed;top:0;right:0;height:100vh;width:480px;max-width:96vw;background:var(--bg2);border-left:1px solid var(--border);z-index:301;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);box-shadow:-8px 0 40px rgba(0,0,0,.4)}
 .drawer.open{transform:translateX(0)}
@@ -3232,46 +3232,78 @@ function renderDrawerTx(){
   var aportes = loadData('aportes',[]).filter(function(a){ return a.ticker===_drawerTicker; });
   aportes.sort(function(a,b){ return b.data.localeCompare(a.data); });
 
-  var fmt = function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  // Formata valor respeitando a moeda salva no aporte
+  function fmtAporte(a){
+    var moeda = a.moeda || 'BRL';
+    var isUS = ['Stock','REIT','ETF','Cripto','UCITs'].indexOf(a.tipo) >= 0;
+    // Registros antigos sem moeda: infere pelo tipo
+    if(!a.moeda && isUS) moeda = 'USD';
+    if(moeda === 'USD'){
+      return '$ '+a.preco.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    }
+    return 'R$ '+a.preco.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  }
+  function fmtTotal(a){
+    var total = a.qtd * a.preco;
+    var moeda = a.moeda || 'BRL';
+    var isUS = ['Stock','REIT','ETF','Cripto','UCITs'].indexOf(a.tipo) >= 0;
+    if(!a.moeda && isUS) moeda = 'USD';
+    if(moeda === 'USD'){
+      return '$ '+total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    }
+    return 'R$ '+total.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  }
 
-  // Resumo
+  // Resumo em BRL (usa precoBRL para cálculos)
   var totalC=0,totalV=0,qtdC=0,qtdV=0;
   aportes.forEach(function(a){
-    if(a.op==='C'){totalC+=a.qtd*a.preco;qtdC+=a.qtd;}
-    else{totalV+=a.qtd*a.preco;qtdV+=a.qtd;}
+    var p = precoBRL(a);
+    if(a.op==='C'){totalC+=a.qtd*p;qtdC+=a.qtd;}
+    else{totalV+=a.qtd*p;qtdV+=a.qtd;}
   });
   var pm = qtdC>0?(totalC/qtdC):0;
+  var fmtBRL = function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
 
   var summaryHtml = aportes.length ? '<div class="dtx-summary">'+
     '<div class="dtx-sum-card"><div class="lbl">Qtd. Atual</div><div class="val">'+(qtdC-qtdV).toFixed((qtdC-qtdV)%1===0?0:4)+'</div></div>'+
-    '<div class="dtx-sum-card"><div class="lbl">Preço Médio</div><div class="val">'+fmt(pm)+'</div></div>'+
-    '<div class="dtx-sum-card"><div class="lbl">Total Compras</div><div class="val" style="color:var(--green)">'+fmt(totalC)+'</div></div>'+
-    '<div class="dtx-sum-card"><div class="lbl">Total Vendas</div><div class="val" style="color:var(--red)">'+fmt(totalV||0)+'</div></div>'+
+    '<div class="dtx-sum-card"><div class="lbl">Preço Médio</div><div class="val">'+fmtBRL(pm)+'</div></div>'+
+    '<div class="dtx-sum-card"><div class="lbl">Total Compras</div><div class="val" style="color:var(--green)">'+fmtBRL(totalC)+'</div></div>'+
+    '<div class="dtx-sum-card"><div class="lbl">Total Vendas</div><div class="val" style="color:var(--red)">'+fmtBRL(totalV||0)+'</div></div>'+
   '</div>' : '';
 
-  var addBtn = '<button class="dtx-add-btn" onclick="abrirModalAporte(\''+_drawerTicker+'\')">+ Nova Transação</button>';
+  var addBtn = '<button class="dtx-add-btn" data-ticker="'+_drawerTicker+'" data-action="aporte">+ Nova Transação</button>';
 
   var rowsHtml = aportes.length
     ? aportes.map(function(a){
-        var total = a.qtd * a.preco;
         var opLabel = a.op==='C'?'C':'V';
         var opText  = a.op==='C'?'Compra':'Venda';
         return '<div class="dtx-row">'+
           '<div class="dtx-op '+opLabel+'" title="'+opText+'">'+opLabel+'</div>'+
           '<div class="dtx-info">'+
             '<div class="dtx-date">'+fmtDate(a.data)+(a.obs?' · <span style="color:var(--text3)">'+a.obs+'</span>':'')+'</div>'+
-            '<div class="dtx-qty">'+a.qtd.toFixed(a.qtd%1===0?0:4)+' un <span style="font-weight:400;color:var(--text2)">× '+fmt(a.preco)+'</span></div>'+
+            '<div class="dtx-qty">'+a.qtd.toFixed(a.qtd%1===0?0:4)+' un <span style="font-weight:400;color:var(--text2)">× '+fmtAporte(a)+'</span></div>'+
           '</div>'+
-          '<div class="dtx-total"><div class="val">'+fmt(total)+'</div><div class="lbl">'+opText+'</div></div>'+
+          '<div class="dtx-total"><div class="val">'+fmtTotal(a)+'</div><div class="lbl">'+opText+'</div></div>'+
           '<div class="dtx-actions">'+
-            '<button class="dtx-btn" onclick="editarAporteDrawer(\''+a.id+'\')">✏️</button>'+
-            '<button class="dtx-btn del" onclick="excluirAporteDrawer(\''+a.id+'\')">🗑️</button>'+
+            '<button class="dtx-btn" data-id="'+a.id+'" data-action="editDrawer">✏️</button>'+
+            '<button class="dtx-btn del" data-id="'+a.id+'" data-action="delDrawer">🗑️</button>'+
           '</div>'+
         '</div>';
       }).join('')
     : '<div class="dtx-empty">Nenhuma transação registrada.</div>';
 
-  document.getElementById('drawerBody').innerHTML = summaryHtml + addBtn + rowsHtml;
+  var body = document.getElementById('drawerBody');
+  body.innerHTML = summaryHtml + addBtn + rowsHtml;
+
+  // Event delegation — evita onclick inline
+  body.querySelectorAll('[data-action]').forEach(function(el){
+    el.addEventListener('click', function(){
+      var action = this.getAttribute('data-action');
+      if(action === 'aporte')      abrirModalAporte(this.getAttribute('data-ticker'));
+      if(action === 'editDrawer')  editarAporteDrawer(this.getAttribute('data-id'));
+      if(action === 'delDrawer')   excluirAporteDrawer(this.getAttribute('data-id'));
+    });
+  });
 }
 
 function renderDrawerProv(){
@@ -4320,30 +4352,16 @@ function salvarAporte(){
   var obs=document.getElementById('aporte_obs').value.trim();
   var moedaInputEl = document.getElementById('aporte_preco_moeda');
   var moedaInput   = moedaInputEl ? moedaInputEl.value : 'BRL';
-  var isUSType = ['Stock','REIT','ETF','Cripto','UCITs'].indexOf(tipo) >= 0;
+  var isUSType     = ['Stock','REIT','ETF','Cripto','UCITs'].indexOf(tipo) >= 0;
+  var moedaSalva   = isUSType ? moedaInput : 'BRL';
   var id = document.getElementById('aporte_editId').value;
 
-  var precoFinal, moedaSalva;
-
-  if(id){
-    // EDIÇÃO: salva exatamente o que o usuário digitou, sem converter
-    // A moeda já está correta no select (foi carregada do registro original)
-    precoFinal = preco;
-    moedaSalva = moedaInput;
-  } else {
-    // NOVO APORTE: converte USD→BRL se necessário
-    moedaSalva = isUSType ? moedaInput : 'BRL';
-    precoFinal = preco;
-    if(moedaSalva === 'USD' && usdBRL > 0){
-      precoFinal = preco * usdBRL;
-      moedaSalva = 'BRL'; // salva em BRL, conversão já feita
-    }
-  }
-
-  if(!ticker||!data||isNaN(qtd)||isNaN(precoFinal)||qtd<=0||precoFinal<=0){alert('Preencha todos os campos obrigatórios.');return;}
+  // REGRA ABSOLUTA: salva exatamente o que o usuário digitou
+  // Sem conversão nenhuma — nem na criação, nem na edição
+  if(!ticker||!data||isNaN(qtd)||isNaN(preco)||qtd<=0||preco<=0){alert('Preencha todos os campos obrigatórios.');return;}
   var aportes=loadData('aportes',[]);
   var novoAporte = {id:id||Date.now().toString(), ticker:ticker, tipo:tipo, op:op,
-    data:data, qtd:qtd, preco:precoFinal, moeda:moedaSalva, obs:obs};
+    data:data, qtd:qtd, preco:preco, moeda:moedaSalva, obs:obs};
   if(id){var idx=aportes.findIndex(function(a){return a.id===id;});if(idx>=0)aportes[idx]=novoAporte;}
   else{aportes.push(novoAporte);}
   saveData('aportes',aportes);
@@ -4468,8 +4486,18 @@ function renderAportes(){
       +'<td><span class="badge badge-'+a.tipo+'">'+a.tipo+'</span></td>'
       +'<td><span style="color:'+(a.op==='C'?'var(--green)':'var(--red)')+';font-weight:700">'+(a.op==='C'?'Compra':'Venda')+'</span></td>'
       +'<td class="r">'+a.qtd+'</td>'
-      +'<td class="r">R$ '+a.preco.toFixed(2)+'</td>'
-      +'<td class="r">R$ '+total.toFixed(2)+'</td>'
+      +(function(){
+        var moeda = a.moeda || 'BRL';
+        var isUS = ['Stock','REIT','ETF','Cripto','UCITs'].indexOf(a.tipo) >= 0;
+        if(!a.moeda && isUS) moeda = 'USD';
+        var fmtP = moeda==='USD'
+          ? '$ '+a.preco.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})
+          : 'R$ '+a.preco.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+        var fmtT = moeda==='USD'
+          ? '$ '+total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})
+          : 'R$ '+total.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+        return '<td class="r">'+fmtP+'</td>'+'<td class="r">'+fmtT+'</td>';
+      })()
       +'<td style="color:var(--text2)">'+(a.obs||'-')+'</td>'
       +'<td style="white-space:nowrap">'
       +'<button class="action-btn" onclick="editarAporte(\''+a.id+'\')">✏️</button> '
