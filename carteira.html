@@ -2656,9 +2656,15 @@ function autoDetectTipo(ticker){
   }
 
   if(detected){
-    sel.value = detected;
-    onTipoChange(detected);
-    label.textContent = '← detectado automaticamente';
+    // Só sobrescreve o tipo se NÃO estiver editando um aporte existente
+    var editId = document.getElementById('aporte_editId');
+    if(!editId || !editId.value){
+      sel.value = detected;
+      onTipoChange(detected);
+      label.textContent = '← detectado automaticamente';
+    } else {
+      label.textContent = '← tipo mantido (edição)';
+    }
     hint.textContent  = msg;
     hint.style.color  = ['Acao','FII','FIAGRO'].includes(detected) ? '#2ecc71' : '#3b82f6';
   } else {
@@ -3540,7 +3546,6 @@ function renderChartEvolucao(){
 
   var hoje = new Date();
   var dataInicio = aportes[0].data.substring(0,7);
-  var meses = [];
   var cur = new Date(dataInicio+'-01');
   var limite = new Date(hoje.getFullYear(), hoje.getMonth()+1, 1);
 
@@ -3549,15 +3554,55 @@ function renderChartEvolucao(){
     var inicio = new Date(hoje.getFullYear()-anos, hoje.getMonth(), 1);
     if(cur < inicio) cur = new Date(inicio);
   }
-  while(cur < limite){
-    meses.push(cur.getFullYear()+'-'+(cur.getMonth()<9?'0':'')+(cur.getMonth()+1));
-    cur.setMonth(cur.getMonth()+1);
-  }
 
+  var meses = [];
+  var tempCur = new Date(cur);
+  while(tempCur < limite){
+    meses.push(tempCur.getFullYear()+'-'+(tempCur.getMonth()<9?'0':'')+(tempCur.getMonth()+1));
+    tempCur.setMonth(tempCur.getMonth()+1);
+  }
+  if(meses.length < 2) return;
+
+  // Tickers únicos na carteira
+  var pos = calcPosicoes();
+  var tickersUnicos = pos.map(function(p){
+    if(p.tipo === 'UCITs' && !p.ticker.includes('.')) return p.ticker+'.L';
+    if(isBR(p.ticker, p.tipo)) return p.ticker+'.SA';
+    if(p.tipo === 'Cripto') return null;
+    return p.ticker;
+  }).filter(Boolean);
+
+  // Cache de histórico mensal em memória (evita rebuscar a cada render)
+  if(!window._histMensalCache) window._histMensalCache = {};
+  var cache = window._histMensalCache;
+
+  var fromMes = meses[0];
+
+  // Busca histórico de todos os tickers que ainda não estão em cache
+  var tickersParaBuscar = tickersUnicos.filter(function(t){ return !cache[t]; });
+
+  var fetchPromises = tickersParaBuscar.map(function(symbol){
+    return fetch(PROXY_URL+'/api/history-monthly?symbol='+encodeURIComponent(symbol)+'&from='+fromMes)
+      .then(function(r){ return r.ok ? r.json() : {prices:{}}; })
+      .then(function(d){
+        cache[symbol] = d.prices || {};
+      })
+      .catch(function(){ cache[symbol] = {}; });
+  });
+
+  // Quando tiver o histórico, renderiza o gráfico
+  Promise.all(fetchPromises).then(function(){
+    _renderChartEvolucaoComHistorico(aportes, meses, pos, cache);
+  });
+}
+
+function _renderChartEvolucaoComHistorico(aportes, meses, posAtual, histCache){
+  var hoje = new Date();
   var tipos = ['Acao','FII','FIAGRO','Stock','REIT','ETF','Cripto'];
   var datasets = {}; tipos.forEach(function(t){ datasets[t]=[]; });
 
   meses.forEach(function(mes){
+    // Calcula posição em cada mês baseado nos aportes até aquele mês
     var pos = {};
     aportes.forEach(function(a){
       if(a.data.substring(0,7) > mes) return;
@@ -3566,28 +3611,48 @@ function renderChartEvolucao(){
       if(a.op==='C'){p.qtd+=a.qtd;p.totalInv+=a.qtd*a.preco;}
       else{var pm=p.qtd>0?p.totalInv/p.qtd:0;p.totalInv-=a.qtd*pm;p.qtd-=a.qtd;}
     });
+
     var byTipo={}; tipos.forEach(function(t){ byTipo[t]=0; });
+
     Object.values(pos).forEach(function(p){
       if(p.qtd<=0.001) return;
-      var val;
-      var cot = cotacoes[p.ticker];
-      if(cot){
-        // Usa referências históricas disponíveis na cotação
-        var hoje2 = new Date();
-        var mesDate = new Date(mes+'-15');
-        var diffMeses = (hoje2.getFullYear()-mesDate.getFullYear())*12 + (hoje2.getMonth()-mesDate.getMonth());
-        var precoHist = null;
-        if(diffMeses <= 0)  precoHist = isBR(p.ticker,p.tipo)?cot.preco:cot.preco*usdBRL;
-        else if(diffMeses <= 1  && cot.refSemana) precoHist = cot.refSemana.close * (isBR(p.ticker,p.tipo)?1:usdBRL);
-        else if(diffMeses <= 2  && cot.ref30d)   precoHist = cot.ref30d.close   * (isBR(p.ticker,p.tipo)?1:usdBRL);
-        else if(diffMeses <= 4  && cot.ref3m)    precoHist = cot.ref3m.close    * (isBR(p.ticker,p.tipo)?1:usdBRL);
-        else if(diffMeses <= 7  && cot.ref6m)    precoHist = cot.ref6m.close    * (isBR(p.ticker,p.tipo)?1:usdBRL);
-        else if(diffMeses <= 13 && cot.refYTD)   precoHist = cot.refYTD.close   * (isBR(p.ticker,p.tipo)?1:usdBRL);
-        else if(cot.ref5y)                       precoHist = cot.ref5y.close    * (isBR(p.ticker,p.tipo)?1:usdBRL);
-        val = precoHist ? p.qtd * precoHist : p.totalInv;
-      } else { val = p.totalInv; }
-      byTipo[p.tipo||'Acao']=(byTipo[p.tipo||'Acao']||0)+val;
+
+      var val = p.totalInv; // fallback: custo
+      var isBRticker = isBR(p.ticker, p.tipo);
+      var isMesAtual = mes === meses[meses.length-1];
+
+      if(isMesAtual){
+        // Mês atual: usa cotação ao vivo
+        var cot = cotacoes[p.ticker];
+        if(cot) val = p.qtd * (isBRticker ? cot.preco : cot.preco * usdBRL);
+      } else {
+        // Meses passados: usa histórico mensal do proxy
+        var symbol = p.tipo==='UCITs' && !p.ticker.includes('.') ? p.ticker+'.L'
+                   : isBRticker ? p.ticker+'.SA' : p.ticker;
+        var hist = histCache[symbol] || {};
+
+        // Procura preço no mês exato, ou no mês mais próximo anterior
+        var preco = hist[mes];
+        if(!preco){
+          // Tenta meses anteriores (até 3)
+          for(var back=1; back<=3; back++){
+            var d2 = new Date(mes+'-01');
+            d2.setMonth(d2.getMonth()-back);
+            var mk = d2.getFullYear()+'-'+(d2.getMonth()<9?'0':'')+(d2.getMonth()+1);
+            if(hist[mk]){ preco = hist[mk]; break; }
+          }
+        }
+
+        if(preco && preco > 0){
+          var fxRate = isBRticker ? 1 : usdBRL;
+          // Para ativos US, tenta ajustar pelo câmbio histórico (aproximação)
+          val = p.qtd * preco * fxRate;
+        }
+      }
+
+      byTipo[p.tipo||'Acao'] = (byTipo[p.tipo||'Acao']||0) + val;
     });
+
     tipos.forEach(function(t){ datasets[t].push(byTipo[t]||0); });
   });
 
@@ -3596,8 +3661,6 @@ function renderChartEvolucao(){
   var gc = gGridColor();
 
   var dsAtivos = tipos.filter(function(t){ return datasets[t].some(function(v){ return v>0; }); });
-
-  // Gradients criados no momento do render
   var canvasEl = document.getElementById('chartEvolucao');
   if(!canvasEl) return;
   var ctx2 = canvasEl.getContext('2d');
@@ -3605,22 +3668,24 @@ function renderChartEvolucao(){
   var chartDatasets = dsAtivos.map(function(t){
     var baseColor = COLORS_TIPO[t]||'#888';
     var alpha = COLORS_TIPO_ALPHA[t]||'rgba(100,100,100,';
-    // gradient fill
-    var grad = ctx2.createLinearGradient(0,0,0,280);
+    var grad = ctx2.createLinearGradient(0,0,0,320);
     grad.addColorStop(0, alpha+'0.55)');
     grad.addColorStop(1, alpha+'0.02)');
     return {
       label:t, data:datasets[t],
-      backgroundColor:grad,
-      borderColor:baseColor,
-      borderWidth:1.5,
-      fill:true, tension:0.35,
+      backgroundColor:grad, borderColor:baseColor,
+      borderWidth:1.5, fill:true, tension:0.35,
       pointRadius:0, pointHoverRadius:5,
       pointHoverBackgroundColor:'#fff',
-      pointHoverBorderColor:baseColor,
-      pointHoverBorderWidth:2
+      pointHoverBorderColor:baseColor, pointHoverBorderWidth:2
     };
   });
+
+  var fmtBRL = function(v){
+    if(v>=1000000) return 'R$'+(v/1000000).toFixed(2)+'M';
+    if(v>=1000)    return 'R$'+(v/1000).toFixed(1)+'k';
+    return 'R$'+v.toFixed(0);
+  };
 
   chartsInstances['chartEvolucao'] = new Chart(ctx2,{
     type:'line',
@@ -3692,70 +3757,6 @@ function renderChartEvolucao(){
   }).join('');
 }
 
-// ── KPIs RÁPIDOS ───────────────────────────────────────────────
-function renderGraficosKPI(posData, totalPos, totalInv){
-  var el = document.getElementById('gKpiGrid');
-  if(!el) return;
-  var fmt  = function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
-  var fmtK = function(v){
-    if(v>=1000000) return 'R$ '+(v/1000000).toFixed(2)+'M';
-    if(v>=1000)    return 'R$ '+(v/1000).toFixed(1)+'k';
-    return fmt(v);
-  };
-  var totalProv = posData.reduce(function(s,d){ return s+d.prov; },0);
-  var result    = totalPos - totalInv;
-  var rentPct   = totalInv>0?(result/totalInv*100):0;
-  var trPct     = totalInv>0?((result+totalProv)/totalInv*100):0;
-  var nAtivos   = posData.length;
-  var melhor    = posData.slice().sort(function(a,b){ return b.totalRetPct-a.totalRetPct; })[0];
-  var pior      = posData.slice().sort(function(a,b){ return a.totalRetPct-b.totalRetPct; })[0];
-
-  var kpis = [
-    {icon:'💰', label:'Patrimônio', val:fmtK(totalPos), sub:(rentPct>=0?'+':'')+rentPct.toFixed(2)+'% vs custo', cls:rentPct>=0?'up':'dn', color:'#e8b84b'},
-    {icon:'📈', label:'Total Return', val:(trPct>=0?'+':'')+trPct.toFixed(2)+'%', sub:'preço + proventos', cls:trPct>=0?'up':'dn', color:'#2ecc71'},
-    {icon:'🏆', label:'Melhor Ativo', val:melhor?melhor.ticker:'--', sub:melhor?(melhor.totalRetPct>=0?'+':'')+melhor.totalRetPct.toFixed(2)+'%':'--', cls:'up', color:'#f7931a'},
-    {icon:'⚠️', label:'Pior Ativo', val:pior?pior.ticker:'--', sub:pior?(pior.totalRetPct>=0?'+':'')+pior.totalRetPct.toFixed(2)+'%':'--', cls:pior&&pior.totalRetPct>=0?'up':'dn', color:'#e63946'},
-  ];
-
-  el.innerHTML = kpis.map(function(k){
-    return '<div class="g-kpi" style="--kpi-color:'+k.color+'">'+
-      '<span class="g-kpi-icon">'+k.icon+'</span>'+
-      '<div class="g-kpi-label">'+k.label+'</div>'+
-      '<div class="g-kpi-val">'+k.val+'</div>'+
-      '<div class="g-kpi-sub '+k.cls+'">'+k.sub+'</div>'+
-    '</div>';
-  }).join('');
-}
-
-// ── RANKING DE RENTABILIDADE ────────────────────────────────────
-function renderGraficosRanking(posData){
-  var el = document.getElementById('gRankingList');
-  if(!el) return;
-  var sorted = posData.slice().sort(function(a,b){ return b.totalRetPct-a.totalRetPct; });
-  var max = sorted.length ? Math.max(Math.abs(sorted[0].totalRetPct), Math.abs(sorted[sorted.length-1].totalRetPct), 1) : 1;
-
-  el.innerHTML = sorted.map(function(d, i){
-    var rankCls = i===0?'gold':i===1?'silver':i===2?'bronze':'';
-    var pct = d.totalRetPct;
-    var barW = Math.min(100, Math.abs(pct)/max*100).toFixed(1);
-    var color = pct >= 0 ? 'var(--green)' : 'var(--red)';
-    var badgeColor = {Acao:'#3b82f6',FII:'#10b981',FIAGRO:'#f59e0b',Stock:'#a855f7',REIT:'#ef4444',ETF:'#f97316',UCITs:'#06b6d4',Cripto:'#f7931a'}[d.tipo]||'#888';
-    return '<div class="g-top-row">'+
-      '<span class="g-top-rank '+rankCls+'">'+(i+1)+'</span>'+
-      '<div style="display:flex;flex-direction:column;flex:1;min-width:0">'+
-        '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">'+
-          '<span class="g-top-ticker">'+d.ticker+'</span>'+
-          '<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:'+badgeColor+'22;color:'+badgeColor+'">'+d.tipo+'</span>'+
-        '</div>'+
-        '<div class="g-top-bar-bg"><div class="g-top-bar-fill" style="width:'+barW+'%;background:'+color+'"></div></div>'+
-      '</div>'+
-      '<div style="text-align:right;flex-shrink:0;margin-left:12px">'+
-        '<div class="g-top-val" style="color:'+color+'">'+(pct>=0?'+':'')+pct.toFixed(2)+'%</div>'+
-        '<div style="font-size:10px;color:var(--text3)">Total Return</div>'+
-      '</div>'+
-    '</div>';
-  }).join('');
-}
 
 // ── RENTABILIDADE ──────────────────────────────────────────────
 function renderChartRent(posData){
@@ -3961,7 +3962,8 @@ function renderChartBenchmark(){
   }
   if(meses.length < 2) return;
 
-  // Calcula valor da carteira em cada mês (mesmo método do chartEvolucao)
+  // Calcula valor da carteira usando o histCache já populado pelo chartEvolucao
+  var histCache = window._histMensalCache || {};
   var carteiraVals = meses.map(function(mes){
     var pos = {};
     aportes.forEach(function(a){
@@ -3972,22 +3974,26 @@ function renderChartBenchmark(){
       else{var pm=p.qtd>0?p.totalInv/p.qtd:0;p.totalInv-=a.qtd*pm;p.qtd-=a.qtd;}
     });
     var total = 0;
+    var isMesAtual = mes === meses[meses.length-1];
     Object.values(pos).forEach(function(p){
       if(p.qtd<=0.001) return;
-      var cot = cotacoes[p.ticker];
-      if(cot){
-        var mesDate = new Date(mes+'-15');
-        var diffM = (hoje.getFullYear()-mesDate.getFullYear())*12+(hoje.getMonth()-mesDate.getMonth());
-        var pr = null;
-        var fx = isBR(p.ticker,p.tipo)?1:usdBRL;
-        if(diffM<=0)  pr=cot.preco*fx;
-        else if(diffM<=2  && cot.ref30d)  pr=cot.ref30d.close*fx;
-        else if(diffM<=4  && cot.ref3m)   pr=cot.ref3m.close*fx;
-        else if(diffM<=7  && cot.ref6m)   pr=cot.ref6m.close*fx;
-        else if(diffM<=13 && cot.refYTD)  pr=cot.refYTD.close*fx;
-        else if(cot.ref5y)                pr=cot.ref5y.close*fx;
-        total += pr ? p.qtd*pr : p.totalInv;
-      } else { total += p.totalInv; }
+      var isBRticker = isBR(p.ticker,p.tipo);
+      if(isMesAtual){
+        var cot = cotacoes[p.ticker];
+        if(cot) total += p.qtd*(isBRticker?cot.preco:cot.preco*usdBRL);
+        else total += p.totalInv;
+      } else {
+        var symbol = p.tipo==='UCITs'&&!p.ticker.includes('.')?p.ticker+'.L'
+                   : isBRticker?p.ticker+'.SA':p.ticker;
+        var hist = histCache[symbol]||{};
+        var preco = hist[mes];
+        if(!preco){ for(var b=1;b<=3;b++){
+          var d2=new Date(mes+'-01'); d2.setMonth(d2.getMonth()-b);
+          var mk=d2.getFullYear()+'-'+(d2.getMonth()<9?'0':'')+(d2.getMonth()+1);
+          if(hist[mk]){preco=hist[mk];break;}
+        }}
+        total += preco&&preco>0 ? p.qtd*preco*(isBRticker?1:usdBRL) : p.totalInv;
+      }
     });
     return total;
   });
@@ -4006,27 +4012,34 @@ function renderChartBenchmark(){
     return 100 * Math.pow(1+CDI_MENSAL, i);
   });
 
-  // IBOV e S&P500 via dados históricos das cotações (usando refs disponíveis)
-  // Usa variação estimada baseada nos refs históricos dos ativos BR/US
-  function estimarIndice(tipo, mesArr){
-    // Pega um ativo representativo para estimar o índice
-    var refs = null;
-    var pos = calcPosicoes();
-    var ativos = pos.filter(function(p){ return p.tipo === tipo; });
-    if(!ativos.length) return null;
-    var cot = cotacoes[ativos[0].ticker];
-    if(!cot) return null;
-    // Usa os mesmos refs históricos do ativo como proxy do índice
-    var preco = isBR(ativos[0].ticker, tipo) ? cot.preco : cot.preco * usdBRL;
-    var pontos = {
-      0: preco,
-      2: cot.ref30d ? cot.ref30d.close*(isBR(ativos[0].ticker,tipo)?1:usdBRL) : null,
-      4: cot.ref3m  ? cot.ref3m.close*(isBR(ativos[0].ticker,tipo)?1:usdBRL)  : null,
-      7: cot.ref6m  ? cot.ref6m.close*(isBR(ativos[0].ticker,tipo)?1:usdBRL)  : null,
-      13: cot.refYTD? cot.refYTD.close*(isBR(ativos[0].ticker,tipo)?1:usdBRL) : null,
-      61: cot.ref5y ? cot.ref5y.close*(isBR(ativos[0].ticker,tipo)?1:usdBRL)  : null,
-    };
-    return null; // placeholder — índice real viria do proxy
+  // IBOV (^BVSP) e S&P500 (^GSPC) via histCache
+  var ibovHist  = histCache['^BVSP']  || {};
+  var sp500Hist = histCache['^GSPC']  || {};
+
+  // Se não temos os índices em cache ainda, busca assíncrono e re-renderiza
+  var indicesToFetch = [];
+  if(_benchAtivos['ibov']  !== false && !histCache['^BVSP'])  indicesToFetch.push('^BVSP');
+  if(_benchAtivos['sp500'] !== false && !histCache['^GSPC'])  indicesToFetch.push('^GSPC');
+
+  if(indicesToFetch.length){
+    Promise.all(indicesToFetch.map(function(sym){
+      return fetch(PROXY_URL+'/api/history-monthly?symbol='+encodeURIComponent(sym)+'&from='+meses[0])
+        .then(function(r){ return r.ok?r.json():{prices:{}}; })
+        .then(function(d){ histCache[sym] = d.prices||{}; })
+        .catch(function(){ histCache[sym]={}; });
+    })).then(function(){ renderChartBenchmark(); });
+  }
+
+  function indexVals(hist, convertBRL){
+    return meses.map(function(mes){
+      var p = hist[mes];
+      if(!p){ for(var b=1;b<=3;b++){
+        var d2=new Date(mes+'-01'); d2.setMonth(d2.getMonth()-b);
+        var mk=d2.getFullYear()+'-'+(d2.getMonth()<9?'0':'')+(d2.getMonth()+1);
+        if(hist[mk]){p=hist[mk];break;}
+      }}
+      return p ? (convertBRL ? p*usdBRL : p) : null;
+    });
   }
 
   var datasets = [];
@@ -4043,20 +4056,37 @@ function renderChartBenchmark(){
 
   // CDI
   if(_benchAtivos['cdi'] !== false){
-    var cdiBase = cdiVals[0]||100;
     datasets.push({
-      label: 'CDI (~11% a.a.)', data: cdiVals.map(function(v){ return v; }),
+      label: 'CDI (~11% a.a.)', data: cdiVals,
       borderColor: '#9b59b6', backgroundColor: 'transparent',
       borderWidth: 1.5, borderDash: [5,3], fill: false, tension: 0,
       pointRadius: 0, pointHoverRadius: 4
     });
   }
 
-  // IBOV e S&P500: indica que precisaria de dados externos
-  // Mostra mensagem informativa se selecionados
+  // IBOV
+  if(_benchAtivos['ibov'] !== false && Object.keys(ibovHist).length > 0){
+    var ibovRaw = indexVals(ibovHist, false);
+    datasets.push({
+      label: 'IBOV', data: normalizar(ibovRaw.map(function(v){ return v||0; })),
+      borderColor: '#2ecc71', backgroundColor: 'transparent',
+      borderWidth: 1.5, fill: false, tension: 0.3,
+      pointRadius: 0, pointHoverRadius: 4
+    });
+  }
+
+  // S&P500 (convertido para BRL para comparação justa)
+  if(_benchAtivos['sp500'] !== false && Object.keys(sp500Hist).length > 0){
+    var sp500Raw = indexVals(sp500Hist, true); // converte USD→BRL
+    datasets.push({
+      label: 'S&P500 (R$)', data: normalizar(sp500Raw.map(function(v){ return v||0; })),
+      borderColor: '#3498db', backgroundColor: 'transparent',
+      borderWidth: 1.5, fill: false, tension: 0.3,
+      pointRadius: 0, pointHoverRadius: 4
+    });
+  }
+
   var semDados = [];
-  if(_benchAtivos['ibov']  !== false) semDados.push('IBOV');
-  if(_benchAtivos['sp500'] !== false) semDados.push('S&P 500');
 
   var gc = gGridColor();
   chartsInstances['chartBenchmark'] = new Chart(canvas.getContext('2d'),{
@@ -4313,8 +4343,10 @@ function salvarAporte(){
   var tipo=document.getElementById('aporte_tipo').value;
   var op=document.getElementById('aporte_op').value;
   var data=document.getElementById('aporte_data').value;
-  var qtd=parseFloat(document.getElementById('aporte_qtd').value);
-  var preco=parseFloat(document.getElementById('aporte_preco').value);
+  var qtdRaw   = document.getElementById('aporte_qtd').value.replace(',','.');
+  var precoRaw = document.getElementById('aporte_preco').value.replace(',','.');
+  var qtd=parseFloat(qtdRaw);
+  var preco=parseFloat(precoRaw);
   var obs=document.getElementById('aporte_obs').value.trim();
   var moedaInputEl = document.getElementById('aporte_preco_moeda');
   var isUSType = ['Stock','REIT','ETF','Cripto'].indexOf(tipo) >= 0;
@@ -5167,6 +5199,249 @@ function renderCalendarioDividendos(){
 }
 
 function pad2(n){ return n < 10 ? '0'+n : ''+n; }
+
+function renderDividendos(){
+  var busca    = (document.getElementById('searchProv')||{value:''}).value.trim().toUpperCase();
+  var filtTick = (document.getElementById('filtroProvTicker')||{value:''}).value;
+  var allDivs  = loadData('dividendos',[]);
+
+  // Popular dropdown de tickers
+  var tickerSel = document.getElementById('filtroProvTicker');
+  if(tickerSel){
+    var tickersU = [...new Set(allDivs.map(function(d){ return d.ticker; }))].sort();
+    var valAtual = tickerSel.value;
+    tickerSel.innerHTML = '<option value="">Todos os ativos</option>' +
+      tickersU.map(function(t){ return '<option value="'+t+'"'+(t===valAtual?' selected':'')+'>'+t+'</option>'; }).join('');
+  }
+
+  // Aplicar filtros de busca/ticker
+  var divs = allDivs.slice();
+  if(filtTick) divs = divs.filter(function(d){ return d.ticker === filtTick; });
+  if(busca)    divs = divs.filter(function(d){ return d.ticker.toUpperCase().includes(busca); });
+
+  var hoje = new Date().toISOString().split('T')[0];
+  var fmt  = function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  var fmtK = function(v){ return v >= 1000 ? 'R$ '+(v/1000).toFixed(1)+'k' : fmt(v); };
+
+  var recebidos = divs.filter(function(d){ return d.data < hoje; });
+  var futuros   = divs.filter(function(d){ return d.data >= hoje; });
+
+  // ── KPIs ────────────────────────────────────────────────────
+  var totalRec   = recebidos.reduce(function(s,d){ return s+d.valor*(d.qtdEx||0); }, 0);
+  var totalFut   = futuros.reduce(function(s,d){ return s+d.valor*(d.qtdEx||0); }, 0);
+  var anoAtual   = new Date().getFullYear();
+  var mesAtual   = new Date().getMonth()+1;
+  var recAno     = recebidos.filter(function(d){ return d.data.startsWith(anoAtual+''); }).reduce(function(s,d){ return s+d.valor*(d.qtdEx||0); },0);
+  var recMes     = recebidos.filter(function(d){
+    var p = d.data.split('-'); return parseInt(p[0])===anoAtual && parseInt(p[1])===mesAtual;
+  }).reduce(function(s,d){ return s+d.valor*(d.qtdEx||0); },0);
+
+  // Média mensal (últimos 12 meses com dados)
+  var mesesComDados = {};
+  recebidos.forEach(function(d){
+    var k = d.data.substring(0,7);
+    mesesComDados[k] = (mesesComDados[k]||0) + d.valor*(d.qtdEx||0);
+  });
+  var mediaKeys = Object.keys(mesesComDados).sort().slice(-12);
+  var mediaMensal = mediaKeys.length ? mediaKeys.reduce(function(s,k){ return s+mesesComDados[k]; },0)/mediaKeys.length : 0;
+
+  var kpiEl = document.getElementById('provKpis');
+  if(kpiEl) kpiEl.innerHTML = [
+    {label:'Total Recebido', val:fmt(totalRec), sub:'Desde o início', icon:'💰', color:'#2ecc71'},
+    {label:'Este Ano', val:fmt(recAno), sub:anoAtual+'', icon:'📅', color:'#3498db'},
+    {label:'Este Mês', val:fmt(recMes), sub:'Mês atual', icon:'📆', color:'#9b59b6'},
+    {label:'Prev. a Receber', val:fmt(totalFut), sub:futuros.length+' proventos', icon:'⏳', color:'#e8b84b'},
+  ].map(function(k){
+    return '<div class="prov-kpi" style="--kpi-color:'+k.color+'">'+
+      '<div class="prov-kpi-label">'+k.label+'</div>'+
+      '<div class="prov-kpi-val">'+k.val+'</div>'+
+      '<div class="prov-kpi-sub">'+k.sub+' · Média/mês: '+fmtK(mediaMensal)+'</div>'+
+      '<div class="prov-kpi-badge">'+k.icon+'</div>'+
+    '</div>';
+  }).join('');
+
+  // Badge DY
+  var dyEl = document.getElementById('provDYBadge');
+  if(dyEl) dyEl.textContent = 'Média/mês: '+fmtK(mediaMensal);
+
+  // ── BARRAS MENSAIS (últimos 13 meses + próximos 3) ───────────
+  var now = new Date();
+  var meses = [];
+  for(var i=-12; i<=3; i++){
+    var d = new Date(now.getFullYear(), now.getMonth()+i, 1);
+    meses.push({ key: d.getFullYear()+'-'+(''+(d.getMonth()+1)).padStart(2,'0'),
+                 label: ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][d.getMonth()],
+                 future: i > 0 });
+  }
+
+  // Monta mapa de valores por mês (recebidos + futuros)
+  var valPorMes = {};
+  divs.forEach(function(d){
+    var k = d.data.substring(0,7);
+    valPorMes[k] = (valPorMes[k]||0) + d.valor*(d.qtdEx||0);
+  });
+
+  var maxBar = Math.max(1, ...meses.map(function(m){ return valPorMes[m.key]||0; }));
+
+  var barsEl = document.getElementById('provBars');
+  if(barsEl) barsEl.innerHTML = meses.map(function(m){
+    var val = valPorMes[m.key] || 0;
+    var pct = Math.round((val/maxBar)*100);
+    var color = m.future ? 'var(--gold)' : 'var(--green)';
+    var isHoje = m.key === hoje.substring(0,7);
+    return '<div class="prov-bar-wrap">'+
+      '<div class="prov-bar-val">'+(val>0?fmtK(val):'')+'</div>'+
+      '<div class="prov-bar-track">'+
+        '<div class="prov-bar-fill'+(m.future?' future':'')+(isHoje?' current':'')+'" '+
+          'style="height:'+Math.max(3,pct)+'%;background:'+color+';'+
+          (isHoje?'box-shadow:0 0 8px rgba(232,184,75,.5);':'')+
+          (isHoje?'background:linear-gradient(180deg,#f5d07a,#e8b84b);':'')+
+          '" title="'+m.key+': '+fmt(val)+'">'+
+        '</div>'+
+      '</div>'+
+      '<div class="prov-bar-month" style="'+(isHoje?'color:var(--gold);font-weight:700':'')+'">'+m.label+'</div>'+
+    '</div>';
+  }).join('');
+
+  // ── BREAKDOWN POR ATIVO ─────────────────────────────────────
+  var porTicker = {};
+  recebidos.forEach(function(d){
+    porTicker[d.ticker] = (porTicker[d.ticker]||0) + d.valor*(d.qtdEx||0);
+  });
+  var tickersSorted = Object.keys(porTicker).sort(function(a,b){ return porTicker[b]-porTicker[a]; });
+  var maxTicker = Math.max(1, ...Object.values(porTicker));
+  var COLORS = ['#2ecc71','#3498db','#9b59b6','#e8b84b','#e67e22','#e63946','#1abc9c','#f39c12'];
+
+  var bdEl = document.getElementById('provTickerBreakdown');
+  if(bdEl) bdEl.innerHTML = tickersSorted.slice(0,10).map(function(t,i){
+    var val = porTicker[t];
+    var pct = Math.round((val/totalRec)*100);
+    var w   = Math.round((val/maxTicker)*100);
+    return '<div class="prov-ticker-row">'+
+      '<div class="prov-ticker-name" style="color:'+COLORS[i%COLORS.length]+'">'+t+'</div>'+
+      '<div class="prov-ticker-bar-bg">'+
+        '<div class="prov-ticker-bar-fill" style="width:'+w+'%;background:'+COLORS[i%COLORS.length]+'"></div>'+
+      '</div>'+
+      '<div class="prov-ticker-pct">'+pct+'%</div>'+
+      '<div class="prov-ticker-total">'+fmtK(val)+'</div>'+
+    '</div>';
+  }).join('');
+
+  var totEl = document.getElementById('provTickerTotal');
+  if(totEl) totEl.textContent = fmt(totalRec);
+
+  // ── HEATMAP: mês × intensidade (ano selecionado ou todos) ───
+  var yearTabsEl = document.getElementById('provYearTabs');
+  var anos = [...new Set(divs.map(function(d){ return d.data.substring(0,4); }))].sort();
+  if(!window._provHmAno || !anos.includes(window._provHmAno)) window._provHmAno = anos[anos.length-1]||''+anoAtual;
+
+  if(yearTabsEl) yearTabsEl.innerHTML = anos.map(function(a){
+    return '<button class="prov-year-btn'+(a===window._provHmAno?' active':'')+
+      '" onclick="window._provHmAno=\''+a+'\';renderDividendos()">'+a+'</button>';
+  }).join('');
+
+  var hmDivs = divs.filter(function(d){ return d.data.startsWith(window._provHmAno); });
+  var hmPorMes = {};
+  hmDivs.forEach(function(d){
+    var m = parseInt(d.data.split('-')[1]);
+    hmPorMes[m] = (hmPorMes[m]||0) + d.valor*(d.qtdEx||0);
+  });
+  var maxHm = Math.max(1, ...Object.values(hmPorMes));
+  var mLabels = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+  var hmEl = document.getElementById('provHeatmap');
+  if(hmEl) hmEl.innerHTML = mLabels.map(function(ml,i){
+    var m = i+1;
+    var val = hmPorMes[m] || 0;
+    var intensity = val > 0 ? Math.max(0.1, val/maxHm) : 0;
+    var bg = val > 0 ? 'rgba(46,204,113,'+intensity+')' : 'var(--bg3)';
+    var tip = val > 0 ? ml+' '+window._provHmAno+': '+fmt(val) : ml+' — sem proventos';
+    return '<div class="prov-hm-month">'+
+      '<div class="prov-hm-cell" style="background:'+bg+'" data-tip="'+tip+'" title="'+tip+'"></div>'+
+      '<div class="prov-hm-label">'+ml+'</div>'+
+    '</div>';
+  }).join('');
+
+  // ── EVOLUÇÃO ANUAL ───────────────────────────────────────────
+  var porAno = {};
+  recebidos.forEach(function(d){
+    var a = d.data.substring(0,4);
+    porAno[a] = (porAno[a]||0) + d.valor*(d.qtdEx||0);
+  });
+  var anosOrdenados = Object.keys(porAno).sort();
+  var maxAno = Math.max(1, ...Object.values(porAno));
+
+  var annEl = document.getElementById('provAnnual');
+  if(annEl) annEl.innerHTML = anosOrdenados.map(function(a,i){
+    var val = porAno[a];
+    var w   = Math.round((val/maxAno)*100);
+    var prev = i > 0 ? porAno[anosOrdenados[i-1]] : null;
+    var delta = prev ? ((val-prev)/prev*100) : null;
+    var deltaStr = delta !== null
+      ? '<span style="font-size:10px;color:'+(delta>=0?'var(--green)':'var(--red)')+'">'+
+          (delta>=0?'↑':'↓')+Math.abs(delta).toFixed(0)+'%</span>'
+      : '';
+    return '<div class="prov-annual-row">'+
+      '<div class="prov-annual-year">'+a+'</div>'+
+      '<div class="prov-annual-bar-bg">'+
+        '<div class="prov-annual-bar-fill" style="width:'+w+'%;background:linear-gradient(90deg,#2ecc71,#3498db)"></div>'+
+      '</div>'+
+      '<div class="prov-annual-val">'+fmtK(val)+' '+deltaStr+'</div>'+
+    '</div>';
+  }).join('') || '<div style="color:var(--text3);font-size:12px;text-align:center;padding:32px">Nenhum provento recebido ainda.</div>';
+
+  // ── FUTUROS ──────────────────────────────────────────────────
+  var fEl = document.getElementById('divFuturos');
+  if(fEl){
+    if(futuros.length){
+      fEl.innerHTML='<div class="prov-card-title">📅 A Receber <span style="color:var(--gold);font-size:12px">'+fmt(totalFut)+'</span></div>'+
+      futuros.sort(function(a,b){ return a.data.localeCompare(b.data); }).slice(0,8).map(function(d){
+        var total = d.valor*(d.qtdEx||0);
+        var isAprv = d.datex && d.datex < hoje;
+        return '<div class="prov-list-item prov-list-future">'+
+          '<div class="prov-list-ticker">'+d.ticker+'</div>'+
+          '<div class="prov-list-tipo">'+d.tipo+'</div>'+
+          '<div class="prov-list-info">'+
+            (d.datex?'Ex: '+fmtDate(d.datex)+' · ':'')+'R$ '+d.valor.toFixed(4)+'/cota'+
+          '</div>'+
+          '<div>'+
+            '<div class="prov-list-val" style="color:'+(isAprv?'var(--green)':'var(--gold)')+'">'+fmt(total)+'</div>'+
+            '<div class="prov-list-date">Pag: '+fmtDate(d.data)+'</div>'+
+          '</div>'+
+        '</div>';
+      }).join('') +
+      (futuros.length > 8 ? '<div style="text-align:center;font-size:11px;color:var(--text3);padding:8px">+ '+(futuros.length-8)+' mais</div>' : '');
+    } else {
+      fEl.innerHTML = '<div class="prov-card-title">📅 A Receber</div>'+
+        '<div style="text-align:center;padding:32px;color:var(--text3);font-size:12px">Nenhum provento previsto</div>';
+    }
+  }
+
+  // ── RECEBIDOS RECENTES ───────────────────────────────────────
+  var rEl = document.getElementById('divRecebidos');
+  if(rEl){
+    var recentes = recebidos.sort(function(a,b){ return b.data.localeCompare(a.data); }).slice(0,8);
+    rEl.innerHTML = '<div class="prov-card-title">✅ Recebidos <span style="color:var(--green);font-size:12px">'+fmt(totalRec)+'</span></div>'+
+    (recentes.length ? recentes.map(function(d){
+      var total = d.valor*(d.qtdEx||0);
+      return '<div class="prov-list-item">'+
+        '<div class="prov-list-ticker">'+d.ticker+'</div>'+
+        '<div class="prov-list-tipo">'+d.tipo+'</div>'+
+        '<div class="prov-list-info">R$ '+d.valor.toFixed(4)+'/cota · '+(d.qtdEx||0)+' cotas</div>'+
+        '<div>'+
+          '<div class="prov-list-val">'+fmt(total)+'</div>'+
+          '<div class="prov-list-date">'+fmtDate(d.data)+'</div>'+
+        '</div>'+
+      '</div>';
+    }).join('') +
+    (recebidos.length > 8 ? '<div style="text-align:center;font-size:11px;color:var(--text3);padding:8px">+ '+(recebidos.length-8)+' mais</div>' : '')
+    : '<div style="text-align:center;padding:32px;color:var(--text3);font-size:12px">Nenhum provento recebido ainda.</div>');
+  }
+
+
+  // Renderiza o calendário junto
+  renderCalendarioDividendos();
+}
 
 function limparFiltrosProv(){
   ['filtroProvTicker','searchProv'].forEach(function(id){
