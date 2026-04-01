@@ -938,6 +938,30 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
   .prov-kpi-val { font-size:18px; }
 }
 
+
+/* ===========================================
+   PAINEL RENTABILIDADE PREMIUM
+=========================================== */
+.rent-kpi-cell{padding:18px 22px;border-right:1px solid var(--border);position:relative;overflow:hidden}
+.rent-kpi-cell:last-child{border-right:none}
+.rent-kpi-cell::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--rk-color,var(--gold))}
+.rent-kpi-label{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:6px}
+.rent-kpi-val{font-size:22px;font-weight:800;line-height:1;margin-bottom:3px}
+.rent-kpi-sub{font-size:11px;color:var(--text3)}
+.rent-kpi-sub.up b{color:var(--green)}.rent-kpi-sub.dn b{color:var(--red)}.rent-kpi-sub.gold b{color:var(--gold)}
+.rent-cat-card{background:var(--sur2);border:1px solid var(--border);border-radius:12px;padding:16px;position:relative;overflow:hidden}
+.rent-cat-card::before{content:'';position:absolute;top:0;left:0;bottom:0;width:3px;background:var(--rc-color,var(--gold));border-radius:3px 0 0 3px}
+.rent-cat-name{font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3);margin-bottom:8px;padding-left:8px}
+.rent-cat-val{font-size:20px;font-weight:800;padding-left:8px;line-height:1;margin-bottom:4px}
+.rent-cat-sub{font-size:11px;padding-left:8px;color:var(--text3)}
+.rent-legend-item{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);white-space:nowrap}
+.rent-legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;display:inline-block}
+@media(max-width:700px){
+  #rentKpiStrip{grid-template-columns:1fr 1fr!important}
+  #rentKpiStrip .rent-kpi-cell:nth-child(2){border-right:none}
+  #rentKpiStrip .rent-kpi-cell:nth-child(1),#rentKpiStrip .rent-kpi-cell:nth-child(2){border-bottom:1px solid var(--border)}
+}
+
 /* ═══════════════════════════════════════
    ABA REBALANCEAMENTO
 ═══════════════════════════════════════ */
@@ -1296,6 +1320,38 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
           </div>
           <div style="height:340px;position:relative"><canvas id="chartEvolucao"></canvas></div>
           <div class="g-legend" id="gLegendEvolucao" style="margin-top:14px;justify-content:center"></div>
+        </div>
+      </div>
+
+
+      <!-- PAINEL RENTABILIDADE PREMIUM -->
+      <div class="g-section-full" id="painelRentabilidade">
+        <div class="g-card" style="--card-accent:#e8b84b;padding:0;overflow:hidden">
+          <div style="padding:24px 28px 0;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+            <div>
+              <div class="g-chart-title" style="margin-bottom:4px;font-size:16px"><span style="background:var(--gold)"></span>Rentabilidade da Carteira <span class="g-ct-badge" style="font-size:10px;letter-spacing:1.5px">COMPLETO</span></div>
+              <div style="font-size:12px;color:var(--text3)">Evolução desde o primeiro aporte · Aporte acumulado · Valor atual · Benchmarks</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <div id="rentPeriodBtns" style="display:flex;gap:4px">
+                <button class="g-tab-chart on" onclick="setRentPeriodo('tudo',this)">Tudo</button>
+                <button class="g-tab-chart" onclick="setRentPeriodo('5a',this)">5A</button>
+                <button class="g-tab-chart" onclick="setRentPeriodo('3a',this)">3A</button>
+                <button class="g-tab-chart" onclick="setRentPeriodo('1a',this)">1A</button>
+                <button class="g-tab-chart" onclick="setRentPeriodo('6m',this)">6M</button>
+              </div>
+            </div>
+          </div>
+          <div id="rentKpiStrip" style="display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1px solid var(--border);margin-top:20px"></div>
+          <div style="padding:20px 28px 0">
+            <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;align-items:center" id="rentLegendLines"></div>
+            <div style="position:relative;height:320px"><canvas id="chartRentTimeline"></canvas></div>
+          </div>
+          <div style="padding:24px 28px 0">
+            <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:14px">Rentabilidade por Ativo <span style="color:var(--text3);font-weight:400">· Preco + Total Return (com dividendos)</span></div>
+            <div style="position:relative;height:280px"><canvas id="chartRentAtivos"></canvas></div>
+          </div>
+          <div id="rentCatBreakdown" style="padding:24px 28px 28px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px"></div>
         </div>
       </div>
 
@@ -3611,6 +3667,7 @@ function renderChartEvolucao(){
   // Quando tiver o histórico, renderiza o gráfico
   Promise.all(fetchPromises).then(function(){
     _renderChartEvolucaoComHistorico(aportes, meses, pos, cache);
+    renderPainelRentabilidade();
   });
 }
 
@@ -4313,6 +4370,7 @@ function renderGraficos(){
   renderChartTop(posData);
   renderGraficosKPI(posData, totalPos, totalInv);
   renderGraficosRanking(posData);
+  renderPainelRentabilidade();
 
   // Força resize nos charts após render (necessário com zoom CSS)
   setTimeout(function(){
@@ -4321,6 +4379,391 @@ function renderGraficos(){
     });
   }, 100);
 }
+
+
+
+// ─── renderGraficosKPI ───────────────────────────────────────
+function renderGraficosKPI(posData, totalPos, totalInv) {
+  var el = document.getElementById('gKpiGrid');
+  if (!el) return;
+  var provsTotal = loadData('dividendos',[]).reduce(function(s,d){ return s+(d.valor||0)*(d.qtdEx||0); },0);
+  var lucro = totalPos - totalInv;
+  var rentPct = totalInv > 0 ? (lucro/totalInv*100) : 0;
+  var totalRetPct = totalInv > 0 ? ((lucro+provsTotal)/totalInv*100) : 0;
+  var nAtivos = posData.length;
+  var kpis = [
+    { icon:'💰', label:'Patrimônio Total', val: fmtBRL2(totalPos), sub: fmtBRL2(totalInv)+' investido', cls:'gold', color:'var(--gold)' },
+    { icon:'📈', label:'Rent. de Preço', val: (rentPct>=0?'+':'')+rentPct.toFixed(2)+'%', sub: (lucro>=0?'+':'')+fmtBRL2(lucro), cls: rentPct>=0?'up':'dn', color: rentPct>=0?'var(--green)':'var(--red)' },
+    { icon:'🏆', label:'Total Return', val: (totalRetPct>=0?'+':'')+totalRetPct.toFixed(2)+'%', sub: 'Incl. R$'+(provsTotal/1000).toFixed(1)+'k proventos', cls:'gold', color:'var(--gold)' },
+    { icon:'📊', label:'Ativos na Carteira', val: nAtivos, sub: posData.filter(function(d){return d.rentPreco>=0;}).length+' no positivo', cls:'', color:'var(--text2)' }
+  ];
+  el.innerHTML = kpis.map(function(k){
+    return '<div class="g-kpi" style="--kpi-color:'+k.color+'">'+
+      '<span class="g-kpi-icon">'+k.icon+'</span>'+
+      '<div class="g-kpi-label">'+k.label+'</div>'+
+      '<div class="g-kpi-val" style="color:'+k.color+'">'+k.val+'</div>'+
+      '<div class="g-kpi-sub '+k.cls+'">'+k.sub+'</div>'+
+    '</div>';
+  }).join('');
+}
+
+// ─── renderGraficosRanking ───────────────────────────────────
+function renderGraficosRanking(posData) {
+  var el = document.getElementById('gRankingList');
+  if (!el) return;
+  var sorted = posData.slice().sort(function(a,b){ return b.totalRetPct-a.totalRetPct; });
+  if (!sorted.length) { el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3);font-size:12px">Cotações necessárias para ranking</div>'; return; }
+  var max = Math.abs(sorted[0].totalRetPct) || 1;
+  el.innerHTML = sorted.map(function(d, i){
+    var cor = d.totalRetPct>=0 ? 'var(--green)' : 'var(--red)';
+    var barW = Math.min(100, Math.abs(d.totalRetPct)/max*100);
+    return '<div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid rgba(255,255,255,.04)">'+
+      '<span style="font-size:10px;font-weight:700;color:var(--text3);min-width:18px;text-align:right">'+(i+1)+'</span>'+
+      '<span style="font-weight:700;font-size:12px;min-width:60px;color:var(--text)">'+d.ticker+'</span>'+
+      '<div style="flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">'+
+        '<div style="height:6px;border-radius:3px;background:'+cor+';width:'+barW+'%"></div>'+
+      '</div>'+
+      '<span style="font-size:12px;font-weight:700;color:'+cor+';min-width:64px;text-align:right">'+(d.totalRetPct>=0?'+':'')+d.totalRetPct.toFixed(2)+'%</span>'+
+    '</div>';
+  }).join('');
+}
+
+
+// ============================================================
+// PAINEL RENTABILIDADE PREMIUM
+// ============================================================
+var _rentPeriodo = 'tudo';
+
+function setRentPeriodo(p, btn) {
+  _rentPeriodo = p;
+  document.querySelectorAll('#rentPeriodBtns .g-tab-chart').forEach(function(b){ b.classList.remove('on'); });
+  if (btn) btn.classList.add('on');
+  renderPainelRentabilidade();
+}
+
+function renderPainelRentabilidade() {
+  var aportes = loadData('aportes', []);
+  if (!aportes.length) return;
+  aportes.sort(function(a, b){ return a.data.localeCompare(b.data); });
+
+  var hoje = new Date();
+  var mn = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+  // --- Define período ---
+  var dataInicio = aportes[0].data.substring(0,7);
+  var cur = new Date(dataInicio + '-01');
+  if (_rentPeriodo !== 'tudo') {
+    var anos = _rentPeriodo==='6m' ? 0.5 : _rentPeriodo==='1a' ? 1 : _rentPeriodo==='3a' ? 3 : 5;
+    var mesesAtras = Math.round(anos * 12);
+    var ini = new Date(hoje.getFullYear(), hoje.getMonth() - mesesAtras, 1);
+    if (cur < ini) cur = ini;
+  }
+
+  var limite = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 1);
+  var meses = [];
+  var tmp = new Date(cur);
+  while (tmp < limite) {
+    meses.push(tmp.getFullYear() + '-' + (tmp.getMonth() < 9 ? '0' : '') + (tmp.getMonth() + 1));
+    tmp.setMonth(tmp.getMonth() + 1);
+  }
+  if (meses.length < 2) return;
+
+  // --- Calcula séries mensais ---
+  var serieAportAcum = [];  // investido acumulado
+  var serieValAtual  = [];  // valor de mercado (cotação)
+  var serieRentPct   = [];  // % acumulado s/ investido
+  var serieIbov      = [];  // placeholder — Base 100
+  var labels         = [];
+
+  var histCache = window._histMensalCache || {};
+
+  meses.forEach(function(mes) {
+    var pos = {};
+    var totalInv = 0;
+    aportes.forEach(function(a) {
+      if (a.data.substring(0,7) > mes) return;
+      if (!pos[a.ticker]) pos[a.ticker] = {ticker:a.ticker, tipo:a.tipo, qtd:0, totalInv:0};
+      var p = pos[a.ticker];
+      var pr = a.moeda === 'USD' ? a.preco * (a.fxRate || usdBRL || 5.85) : a.preco;
+      if (a.op === 'C') { p.qtd += a.qtd; p.totalInv += a.qtd * pr; }
+      else { var pm = p.qtd > 0 ? p.totalInv/p.qtd : 0; p.totalInv -= a.qtd * pm; p.qtd -= a.qtd; }
+    });
+
+    var totalValor = 0;
+    Object.values(pos).forEach(function(p) {
+      if (p.qtd <= 0.001) return;
+      totalInv += p.totalInv;
+      var isBRticker = isBR(p.ticker, p.tipo);
+      var isMesAtual = mes === meses[meses.length - 1];
+      var val = p.totalInv;
+      if (isMesAtual) {
+        var cot = cotacoes[p.ticker];
+        if (cot) val = p.qtd * (isBRticker ? cot.preco : cot.preco * usdBRL);
+      } else {
+        var symbol = p.tipo==='UCITs' && !p.ticker.includes('.') ? p.ticker+'.L'
+                   : isBRticker ? p.ticker+'.SA' : p.ticker;
+        var hist = histCache[symbol] || {};
+        var preco = hist[mes];
+        if (!preco) {
+          for (var back=1; back<=3; back++) {
+            var d2 = new Date(mes+'-01'); d2.setMonth(d2.getMonth()-back);
+            var mk = d2.getFullYear()+'-'+(d2.getMonth()<9?'0':'')+(d2.getMonth()+1);
+            if (hist[mk]) { preco = hist[mk]; break; }
+          }
+        }
+        if (preco && preco > 0) val = p.qtd * preco * (isBRticker ? 1 : usdBRL);
+      }
+      totalValor += val;
+    });
+
+    var rentPct = totalInv > 0 ? ((totalValor - totalInv) / totalInv * 100) : 0;
+    var p2 = mes.split('-');
+    labels.push(mn[parseInt(p2[1])-1] + '/' + p2[0].substring(2));
+    serieAportAcum.push(+totalInv.toFixed(2));
+    serieValAtual.push(+totalValor.toFixed(2));
+    serieRentPct.push(+rentPct.toFixed(2));
+  });
+
+  // --- KPI strip ---
+  var totalInvFinal  = serieAportAcum[serieAportAcum.length - 1] || 0;
+  var totalValFinal  = serieValAtual[serieValAtual.length - 1] || 0;
+  var rentAcum       = totalInvFinal > 0 ? ((totalValFinal - totalInvFinal) / totalInvFinal * 100) : 0;
+  var lucroAbs       = totalValFinal - totalInvFinal;
+  var provsTotal     = loadData('dividendos',[]).reduce(function(s,d){ return s + (d.valor||0)*(d.qtdEx||0); }, 0);
+  var totalRetAbs    = lucroAbs + provsTotal;
+  var totalRetPct    = totalInvFinal > 0 ? (totalRetAbs / totalInvFinal * 100) : 0;
+
+  var kpiStrip = document.getElementById('rentKpiStrip');
+  if (!kpiStrip) return;
+  var kpis = [
+    { label:'Total Investido', val: fmtBRL2(totalInvFinal), sub:'aporte acumulado', color:'#3498db', cls:'', subB: '' },
+    { label:'Valor Atual', val: fmtBRL2(totalValFinal), sub: (lucroAbs >= 0 ? '+' : '') + fmtBRL2(lucroAbs) + ' vs custo', color: totalValFinal >= totalInvFinal ? 'var(--green)' : 'var(--red)', cls: lucroAbs >= 0 ? 'up' : 'dn', subB: '' },
+    { label:'Rent. de Preço', val: (rentAcum >= 0 ? '+' : '') + rentAcum.toFixed(2) + '%', sub: lucroAbs >= 0 ? 'acima do custo' : 'abaixo do custo', color: rentAcum >= 0 ? 'var(--green)' : 'var(--red)', cls: rentAcum >= 0 ? 'up' : 'dn', subB: '' },
+    { label:'Total Return', val: (totalRetPct >= 0 ? '+' : '') + totalRetPct.toFixed(2) + '%', sub: '+ R$' + (provsTotal/1000).toFixed(1) + 'k em proventos', color:'var(--gold)', cls:'gold', subB: '' }
+  ];
+  kpiStrip.innerHTML = kpis.map(function(k) {
+    return '<div class="rent-kpi-cell" style="--rk-color:' + k.color + '">' +
+      '<div class="rent-kpi-label">' + k.label + '</div>' +
+      '<div class="rent-kpi-val" style="color:' + k.color + '">' + k.val + '</div>' +
+      '<div class="rent-kpi-sub ' + k.cls + '"><b>' + k.sub + '</b></div>' +
+      '</div>';
+  }).join('');
+
+  // --- Gráfico principal: timeline ---
+  destroyChart('chartRentTimeline');
+  var ctx = document.getElementById('chartRentTimeline');
+  if (!ctx) return;
+  var gc = gGridColor();
+
+  // Gradientes
+  var ctxC = ctx.getContext('2d');
+  var gradVal = ctxC.createLinearGradient(0,0,0,320);
+  gradVal.addColorStop(0, 'rgba(232,184,75,0.35)');
+  gradVal.addColorStop(1, 'rgba(232,184,75,0.02)');
+  var gradInv = ctxC.createLinearGradient(0,0,0,320);
+  gradInv.addColorStop(0, 'rgba(52,152,219,0.25)');
+  gradInv.addColorStop(1, 'rgba(52,152,219,0.02)');
+
+  chartsInstances['chartRentTimeline'] = new Chart(ctxC, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: 'Valor Atual',
+          data: serieValAtual,
+          borderColor: '#e8b84b', backgroundColor: gradVal,
+          borderWidth: 2.5, fill: true, tension: 0.35,
+          pointRadius: 0, pointHoverRadius: 6,
+          pointHoverBackgroundColor: '#e8b84b', pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2,
+          yAxisID: 'yBRL', order: 1
+        },
+        {
+          label: 'Aporte Acumulado',
+          data: serieAportAcum,
+          borderColor: '#3498db', backgroundColor: gradInv,
+          borderWidth: 2, borderDash: [5,4], fill: true, tension: 0.3,
+          pointRadius: 0, pointHoverRadius: 5,
+          pointHoverBackgroundColor: '#3498db', pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2,
+          yAxisID: 'yBRL', order: 2
+        },
+        {
+          label: 'Rentabilidade %',
+          data: serieRentPct,
+          borderColor: serieRentPct[serieRentPct.length-1] >= 0 ? '#2ecc71' : '#e63946',
+          backgroundColor: 'transparent',
+          borderWidth: 2, fill: false, tension: 0.35,
+          pointRadius: 0, pointHoverRadius: 5,
+          pointHoverBackgroundColor: '#2ecc71', pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2,
+          yAxisID: 'yPct', order: 0
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      animation: { duration: 800, easing: 'easeOutQuart' },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(9,11,15,0.96)',
+          borderColor: 'rgba(255,255,255,0.08)', borderWidth: 1,
+          padding: 14, titleFont: { size: 12, weight: '700' }, bodyFont: { size: 12 },
+          callbacks: {
+            label: function(c) {
+              if (c.dataset.yAxisID === 'yPct') return '  Rent.: ' + (c.raw >= 0 ? '+' : '') + c.raw.toFixed(2) + '%';
+              return '  ' + c.dataset.label + ': ' + fmtBRL2(c.raw);
+            },
+            afterBody: function(items) {
+              var inv = items.find(function(i){ return i.dataset.label === 'Aporte Acumulado'; });
+              var val = items.find(function(i){ return i.dataset.label === 'Valor Atual'; });
+              if (inv && val && inv.raw > 0) {
+                var diff = val.raw - inv.raw;
+                return ['  ─────────────────', '  Ganho/Perda: ' + (diff>=0?'+':'') + fmtBRL2(diff)];
+              }
+              return [];
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: gc, drawBorder: false },
+          border: { display: false },
+          ticks: { color: gTextColor(), maxTicksLimit: 14, font: { size: 10 } }
+        },
+        yBRL: {
+          type: 'linear', position: 'left',
+          grid: { color: gc, drawBorder: false }, border: { display: false },
+          ticks: {
+            color: gTextColor(), font: { size: 10 },
+            callback: function(v) {
+              if (v >= 1000000) return 'R$' + (v/1000000).toFixed(1) + 'M';
+              if (v >= 1000) return 'R$' + (v/1000).toFixed(0) + 'k';
+              return 'R$' + v;
+            }
+          }
+        },
+        yPct: {
+          type: 'linear', position: 'right',
+          grid: { display: false }, border: { display: false },
+          ticks: {
+            color: gTextColor(), font: { size: 10 },
+            callback: function(v) { return v.toFixed(0) + '%'; }
+          }
+        }
+      }
+    }
+  });
+
+  // --- Legenda manual ---
+  var legEl = document.getElementById('rentLegendLines');
+  if (legEl) {
+    legEl.innerHTML = [
+      { color:'#e8b84b', label:'Valor Atual' },
+      { color:'#3498db', label:'Aporte Acumulado' },
+      { color: serieRentPct[serieRentPct.length-1] >= 0 ? '#2ecc71' : '#e63946', label:'Rentabilidade %' }
+    ].map(function(l) {
+      return '<div class="rent-legend-item"><span class="rent-legend-dot" style="background:' + l.color + '"></span>' + l.label + '</div>';
+    }).join('');
+  }
+
+  // --- Gráfico barras por ativo ---
+  var pos2 = calcPosicoes();
+  var posData2 = pos2.map(function(p) {
+    var cot = cotacoes[p.ticker];
+    var cotBRL = cot ? (isBR(p.ticker,p.tipo) ? cot.preco : cot.preco*usdBRL) : 0;
+    var posVal = cot ? p.qtd*cotBRL : p.totalInv;
+    var prov = totalProventosAtivo(p.ticker, p.tipo);
+    var rentP = p.totalInv > 0 ? ((posVal - p.totalInv) / p.totalInv * 100) : 0;
+    var rentT = p.totalInv > 0 ? ((posVal - p.totalInv + prov) / p.totalInv * 100) : 0;
+    return { ticker: p.ticker, tipo: p.tipo, rentP: rentP, rentT: rentT, posVal: posVal };
+  }).filter(function(d){ return cotacoes[d.ticker]; })
+    .sort(function(a,b){ return b.rentT - a.rentT; })
+    .slice(0, 15);
+
+  destroyChart('chartRentAtivos');
+  var ctx2 = document.getElementById('chartRentAtivos');
+  if (!ctx2 || !posData2.length) return;
+
+  chartsInstances['chartRentAtivos'] = new Chart(ctx2.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: posData2.map(function(d){ return d.ticker; }),
+      datasets: [
+        {
+          label: 'Rent. Preço',
+          data: posData2.map(function(d){ return +d.rentP.toFixed(2); }),
+          backgroundColor: posData2.map(function(d){ return d.rentP >= 0 ? 'rgba(52,152,219,0.85)' : 'rgba(230,57,70,0.75)'; }),
+          borderRadius: { topLeft:5, topRight:5, bottomLeft:0, bottomRight:0 },
+          borderSkipped: false, barPercentage: 0.5, categoryPercentage: 0.8
+        },
+        {
+          label: 'Total Return',
+          data: posData2.map(function(d){ return +d.rentT.toFixed(2); }),
+          backgroundColor: posData2.map(function(d){ return d.rentT >= 0 ? 'rgba(232,184,75,0.9)' : 'rgba(230,57,70,0.55)'; }),
+          borderRadius: { topLeft:5, topRight:5, bottomLeft:0, bottomRight:0 },
+          borderSkipped: false, barPercentage: 0.5, categoryPercentage: 0.8
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: 700, easing: 'easeOutQuart' },
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: { boxWidth:10, boxHeight:10, borderRadius:3, padding:16, font:{size:11}, color:gTextColor(), usePointStyle:true, pointStyle:'rectRounded' }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(9,11,15,0.95)',
+          borderColor: 'rgba(255,255,255,0.08)', borderWidth:1, padding:12,
+          callbacks: { label: function(c){ return '  ' + c.dataset.label + ':  ' + (c.raw>=0?'+':'') + c.raw.toFixed(2) + '%'; } }
+        }
+      },
+      scales: {
+        x: { grid:{display:false}, border:{display:false}, ticks:{color:gTextColor(), font:{size:11,weight:'700'}} },
+        y: {
+          grid:{color:gc, drawBorder:false}, border:{display:false},
+          ticks:{ color:gTextColor(), callback:function(v){ return v+'%'; } },
+          afterDataLimits: function(scale){ if(scale.min > 0) scale.min = 0; }
+        }
+      }
+    }
+  });
+
+  // --- Breakdown por categoria ---
+  var CATS = ['Acao','FII','FIAGRO','Stock','REIT','ETF','UCITs','Cripto'];
+  var catData = {};
+  pos2.forEach(function(p) {
+    if (!catData[p.tipo]) catData[p.tipo] = {inv:0, val:0};
+    var cot = cotacoes[p.ticker];
+    var cotBRL = cot ? (isBR(p.ticker,p.tipo) ? cot.preco : cot.preco*usdBRL) : 0;
+    catData[p.tipo].inv += p.totalInv;
+    catData[p.tipo].val += cot ? p.qtd*cotBRL : p.totalInv;
+  });
+
+  var breakdown = document.getElementById('rentCatBreakdown');
+  if (!breakdown) return;
+  breakdown.innerHTML = CATS.filter(function(t){ return catData[t] && catData[t].inv > 0; })
+    .map(function(t) {
+      var d = catData[t];
+      var pct = d.inv > 0 ? ((d.val - d.inv) / d.inv * 100) : 0;
+      var cor = COLORS_TIPO[t] || 'var(--gold)';
+      var isPos = pct >= 0;
+      return '<div class="rent-cat-card" style="--rc-color:' + cor + '">' +
+        '<div class="rent-cat-name">' + t + '</div>' +
+        '<div class="rent-cat-val" style="color:' + (isPos?'var(--green)':'var(--red)') + '">' +
+          (isPos?'+':'') + pct.toFixed(2) + '%' +
+        '</div>' +
+        '<div class="rent-cat-sub">' + fmtBRL2(d.inv) + ' investido</div>' +
+        '<div class="rent-cat-sub" style="margin-top:2px;font-weight:700;color:' + (isPos?'var(--green)':'var(--red)') + '">' +
+          fmtBRL2(d.val) + ' hoje' +
+        '</div>' +
+        '</div>';
+    }).join('');
+}
+
 
 // ============================================================
 // APORTES — MODAL
