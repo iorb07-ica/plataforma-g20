@@ -2934,13 +2934,24 @@ function atualizarDisplayCambio(rate){
 // ============================================================
 // CÁLCULO DE POSIÇÕES
 // ============================================================
+function precoBRL(aporte){
+  // Normaliza o preço do aporte sempre para BRL
+  // Se moeda='USD', converte usando o fxRate salvo ou usdBRL atual como fallback
+  if(aporte.moeda === 'USD'){
+    var fx = aporte.fxRate || usdBRL || 5.85;
+    return aporte.preco * fx;
+  }
+  return aporte.preco;
+}
+
 function calcPosicoes(){
   var aportes = loadData('aportes',[]);
   var pos = {};
   aportes.sort(function(a,b){return a.data.localeCompare(b.data);}).forEach(function(a){
     if(!pos[a.ticker]) pos[a.ticker]={ticker:a.ticker,tipo:a.tipo,qtd:0,totalInv:0};
     var p = pos[a.ticker];
-    if(a.op==='C'){p.qtd+=a.qtd;p.totalInv+=a.qtd*a.preco;}
+    var preco = precoBRL(a);
+    if(a.op==='C'){p.qtd+=a.qtd;p.totalInv+=a.qtd*preco;}
     else{var pm=p.qtd>0?p.totalInv/p.qtd:0;p.totalInv-=a.qtd*pm;p.qtd-=a.qtd;}
   });
   return Object.values(pos).filter(function(p){return p.qtd>0.001;});
@@ -4308,15 +4319,33 @@ function salvarAporte(){
   var preco=parseFloat(precoRaw);
   var obs=document.getElementById('aporte_obs').value.trim();
   var moedaInputEl = document.getElementById('aporte_preco_moeda');
-  var isUSType = ['Stock','REIT','ETF','Cripto'].indexOf(tipo) >= 0;
-  if(isUSType && moedaInputEl && moedaInputEl.value === 'USD' && usdBRL > 0){
-    preco = preco * usdBRL;
+  var moedaInput   = moedaInputEl ? moedaInputEl.value : 'BRL';
+  var isUSType = ['Stock','REIT','ETF','Cripto','UCITs'].indexOf(tipo) >= 0;
+  var id = document.getElementById('aporte_editId').value;
+
+  var precoFinal, moedaSalva;
+
+  if(id){
+    // EDIÇÃO: salva exatamente o que o usuário digitou, sem converter
+    // A moeda já está correta no select (foi carregada do registro original)
+    precoFinal = preco;
+    moedaSalva = moedaInput;
+  } else {
+    // NOVO APORTE: converte USD→BRL se necessário
+    moedaSalva = isUSType ? moedaInput : 'BRL';
+    precoFinal = preco;
+    if(moedaSalva === 'USD' && usdBRL > 0){
+      precoFinal = preco * usdBRL;
+      moedaSalva = 'BRL'; // salva em BRL, conversão já feita
+    }
   }
-  if(!ticker||!data||isNaN(qtd)||isNaN(preco)||qtd<=0||preco<=0){alert('Preencha todos os campos obrigatórios.');return;}
+
+  if(!ticker||!data||isNaN(qtd)||isNaN(precoFinal)||qtd<=0||precoFinal<=0){alert('Preencha todos os campos obrigatórios.');return;}
   var aportes=loadData('aportes',[]);
-  var id=document.getElementById('aporte_editId').value;
-  if(id){var idx=aportes.findIndex(function(a){return a.id===id;});if(idx>=0)aportes[idx]={id:id,ticker:ticker,tipo:tipo,op:op,data:data,qtd:qtd,preco:preco,obs:obs};}
-  else{aportes.push({id:Date.now().toString(),ticker:ticker,tipo:tipo,op:op,data:data,qtd:qtd,preco:preco,obs:obs});}
+  var novoAporte = {id:id||Date.now().toString(), ticker:ticker, tipo:tipo, op:op,
+    data:data, qtd:qtd, preco:precoFinal, moeda:moedaSalva, obs:obs};
+  if(id){var idx=aportes.findIndex(function(a){return a.id===id;});if(idx>=0)aportes[idx]=novoAporte;}
+  else{aportes.push(novoAporte);}
   saveData('aportes',aportes);
   fecharModal('modalAporte');
   renderPosicoes();
@@ -4465,11 +4494,14 @@ function editarAporte(id){
   document.getElementById('modalAporteTitulo').childNodes[0].textContent='Editar Aporte ';
   document.getElementById('aporte_ticker').value=ap.ticker;
   document.getElementById('aporte_tipo').value=ap.tipo;
-  onTipoChange(ap.tipo); // ★ sincroniza label de moeda ao editar
+  onTipoChange(ap.tipo);
   document.getElementById('aporte_op').value=ap.op;
   document.getElementById('aporte_data').value=ap.data;
   document.getElementById('aporte_qtd').value=ap.qtd;
+  // Mostra exatamente o preço salvo — sem qualquer conversão
   document.getElementById('aporte_preco').value=ap.preco;
+  var moedaEl = document.getElementById('aporte_preco_moeda');
+  if(moedaEl) moedaEl.value = ap.moeda || 'BRL';
   document.getElementById('aporte_obs').value=ap.obs||'';
   document.getElementById('modalAporte').classList.add('show');
 }
