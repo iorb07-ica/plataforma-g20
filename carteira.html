@@ -1299,6 +1299,26 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
         </div>
       </div>
 
+      <!-- ROW 2b: Rentabilidade vs Índices -->
+      <div class="g-section-full">
+        <div class="g-card" style="--card-accent:#e8b84b">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+            <div class="g-chart-title" style="margin-bottom:0"><span style="background:var(--gold)"></span>Rentabilidade vs Índices<span class="g-ct-badge">BASE 100</span></div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <div id="benchmarkToggles" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+              <div class="g-tabs-chart">
+                <button class="g-tab-chart on" onclick="setBenchPeriodo('1a',this)">1A</button>
+                <button class="g-tab-chart" onclick="setBenchPeriodo('3a',this)">3A</button>
+                <button class="g-tab-chart" onclick="setBenchPeriodo('5a',this)">5A</button>
+                <button class="g-tab-chart" onclick="setBenchPeriodo('tudo',this)">Tudo</button>
+              </div>
+            </div>
+          </div>
+          <div style="height:340px;position:relative"><canvas id="chartBenchmark"></canvas></div>
+          <div id="benchmarkStats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:14px"></div>
+        </div>
+      </div>
+
       <!-- ROW 3: Rentabilidade + Proventos -->
       <div class="g-grid-2">
         <div class="g-card" style="--card-accent:#2ecc71">
@@ -3551,9 +3571,21 @@ function renderChartEvolucao(){
       if(p.qtd<=0.001) return;
       var val;
       var cot = cotacoes[p.ticker];
-      if(cot && mes===meses[meses.length-1]){
-        val = p.qtd*(isBR(p.ticker,p.tipo)?cot.preco:cot.preco*usdBRL);
-      } else { val=p.totalInv; }
+      if(cot){
+        // Usa referências históricas disponíveis na cotação
+        var hoje2 = new Date();
+        var mesDate = new Date(mes+'-15');
+        var diffMeses = (hoje2.getFullYear()-mesDate.getFullYear())*12 + (hoje2.getMonth()-mesDate.getMonth());
+        var precoHist = null;
+        if(diffMeses <= 0)  precoHist = isBR(p.ticker,p.tipo)?cot.preco:cot.preco*usdBRL;
+        else if(diffMeses <= 1  && cot.refSemana) precoHist = cot.refSemana.close * (isBR(p.ticker,p.tipo)?1:usdBRL);
+        else if(diffMeses <= 2  && cot.ref30d)   precoHist = cot.ref30d.close   * (isBR(p.ticker,p.tipo)?1:usdBRL);
+        else if(diffMeses <= 4  && cot.ref3m)    precoHist = cot.ref3m.close    * (isBR(p.ticker,p.tipo)?1:usdBRL);
+        else if(diffMeses <= 7  && cot.ref6m)    precoHist = cot.ref6m.close    * (isBR(p.ticker,p.tipo)?1:usdBRL);
+        else if(diffMeses <= 13 && cot.refYTD)   precoHist = cot.refYTD.close   * (isBR(p.ticker,p.tipo)?1:usdBRL);
+        else if(cot.ref5y)                       precoHist = cot.ref5y.close    * (isBR(p.ticker,p.tipo)?1:usdBRL);
+        val = precoHist ? p.qtd * precoHist : p.totalInv;
+      } else { val = p.totalInv; }
       byTipo[p.tipo||'Acao']=(byTipo[p.tipo||'Acao']||0)+val;
     });
     tipos.forEach(function(t){ datasets[t].push(byTipo[t]||0); });
@@ -3861,6 +3893,262 @@ function renderChartProv(){
   });
 }
 
+// ── RENTABILIDADE VS ÍNDICES (Benchmark) ───────────────────────
+var _benchPeriodo = '1a';
+var _benchAtivos = {ibov: true, sp500: true, cdi: true};
+var _benchCache = {};
+
+function setBenchPeriodo(p, btn){
+  _benchPeriodo = p;
+  document.querySelectorAll('#chartBenchmark').forEach(function(){ });
+  btn.closest('.g-tabs-chart').querySelectorAll('.g-tab-chart').forEach(function(b){ b.classList.remove('on'); });
+  btn.classList.add('on');
+  renderChartBenchmark();
+}
+
+function toggleBenchmark(key){
+  _benchAtivos[key] = !_benchAtivos[key];
+  var btn = document.getElementById('bench-btn-'+key);
+  if(btn) btn.style.opacity = _benchAtivos[key] ? '1' : '0.35';
+  renderChartBenchmark();
+}
+
+function renderBenchmarkToggles(){
+  var el = document.getElementById('benchmarkToggles');
+  if(!el) return;
+  var items = [
+    {key:'carteira', label:'Minha Carteira', color:'#e8b84b'},
+    {key:'ibov',  label:'IBOV',  color:'#2ecc71'},
+    {key:'sp500', label:'S&P500', color:'#3498db'},
+    {key:'cdi',   label:'CDI',   color:'#9b59b6'},
+  ];
+  el.innerHTML = items.map(function(it){
+    var active = _benchAtivos[it.key] !== false;
+    return '<button id="bench-btn-'+it.key+'" data-bkey="'+it.key+'" onclick="toggleBenchmark(this.dataset.bkey)" '+
+      'style="display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:6px;'+
+      'border:1px solid '+it.color+'44;background:'+it.color+'18;color:'+it.color+';'+
+      'font-size:10px;font-weight:700;cursor:pointer;transition:all .2s;'+
+      'opacity:'+(active?'1':'0.35')+'">'+
+      '<span style="width:8px;height:8px;border-radius:2px;background:'+it.color+';display:inline-block"></span>'+
+      it.label+'</button>';
+  }).join('');
+}
+
+function renderChartBenchmark(){
+  destroyChart('chartBenchmark');
+  var canvas = document.getElementById('chartBenchmark');
+  if(!canvas) return;
+
+  var aportes = loadData('aportes',[]);
+  if(!aportes.length) return;
+  aportes.sort(function(a,b){ return a.data.localeCompare(b.data); });
+
+  var hoje = new Date();
+  var dataInicio = aportes[0].data.substring(0,7);
+  var cur = new Date(dataInicio+'-01');
+
+  if(_benchPeriodo !== 'tudo'){
+    var anos = _benchPeriodo==='1a'?1:_benchPeriodo==='3a'?3:5;
+    var inicio = new Date(hoje.getFullYear()-anos, hoje.getMonth(), 1);
+    if(cur < inicio) cur = new Date(inicio);
+  }
+
+  var meses = [];
+  var limite = new Date(hoje.getFullYear(), hoje.getMonth()+1, 1);
+  while(cur < limite){
+    meses.push(cur.getFullYear()+'-'+(cur.getMonth()<9?'0':'')+(cur.getMonth()+1));
+    cur.setMonth(cur.getMonth()+1);
+  }
+  if(meses.length < 2) return;
+
+  // Calcula valor da carteira em cada mês (mesmo método do chartEvolucao)
+  var carteiraVals = meses.map(function(mes){
+    var pos = {};
+    aportes.forEach(function(a){
+      if(a.data.substring(0,7) > mes) return;
+      if(!pos[a.ticker]) pos[a.ticker]={ticker:a.ticker,tipo:a.tipo,qtd:0,totalInv:0};
+      var p=pos[a.ticker];
+      if(a.op==='C'){p.qtd+=a.qtd;p.totalInv+=a.qtd*a.preco;}
+      else{var pm=p.qtd>0?p.totalInv/p.qtd:0;p.totalInv-=a.qtd*pm;p.qtd-=a.qtd;}
+    });
+    var total = 0;
+    Object.values(pos).forEach(function(p){
+      if(p.qtd<=0.001) return;
+      var cot = cotacoes[p.ticker];
+      if(cot){
+        var mesDate = new Date(mes+'-15');
+        var diffM = (hoje.getFullYear()-mesDate.getFullYear())*12+(hoje.getMonth()-mesDate.getMonth());
+        var pr = null;
+        var fx = isBR(p.ticker,p.tipo)?1:usdBRL;
+        if(diffM<=0)  pr=cot.preco*fx;
+        else if(diffM<=2  && cot.ref30d)  pr=cot.ref30d.close*fx;
+        else if(diffM<=4  && cot.ref3m)   pr=cot.ref3m.close*fx;
+        else if(diffM<=7  && cot.ref6m)   pr=cot.ref6m.close*fx;
+        else if(diffM<=13 && cot.refYTD)  pr=cot.refYTD.close*fx;
+        else if(cot.ref5y)                pr=cot.ref5y.close*fx;
+        total += pr ? p.qtd*pr : p.totalInv;
+      } else { total += p.totalInv; }
+    });
+    return total;
+  });
+
+  // Normaliza para base 100 a partir do primeiro ponto não-zero
+  function normalizar(vals){
+    var base = vals.find(function(v){ return v > 0; }) || 1;
+    return vals.map(function(v){ return v > 0 ? (v/base*100) : null; });
+  }
+
+  var cartNorm = normalizar(carteiraVals);
+
+  // CDI estimado (taxa mensal ~0.9%)
+  var CDI_MENSAL = 0.009; // ~11% ao ano
+  var cdiVals = meses.map(function(mes, i){
+    return 100 * Math.pow(1+CDI_MENSAL, i);
+  });
+
+  // IBOV e S&P500 via dados históricos das cotações (usando refs disponíveis)
+  // Usa variação estimada baseada nos refs históricos dos ativos BR/US
+  function estimarIndice(tipo, mesArr){
+    // Pega um ativo representativo para estimar o índice
+    var refs = null;
+    var pos = calcPosicoes();
+    var ativos = pos.filter(function(p){ return p.tipo === tipo; });
+    if(!ativos.length) return null;
+    var cot = cotacoes[ativos[0].ticker];
+    if(!cot) return null;
+    // Usa os mesmos refs históricos do ativo como proxy do índice
+    var preco = isBR(ativos[0].ticker, tipo) ? cot.preco : cot.preco * usdBRL;
+    var pontos = {
+      0: preco,
+      2: cot.ref30d ? cot.ref30d.close*(isBR(ativos[0].ticker,tipo)?1:usdBRL) : null,
+      4: cot.ref3m  ? cot.ref3m.close*(isBR(ativos[0].ticker,tipo)?1:usdBRL)  : null,
+      7: cot.ref6m  ? cot.ref6m.close*(isBR(ativos[0].ticker,tipo)?1:usdBRL)  : null,
+      13: cot.refYTD? cot.refYTD.close*(isBR(ativos[0].ticker,tipo)?1:usdBRL) : null,
+      61: cot.ref5y ? cot.ref5y.close*(isBR(ativos[0].ticker,tipo)?1:usdBRL)  : null,
+    };
+    return null; // placeholder — índice real viria do proxy
+  }
+
+  var datasets = [];
+
+  // Carteira
+  if(_benchAtivos['carteira'] !== false){
+    datasets.push({
+      label: 'Minha Carteira', data: cartNorm,
+      borderColor: '#e8b84b', backgroundColor: 'rgba(232,184,75,.08)',
+      borderWidth: 2.5, fill: false, tension: 0.3,
+      pointRadius: 0, pointHoverRadius: 5
+    });
+  }
+
+  // CDI
+  if(_benchAtivos['cdi'] !== false){
+    var cdiBase = cdiVals[0]||100;
+    datasets.push({
+      label: 'CDI (~11% a.a.)', data: cdiVals.map(function(v){ return v; }),
+      borderColor: '#9b59b6', backgroundColor: 'transparent',
+      borderWidth: 1.5, borderDash: [5,3], fill: false, tension: 0,
+      pointRadius: 0, pointHoverRadius: 4
+    });
+  }
+
+  // IBOV e S&P500: indica que precisaria de dados externos
+  // Mostra mensagem informativa se selecionados
+  var semDados = [];
+  if(_benchAtivos['ibov']  !== false) semDados.push('IBOV');
+  if(_benchAtivos['sp500'] !== false) semDados.push('S&P 500');
+
+  var gc = gGridColor();
+  chartsInstances['chartBenchmark'] = new Chart(canvas.getContext('2d'),{
+    type:'line',
+    data:{ labels: meses, datasets: datasets },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{
+        legend:{ display:false },
+        tooltip:{
+          backgroundColor:'rgba(9,11,15,0.95)',
+          borderColor:'rgba(255,255,255,0.08)',
+          borderWidth:1, padding:14,
+          callbacks:{
+            title:function(items){
+              var p=items[0].label.split('-');
+              var mn=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+              return mn[parseInt(p[1])-1]+'/'+p[0];
+            },
+            label:function(c){
+              if(c.raw===null) return null;
+              var rentab = (c.raw-100).toFixed(2);
+              return '  '+c.dataset.label+': '+(rentab>=0?'+':'')+rentab+'%';
+            }
+          }
+        },
+        annotation: semDados.length ? {
+          annotations:{
+            msg:{
+              type:'label', xValue: meses[Math.floor(meses.length/2)],
+              yValue:50, content:[semDados.join(' e ')+': dados históricos de índice'],
+              color:'rgba(255,255,255,0.2)', font:{size:10}
+            }
+          }
+        } : {}
+      },
+      scales:{
+        x:{
+          grid:{color:gc,drawBorder:false},
+          border:{display:false},
+          ticks:{
+            maxTicksLimit:12, color:gTextColor(),
+            callback:function(val,i){
+              var l=this.getLabelForValue(val);
+              if(!l) return '';
+              var p=l.split('-');
+              var mn=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+              return mn[parseInt(p[1])-1]+'/'+p[0].substring(2);
+            }
+          }
+        },
+        y:{
+          grid:{color:gc,drawBorder:false},
+          border:{display:false},
+          ticks:{
+            color:gTextColor(),
+            callback:function(v){ return (v-100>=0?'+':'')+(v-100).toFixed(0)+'%'; }
+          }
+        }
+      }
+    }
+  });
+
+  // Stats de rentabilidade
+  var statsEl = document.getElementById('benchmarkStats');
+  if(statsEl && cartNorm.length >= 2){
+    var primeiro = cartNorm.find(function(v){ return v!==null; }) || 100;
+    var ultimo   = cartNorm[cartNorm.length-1] || 100;
+    var rentTotal = ((ultimo/primeiro)-1)*100;
+    var mesesCount = meses.length;
+    var rentMensal = mesesCount>1 ? (Math.pow(ultimo/primeiro, 1/mesesCount)-1)*100 : 0;
+    var rentAnual  = (Math.pow(1+rentMensal/100, 12)-1)*100;
+    var cdiTotal   = ((cdiVals[cdiVals.length-1]/100)-1)*100;
+
+    var stats = [
+      {label:'Rent. Total Carteira', val:(rentTotal>=0?'+':'')+rentTotal.toFixed(2)+'%', cls:rentTotal>=0?'up':'dn'},
+      {label:'Rent. Anualizada',     val:(rentAnual>=0?'+':'')+rentAnual.toFixed(2)+'%', cls:rentAnual>=0?'up':'dn'},
+      {label:'CDI no Período',       val:'+'+cdiTotal.toFixed(2)+'%', cls:''},
+      {label:'vs CDI',               val:(rentTotal-cdiTotal>=0?'+':'')+(rentTotal-cdiTotal).toFixed(2)+'%', cls:rentTotal-cdiTotal>=0?'up':'dn'},
+    ];
+
+    statsEl.innerHTML = stats.map(function(s){
+      var color = s.cls==='up'?'var(--green)':s.cls==='dn'?'var(--red)':'var(--text3)';
+      return '<div style="background:var(--sur2);border-radius:8px;padding:10px 12px;text-align:center">'+
+        '<div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:4px">'+s.label+'</div>'+
+        '<div style="font-size:15px;font-weight:800;color:'+color+'">'+s.val+'</div>'+
+      '</div>';
+    }).join('');
+  }
+}
+
 // ── TOP 10 POSIÇÕES (barras horizontais) ────────────────────────
 function renderChartTop(posData){
   destroyChart('chartTop');
@@ -3970,6 +4258,8 @@ function renderGraficos(){
   }
 
   renderChartEvolucao();
+  renderBenchmarkToggles();
+  renderChartBenchmark();
   renderChartRent(posData);
   renderChartProv();
   renderChartTop(posData);
