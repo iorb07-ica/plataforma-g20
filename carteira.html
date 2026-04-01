@@ -1666,7 +1666,7 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
       </div>
       <div class="form-group">
         <label class="form-label">Data</label>
-        <input class="form-control" type="date" id="aporte_data" onchange="if(!document.getElementById('aporte_editId').value) buscarPrecoDia()">
+        <input class="form-control" type="date" id="aporte_data" >
       </div>
     </div>
     <div class="form-row">
@@ -1683,7 +1683,6 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
             <option value="USD">US$</option>
           </select>
         </div>
-        <div id="precoDiaHint" style="font-size:10px;margin-top:4px;height:16px;display:flex;align-items:center;gap:6px"></div>
       </div>
     </div>
     <div class="form-group">
@@ -2281,9 +2280,6 @@ function selecionarSugestao(symbol, tipo){
   if(label) { label.textContent = '← detectado automaticamente'; }
 
   fecharAutocomplete();
-  // Só busca preço se não estiver editando
-  var editId = document.getElementById('aporte_editId');
-  if(!editId || !editId.value) buscarPrecoDia();
 }
 
 function fecharAutocomplete(){
@@ -2376,58 +2372,6 @@ function calcularRefsBR(symbolSA, cotObj){
 // ============================================================
 // BUSCA PREÇO HISTÓRICO DO DIA (Yahoo Finance via Proxy)
 // ============================================================
-var _precoDiaTimer = null;
-
-function buscarPrecoDia(){
-  var ticker  = (document.getElementById('aporte_ticker')||{value:''}).value.trim().toUpperCase();
-  var data    = (document.getElementById('aporte_data')||{value:''}).value;
-  var hint    = document.getElementById('precoDiaHint');
-  if(!hint) return;
-  if(!ticker || !data){ hint.innerHTML = ''; return; }
-
-  clearTimeout(_precoDiaTimer);
-  hint.innerHTML = '<span style="color:var(--text3)">⏳ buscando preço...</span>';
-
-  _precoDiaTimer = setTimeout(function(){
-    var tipo = (document.getElementById('aporte_tipo')||{value:'Acao'}).value;
-    var isBRticker = ['Acao','FII','FIAGRO'].indexOf(tipo) >= 0;
-    var symbol = isBRticker ? ticker+'.SA' : ticker;
-    var url = PROXY_URL+'/api/history-date?symbol='+encodeURIComponent(symbol)+'&date='+encodeURIComponent(data);
-
-    fetch(url)
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        if(d && d.close && d.close > 0){
-          var preco = d.close;
-          var dataExib = (d.date||data).split('-').reverse().join('/');
-          var precoFmt = isBRticker ? 'R$ '+preco.toFixed(2) : '$ '+preco.toFixed(2);
-          // Só preenche se o campo estiver vazio (não sobrescreve o que o usuário digitou)
-          var input = document.getElementById('aporte_preco');
-          var campoVazio = !input || !input.value || parseFloat(input.value) === 0;
-          if(input && campoVazio){
-            input.value = preco.toFixed(2);
-            hint.innerHTML = '<span style="color:var(--text3)">✓ Fechamento '+dataExib+' · '+precoFmt+' · Yahoo Finance</span>';
-          } else {
-            // Campo já tem valor — mostra sugestão discreta
-            hint.innerHTML = '<span style="color:var(--text3)">Sugestão: <strong style="color:var(--gold)">'+precoFmt+'</strong> ('+dataExib+') · <span id="btnUsarPreco" style="cursor:pointer;text-decoration:underline;color:var(--gold)">Usar</span></span>';
-            var btnUsar = document.getElementById('btnUsarPreco');
-            if(btnUsar){ btnUsar.setAttribute('data-preco', preco.toFixed(2));
-              btnUsar.addEventListener('click', function(){
-                var inp = document.getElementById('aporte_preco');
-                if(inp) inp.value = this.getAttribute('data-preco');
-                hint.innerHTML = '<span style="color:var(--text3)">✓ Preço aplicado</span>';
-              });
-            }
-          }
-        } else {
-          hint.innerHTML = '<span style="color:var(--text3)">Preço não encontrado para esta data</span>';
-        }
-      })
-      .catch(function(){
-        hint.innerHTML = '<span style="color:var(--text3)">Não foi possível buscar o preço</span>';
-      });
-  }, 600);
-}
 
 // ============================================================
 // CRIPTO
