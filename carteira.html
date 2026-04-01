@@ -939,6 +939,53 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
 }
 
 
+
+/* ── FILTROS NOS CABEÇALHOS DA TABELA ── */
+.th-filter-icon {
+  display:inline-block;margin-left:4px;font-size:10px;
+  color:var(--text3);cursor:pointer;transition:color .15s;
+  user-select:none;vertical-align:middle;
+}
+.th-filter-icon:hover { color:var(--gold); }
+.th-filter-icon.active { color:var(--gold); }
+th.col-filtered { color:var(--gold) !important; }
+
+.col-filter-dropdown {
+  position:fixed;z-index:9999;
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.5);
+  min-width:180px;max-width:260px;overflow:hidden;
+  animation:fadeInDown .12s ease;
+}
+.col-filter-search {
+  width:100%;background:var(--bg3);border:none;
+  border-bottom:1px solid var(--border);color:var(--text);
+  padding:9px 12px;font-size:12px;font-family:inherit;outline:none;
+}
+.col-filter-search:focus { border-bottom-color:var(--gold); }
+.col-filter-list {
+  max-height:220px;overflow-y:auto;padding:4px 0;
+}
+.col-filter-item {
+  display:flex;align-items:center;gap:8px;
+  padding:7px 14px;font-size:12px;color:var(--text2);
+  cursor:pointer;transition:background .12s;white-space:nowrap;
+}
+.col-filter-item:hover { background:var(--sur2);color:var(--text); }
+.col-filter-item.selected { color:var(--gold); }
+.col-filter-item input[type=checkbox] { accent-color:var(--gold);width:14px;height:14px;flex-shrink:0; }
+.col-filter-footer {
+  display:flex;gap:6px;padding:8px 10px;
+  border-top:1px solid var(--border);background:var(--bg3);
+}
+.col-filter-footer button {
+  flex:1;padding:5px 0;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;border:none;transition:.15s;
+}
+.col-filter-btn-apply { background:var(--gold);color:#000; }
+.col-filter-btn-apply:hover { background:var(--gold2); }
+.col-filter-btn-clear { background:var(--sur2);color:var(--text2); }
+.col-filter-btn-clear:hover { background:var(--surface);color:var(--text); }
+
 /* ===========================================
    PAINEL RENTABILIDADE PREMIUM
 =========================================== */
@@ -1455,10 +1502,16 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
       <div class="table-wrap">
         <table>
           <thead>
-            <tr>
-              <th>Data</th><th>Ticker</th><th>Tipo</th><th>Operação</th>
-              <th class="r">Qtd</th><th class="r">Preço Unit.</th><th class="r">Total</th>
-              <th>Obs.</th><th></th>
+            <tr id="theadAportes">
+              <th data-col="data" style="cursor:pointer;user-select:none">Data<span class="th-sort-arrow" style="font-size:10px"></span> <span class="th-filter-icon" data-col="data">▾</span></th>
+              <th data-col="ticker" style="cursor:pointer;user-select:none">Ticker<span class="th-sort-arrow" style="font-size:10px"></span> <span class="th-filter-icon" data-col="ticker">▾</span></th>
+              <th data-col="tipo" style="cursor:pointer;user-select:none">Tipo<span class="th-sort-arrow" style="font-size:10px"></span> <span class="th-filter-icon" data-col="tipo">▾</span></th>
+              <th data-col="op" style="cursor:pointer;user-select:none">Operação<span class="th-sort-arrow" style="font-size:10px"></span> <span class="th-filter-icon" data-col="op">▾</span></th>
+              <th class="r" data-col="qtd" style="cursor:pointer;user-select:none">Qtd<span class="th-sort-arrow" style="font-size:10px"></span> <span class="th-filter-icon" data-col="qtd">▾</span></th>
+              <th class="r" data-col="preco" style="cursor:pointer;user-select:none">Preço Unit.<span class="th-sort-arrow" style="font-size:10px"></span> <span class="th-filter-icon" data-col="preco">▾</span></th>
+              <th class="r" data-col="total" style="cursor:pointer;user-select:none">Total<span class="th-sort-arrow" style="font-size:10px"></span> <span class="th-filter-icon" data-col="total">▾</span></th>
+              <th data-col="obs" style="cursor:pointer;user-select:none">Obs.<span class="th-sort-arrow" style="font-size:10px"></span> <span class="th-filter-icon" data-col="obs">▾</span></th>
+              <th></th>
             </tr>
           </thead>
           <tbody id="tbodyAportes"></tbody>
@@ -3881,7 +3934,7 @@ function renderChartRent(posData){
           backgroundColor:'rgba(9,11,15,0.95)',
           borderColor:'rgba(255,255,255,0.08)',
           borderWidth:1, padding:12,
-          callbacks:{ label:function(c){ return '  '+c.dataset.label+':  '+c.raw.toFixed(2)+'%'; }}
+          callbacks:{ label:function(c){ return '  '+c.dataset.label+':  '+(c.raw>=0?'+':'')+c.raw.toFixed(2)+'%'; }}
         }
       },
       scales:{
@@ -4073,18 +4126,19 @@ function renderChartBenchmark(){
     return total;
   });
 
-  // Normaliza para base 100 a partir do primeiro ponto não-zero
+  // Normaliza para base 100 a partir do primeiro ponto não-nulo
   function normalizar(vals){
-    var base = vals.find(function(v){ return v > 0; }) || 1;
-    return vals.map(function(v){ return v > 0 ? (v/base*100) : null; });
+    var base = vals.find(function(v){ return v !== null && v > 0; }) || 1;
+    return vals.map(function(v){ return (v !== null && v > 0) ? +((v/base*100)-100).toFixed(2) : null; });
   }
 
+  // Carteira: % ganho/perda vs primeiro ponto
   var cartNorm = normalizar(carteiraVals);
 
-  // CDI estimado (taxa mensal ~0.9%)
+  // CDI estimado — retorna % acumulado (mesma escala que normalizar())
   var CDI_MENSAL = 0.009; // ~11% ao ano
   var cdiVals = meses.map(function(mes, i){
-    return 100 * Math.pow(1+CDI_MENSAL, i);
+    return +((Math.pow(1+CDI_MENSAL, i) - 1) * 100).toFixed(2);
   });
 
   // IBOV (^BVSP) e S&P500 (^GSPC) via histCache
@@ -4098,7 +4152,7 @@ function renderChartBenchmark(){
 
   if(indicesToFetch.length){
     Promise.all(indicesToFetch.map(function(sym){
-      return fetch(PROXY_URL+'/api/history-monthly?symbol='+encodeURIComponent(sym)+'&from='+meses[0])
+      return fetch(PROXY_URL+'/api/history-monthly?symbol='+encodeURIComponent(sym)+'&from=2015-01')
         .then(function(r){ return r.ok?r.json():{prices:{}}; })
         .then(function(d){ histCache[sym] = d.prices||{}; })
         .catch(function(){ histCache[sym]={}; });
@@ -4142,23 +4196,31 @@ function renderChartBenchmark(){
   // IBOV
   if(_benchAtivos['ibov'] !== false && Object.keys(ibovHist).length > 0){
     var ibovRaw = indexVals(ibovHist, false);
-    datasets.push({
-      label: 'IBOV', data: normalizar(ibovRaw.map(function(v){ return v||0; })),
-      borderColor: '#2ecc71', backgroundColor: 'transparent',
-      borderWidth: 1.5, fill: false, tension: 0.3,
-      pointRadius: 0, pointHoverRadius: 4
-    });
+    var ibovNorm = normalizar(ibovRaw);
+    if(ibovNorm.some(function(v){ return v !== null; })){
+      datasets.push({
+        label: 'IBOV', data: ibovNorm,
+        borderColor: '#2ecc71', backgroundColor: 'transparent',
+        borderWidth: 1.5, fill: false, tension: 0.3,
+        pointRadius: 0, pointHoverRadius: 4,
+        spanGaps: true
+      });
+    }
   }
 
-  // S&P500 (convertido para BRL para comparação justa)
+  // S&P500
   if(_benchAtivos['sp500'] !== false && Object.keys(sp500Hist).length > 0){
-    var sp500Raw = indexVals(sp500Hist, true); // converte USD→BRL
-    datasets.push({
-      label: 'S&P500 (R$)', data: normalizar(sp500Raw.map(function(v){ return v||0; })),
-      borderColor: '#3498db', backgroundColor: 'transparent',
-      borderWidth: 1.5, fill: false, tension: 0.3,
-      pointRadius: 0, pointHoverRadius: 4
-    });
+    var sp500Raw = indexVals(sp500Hist, false); // em USD — base 100 relativa
+    var sp500Norm = normalizar(sp500Raw);
+    if(sp500Norm.some(function(v){ return v !== null; })){
+      datasets.push({
+        label: 'S&P500', data: sp500Norm,
+        borderColor: '#3498db', backgroundColor: 'transparent',
+        borderWidth: 1.5, fill: false, tension: 0.3,
+        pointRadius: 0, pointHoverRadius: 4,
+        spanGaps: true
+      });
+    }
   }
 
   var semDados = [];
@@ -4840,6 +4902,194 @@ function salvarAporte(){
 
 function excluirAporte(id){if(!confirm('Excluir este aporte?'))return;var aportes=loadData('aportes',[]).filter(function(a){return a.id!==id;});saveData('aportes',aportes);renderPosicoes();renderAportes();}
 
+
+// ── FILTROS DE COLUNA NA TABELA DE TRANSAÇÕES ──────────────
+var _colFilters = {};  // { data: Set, ticker: Set, ... }
+var _colSort = { col: 'data', dir: 'desc' };  // ordenação atual da tabela
+var _colFilterDropdown = null;
+var _colFilterActiveCol = null;
+
+function _closeColFilter() {
+  if (_colFilterDropdown) {
+    _colFilterDropdown.remove();
+    _colFilterDropdown = null;
+    _colFilterActiveCol = null;
+  }
+}
+
+document.addEventListener('click', function(e) {
+  if (_colFilterDropdown && !_colFilterDropdown.contains(e.target) && !e.target.classList.contains('th-filter-icon')) {
+    _closeColFilter();
+  }
+});
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') _closeColFilter();
+});
+
+function _openColFilter(col, anchorEl) {
+  _closeColFilter();
+  _colFilterActiveCol = col;
+
+  var aportes = loadData('aportes', []);
+
+  // Coleta valores únicos para esta coluna
+  var valores = [];
+  aportes.forEach(function(a) {
+    var v = '';
+    if (col === 'data')   v = a.data ? a.data.substring(0, 7) : '';  // YYYY-MM
+    if (col === 'ticker') v = a.ticker || '';
+    if (col === 'tipo')   v = a.tipo || '';
+    if (col === 'op')     v = a.op === 'C' ? 'Compra' : 'Venda';
+    if (col === 'qtd')    v = a.qtd != null ? String(a.qtd) : '';
+    if (col === 'preco')  v = a.preco != null ? (a.moeda === 'USD' ? '$ ' : 'R$ ') + parseFloat(a.preco).toFixed(2) : '';
+    if (col === 'total')  v = a.qtd != null && a.preco != null ? (a.moeda === 'USD' ? '$ ' : 'R$ ') + (a.qtd * a.preco).toFixed(2) : '';
+    if (col === 'obs')    v = a.obs || '(sem obs.)';
+    if (v && !valores.includes(v)) valores.push(v);
+  });
+  valores.sort();
+
+  var selected = _colFilters[col] || new Set();
+
+  // Constrói dropdown
+  var dd = document.createElement('div');
+  dd.className = 'col-filter-dropdown';
+  dd.innerHTML =
+    '<input class="col-filter-search" placeholder="🔍 Buscar..." id="colFilterSearch">' +
+    '<div class="col-filter-list" id="colFilterList"></div>' +
+    '<div class="col-filter-footer">' +
+      '<button class="col-filter-btn-clear" id="colFilterClear">Limpar</button>' +
+      '<button class="col-filter-btn-apply" id="colFilterApply">Aplicar</button>' +
+    '</div>';
+
+  function renderList(query) {
+    var list = document.getElementById('colFilterList');
+    if (!list) return;
+    var filtered = query ? valores.filter(function(v){ return v.toLowerCase().includes(query.toLowerCase()); }) : valores;
+
+    // "Todos" option
+    var allChecked = selected.size === 0;
+    list.innerHTML = '<div class="col-filter-item" data-val="__ALL__">' +
+      '<input type="checkbox" ' + (allChecked ? 'checked' : '') + '> Todos' +
+    '</div>' +
+    filtered.map(function(v) {
+      return '<div class="col-filter-item' + (selected.has(v) ? ' selected' : '') + '" data-val="' + v.replace(/"/g, '&quot;') + '">' +
+        '<input type="checkbox" ' + (selected.has(v) ? 'checked' : '') + '> ' + v +
+      '</div>';
+    }).join('');
+
+    list.querySelectorAll('.col-filter-item').forEach(function(item) {
+      item.addEventListener('click', function() {
+        var val = this.dataset.val;
+        var cb  = this.querySelector('input[type=checkbox]');
+        if (val === '__ALL__') {
+          selected.clear();
+        } else {
+          if (selected.has(val)) { selected.delete(val); cb.checked = false; }
+          else { selected.add(val); cb.checked = true; }
+        }
+        renderList(document.getElementById('colFilterSearch') ? document.getElementById('colFilterSearch').value : '');
+      });
+    });
+  }
+
+  renderList('');
+
+  dd.querySelector('#colFilterSearch').addEventListener('input', function() { renderList(this.value); });
+
+  dd.querySelector('#colFilterApply').addEventListener('click', function() {
+    _colFilters[col] = selected.size > 0 ? selected : null;
+    _closeColFilter();
+    _updateColFilterIcons();
+    renderAportes();
+  });
+
+  dd.querySelector('#colFilterClear').addEventListener('click', function() {
+    selected.clear();
+    _colFilters[col] = null;
+    _closeColFilter();
+    _updateColFilterIcons();
+    renderAportes();
+  });
+
+  // Posiciona dropdown sob o ícone
+  document.body.appendChild(dd);
+  var rect = anchorEl.getBoundingClientRect();
+  var ddW = 220;
+  var left = Math.min(rect.left, window.innerWidth - ddW - 8);
+  dd.style.left = left + 'px';
+  dd.style.top  = (rect.bottom + 4) + 'px';
+  dd.style.width = ddW + 'px';
+  _colFilterDropdown = dd;
+
+  // Focus busca
+  setTimeout(function(){ var s = dd.querySelector('#colFilterSearch'); if(s) s.focus(); }, 50);
+}
+
+function _updateColFilterIcons() {
+  document.querySelectorAll('.th-filter-icon').forEach(function(icon) {
+    var col = icon.dataset.col;
+    var hasFilter = _colFilters[col] && _colFilters[col].size > 0;
+    icon.classList.toggle('active', !!hasFilter);
+    var th = icon.closest('th');
+    if (th) th.classList.toggle('col-filtered', !!hasFilter);
+    icon.textContent = hasFilter ? '\u25b4' : '\u25be';
+  });
+}
+
+// Event delegation nos ícones de filtro do thead
+// Sort por coluna — clique no TH (não no ícone ▾)
+document.addEventListener('click', function(e) {
+  if (e.target.closest('.th-filter-icon')) return; // ícone de filtro — não sorteia
+  var th = e.target.closest('#theadAportes th[data-col]');
+  if (!th) return;
+  var col = th.dataset.col;
+  if (_colSort.col === col) {
+    _colSort.dir = _colSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    _colSort.col = col;
+    _colSort.dir = col === 'data' ? 'desc' : 'asc';
+  }
+  _updateSortIcons();
+  renderAportes();
+});
+
+function _updateSortIcons() {
+  document.querySelectorAll('#theadAportes th[data-col]').forEach(function(th) {
+    var col = th.dataset.col;
+    var arrow = th.querySelector('.th-sort-arrow');
+    if (!arrow) return;
+    if (_colSort.col === col) {
+      arrow.textContent = _colSort.dir === 'asc' ? ' ↑' : ' ↓';
+      arrow.style.color = 'var(--gold)';
+      th.style.color = 'var(--gold)';
+    } else {
+      arrow.textContent = '';
+      th.style.color = '';
+    }
+  });
+}
+
+document.addEventListener('click', function(e) {
+  var icon = e.target.closest('.th-filter-icon');
+  if (!icon) return;
+  e.stopPropagation();
+  var col = icon.dataset.col;
+  if (_colFilterActiveCol === col) { _closeColFilter(); return; }
+  _openColFilter(col, icon);
+});
+
+// Limpar todos os filtros de coluna quando clicar em "Limpar" na barra
+var _origLimparFiltros = typeof limparFiltrosAportes === 'function' ? limparFiltrosAportes : null;
+function limparFiltrosAportes() {
+  ['filtroAporteTipo','filtroAportePeriodo','filtroAporteOp','filtroAporteTicker','searchAporte'].forEach(function(id){
+    var el = document.getElementById(id); if(el) el.value = '';
+  });
+  _colFilters = {};
+  _updateColFilterIcons();
+  renderAportes();
+}
+
 function renderAportes(){
   var busca    = (document.getElementById('searchAporte')||{value:''}).value.trim().toUpperCase();
   var filtTipo = (document.getElementById('filtroAporteTipo')||{value:''}).value;
@@ -4872,6 +5122,24 @@ function renderAportes(){
     return a.ticker.includes(busca) || (a.obs||'').toUpperCase().includes(busca);
   });
 
+  // Filtros de coluna (dropdowns inline)
+  Object.keys(_colFilters).forEach(function(col) {
+    var sel = _colFilters[col];
+    if (!sel || sel.size === 0) return;
+    aportes = aportes.filter(function(a) {
+      var v = '';
+      if (col === 'data')   v = a.data ? a.data.substring(0, 7) : '';
+      if (col === 'ticker') v = a.ticker || '';
+      if (col === 'tipo')   v = a.tipo || '';
+      if (col === 'op')     v = a.op === 'C' ? 'Compra' : 'Venda';
+      if (col === 'qtd')    v = a.qtd != null ? String(a.qtd) : '';
+      if (col === 'preco')  v = a.preco != null ? (a.moeda === 'USD' ? '$ ' : 'R$ ') + parseFloat(a.preco).toFixed(2) : '';
+      if (col === 'total')  v = a.qtd != null && a.preco != null ? (a.moeda === 'USD' ? '$ ' : 'R$ ') + (a.qtd * a.preco).toFixed(2) : '';
+      if (col === 'obs')    v = a.obs || '(sem obs.)';
+      return sel.has(v);
+    });
+  });
+
   // Resumo
   var resumoEl = document.getElementById('resumoFiltroAportes');
   if(resumoEl){
@@ -4887,6 +5155,25 @@ function renderAportes(){
     tbody.innerHTML='<tr><td colspan="9" style="text-align:center;padding:48px;color:var(--text3)">Nenhuma transação encontrada com os filtros selecionados.</td></tr>';
     return;
   }
+
+  // Ordenação por coluna
+  aportes.sort(function(a, b) {
+    var va, vb;
+    var col = _colSort.col, dir = _colSort.dir;
+    if (col === 'data')   { va = a.data || ''; vb = b.data || ''; }
+    else if (col === 'ticker') { va = a.ticker || ''; vb = b.ticker || ''; }
+    else if (col === 'tipo')   { va = a.tipo || ''; vb = b.tipo || ''; }
+    else if (col === 'op')     { va = a.op || ''; vb = b.op || ''; }
+    else if (col === 'qtd')    { va = a.qtd || 0; vb = b.qtd || 0; }
+    else if (col === 'preco')  { va = a.preco || 0; vb = b.preco || 0; }
+    else if (col === 'total')  { va = (a.qtd||0)*(a.preco||0); vb = (b.qtd||0)*(b.preco||0); }
+    else if (col === 'obs')    { va = a.obs || ''; vb = b.obs || ''; }
+    else { va = a.data || ''; vb = b.data || ''; }
+    if (typeof va === 'string') {
+      return dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+    }
+    return dir === 'asc' ? va - vb : vb - va;
+  });
 
   // Mantém eventos de split e bonificação intercalados
   var splitEvents = [];
