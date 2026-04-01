@@ -1672,22 +1672,23 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Quantidade</label>
-        <input class="form-control" type="number" id="aporte_qtd" placeholder="0" min="0.001" step="any">
+        <input class="form-control" type="number" id="aporte_qtd" placeholder="0" min="0.001" step="any" oninput="atualizarTotalAporte()">
       </div>
       <div class="form-group">
         <label class="form-label">Preço Unit. <span id="aporte_preco_moeda_label" style="color:var(--gold)">(R$)</span></label>
         <div style="display:flex;gap:6px;align-items:center">
-          <input class="form-control" type="number" id="aporte_preco" placeholder="0,00" min="0.0000001" step="any" style="flex:1">
-          <select class="form-control" id="aporte_preco_moeda" style="width:80px;display:none" onchange="atualizarLabelMoeda()">
+          <input class="form-control" type="number" id="aporte_preco" placeholder="0,00" min="0.0000001" step="any" style="flex:1" oninput="atualizarTotalAporte()">
+          <select class="form-control" id="aporte_preco_moeda" style="width:80px;display:none" onchange="atualizarLabelMoeda();atualizarTotalAporte()">
             <option value="BRL">R$</option>
             <option value="USD">US$</option>
           </select>
         </div>
       </div>
     </div>
-    <div class="form-group">
-      <label class="form-label">Observação (opcional)</label>
-      <input class="form-control" id="aporte_obs" placeholder="Ex: Aporte mensal">
+    <!-- Total do aporte em tempo real -->
+    <div style="background:rgba(232,184,75,.08);border:1px solid rgba(232,184,75,.2);border-radius:10px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text3)">Total do Aporte</span>
+      <span id="aporteTotal" style="font-size:18px;font-weight:800;color:var(--gold)">--</span>
     </div>
     <div class="modal-footer">
       <button class="btn-sm btn-outline" onclick="fecharModal('modalAporte')">Cancelar</button>
@@ -2333,6 +2334,21 @@ function onTipoChange(tipo){
     moedaSel.style.display = 'none';
     moedaSel.value = 'BRL';
     if(moedaLabel){ moedaLabel.textContent = '(R$)'; moedaLabel.style.color = 'var(--gold)'; }
+  }
+}
+
+function atualizarTotalAporte(){
+  var qtd   = parseFloat((document.getElementById('aporte_qtd')||{value:''}).value.replace(',','.')) || 0;
+  var preco = parseFloat((document.getElementById('aporte_preco')||{value:''}).value.replace(',','.')) || 0;
+  var moeda = (document.getElementById('aporte_preco_moeda')||{value:'BRL'}).value;
+  var el = document.getElementById('aporteTotal');
+  if(!el) return;
+  if(!qtd || !preco){ el.textContent = '--'; return; }
+  var total = qtd * preco;
+  if(moeda === 'USD'){
+    el.textContent = '$ '+total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  } else {
+    el.textContent = 'R$ '+total.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
   }
 }
 
@@ -4321,7 +4337,8 @@ function abrirModalAporte(ticker){
   document.getElementById('aporte_data').value=today;
   document.getElementById('aporte_qtd').value='';
   document.getElementById('aporte_preco').value='';
-  document.getElementById('aporte_obs').value='';
+  document.getElementById('aporte_obs') && (document.getElementById('aporte_obs').value='');
+  var totEl = document.getElementById('aporteTotal'); if(totEl) totEl.textContent='--';
   document.getElementById('tickerHint').textContent='';
   document.getElementById('tipoAutoLabel').textContent='';
 
@@ -4349,7 +4366,7 @@ function salvarAporte(){
   var precoRaw = document.getElementById('aporte_preco').value.replace(',','.');
   var qtd=parseFloat(qtdRaw);
   var preco=parseFloat(precoRaw);
-  var obs=document.getElementById('aporte_obs').value.trim();
+  var obsEl=document.getElementById('aporte_obs'); var obs=obsEl?obsEl.value.trim():'';
   var moedaInputEl = document.getElementById('aporte_preco_moeda');
   var moedaInput   = moedaInputEl ? moedaInputEl.value : 'BRL';
   var isUSType     = ['Stock','REIT','ETF','Cripto','UCITs'].indexOf(tipo) >= 0;
@@ -4368,6 +4385,10 @@ function salvarAporte(){
   fecharModal('modalAporte');
   renderPosicoes();
   if(document.getElementById('tab-aportes').style.display!=='none')renderAportes();
+  // Se o drawer estiver aberto para este ativo, atualiza a lista de transações
+  if(_drawerTicker && document.getElementById('drawerAtivo').classList.contains('open')){
+    renderDrawerBody();
+  }
 }
 
 function excluirAporte(id){if(!confirm('Excluir este aporte?'))return;var aportes=loadData('aportes',[]).filter(function(a){return a.id!==id;});saveData('aportes',aportes);renderPosicoes();renderAportes();}
@@ -4546,7 +4567,8 @@ function editarAporte(id){
       moedaLabel.style.color = moedaEl.value === 'USD' ? '#64b4ff' : 'var(--gold)';
     }
   }
-  document.getElementById('aporte_obs').value=ap.obs||'';
+  document.getElementById('aporte_obs') && (document.getElementById('aporte_obs').value=ap.obs||'');
+  atualizarTotalAporte();
   document.getElementById('modalAporte').classList.add('show');
 }
 
