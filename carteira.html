@@ -4055,17 +4055,35 @@ function importarProventosBR(ticker){
   var dataCompra = dataPrimeiraCompra(ticker);
   if(!dataCompra) return Promise.resolve(0);
 
-  // 1ª tentativa: Yahoo Finance via proxy (gratuito, sem token)
+  // 1ª tentativa: Yahoo Finance via proxy (histórico + próximo declarado)
   var tickerSA = ticker+'.SA';
   var from = Math.floor(new Date(dataCompra).getTime()/1000);
   var urlDiv = PROXY_URL+'/api/dividends-br?symbol='+encodeURIComponent(tickerSA)+'&from='+from;
 
-  return fetch(urlDiv)
-    .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
-    .then(function(d){
-      var divs = Array.isArray(d) ? d : (d.dividends || []);
-      return salvarProventosBR(ticker, divs, dataCompra, 'Yahoo');
-    })
+  // Busca também o próximo dividendo declarado via quote
+  var urlQuote = PROXY_URL+'/api/quote?symbol='+encodeURIComponent(tickerSA);
+
+  return Promise.all([
+    fetch(urlDiv).then(function(r){ return r.ok ? r.json() : []; }).catch(function(){ return []; }),
+    fetch(urlQuote).then(function(r){ return r.ok ? r.json() : {}; }).catch(function(){ return {}; })
+  ]).then(function(results){
+    var divs = Array.isArray(results[0]) ? results[0] : (results[0].dividends || []);
+    var quote = results[1] || {};
+
+    // Se o Yahoo retornou próximo dividendo no quote, adiciona como futuro
+    if(quote.dividendDate && quote.trailingAnnualDividendRate > 0){
+      var nextDate = new Date(quote.dividendDate * 1000).toISOString().split('T')[0];
+      var hoje = new Date().toISOString().split('T')[0];
+      if(nextDate >= hoje){
+        // Estima valor por cota como último dividendo / 4 (trimestral) ou / 12 (mensal)
+        var freq = quote.dividendRate ? Math.round(quote.trailingAnnualDividendRate / quote.dividendRate) : 4;
+        var valor = quote.trailingAnnualDividendRate / Math.max(freq, 1);
+        divs.push({ payment_date: nextDate, ex_date: nextDate, value: valor, type: 'Dividendo' });
+      }
+    }
+
+    return salvarProventosBR(ticker, divs, dataCompra, 'Yahoo');
+  })
     .catch(function(){
       // 2ª tentativa: DadosMercado (gratuito quando disponível)
       return fetch('https://api.dadosdemercado.com.br/v1/companies/'+ticker+'/dividends')
@@ -4139,48 +4157,70 @@ function importarProventosUS(ticker){
   if(!dataCompra) return Promise.resolve(0);
 
   var apiSymbol = ticker === 'BRK.B' ? 'BRK-B' : (isBR(ticker,'') ? ticker+'.SA' : ticker);
-  var url = PROXY_URL+'/api/dividends?symbol='+encodeURIComponent(apiSymbol)+'&from='+dataCompra;
+  var urlDiv   = PROXY_URL+'/api/dividends?symbol='+encodeURIComponent(apiSymbol)+'&from='+dataCompra;
+  var urlQuote = PROXY_URL+'/api/quote?symbol='+encodeURIComponent(apiSymbol);
 
-  return fetch(url)
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      if(!d.dividends || !d.dividends.length) return 0;
+  return Promise.all([
+    fetch(urlDiv).then(function(r){ return r.json(); }).catch(function(){ return {}; }),
+    fetch(urlQuote).then(function(r){ return r.json(); }).catch(function(){ return {}; })
+  ]).then(function(results){
+    var d     = results[0] || {};
+    var quote = results[1] || {};
+    var stored = loadData('dividendos',[]);
+    var hoje   = new Date().toISOString().split('T')[0];
+    var novos  = 0;
 
-      var stored = loadData('dividendos',[]);
-      var hoje   = new Date().toISOString().split('T')[0];
-      var novos  = 0;
-
-      d.dividends.forEach(function(dv){
-        var dataPag = dv.date || '';
-        if(!dataPag) return;
-        // Inclui futuros — aparecem como "A Receber" na aba Proventos
-
-        var existe = stored.find(function(x){
-          return x.ticker===ticker && x.data===dataPag && Math.abs(x.valor-dv.amount)<0.001;
-        });
-        if(existe) return;
-
-        var qtd = qtdNaData(ticker, dataPag);
-        if(qtd <= 0) return;
-
-        stored.push({
-          id:     Date.now().toString()+Math.random(),
-          ticker: ticker,
-          tipo:   'Dividendo',
-          data:   dataPag,
-          datex:  dataPag,
-          valor:  parseFloat(dv.amount||0),
-          qtdEx:  qtd,
-          fonte:  'Auto-Proxy',
-          moeda:  'USD'
-        });
-        novos++;
+    // Histórico de dividendos
+    var divList = d.dividends || [];
+    divList.forEach(function(dv){
+      var dataPag = dv.date || '';
+      if(!dataPag) return;
+      var existe = stored.find(function(x){
+        return x.ticker===ticker && x.data===dataPag && Math.abs(x.valor-dv.amount)<0.001;
       });
+      if(existe) return;
+      var qtd = qtdNaData(ticker, dataPag);
+      if(qtd <= 0) return;
+      stored.push({
+        id: Date.now().toString()+Math.random(),
+        ticker: ticker, tipo: 'Dividendo',
+        data: dataPag, datex: dataPag,
+        valor: parseFloat(dv.amount||0),
+        qtdEx: qtd, fonte: 'Auto-Proxy', moeda: 'USD'
+      });
+      novos++;
+    });
 
-      if(novos > 0) saveData('dividendos', stored);
-      return novos;
-    })
-    .catch(function(){ return 0; });
+    // Próximo dividendo declarado via quote
+    if(quote.dividendDate){
+      var nextDate = new Date(quote.dividendDate * 1000).toISOString().split('T')[0];
+      if(nextDate >= hoje){
+        var valor = parseFloat(quote.dividendRate || 0) / 4; // assume trimestral
+        if(valor > 0){
+          var jaExiste = stored.find(function(x){
+            return x.ticker===ticker && x.data===nextDate;
+          });
+          if(!jaExiste){
+            var qtd = qtdNaData(ticker, nextDate);
+            if(qtd > 0){
+              stored.push({
+                id: Date.now().toString()+Math.random(),
+                ticker: ticker, tipo: 'Dividendo',
+                data: nextDate, datex: nextDate,
+                valor: valor, qtdEx: qtd,
+                fonte: 'Auto-Yahoo-Next', moeda: 'USD'
+              });
+              novos++;
+            }
+          }
+        }
+      }
+    }
+
+    if(novos > 0) saveData('dividendos', stored);
+    return novos;
+  })
+  .catch(function(){ return 0; });
 }
 
 function importarTodosProventos(callback){
