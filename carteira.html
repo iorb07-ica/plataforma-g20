@@ -4448,17 +4448,16 @@ function renderPainelRentabilidade() {
 
   var hoje = new Date();
   var mn = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  var histCache = window._histMensalCache || {};
 
   // --- Define período ---
   var dataInicio = aportes[0].data.substring(0,7);
   var cur = new Date(dataInicio + '-01');
   if (_rentPeriodo !== 'tudo') {
-    var anos = _rentPeriodo==='6m' ? 0.5 : _rentPeriodo==='1a' ? 1 : _rentPeriodo==='3a' ? 3 : 5;
-    var mesesAtras = Math.round(anos * 12);
+    var mesesAtras = _rentPeriodo==='6m'?6 : _rentPeriodo==='1a'?12 : _rentPeriodo==='3a'?36 : 60;
     var ini = new Date(hoje.getFullYear(), hoje.getMonth() - mesesAtras, 1);
     if (cur < ini) cur = ini;
   }
-
   var limite = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 1);
   var meses = [];
   var tmp = new Date(cur);
@@ -4468,99 +4467,114 @@ function renderPainelRentabilidade() {
   }
   if (meses.length < 2) return;
 
-  // --- Calcula séries mensais ---
-  var serieAportAcum = [];  // investido acumulado
-  var serieValAtual  = [];  // valor de mercado (cotação)
-  var serieRentPct   = [];  // % acumulado s/ investido
-  var serieIbov      = [];  // placeholder — Base 100
+  // --- Séries mensais ---
+  var serieAportAcum = [];
+  var serieValAtual  = [];
+  var serieRentPct   = [];
   var labels         = [];
 
-  var histCache = window._histMensalCache || {};
-
   meses.forEach(function(mes) {
+    // Reconstrói posição até este mês — ESCOPO LOCAL por mês
     var pos = {};
-    var totalInv = 0;
     aportes.forEach(function(a) {
       if (a.data.substring(0,7) > mes) return;
-      if (!pos[a.ticker]) pos[a.ticker] = {ticker:a.ticker, tipo:a.tipo, qtd:0, totalInv:0};
+      if (!pos[a.ticker]) pos[a.ticker] = {ticker:a.ticker, tipo:a.tipo, qtd:0, totalInvBRL:0};
       var p = pos[a.ticker];
       var pr = a.moeda === 'USD' ? a.preco * (a.fxRate || usdBRL || 5.85) : a.preco;
-      if (a.op === 'C') { p.qtd += a.qtd; p.totalInv += a.qtd * pr; }
-      else { var pm = p.qtd > 0 ? p.totalInv/p.qtd : 0; p.totalInv -= a.qtd * pm; p.qtd -= a.qtd; }
+      if (a.op === 'C') {
+        p.qtd += a.qtd;
+        p.totalInvBRL += a.qtd * pr;
+      } else {
+        var pm = p.qtd > 0 ? p.totalInvBRL / p.qtd : 0;
+        p.totalInvBRL -= a.qtd * pm;
+        p.qtd -= a.qtd;
+        if (p.qtd < 0) p.qtd = 0;
+        if (p.totalInvBRL < 0) p.totalInvBRL = 0;
+      }
     });
 
-    var totalValor = 0;
+    // Calcula custo total e valor de mercado do mês
+    var totalInvMes  = 0;
+    var totalValMes  = 0;
+    var isMesAtual   = mes === meses[meses.length - 1];
+
     Object.values(pos).forEach(function(p) {
-      if (p.qtd <= 0.001) return;
-      totalInv += p.totalInv;
+      if (p.qtd < 0.001) return;
+      totalInvMes += p.totalInvBRL;
+
       var isBRticker = isBR(p.ticker, p.tipo);
-      var isMesAtual = mes === meses[meses.length - 1];
-      var val = p.totalInv;
+      var val = p.totalInvBRL; // fallback = custo
+
       if (isMesAtual) {
+        // Mês atual: usa cotação ao vivo
         var cot = cotacoes[p.ticker];
-        if (cot) val = p.qtd * (isBRticker ? cot.preco : cot.preco * usdBRL);
+        if (cot && cot.preco > 0) {
+          val = p.qtd * (isBRticker ? cot.preco : cot.preco * usdBRL);
+        }
       } else {
-        var symbol = p.tipo==='UCITs' && !p.ticker.includes('.') ? p.ticker+'.L'
-                   : isBRticker ? p.ticker+'.SA' : p.ticker;
+        // Meses passados: busca histórico do proxy
+        var symbol = p.tipo === 'UCITs' && !p.ticker.includes('.') ? p.ticker + '.L'
+                   : isBRticker ? p.ticker + '.SA' : p.ticker;
         var hist = histCache[symbol] || {};
         var preco = hist[mes];
         if (!preco) {
-          for (var back=1; back<=3; back++) {
-            var d2 = new Date(mes+'-01'); d2.setMonth(d2.getMonth()-back);
-            var mk = d2.getFullYear()+'-'+(d2.getMonth()<9?'0':'')+(d2.getMonth()+1);
+          for (var back = 1; back <= 3; back++) {
+            var d2 = new Date(mes + '-01');
+            d2.setMonth(d2.getMonth() - back);
+            var mk = d2.getFullYear() + '-' + (d2.getMonth() < 9 ? '0' : '') + (d2.getMonth() + 1);
             if (hist[mk]) { preco = hist[mk]; break; }
           }
         }
-        if (preco && preco > 0) val = p.qtd * preco * (isBRticker ? 1 : usdBRL);
+        if (preco && preco > 0) {
+          val = p.qtd * preco * (isBRticker ? 1 : usdBRL);
+        }
       }
-      totalValor += val;
+      totalValMes += val;
     });
 
-    var rentPct = totalInv > 0 ? ((totalValor - totalInv) / totalInv * 100) : 0;
+    var rentPct = totalInvMes > 0 ? ((totalValMes - totalInvMes) / totalInvMes * 100) : 0;
     var p2 = mes.split('-');
-    labels.push(mn[parseInt(p2[1])-1] + '/' + p2[0].substring(2));
-    serieAportAcum.push(+totalInv.toFixed(2));
-    serieValAtual.push(+totalValor.toFixed(2));
+    labels.push(mn[parseInt(p2[1]) - 1] + '/' + p2[0].substring(2));
+    serieAportAcum.push(+totalInvMes.toFixed(2));
+    serieValAtual.push(+totalValMes.toFixed(2));
     serieRentPct.push(+rentPct.toFixed(2));
   });
 
-  // --- KPI strip ---
-  var totalInvFinal  = serieAportAcum[serieAportAcum.length - 1] || 0;
-  var totalValFinal  = serieValAtual[serieValAtual.length - 1] || 0;
-  var rentAcum       = totalInvFinal > 0 ? ((totalValFinal - totalInvFinal) / totalInvFinal * 100) : 0;
-  var lucroAbs       = totalValFinal - totalInvFinal;
-  var provsTotal     = loadData('dividendos',[]).reduce(function(s,d){ return s + (d.valor||0)*(d.qtdEx||0); }, 0);
-  var totalRetAbs    = lucroAbs + provsTotal;
-  var totalRetPct    = totalInvFinal > 0 ? (totalRetAbs / totalInvFinal * 100) : 0;
+  // --- KPI strip (usa último ponto da série) ---
+  var totalInvFinal = serieAportAcum[serieAportAcum.length - 1] || 0;
+  var totalValFinal = serieValAtual[serieValAtual.length - 1] || 0;
+  var lucroAbs      = totalValFinal - totalInvFinal;
+  var rentAcum      = totalInvFinal > 0 ? (lucroAbs / totalInvFinal * 100) : 0;
+  var provsTotal    = loadData('dividendos', []).reduce(function(s, d){ return s + (d.valor||0) * (d.qtdEx||0); }, 0);
+  var totalRetPct   = totalInvFinal > 0 ? ((lucroAbs + provsTotal) / totalInvFinal * 100) : 0;
 
   var kpiStrip = document.getElementById('rentKpiStrip');
   if (!kpiStrip) return;
   var kpis = [
-    { label:'Total Investido', val: fmtBRL2(totalInvFinal), sub:'aporte acumulado', color:'#3498db', cls:'', subB: '' },
-    { label:'Valor Atual', val: fmtBRL2(totalValFinal), sub: (lucroAbs >= 0 ? '+' : '') + fmtBRL2(lucroAbs) + ' vs custo', color: totalValFinal >= totalInvFinal ? 'var(--green)' : 'var(--red)', cls: lucroAbs >= 0 ? 'up' : 'dn', subB: '' },
-    { label:'Rent. de Preço', val: (rentAcum >= 0 ? '+' : '') + rentAcum.toFixed(2) + '%', sub: lucroAbs >= 0 ? 'acima do custo' : 'abaixo do custo', color: rentAcum >= 0 ? 'var(--green)' : 'var(--red)', cls: rentAcum >= 0 ? 'up' : 'dn', subB: '' },
-    { label:'Total Return', val: (totalRetPct >= 0 ? '+' : '') + totalRetPct.toFixed(2) + '%', sub: '+ R$' + (provsTotal/1000).toFixed(1) + 'k em proventos', color:'var(--gold)', cls:'gold', subB: '' }
+    { label:'Total Investido',  val: fmtBRL2(totalInvFinal), sub:'aporte acumulado', color:'#3498db', cls:'' },
+    { label:'Valor Atual',      val: fmtBRL2(totalValFinal), sub:(lucroAbs>=0?'+':'')+fmtBRL2(lucroAbs)+' vs custo', color: lucroAbs>=0?'var(--green)':'var(--red)', cls: lucroAbs>=0?'up':'dn' },
+    { label:'Rent. de Preço',   val:(rentAcum>=0?'+':'')+rentAcum.toFixed(2)+'%', sub: lucroAbs>=0?'acima do custo':'abaixo do custo', color:rentAcum>=0?'var(--green)':'var(--red)', cls:rentAcum>=0?'up':'dn' },
+    { label:'Total Return',     val:(totalRetPct>=0?'+':'')+totalRetPct.toFixed(2)+'%', sub:'+ R$'+(provsTotal/1000).toFixed(1)+'k proventos', color:'var(--gold)', cls:'gold' }
   ];
-  kpiStrip.innerHTML = kpis.map(function(k) {
-    return '<div class="rent-kpi-cell" style="--rk-color:' + k.color + '">' +
-      '<div class="rent-kpi-label">' + k.label + '</div>' +
-      '<div class="rent-kpi-val" style="color:' + k.color + '">' + k.val + '</div>' +
-      '<div class="rent-kpi-sub ' + k.cls + '"><b>' + k.sub + '</b></div>' +
-      '</div>';
+  kpiStrip.innerHTML = kpis.map(function(k){
+    return '<div class="rent-kpi-cell" style="--rk-color:'+k.color+'">' +
+      '<div class="rent-kpi-label">'+k.label+'</div>' +
+      '<div class="rent-kpi-val" style="color:'+k.color+'">'+k.val+'</div>' +
+      '<div class="rent-kpi-sub '+k.cls+'"><b>'+k.sub+'</b></div>' +
+    '</div>';
   }).join('');
 
-  // --- Gráfico principal: timeline ---
+  // --- Gráfico de linha temporal ---
   destroyChart('chartRentTimeline');
-  var ctx = document.getElementById('chartRentTimeline');
-  if (!ctx) return;
+  var ctxEl = document.getElementById('chartRentTimeline');
+  if (!ctxEl) return;
   var gc = gGridColor();
+  var ctxC = ctxEl.getContext('2d');
 
-  // Gradientes
-  var ctxC = ctx.getContext('2d');
-  var gradVal = ctxC.createLinearGradient(0,0,0,320);
+  var gradVal = ctxC.createLinearGradient(0, 0, 0, 320);
   gradVal.addColorStop(0, 'rgba(232,184,75,0.35)');
   gradVal.addColorStop(1, 'rgba(232,184,75,0.02)');
-  var gradInv = ctxC.createLinearGradient(0,0,0,320);
+  var gradInv = ctxC.createLinearGradient(0, 0, 0, 320);
   gradInv.addColorStop(0, 'rgba(52,152,219,0.25)');
   gradInv.addColorStop(1, 'rgba(52,152,219,0.02)');
 
@@ -4570,8 +4584,7 @@ function renderPainelRentabilidade() {
       labels: labels,
       datasets: [
         {
-          label: 'Valor Atual',
-          data: serieValAtual,
+          label: 'Valor Atual', data: serieValAtual,
           borderColor: '#e8b84b', backgroundColor: gradVal,
           borderWidth: 2.5, fill: true, tension: 0.35,
           pointRadius: 0, pointHoverRadius: 6,
@@ -4579,18 +4592,16 @@ function renderPainelRentabilidade() {
           yAxisID: 'yBRL', order: 1
         },
         {
-          label: 'Aporte Acumulado',
-          data: serieAportAcum,
+          label: 'Aporte Acumulado', data: serieAportAcum,
           borderColor: '#3498db', backgroundColor: gradInv,
-          borderWidth: 2, borderDash: [5,4], fill: true, tension: 0.3,
+          borderWidth: 2, borderDash: [5, 4], fill: true, tension: 0.3,
           pointRadius: 0, pointHoverRadius: 5,
           pointHoverBackgroundColor: '#3498db', pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2,
           yAxisID: 'yBRL', order: 2
         },
         {
-          label: 'Rentabilidade %',
-          data: serieRentPct,
-          borderColor: serieRentPct[serieRentPct.length-1] >= 0 ? '#2ecc71' : '#e63946',
+          label: 'Rentabilidade %', data: serieRentPct,
+          borderColor: rentAcum >= 0 ? '#2ecc71' : '#e63946',
           backgroundColor: 'transparent',
           borderWidth: 2, fill: false, tension: 0.35,
           pointRadius: 0, pointHoverRadius: 5,
@@ -4619,7 +4630,7 @@ function renderPainelRentabilidade() {
               var val = items.find(function(i){ return i.dataset.label === 'Valor Atual'; });
               if (inv && val && inv.raw > 0) {
                 var diff = val.raw - inv.raw;
-                return ['  ─────────────────', '  Ganho/Perda: ' + (diff>=0?'+':'') + fmtBRL2(diff)];
+                return ['  ─────────────────', '  Ganho/Perda: ' + (diff >= 0 ? '+' : '') + fmtBRL2(diff)];
               }
               return [];
             }
@@ -4628,8 +4639,7 @@ function renderPainelRentabilidade() {
       },
       scales: {
         x: {
-          grid: { color: gc, drawBorder: false },
-          border: { display: false },
+          grid: { color: gc, drawBorder: false }, border: { display: false },
           ticks: { color: gTextColor(), maxTicksLimit: 14, font: { size: 10 } }
         },
         yBRL: {
@@ -4647,23 +4657,20 @@ function renderPainelRentabilidade() {
         yPct: {
           type: 'linear', position: 'right',
           grid: { display: false }, border: { display: false },
-          ticks: {
-            color: gTextColor(), font: { size: 10 },
-            callback: function(v) { return v.toFixed(0) + '%'; }
-          }
+          ticks: { color: gTextColor(), font: { size: 10 }, callback: function(v){ return v.toFixed(0) + '%'; } }
         }
       }
     }
   });
 
-  // --- Legenda manual ---
+  // Legenda manual
   var legEl = document.getElementById('rentLegendLines');
   if (legEl) {
     legEl.innerHTML = [
-      { color:'#e8b84b', label:'Valor Atual' },
-      { color:'#3498db', label:'Aporte Acumulado' },
-      { color: serieRentPct[serieRentPct.length-1] >= 0 ? '#2ecc71' : '#e63946', label:'Rentabilidade %' }
-    ].map(function(l) {
+      { color: '#e8b84b', label: 'Valor Atual' },
+      { color: '#3498db', label: 'Aporte Acumulado' },
+      { color: rentAcum >= 0 ? '#2ecc71' : '#e63946', label: 'Rentabilidade %' }
+    ].map(function(l){
       return '<div class="rent-legend-item"><span class="rent-legend-dot" style="background:' + l.color + '"></span>' + l.label + '</div>';
     }).join('');
   }
@@ -4672,21 +4679,22 @@ function renderPainelRentabilidade() {
   var pos2 = calcPosicoes();
   var posData2 = pos2.map(function(p) {
     var cot = cotacoes[p.ticker];
-    var cotBRL = cot ? (isBR(p.ticker,p.tipo) ? cot.preco : cot.preco*usdBRL) : 0;
-    var posVal = cot ? p.qtd*cotBRL : p.totalInv;
+    if (!cot) return null;
+    var cotBRL = isBR(p.ticker, p.tipo) ? cot.preco : cot.preco * usdBRL;
+    var posVal = p.qtd * cotBRL;
     var prov = totalProventosAtivo(p.ticker, p.tipo);
     var rentP = p.totalInv > 0 ? ((posVal - p.totalInv) / p.totalInv * 100) : 0;
     var rentT = p.totalInv > 0 ? ((posVal - p.totalInv + prov) / p.totalInv * 100) : 0;
-    return { ticker: p.ticker, tipo: p.tipo, rentP: rentP, rentT: rentT, posVal: posVal };
-  }).filter(function(d){ return cotacoes[d.ticker]; })
-    .sort(function(a,b){ return b.rentT - a.rentT; })
+    return { ticker: p.ticker, tipo: p.tipo, rentP: rentP, rentT: rentT };
+  }).filter(Boolean)
+    .sort(function(a, b){ return b.rentT - a.rentT; })
     .slice(0, 15);
 
   destroyChart('chartRentAtivos');
-  var ctx2 = document.getElementById('chartRentAtivos');
-  if (!ctx2 || !posData2.length) return;
+  var ctx2El = document.getElementById('chartRentAtivos');
+  if (!ctx2El || !posData2.length) return;
 
-  chartsInstances['chartRentAtivos'] = new Chart(ctx2.getContext('2d'), {
+  chartsInstances['chartRentAtivos'] = new Chart(ctx2El.getContext('2d'), {
     type: 'bar',
     data: {
       labels: posData2.map(function(d){ return d.ticker; }),
@@ -4695,14 +4703,14 @@ function renderPainelRentabilidade() {
           label: 'Rent. Preço',
           data: posData2.map(function(d){ return +d.rentP.toFixed(2); }),
           backgroundColor: posData2.map(function(d){ return d.rentP >= 0 ? 'rgba(52,152,219,0.85)' : 'rgba(230,57,70,0.75)'; }),
-          borderRadius: { topLeft:5, topRight:5, bottomLeft:0, bottomRight:0 },
+          borderRadius: {topLeft:5,topRight:5,bottomLeft:0,bottomRight:0},
           borderSkipped: false, barPercentage: 0.5, categoryPercentage: 0.8
         },
         {
           label: 'Total Return',
           data: posData2.map(function(d){ return +d.rentT.toFixed(2); }),
           backgroundColor: posData2.map(function(d){ return d.rentT >= 0 ? 'rgba(232,184,75,0.9)' : 'rgba(230,57,70,0.55)'; }),
-          borderRadius: { topLeft:5, topRight:5, bottomLeft:0, bottomRight:0 },
+          borderRadius: {topLeft:5,topRight:5,bottomLeft:0,bottomRight:0},
           borderSkipped: false, barPercentage: 0.5, categoryPercentage: 0.8
         }
       ]
@@ -4718,7 +4726,7 @@ function renderPainelRentabilidade() {
         tooltip: {
           backgroundColor: 'rgba(9,11,15,0.95)',
           borderColor: 'rgba(255,255,255,0.08)', borderWidth:1, padding:12,
-          callbacks: { label: function(c){ return '  ' + c.dataset.label + ':  ' + (c.raw>=0?'+':'') + c.raw.toFixed(2) + '%'; } }
+          callbacks: { label: function(c){ return '  '+c.dataset.label+':  '+(c.raw>=0?'+':'')+c.raw.toFixed(2)+'%'; } }
         }
       },
       scales: {
@@ -4726,23 +4734,23 @@ function renderPainelRentabilidade() {
         y: {
           grid:{color:gc, drawBorder:false}, border:{display:false},
           ticks:{ color:gTextColor(), callback:function(v){ return v+'%'; } },
-          afterDataLimits: function(scale){ if(scale.min > 0) scale.min = 0; }
+          afterDataLimits: function(scale){ if (scale.min > 0) scale.min = 0; }
         }
       }
     }
   });
 
   // --- Breakdown por categoria ---
-  var CATS = ['Acao','FII','FIAGRO','Stock','REIT','ETF','UCITs','Cripto'];
   var catData = {};
   pos2.forEach(function(p) {
-    if (!catData[p.tipo]) catData[p.tipo] = {inv:0, val:0};
     var cot = cotacoes[p.ticker];
-    var cotBRL = cot ? (isBR(p.ticker,p.tipo) ? cot.preco : cot.preco*usdBRL) : 0;
+    var cotBRL = cot ? (isBR(p.ticker, p.tipo) ? cot.preco : cot.preco * usdBRL) : 0;
+    if (!catData[p.tipo]) catData[p.tipo] = {inv:0, val:0};
     catData[p.tipo].inv += p.totalInv;
-    catData[p.tipo].val += cot ? p.qtd*cotBRL : p.totalInv;
+    catData[p.tipo].val += cot ? p.qtd * cotBRL : p.totalInv;
   });
 
+  var CATS = ['Acao','FII','FIAGRO','Stock','REIT','ETF','UCITs','Cripto'];
   var breakdown = document.getElementById('rentCatBreakdown');
   if (!breakdown) return;
   breakdown.innerHTML = CATS.filter(function(t){ return catData[t] && catData[t].inv > 0; })
@@ -4751,16 +4759,12 @@ function renderPainelRentabilidade() {
       var pct = d.inv > 0 ? ((d.val - d.inv) / d.inv * 100) : 0;
       var cor = COLORS_TIPO[t] || 'var(--gold)';
       var isPos = pct >= 0;
-      return '<div class="rent-cat-card" style="--rc-color:' + cor + '">' +
-        '<div class="rent-cat-name">' + t + '</div>' +
-        '<div class="rent-cat-val" style="color:' + (isPos?'var(--green)':'var(--red)') + '">' +
-          (isPos?'+':'') + pct.toFixed(2) + '%' +
-        '</div>' +
-        '<div class="rent-cat-sub">' + fmtBRL2(d.inv) + ' investido</div>' +
-        '<div class="rent-cat-sub" style="margin-top:2px;font-weight:700;color:' + (isPos?'var(--green)':'var(--red)') + '">' +
-          fmtBRL2(d.val) + ' hoje' +
-        '</div>' +
-        '</div>';
+      return '<div class="rent-cat-card" style="--rc-color:'+cor+'">' +
+        '<div class="rent-cat-name">'+t+'</div>' +
+        '<div class="rent-cat-val" style="color:'+(isPos?'var(--green)':'var(--red)')+'">'+(isPos?'+':'')+pct.toFixed(2)+'%</div>' +
+        '<div class="rent-cat-sub">'+fmtBRL2(d.inv)+' investido</div>' +
+        '<div class="rent-cat-sub" style="margin-top:2px;font-weight:700;color:'+(isPos?'var(--green)':'var(--red)')+'">'+fmtBRL2(d.val)+' hoje</div>' +
+      '</div>';
     }).join('');
 }
 
