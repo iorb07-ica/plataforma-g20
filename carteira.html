@@ -3811,14 +3811,27 @@ function renderChartEvolucao(){
   }
   if(meses.length < 2) return;
 
-  // Tickers únicos na carteira
+  // Tickers únicos na carteira — todos os tipos mapeados para símbolo Yahoo Finance
   var pos = calcPosicoes();
   var tickersUnicos = pos.map(function(p){
-    if(p.tipo === 'UCITs' && !p.ticker.includes('.')) return p.ticker+'.L';
-    if(isBR(p.ticker, p.tipo)) return p.ticker+'.SA';
-    if(p.tipo === 'Cripto') return null;
-    return p.ticker;
-  }).filter(Boolean);
+    // Cripto: BTC → BTC-USD, ETH → ETH-USD etc.
+    if(p.tipo === 'Cripto'){
+      var cs = p.ticker.toUpperCase();
+      if(cs.includes('-')) return cs; // já tem sufixo (BTC-USD)
+      return cs + '-USD';
+    }
+    // UCITs: adiciona .L se não tiver sufixo de bolsa
+    if(p.tipo === 'UCITs'){
+      if(p.ticker.includes('.')) return p.ticker.toUpperCase();
+      return p.ticker.toUpperCase() + '.L';
+    }
+    // BR: Acao, FII, FIAGRO → .SA
+    if(isBR(p.ticker, p.tipo)) return p.ticker.toUpperCase() + '.SA';
+    // US: Stock, REIT, ETF → direto
+    return p.ticker.toUpperCase();
+  }).filter(function(t){ return t && t.length > 0; });
+  // Remove duplicatas
+  tickersUnicos = tickersUnicos.filter(function(t, i, arr){ return arr.indexOf(t) === i; });
 
   // Cache de histórico mensal em memória (evita rebuscar a cada render)
   if(!window._histMensalCache) window._histMensalCache = {};
@@ -3847,7 +3860,7 @@ function renderChartEvolucao(){
 
 function _renderChartEvolucaoComHistorico(aportes, meses, posAtual, histCache){
   var hoje = new Date();
-  var tipos = ['Acao','FII','FIAGRO','Stock','REIT','ETF','Cripto'];
+  var tipos = ['Acao','FII','FIAGRO','Stock','REIT','ETF','UCITs','Cripto'];
   var datasets = {}; tipos.forEach(function(t){ datasets[t]=[]; });
 
   meses.forEach(function(mes){
@@ -3876,8 +3889,18 @@ function _renderChartEvolucaoComHistorico(aportes, meses, posAtual, histCache){
         if(cot) val = p.qtd * (isBRticker ? cot.preco : cot.preco * usdBRL);
       } else {
         // Meses passados: usa histórico mensal do proxy
-        var symbol = p.tipo==='UCITs' && !p.ticker.includes('.') ? p.ticker+'.L'
-                   : isBRticker ? p.ticker+'.SA' : p.ticker;
+        var symbol = (function(){
+          if(p.tipo === 'Cripto'){
+            var cs = p.ticker.toUpperCase();
+            return cs.includes('-') ? cs : cs + '-USD';
+          }
+          if(p.tipo === 'UCITs'){
+            if(p.ticker.includes('.')) return p.ticker.toUpperCase();
+            return p.ticker.toUpperCase() + '.L';
+          }
+          if(isBRticker) return p.ticker.toUpperCase() + '.SA';
+          return p.ticker.toUpperCase();
+        })();
         var hist = histCache[symbol] || {};
 
         // Procura preço no mês exato, ou no mês mais próximo anterior
@@ -4232,8 +4255,12 @@ function renderChartBenchmark(){
         if(cot) total += p.qtd*(isBRticker?cot.preco:cot.preco*usdBRL);
         else total += p.totalInv;
       } else {
-        var symbol = p.tipo==='UCITs'&&!p.ticker.includes('.')?p.ticker+'.L'
-                   : isBRticker?p.ticker+'.SA':p.ticker;
+        var symbol = (function(){
+          if(p.tipo === 'Cripto'){ var cs=p.ticker.toUpperCase(); return cs.includes('-')?cs:cs+'-USD'; }
+          if(p.tipo === 'UCITs'){ return p.ticker.includes('.')?p.ticker.toUpperCase():p.ticker.toUpperCase()+'.L'; }
+          if(isBRticker) return p.ticker.toUpperCase()+'.SA';
+          return p.ticker.toUpperCase();
+        })();
         var hist = histCache[symbol]||{};
         var preco = hist[mes];
         if(!preco){ for(var b=1;b<=3;b++){
