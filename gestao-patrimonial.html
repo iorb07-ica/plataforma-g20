@@ -314,7 +314,7 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
     </div>
     <div id="rf_tdSubtipo_wrap" style="display:none" class="form-group">
       <label class="form-label">Tipo de Tesouro</label>
-      <select class="form-control" id="rf_tdSubtipo">
+      <select class="form-control" id="rf_tdSubtipo" onchange="onRFTipoChange()">
         <option value="selic">Tesouro Selic</option>
         <option value="ipca">Tesouro IPCA+</option>
         <option value="prefixado">Tesouro Prefixado</option>
@@ -326,6 +326,10 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
     <div class="form-group">
       <label class="form-label">Nome / Descrição</label>
       <input class="form-control" id="rf_nome" placeholder="Ex: CDB Banco Inter 120% CDI, Tesouro IPCA+ 2029...">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Código do Título <span style="font-weight:400;color:var(--text3)">— opcional, agrupa aportes do mesmo título</span></label>
+      <input class="form-control" id="rf_codigo" placeholder="Ex: TNLP11, IPCA2035, CDB-INTER-1 (livre)">
     </div>
     <div class="form-group">
       <label class="form-label">Emissor / Instituição</label>
@@ -344,7 +348,7 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
     <div class="form-row">
       <div class="form-group">
         <label class="form-label" id="rf_indexLabel">Indexador</label>
-        <select class="form-control" id="rf_indexador">
+        <select class="form-control" id="rf_indexador" onchange="onRFIndexadorChange()">
           <option value="CDI">CDI</option>
           <option value="IPCA">IPCA+</option>
           <option value="Selic">Selic</option>
@@ -355,6 +359,7 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
       <div class="form-group">
         <label class="form-label" id="rf_taxaLabel">Taxa (%)</label>
         <input class="form-control" id="rf_taxa" type="number" min="0" step="0.01" placeholder="Ex: 110 para 110% CDI">
+        <div id="rf_taxa_hint" style="font-size:10px;color:var(--text3);margin-top:4px;line-height:1.4"></div>
       </div>
     </div>
     <div class="form-row">
@@ -511,37 +516,130 @@ function loadRF(){ return loadData('rendaFixa',[]); }
 function saveRF(d){ saveData('rendaFixa',d); }
 
 function calcRFAtual(rf){
-  if(rf.valorAtual && rf.valorAtual>0) return rf.valorAtual;
-  if(!rf.valorInv || !rf.dataInicio || !rf.taxa) return rf.valorInv||0;
-  var dias = Math.max(0,Math.floor((new Date()-new Date(rf.dataInicio))/86400000));
-  var anos = dias/365;
-  if(anos<=0) return rf.valorInv;
-  var taxa = parseFloat(rf.taxa)/100;
-  var rend = 0;
-  if(rf.indexador==='CDI'||rf.indexador==='Selic') rend = (getCDI()/100)*taxa;
-  else if(rf.indexador==='IPCA') rend = (getIPCA()/100)+taxa;
-  else if(rf.indexador==='IGPM') rend = (getIGPM()/100)+taxa;
-  else if(rf.indexador==='Prefixado') rend = taxa;
-  return rf.valorInv * Math.pow(1+rend, anos);
+  if(rf.valorAtual && rf.valorAtual>0) return rf.valorAtual; // override manual
+  if(!rf.valorInv || !rf.dataInicio || rf.taxa===undefined || rf.taxa===null || rf.taxa==='') return rf.valorInv||0;
+  var dias = Math.max(0, Math.floor((new Date() - new Date(rf.dataInicio)) / 86400000));
+  var anos = dias / 365;
+  if(anos <= 0) return rf.valorInv;
+  var taxa = parseFloat(rf.taxa) / 100;
+  var rendAnual = 0;
+
+  if(rf.indexador === 'CDI'){
+    // CDB/LCI/LCA/LIG: taxa = % do CDI (ex: 110 = 110% CDI)
+    // rendAnual = CDI * (taxa/100) — mas taxa já está /100, então:
+    // taxa aqui = 110/100 = 1.10 → rendAnual = CDI_decimal * 1.10
+    rendAnual = (getCDI() / 100) * taxa;
+  } else if(rf.indexador === 'Selic'){
+    // Tesouro Selic: taxa = spread aditivo (ex: 0.02 = Selic + 0.02% a.a.)
+    // Para Tesouro Selic puro, spread ≈ 0
+    rendAnual = (getSelic() / 100) + taxa;
+  } else if(rf.indexador === 'IPCA'){
+    // Tesouro IPCA+ / CRI / CRA: taxa = spread aditivo (ex: 7.80 = IPCA + 7.80% a.a.)
+    rendAnual = (getIPCA() / 100) + taxa;
+  } else if(rf.indexador === 'IGPM'){
+    // Debênture indexada IGP-M: taxa = spread aditivo
+    rendAnual = (getIGPM() / 100) + taxa;
+  } else if(rf.indexador === 'Prefixado'){
+    // Taxa total ao ano (ex: 13.50 = 13.50% a.a.)
+    rendAnual = taxa;
+  }
+
+  return rf.valorInv * Math.pow(1 + rendAnual, anos);
+}
+
+// Retorna descrição legível da taxa para exibir no card
+function descTaxaRF(rf){
+  var t = parseFloat(rf.taxa);
+  if(isNaN(t)) return '—';
+  if(rf.indexador === 'CDI')       return t.toFixed(2) + '% do CDI';
+  if(rf.indexador === 'Selic')     return t === 0 ? '100% Selic' : 'Selic + ' + t.toFixed(2) + '% a.a.';
+  if(rf.indexador === 'IPCA')      return 'IPCA + ' + t.toFixed(2) + '% a.a.';
+  if(rf.indexador === 'IGPM')      return 'IGP-M + ' + t.toFixed(2) + '% a.a.';
+  if(rf.indexador === 'Prefixado') return t.toFixed(2) + '% a.a. (pré)';
+  return t.toFixed(2) + '% ' + rf.indexador;
 }
 
 function diasVenc(v){ if(!v) return null; var d=Math.floor((new Date(v+'T12:00:00')-new Date())/86400000); return d; }
 
 function onRFTipoChange(){
-  var tipo = document.getElementById('rf_tipo').value;
-  var tdWrap = document.getElementById('rf_tdSubtipo_wrap');
-  tdWrap.style.display = tipo==='TD' ? 'block' : 'none';
-  var idx = document.getElementById('rf_indexador');
-  var lbl = document.getElementById('rf_taxaLabel');
-  if(tipo==='TD'){
+  var tipo    = document.getElementById('rf_tipo').value;
+  var tdWrap  = document.getElementById('rf_tdSubtipo_wrap');
+  var idxSel  = document.getElementById('rf_indexador');
+  var taxaLbl = document.getElementById('rf_taxaLabel');
+  var taxaInp = document.getElementById('rf_taxa');
+  var hint    = document.getElementById('rf_taxa_hint');
+
+  tdWrap.style.display = tipo === 'TD' ? 'block' : 'none';
+
+  // Se for TD, reagir ao subtipo também
+  if(tipo === 'TD'){
     var sub = document.getElementById('rf_tdSubtipo').value;
-    if(sub==='selic'){ idx.value='Selic'; lbl.textContent='% do índice'; }
-    else if(sub==='prefixado'){ idx.value='Prefixado'; lbl.textContent='Taxa (% a.a.)'; }
-    else { idx.value='IPCA'; lbl.textContent='Spread (% a.a.)'; }
+    if(sub === 'selic'){
+      idxSel.value = 'Selic';
+      taxaLbl.textContent = 'Spread adicional (% a.a.)';
+      taxaInp.placeholder = '0 para Tesouro Selic puro';
+      if(hint) hint.textContent = 'Tesouro Selic rende Selic + spread. Spread padrão ≈ 0.';
+    } else if(sub === 'prefixado'){
+      idxSel.value = 'Prefixado';
+      taxaLbl.textContent = 'Taxa prefixada (% a.a.)';
+      taxaInp.placeholder = 'Ex: 13.50';
+      if(hint) hint.textContent = 'Taxa total contratada na compra, ex: 13.50% a.a.';
+    } else {
+      // IPCA+, IPCA+ juros semestrais, Renda+, Educa+
+      idxSel.value = 'IPCA';
+      taxaLbl.textContent = 'Spread sobre IPCA (% a.a.)';
+      taxaInp.placeholder = 'Ex: 7.80';
+      if(hint) hint.textContent = 'Informe apenas o spread. Ex: "IPCA+ 7,80%" → digite 7.80';
+    }
   } else if(['CDB','LCI','LCA','LIG'].includes(tipo)){
-    idx.value='CDI'; lbl.textContent='% do CDI';
+    idxSel.value = 'CDI';
+    taxaLbl.textContent = '% do CDI';
+    taxaInp.placeholder = 'Ex: 110 para 110% CDI';
+    if(hint) hint.textContent = 'Percentual do CDI contratado. Ex: 110 = 110% do CDI.';
+  } else if(tipo === 'DEB' || tipo === 'CRI' || tipo === 'CRA'){
+    taxaLbl.textContent = 'Taxa / Spread (% a.a.)';
+    taxaInp.placeholder = 'Ex: 8.50';
+    if(hint) hint.textContent = 'Para CDI+: use indexador CDI e informe % do CDI. Para IPCA+: use indexador IPCA e informe o spread.';
   } else {
-    lbl.textContent='Taxa (% a.a.)';
+    taxaLbl.textContent = 'Taxa (% a.a.)';
+    taxaInp.placeholder = 'Ex: 12.50';
+    if(hint) hint.textContent = '';
+  }
+
+  // Atualiza label indexador também
+  onRFIndexadorChange();
+}
+
+function onRFIndexadorChange(){
+  var indexador = document.getElementById('rf_indexador').value;
+  var taxaLbl   = document.getElementById('rf_taxaLabel');
+  var taxaInp   = document.getElementById('rf_taxa');
+  var hint      = document.getElementById('rf_taxa_hint');
+  var tipo      = document.getElementById('rf_tipo').value;
+
+  // Só sobrescreve se não for TD (TD já define o label acima)
+  if(tipo !== 'TD'){
+    if(indexador === 'CDI'){
+      taxaLbl.textContent = '% do CDI';
+      taxaInp.placeholder = 'Ex: 110 para 110% CDI';
+      if(hint) hint.textContent = '110 = 110% do CDI atual (' + getCDI().toFixed(2) + '% a.a.)';
+    } else if(indexador === 'Selic'){
+      taxaLbl.textContent = 'Spread sobre Selic (% a.a.)';
+      taxaInp.placeholder = 'Ex: 0 para 100% Selic';
+      if(hint) hint.textContent = 'Spread adicional sobre a Selic (' + getSelic().toFixed(2) + '% a.a.)';
+    } else if(indexador === 'IPCA'){
+      taxaLbl.textContent = 'Spread sobre IPCA (% a.a.)';
+      taxaInp.placeholder = 'Ex: 7.80';
+      if(hint) hint.textContent = 'Spread sobre IPCA (' + getIPCA().toFixed(2) + '% 12m). Ex: IPCA+ 7,80% → 7.80';
+    } else if(indexador === 'IGPM'){
+      taxaLbl.textContent = 'Spread sobre IGP-M (% a.a.)';
+      taxaInp.placeholder = 'Ex: 6.50';
+      if(hint) hint.textContent = 'Spread sobre IGP-M (' + getIGPM().toFixed(2) + '% 12m).';
+    } else if(indexador === 'Prefixado'){
+      taxaLbl.textContent = 'Taxa prefixada (% a.a.)';
+      taxaInp.placeholder = 'Ex: 13.50';
+      if(hint) hint.textContent = 'Taxa total contratada, ex: 13.50% a.a.';
+    }
   }
 }
 
@@ -558,10 +656,11 @@ function abrirModalRF(idx){
       document.getElementById('rf_valorInv').value  = rf.valorInv||'';
       document.getElementById('rf_taxa').value      = rf.taxa||'';
       document.getElementById('rf_valorAtual').value= rf.valorAtual||'';
+      document.getElementById('rf_codigo').value = rf.codigo||'';
       if(rf.tdSubtipo) document.getElementById('rf_tdSubtipo').value=rf.tdSubtipo;
     }
   } else {
-    ['nome','emissor','valorInv','taxa','vencimento','valorAtual'].forEach(function(f){ var el=document.getElementById('rf_'+f); if(el) el.value=''; });
+    ['nome','emissor','valorInv','taxa','vencimento','valorAtual','codigo'].forEach(function(f){ var el=document.getElementById('rf_'+f); if(el) el.value=''; });
     document.getElementById('rf_tipo').value='CDB';
     document.getElementById('rf_dataInicio').value=today;
     document.getElementById('rf_indexador').value='CDI';
@@ -587,7 +686,8 @@ function salvarRF(){
   if(!nome||isNaN(valorInv)||valorInv<=0||isNaN(taxa)||!dataInicio){alert('Preencha nome, valor, taxa e data.');return;}
   var lista=loadRF();
   var editIdx=document.getElementById('rf_editId').value;
-  var obj={tipo,nome,emissor,valorInv,dataInicio,indexador,taxa,vencimento,liquidez,valorAtual,tdSubtipo};
+  var codigo = document.getElementById('rf_codigo').value.trim();
+  var obj={tipo,nome,emissor,valorInv,dataInicio,indexador,taxa,vencimento,liquidez,valorAtual,tdSubtipo,codigo};
   if(editIdx!=='') lista[parseInt(editIdx)]=obj; else lista.push(obj);
   saveRF(lista); fecharModal('modalRF'); renderAll();
 }
@@ -599,15 +699,60 @@ function excluirRF(idx){
 
 function renderRF(){
   var filtro = (document.getElementById('rfFiltro')||{value:''}).value;
-  var lista = loadRF().filter(function(r){ return !filtro||r.tipo===filtro; });
+  var allRF = loadRF();
+  var lista = allRF.filter(function(r){ return !filtro||r.tipo===filtro; });
   var grid = document.getElementById('rfGrid');
   if(!grid) return;
   if(!lista.length){
     grid.innerHTML='<div class="bem-empty"><div class="bem-empty-ico">🏦</div><p style="font-size:14px;margin-bottom:6px">Nenhum título cadastrado</p><p style="font-size:12px">Clique em <strong>+ Novo Título</strong></p></div>';
     return;
   }
-  var allRF=loadRF();
-  grid.innerHTML=lista.map(function(rf){
+
+  // Agrupa por código quando definido
+  var grupos = [];
+  var codMap = {};
+  lista.forEach(function(rf){
+    var realIdx = allRF.indexOf(rf);
+    if(rf.codigo){
+      if(!codMap[rf.codigo]){
+        codMap[rf.codigo] = {
+          tipo: rf.tipo, nome: rf.nome, emissor: rf.emissor,
+          indexador: rf.indexador, taxa: rf.taxa, vencimento: rf.vencimento,
+          liquidez: rf.liquidez, tdSubtipo: rf.tdSubtipo,
+          valorInv: 0, valorAtualSum: 0, idxs: [], codigo: rf.codigo,
+          dataInicio: rf.dataInicio
+        };
+        grupos.push({agrupado: true, key: rf.codigo, data: codMap[rf.codigo]});
+      }
+      codMap[rf.codigo].valorInv += rf.valorInv||0;
+      codMap[rf.codigo].valorAtualSum += calcRFAtual(rf);
+      codMap[rf.codigo].idxs.push(realIdx);
+      // Usa a data mais antiga como início
+      if(rf.dataInicio < codMap[rf.codigo].dataInicio) codMap[rf.codigo].dataInicio = rf.dataInicio;
+    } else {
+      grupos.push({agrupado: false, rf: rf, realIdx: realIdx});
+    }
+  });
+  grid.innerHTML=grupos.map(function(g){
+    // Normaliza: se agrupado, monta rf sintético
+    var rf, realIdx, isGroup=false, groupIdxs=[];
+    if(g.agrupado){
+      isGroup=true; groupIdxs=g.data.idxs;
+      rf = {
+        tipo:g.data.tipo, nome:g.data.nome, emissor:g.data.emissor,
+        indexador:g.data.indexador, taxa:g.data.taxa, vencimento:g.data.vencimento,
+        liquidez:g.data.liquidez, tdSubtipo:g.data.tdSubtipo,
+        valorInv:g.data.valorInv, dataInicio:g.data.dataInicio,
+        _valorAtualOverride: g.data.valorAtualSum, codigo:g.data.codigo
+      };
+      realIdx = groupIdxs[0];
+    } else {
+      rf=g.rf; realIdx=g.realIdx;
+    }
+    var rfForCalc = isGroup ? Object.assign({},rf,{valorAtual:rf._valorAtualOverride}) : rf;
+    rfForCalc.valorAtual = isGroup ? rf._valorAtualOverride : (rf.valorAtual||0);
+    rf = rfForCalc;
+    // ... (continua abaixo)
     var realIdx=allRF.indexOf(rf);
     var cor=RF_CORES[rf.tipo]||'#10b981';
     var icon=RF_ICONS[rf.tipo]||'💰';
@@ -626,10 +771,13 @@ function renderRF(){
     else if(dias<=90) vbadge='<span class="rf-venc-badge" style="background:rgba(245,158,11,.15);color:#f59e0b">⚠️ '+dias+'d</span>';
     else vbadge='<span class="rf-venc-badge" style="background:rgba(16,185,129,.15);color:#10b981">'+dias+'d</span>';
 
+    var nAportes = isGroup ? groupIdxs.length : 1;
     return '<div class="rf-card" style="--rc:'+cor+'">'+
       '<div class="rf-actions">'+
-        '<button class="action-btn" onclick="abrirModalRF('+realIdx+')">✏️</button>'+
-        '<button class="action-btn" onclick="excluirRF('+realIdx+')" style="border-color:rgba(230,57,70,.4);color:var(--red)">🗑️</button>'+
+        (isGroup?'':'<button class="action-btn" onclick="abrirModalRF('+realIdx+')">✏️</button>')+
+        (isGroup?
+          '<button class="action-btn" onclick="alert('Edite cada aporte individualmente.')" title="'+nAportes+' aportes agrupados" style="color:var(--gold);border-color:rgba(232,184,75,.4)">'+nAportes+' aportes</button>':
+          '<button class="action-btn" onclick="excluirRF('+realIdx+')" style="border-color:rgba(230,57,70,.4);color:var(--red)">🗑️</button>')+
       '</div>'+
       '<div style="font-size:22px;margin-bottom:6px">'+icon+'</div>'+
       '<div class="rf-badge" style="background:'+cor+'22;color:'+cor+'">'+rf.tipo+'</div>'+
@@ -640,7 +788,7 @@ function renderRF(){
         '<div class="rf-val-box"><div class="rf-val-label">Atual</div><div class="rf-val-num" style="color:'+cor+'">'+fmtBRL(atual)+'</div></div>'+
         '<div class="rf-val-box"><div class="rf-val-label">Rentabilidade</div><div class="rf-val-num" style="color:'+(rent>=0?'var(--green)':'var(--red)')+'">'+
           (rent>=0?'+':'')+rent.toFixed(2)+'%</div></div>'+
-        '<div class="rf-val-box"><div class="rf-val-label">Taxa</div><div class="rf-val-num">'+rf.taxa+'% '+rf.indexador+'</div></div>'+
+        '<div class="rf-val-box"><div class="rf-val-label">Taxa</div><div class="rf-val-num" style="font-size:11px">'+descTaxaRF(rf)+'</div></div>'+
       '</div>'+
       (rf.dataInicio&&rf.vencimento?
         '<div class="rf-prog-wrap">'+
@@ -767,9 +915,9 @@ function renderBens(){
         '<button class="action-btn" onclick="excluirPat('+realIdx+')" style="border-color:rgba(230,57,70,.4);color:var(--red)">🗑️</button>'+
       '</div>'+
       '<span class="bem-icon">'+cfg.icon+'</span>'+
-      '<div class="bem-subtipo" style="background:'+cor+'22;color:'+cor+'">'+b.subtipo||cfg.label+'</div>'+
+      '<div class="bem-subtipo" style="background:'+cor+'22;color:'+cor+'">'+(b.subtipo||cfg.label)+'</div>'+
       '<div class="bem-nome">'+b.nome+'</div>'+
-      (b.obs?'<div class="bem-obs">'+b.obs+'</div>':'<div class="bem-obs" style="height:16px"></div>')+
+      (b.obs?'<div class="bem-obs">'+b.obs+'</div>':'')+
       '<div class="bem-vals">'+
         '<div class="bem-val-box"><div class="bem-val-label">Avaliação</div><div class="bem-val-num" style="color:'+cor+'">'+fmtBRL(b.valor||0)+'</div></div>'+
         '<div class="bem-val-box"><div class="bem-val-label">Líquido</div><div class="bem-val-num">'+fmtBRL(liquido)+'</div></div>'+
