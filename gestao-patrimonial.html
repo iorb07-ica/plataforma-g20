@@ -38,7 +38,7 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .btn-logout:hover{border-color:var(--red);color:var(--red)}
 
 /* MAIN */
-.main{margin-left:var(--sidebar);flex:1;padding:0;min-height:100vh;overflow-x:hidden}
+.main{margin-left:var(--sidebar);flex:1;padding:0;min-height:100vh;overflow-x:hidden;isolation:isolate}
 @media(max-width:768px){.main{margin-left:0}}
 
 /* TOPBAR */
@@ -133,9 +133,12 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .rf-actions{position:absolute;top:14px;right:14px;display:flex;gap:6px}
 
 /* MODALS */
-.modal{display:none;position:fixed;inset:0;z-index:600;overflow-y:auto;background:rgba(0,0,0,.85)}
-.modal.show{display:block}
-.modal-box{background:#0f1117;border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:24px;width:calc(100% - 32px);max-width:500px;color:#f4f6fa;margin:40px auto;display:block}
+.modal-overlay{display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:9999;background:rgba(0,0,0,.8)}
+.modal-overlay.show{display:flex;align-items:center;justify-content:center}
+.modal-box{background:#1c2030;border:1px solid rgba(255,255,255,0.15);border-radius:16px;padding:24px;width:90%;max-width:500px;max-height:85vh;overflow-y:auto;color:#f4f6fa;position:relative}
+/* keep old .modal class for compat */
+.modal{display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:9999;background:rgba(0,0,0,.8)}
+.modal.show{display:flex;align-items:center;justify-content:center}
 .modal-title{font-size:16px;font-weight:700;color:#f4f6fa;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center}
 .close-btn{background:none;border:none;color:#b0bac8;font-size:20px;cursor:pointer;padding:0}
 .form-group{margin-bottom:14px}
@@ -154,7 +157,7 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .action-btn:hover{border-color:var(--gold);color:var(--gold)}
 
 /* BOTTOM NAV */
-.bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;z-index:180;background:var(--bg2);border-top:1px solid var(--border);height:calc(60px + var(--safe-bottom));padding-bottom:var(--safe-bottom);will-change:transform}
+.bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;z-index:180;background:var(--bg2);border-top:1px solid var(--border);height:calc(60px + var(--safe-bottom));padding-bottom:var(--safe-bottom)}
 @media(max-width:768px){.bottom-nav{display:flex}}
 .bottom-nav a{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--text3);text-decoration:none;transition:.18s;-webkit-tap-highlight-color:transparent;padding:8px 0;position:relative;min-height:44px;touch-action:manipulation}
 .bottom-nav a.active{color:var(--gold)}
@@ -306,6 +309,7 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
   <a href="gestao-patrimonial.html" class="active"><span class="bn-icon">💼</span><span class="bn-label">Gestão</span></a>
   <a href="g20cast.html"><span class="bn-icon">🎧</span><span class="bn-label">Podcast</span></a>
 </nav>
+
 
 <!-- MODAL RENDA FIXA -->
 <div class="modal" id="modalRF">
@@ -681,6 +685,7 @@ function abrirModalRF(idx){
   }
   onRFTipoChange();
   document.getElementById('modalRF').classList.add('show');
+  console.log('Modal RF aberto, classes:', document.getElementById('modalRF').className);
 }
 
 function salvarRF(){
@@ -1087,18 +1092,27 @@ function abrirDrawerGrupo(idxs){
   drawer.id = 'grupoDrawer';
   drawer.innerHTML = html;
   document.body.appendChild(drawer);
-  document.body.style.overflow = 'hidden';
 }
 
 function fecharDrawerGrupo(){
   var d = document.getElementById('grupoDrawer');
-  if(d){ d.remove(); document.body.style.overflow = ''; }
+  if(d){ 
+    d.remove(); 
+    document.body.style.overflow = '';
+    document.body.style.position = '';
+  }
 }
 
 function editarAporteDoGrupo(idx){
-  fecharDrawerGrupo();
-  // Aguarda o drawer ser removido do DOM antes de abrir o modal
-  setTimeout(function(){ abrirModalRF(idx); }, 80);
+  // Remove drawer imediatamente
+  var d = document.getElementById('grupoDrawer');
+  if(d) d.remove();
+  document.body.style.overflow = '';
+  document.body.style.position = '';
+  // Pequeno delay para garantir reflow antes de abrir modal
+  setTimeout(function(){ 
+    abrirModalRF(idx); 
+  }, 100);
 }
 
 function excluirRFnoGrupo(idx){
