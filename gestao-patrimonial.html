@@ -166,6 +166,20 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .leg-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .leg-item{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2)}
 .leg-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+
+/* ── DRAWER DE GRUPO ── */
+.grupo-drawer{position:fixed;inset:0;z-index:500;display:flex;align-items:flex-end;justify-content:center}
+.grupo-drawer-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)}
+.grupo-drawer-box{position:relative;background:var(--bg2);border-radius:20px 20px 0 0;width:100%;max-width:600px;max-height:85vh;overflow-y:auto;padding:24px;z-index:1;border-top:1px solid var(--border)}
+.grupo-drawer-handle{width:40px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 20px}
+.grupo-drawer-title{font-size:16px;font-weight:700;margin-bottom:4px}
+.grupo-drawer-sub{font-size:12px;color:var(--text3);margin-bottom:20px}
+.aporte-item{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:10px}
+.aporte-item-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.aporte-item-vals{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.aporte-val-box{background:var(--sur2);border-radius:8px;padding:8px 10px}
+.aporte-val-label{font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:3px}
+.aporte-val-num{font-size:13px;font-weight:700}
 </style>
 </head>
 <body>
@@ -773,10 +787,11 @@ function renderRF(){
     var nAportes = isGroup ? groupIdxs.length : 1;
     return '<div class="rf-card" style="--rc:'+cor+'">'+
       '<div class="rf-actions">'+
-        (isGroup?'':'<button class="action-btn" onclick="abrirModalRF('+realIdx+')">✏️</button>')+
         (isGroup?
-          '<button class="action-btn" onclick="alert(&quot;Edite cada aporte individualmente.&quot;)" title="'+nAportes+' aportes agrupados" style="color:var(--gold);border-color:rgba(232,184,75,.4)">'+nAportes+' aportes</button>':
-          '<button class="action-btn" onclick="excluirRF('+realIdx+')" style="border-color:rgba(230,57,70,.4);color:var(--red)">🗑️</button>')+
+          '<button class="action-btn" onclick="abrirDrawerGrupo('+JSON.stringify(groupIdxs)+')" style="color:var(--gold);border-color:rgba(232,184,75,.4)" title="Ver '+nAportes+' aportes">📋 '+nAportes+' aportes</button>':
+          '<button class="action-btn" onclick="abrirModalRF('+realIdx+')">✏️</button>'+
+          '<button class="action-btn" onclick="excluirRF('+realIdx+')" style="border-color:rgba(230,57,70,.4);color:var(--red)">🗑️</button>'
+        )+
       '</div>'+
       '<div style="font-size:22px;margin-bottom:6px">'+icon+'</div>'+
       '<div class="rf-badge" style="background:'+cor+'22;color:'+cor+'">'+rf.tipo+'</div>'+
@@ -1012,6 +1027,82 @@ function renderCharts(){
   }
 }
 
+
+// ── DRAWER DE GRUPO ──────────────────────────────────────────
+function abrirDrawerGrupo(idxs){
+  var lista = loadRF();
+  var aportes = idxs.map(function(i){ return {idx:i, rf:lista[i]}; }).filter(function(a){return a.rf;});
+  if(!aportes.length) return;
+
+  var cor = RF_CORES[aportes[0].rf.tipo] || '#10b981';
+  var totalInv = aportes.reduce(function(s,a){return s+(a.rf.valorInv||0);},0);
+  var totalAtual = aportes.reduce(function(s,a){return s+calcRFAtual(a.rf);},0);
+  var rent = totalInv>0?((totalAtual-totalInv)/totalInv*100):0;
+
+  var html = '<div class="grupo-drawer-backdrop" onclick="fecharDrawerGrupo()"></div>'+
+    '<div class="grupo-drawer-box">'+
+      '<div class="grupo-drawer-handle"></div>'+
+      '<div class="grupo-drawer-title">'+aportes[0].rf.nome+'</div>'+
+      '<div class="grupo-drawer-sub">'+aportes.length+' aportes agrupados · Código: '+aportes[0].rf.codigo+'</div>'+
+      // Resumo do grupo
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:20px;background:var(--surface);border-radius:12px;padding:14px">'+
+        '<div><div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Total Investido</div>'+
+          '<div style="font-size:16px;font-weight:700">'+fmtBRL(totalInv)+'</div></div>'+
+        '<div><div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Valor Atual</div>'+
+          '<div style="font-size:16px;font-weight:700;color:'+cor+'">'+fmtBRL(totalAtual)+'</div></div>'+
+        '<div><div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Rentabilidade</div>'+
+          '<div style="font-size:16px;font-weight:700;color:'+(rent>=0?'var(--green)':'var(--red)')+'">'+(rent>=0?'+':'')+rent.toFixed(2)+'%</div></div>'+
+      '</div>'+
+      '<div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:12px">Aportes Individuais</div>'+
+      aportes.map(function(a, i){
+        var rf = a.rf;
+        var av = calcRFAtual(rf);
+        var r = rf.valorInv>0?((av-rf.valorInv)/rf.valorInv*100):0;
+        var dataFmt = rf.dataInicio ? new Date(rf.dataInicio+'T12:00:00').toLocaleDateString('pt-BR') : '—';
+        var vencFmt = rf.vencimento ? new Date(rf.vencimento+'T12:00:00').toLocaleDateString('pt-BR') : 'Sem venc.';
+        return '<div class="aporte-item">'+
+          '<div class="aporte-item-header">'+
+            '<div>'+
+              '<div style="font-size:12px;font-weight:700;color:var(--text)">Aporte '+(i+1)+'</div>'+
+              '<div style="font-size:11px;color:var(--text3)">'+dataFmt+' → '+vencFmt+'</div>'+
+            '</div>'+
+            '<div style="display:flex;gap:6px">'+
+              '<button class="action-btn" onclick="fecharDrawerGrupo();abrirModalRF('+a.idx+')" title="Editar este aporte">✏️ Editar</button>'+
+              '<button class="action-btn" onclick="excluirRFnoGrupo('+a.idx+')" style="border-color:rgba(230,57,70,.4);color:var(--red)" title="Excluir este aporte">🗑️</button>'+
+            '</div>'+
+          '</div>'+
+          '<div class="aporte-item-vals">'+
+            '<div class="aporte-val-box"><div class="aporte-val-label">Investido</div><div class="aporte-val-num">'+fmtBRL(rf.valorInv)+'</div></div>'+
+            '<div class="aporte-val-box"><div class="aporte-val-label">Atual</div><div class="aporte-val-num" style="color:'+cor+'">'+fmtBRL(av)+'</div></div>'+
+            '<div class="aporte-val-box"><div class="aporte-val-label">Rentab.</div><div class="aporte-val-num" style="color:'+(r>=0?'var(--green)':'var(--red)')+'">'+(r>=0?'+':'')+r.toFixed(2)+'%</div></div>'+
+          '</div>'+
+          '<div style="margin-top:8px;font-size:11px;color:var(--text3)">Taxa: '+descTaxaRF(rf)+'</div>'+
+        '</div>';
+      }).join('')+
+      '<button onclick="fecharDrawerGrupo()" style="width:100%;padding:12px;background:var(--surface);border:1px solid var(--border);color:var(--text2);border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;margin-top:4px">Fechar</button>'+
+    '</div>';
+
+  var drawer = document.createElement('div');
+  drawer.className = 'grupo-drawer';
+  drawer.id = 'grupoDrawer';
+  drawer.innerHTML = html;
+  document.body.appendChild(drawer);
+  document.body.style.overflow = 'hidden';
+}
+
+function fecharDrawerGrupo(){
+  var d = document.getElementById('grupoDrawer');
+  if(d){ d.remove(); document.body.style.overflow = ''; }
+}
+
+function excluirRFnoGrupo(idx){
+  if(!confirm('Excluir este aporte?')) return;
+  var lista = loadRF();
+  lista.splice(idx, 1);
+  saveRF(lista);
+  fecharDrawerGrupo();
+  renderAll();
+}
 // ── RENDER ALL ────────────────────────────────────────────────
 function renderAll(){
   renderKPIs();
