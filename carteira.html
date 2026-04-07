@@ -2190,7 +2190,7 @@ var _DB_LOCAL_ONLY = ['indBCB_cache','indMkt_cache','cotacoesCache',
 var _DB_USER_KEYS = ['aportes','dividendos','rendaFixa','carteiraMeta',
   'splits','patrimonioBens','patrimonioSnaps','rvAportes',
   'tokenBrapi','tokenFmp','tokenLogoDev','tokenTwelve',
-  'colsVisiveis','colOrdem'];
+  'colsVisiveis','colOrdem','g20-theme'];
 
 function _dbIsUserKey(k){
   return _DB_USER_KEYS.indexOf(k) !== -1;
@@ -7890,8 +7890,21 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
 </script>
 
 <script>
-// ── Firebase: carrega perfil + protege rota ───────────────
+// ── Firebase: auth rápido com cache local ────────────────
 (function(){
+  // Carrega perfil do cache IMEDIATAMENTE
+  try {
+    var cached = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
+    if (cached.name) {
+      var ids = {sidebarName:cached.name, sidebarTurma:cached.turma||'Turma 20',
+                 sidebarRole:cached.role||'Membro',
+                 sidebarInitials:(cached.name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase()||'IO')};
+      Object.keys(ids).forEach(function(id){ var el=document.getElementById(id); if(el) el.textContent=ids[id]; });
+      var av=document.getElementById('sidebarAvatar');
+      if(av&&cached.photo) av.innerHTML='<img src="'+cached.photo+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display=\'none\'">';
+    }
+  } catch(e) {}
+
   var cfg = {
     apiKey: "AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",
     authDomain: "g20-masterclass.firebaseapp.com",
@@ -7911,7 +7924,6 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
 
   auth.onAuthStateChanged(function(user) {
     if (!user) { window.location.href = 'login.html'; return; }
-    // Tenta carregar do Firestore
     _dbInit(user.uid, function(){
     db.collection('users').doc(user.uid).get().then(function(doc) {
       var data = doc.exists ? doc.data() : {};
