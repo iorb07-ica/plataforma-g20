@@ -183,6 +183,17 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .aporte-val-box{background:var(--sur2);border-radius:8px;padding:8px 10px}
 .aporte-val-label{font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:3px}
 .aporte-val-num{font-size:13px;font-weight:700}
+
+/* ── RESGATES ── */
+.rf-resgate-hist{margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.07)}
+.rf-resgate-hist-title{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#6b7a94;margin-bottom:8px}
+.rf-resgate-item{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:11px}
+.rf-resgate-item:last-child{border-bottom:none}
+.rf-resgate-val{font-weight:700;color:#e63946}
+.rf-resgate-date{color:#6b7a94}
+.rf-resgate-tipo{font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;text-transform:uppercase}
+.rf-resgate-tipo.parcial{background:rgba(245,158,11,.15);color:#f59e0b}
+.rf-resgate-tipo.total{background:rgba(239,68,68,.15);color:#e63946}
 </style>
 </head>
 <body>
@@ -791,8 +802,12 @@ function renderRF(){
     return '<div class="rf-card" style="--rc:'+cor+'">'+
       '<div class="rf-actions">'+
         (isGroup?
-          '<button class="action-btn" onclick="toggleGrupoInline(this,'+JSON.stringify(groupIdxs)+')" style="color:var(--gold);border-color:rgba(232,184,75,.4)" title="Ver '+nAportes+' aportes">📋 '+nAportes+' aportes</button>':
+          '<button class="action-btn" onclick="novoAporteExistente('+groupIdxs[0]+')" style="border-color:rgba(232,184,75,.4);color:var(--gold);font-size:15px;font-weight:700" title="Novo aporte neste título">＋</button>'+
+          '<button class="action-btn" onclick="toggleGrupoInline(this,'+JSON.stringify(groupIdxs)+')" style="color:var(--gold);border-color:rgba(232,184,75,.4)" title="Ver '+nAportes+' aportes">📋 '+nAportes+' aportes</button>'+
+          '<button class="action-btn" onclick="abrirModalResgateGrupo('+JSON.stringify(groupIdxs)+')" style="border-color:rgba(16,185,129,.4);color:#10b981" title="Registrar resgate">💰</button>':
+          '<button class="action-btn" onclick="novoAporteExistente('+realIdx+')" style="border-color:rgba(232,184,75,.4);color:var(--gold);font-size:15px;font-weight:700" title="Novo aporte neste título">＋</button>'+
           '<button class="action-btn" onclick="abrirModalRF('+realIdx+')">✏️</button>'+
+          '<button class="action-btn" onclick="abrirModalResgate('+realIdx+')" style="border-color:rgba(16,185,129,.4);color:#10b981" title="Registrar resgate">💰</button>'+
           '<button class="action-btn" onclick="excluirRF('+realIdx+')" style="border-color:rgba(230,57,70,.4);color:var(--red)">🗑️</button>'
         )+
       '</div>'+
@@ -818,6 +833,23 @@ function renderRF(){
         '</div>':'')+
       '<div class="rf-venc-row">'+vbadge+'<span>Vence: '+(rf.vencimento?new Date(rf.vencimento+'T12:00:00').toLocaleDateString('pt-BR'):'Sem vencimento')+'</span></div>'+
       (isGroup ? '<div class="grupo-inline" id="gi-'+groupIdxs.join('-')+'" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08)"></div>' : '')+
+      (function(){
+        var resgates = isGroup ? [] : (rf.resgates||[]);
+        if(!resgates.length) return '';
+        var totalResgatado = resgates.reduce(function(s,r){return s+(r.valor||0);},0);
+        return '<div class="rf-resgate-hist">'+
+          '<div class="rf-resgate-hist-title">💰 Resgates (' + fmtBRL(totalResgatado) + ' total)</div>'+
+          resgates.map(function(r){
+            return '<div class="rf-resgate-item">'+
+              '<div style="display:flex;align-items:center;gap:6px">'+
+                '<span class="rf-resgate-tipo '+r.tipo+'">'+r.tipo+'</span>'+
+                '<span class="rf-resgate-date">'+new Date(r.data+'T12:00:00').toLocaleDateString('pt-BR')+'</span>'+
+              '</div>'+
+              '<span class="rf-resgate-val">- '+fmtBRL(r.valor)+'</span>'+
+            '</div>';
+          }).join('')+
+        '</div>';
+      })()+
     '</div>';
   }).join('');
 }
@@ -1158,6 +1190,236 @@ function excluirRFnoGrupo(idx){
   fecharDrawerGrupo();
   renderAll();
 }
+
+// ── RESGATES ─────────────────────────────────────────────────
+var _resgateIdx = null;
+var _resgateIdxGrupo = null;
+var _resgateTipo = 'parcial';
+
+function abrirModalResgate(idx){
+  var lista = loadRF();
+  var rf = lista[idx];
+  if(!rf) return;
+  _resgateIdx = idx;
+  _resgateTipo = 'parcial';
+
+  var atual = calcRFAtual(rf);
+  document.getElementById('resgate_idx').value = idx;
+  document.getElementById('resgate_data').value = new Date().toISOString().split('T')[0];
+  document.getElementById('resgate_valor').value = '';
+  document.getElementById('resgatePrev').style.display = 'none';
+  document.getElementById('resgateValorWrap').style.display = 'block';
+
+  document.getElementById('resgateInfo').innerHTML =
+    '<strong style="color:#f4f6fa;font-size:13px">' + rf.nome + '</strong><br>' +
+    'Valor atual: <strong style="color:#10b981">' + fmtBRL(atual) + '</strong> &nbsp;·&nbsp; ' +
+    'Investido: <strong>' + fmtBRL(rf.valorInv) + '</strong>';
+
+  setTipoResgate('parcial');
+  document.getElementById('modalResgate').style.display = 'block';
+}
+
+function setTipoResgate(tipo){
+  _resgateTipo = tipo;
+  var lista = loadRF();
+  var rf = lista[_resgateIdx];
+  var atual = rf ? calcRFAtual(rf) : 0;
+
+  var btnP = document.getElementById('btnResgateParcial');
+  var btnT = document.getElementById('btnResgateTotal');
+  var valWrap = document.getElementById('resgateValorWrap');
+
+  if(tipo === 'parcial'){
+    btnP.style.border = '2px solid #f59e0b';
+    btnP.style.background = 'rgba(245,158,11,.15)';
+    btnP.style.color = '#f59e0b';
+    btnT.style.border = '1px solid rgba(255,255,255,.15)';
+    btnT.style.background = 'transparent';
+    btnT.style.color = '#b0bac8';
+    valWrap.style.display = 'block';
+    document.getElementById('resgate_valor').value = '';
+    document.getElementById('resgatePrev').style.display = 'none';
+  } else {
+    btnT.style.border = '2px solid #e63946';
+    btnT.style.background = 'rgba(239,68,68,.15)';
+    btnT.style.color = '#e63946';
+    btnP.style.border = '1px solid rgba(255,255,255,.15)';
+    btnP.style.background = 'transparent';
+    btnP.style.color = '#b0bac8';
+    valWrap.style.display = 'none';
+    // Para total, mostra preview com valor atual
+    document.getElementById('prevSaldo').textContent = 'R$ 0,00';
+    document.getElementById('prevInv').textContent = 'Título encerrado';
+    document.getElementById('resgatePrev').style.display = 'block';
+    document.getElementById('resgate_valor').value = atual.toFixed(2);
+  }
+}
+
+function calcResgatePrev(){
+  if(_resgateTipo !== 'parcial') return;
+  var lista = loadRF();
+  var idxRaw = document.getElementById('resgate_idx').value;
+  var idxs; try { idxs = JSON.parse(idxRaw); if(!Array.isArray(idxs)) idxs=[parseInt(idxRaw)]; } catch(e){ idxs=[parseInt(idxRaw)]; }
+  var valorResgate = parseFloat(document.getElementById('resgate_valor').value) || 0;
+  var atual = idxs.reduce(function(s,i){ return s + (lista[i]?calcRFAtual(lista[i]):0); }, 0);
+  var investido = idxs.reduce(function(s,i){ return s + (lista[i]?(lista[i].valorInv||0):0); }, 0);
+
+  // Preview FIFO: simula quais aportes serão consumidos
+  if(idxs.length > 1 && valorResgate > 0 && valorResgate < atual){
+    var ordenados = idxs
+      .map(function(i){ return {idx:i, rf:lista[i]}; })
+      .filter(function(x){ return x.rf && !x.rf.encerrado; })
+      .sort(function(a,b){ return a.rf.dataInicio < b.rf.dataInicio ? -1 : 1; });
+    var restSim = valorResgate;
+    var aportesAfetados = [];
+    for(var j=0; j<ordenados.length; j++){
+      if(restSim <= 0.01) break;
+      var atualJ = calcRFAtual(ordenados[j].rf);
+      var consumido = Math.min(restSim, atualJ);
+      restSim -= consumido;
+      aportesAfetados.push('Aporte '+(j+1)+': -'+fmtBRL(consumido)+(consumido >= atualJ-0.01 ? ' (encerrado)':''));
+    }
+    // Mostrar no hint
+    var hint = document.getElementById('resgate_valor').nextElementSibling;
+    if(hint) hint.innerHTML = '<div style="margin-top:6px;font-size:10px;color:#6b7a94">📋 FIFO: '+aportesAfetados.join(' → ')+'</div>';
+  }
+
+  if(valorResgate <= 0 || valorResgate > atual){
+    document.getElementById('resgatePrev').style.display = 'none';
+    return;
+  }
+
+  var proporcao = valorResgate / atual;
+  var novoInv = investido * (1 - proporcao);
+  var saldoRestante = atual - valorResgate;
+
+  document.getElementById('prevSaldo').textContent = fmtBRL(saldoRestante);
+  document.getElementById('prevInv').textContent = fmtBRL(novoInv);
+  document.getElementById('resgatePrev').style.display = 'block';
+}
+
+function confirmarResgate(){
+  var idxRaw = document.getElementById('resgate_idx').value;
+  var lista = loadRF();
+  var data = document.getElementById('resgate_data').value;
+  if(!data){ alert('Informe a data do resgate.'); return; }
+
+  // Detecta se é grupo (JSON array) ou individual
+  var idxs;
+  try { idxs = JSON.parse(idxRaw); if(!Array.isArray(idxs)) idxs = [parseInt(idxRaw)]; }
+  catch(e) { idxs = [parseInt(idxRaw)]; }
+
+  var totalAtual = idxs.reduce(function(s,i){ return s+(lista[i]?calcRFAtual(lista[i]):0); },0);
+  var valorResgate;
+
+  if(_resgateTipo === 'total'){
+    valorResgate = totalAtual;
+  } else {
+    valorResgate = parseFloat(document.getElementById('resgate_valor').value);
+    if(!valorResgate || valorResgate <= 0){ alert('Informe o valor do resgate.'); return; }
+    if(valorResgate > totalAtual){ alert('Valor maior que o saldo disponível.'); return; }
+  }
+
+  // ── FIFO: ordena aportes por data de início (mais antigo primeiro) ──
+  var ordenados = idxs
+    .map(function(i){ return {idx:i, rf:lista[i], dataInicio: lista[i]?lista[i].dataInicio:'9999'}; })
+    .filter(function(x){ return x.rf && !x.rf.encerrado && calcRFAtual(x.rf)>0; })
+    .sort(function(a,b){ return a.dataInicio < b.dataInicio ? -1 : 1; });
+
+  var restante = valorResgate;
+
+  for(var i=0; i<ordenados.length; i++){
+    if(restante <= 0.01) break;
+    var rf = ordenados[i].rf;
+    var idx = ordenados[i].idx;
+    var atualRF = calcRFAtual(rf);
+
+    var resgateDesteAporte = Math.min(restante, atualRF);
+    restante -= resgateDesteAporte;
+
+    if(!rf.resgates) rf.resgates = [];
+    rf.resgates.push({
+      tipo: resgateDesteAporte >= atualRF - 0.01 ? 'total' : 'parcial',
+      valor: resgateDesteAporte,
+      data: data
+    });
+
+    if(resgateDesteAporte >= atualRF - 0.01){
+      // Aporte totalmente resgatado
+      rf.valorInv = 0;
+      rf.valorAtual = 0;
+      rf.encerrado = true;
+    } else {
+      // Aporte parcialmente resgatado — reduz investido proporcionalmente
+      var proporcao = resgateDesteAporte / atualRF;
+      rf.valorInv = rf.valorInv * (1 - proporcao);
+      rf.valorAtual = 0; // força recálculo sobre novo investido
+    }
+    lista[idx] = rf;
+  }
+
+  saveRF(lista);
+  fecharModal('modalResgate');
+  renderAll();
+}
+
+
+function abrirModalResgateGrupo(idxs){
+  // Para grupos, usa o mesmo modal mas opera em todos os aportes proporcionalmente
+  // Armazena os índices do grupo para usar no confirmarResgate
+  _resgateIdx = idxs[0];
+  _resgateIdxGrupo = idxs;
+
+  var lista = loadRF();
+  var totalInv = idxs.reduce(function(s,i){ return s + (lista[i]?lista[i].valorInv:0); }, 0);
+  var totalAtual = idxs.reduce(function(s,i){ return s + (lista[i]?calcRFAtual(lista[i]):0); }, 0);
+  var rf0 = lista[idxs[0]] || {};
+
+  document.getElementById('resgate_idx').value = JSON.stringify(idxs);
+  document.getElementById('resgate_data').value = new Date().toISOString().split('T')[0];
+  document.getElementById('resgate_valor').value = '';
+  document.getElementById('resgatePrev').style.display = 'none';
+  document.getElementById('resgateValorWrap').style.display = 'block';
+
+  document.getElementById('resgateInfo').innerHTML =
+    '<strong style="color:#f4f6fa;font-size:13px">' + rf0.nome + '</strong> <span style="color:#6b7a94">('+idxs.length+' aportes)</span><br>' +
+    'Valor atual total: <strong style="color:#10b981">' + fmtBRL(totalAtual) + '</strong> &nbsp;·&nbsp; Investido: <strong>' + fmtBRL(totalInv) + '</strong><br><span style="color:#f59e0b;font-size:10px">⚡ Resgate segue ordem FIFO — aporte mais antigo é resgatado primeiro</span>';
+
+  setTipoResgate('parcial');
+  document.getElementById('modalResgate').style.display = 'block';
+}
+
+
+function novoAporteExistente(idx){
+  var lista = loadRF();
+  var rf = lista[idx];
+  if(!rf) return;
+
+  // Abre modal de novo título pré-preenchido com os dados do existente
+  var today = new Date().toISOString().split('T')[0];
+  document.getElementById('rf_editId').value = ''; // novo registro
+  document.getElementById('modalRFTitulo').textContent = 'Novo Aporte — ' + rf.nome;
+
+  // Pré-preenche com dados do título existente
+  document.getElementById('rf_tipo').value      = rf.tipo || 'CDB';
+  document.getElementById('rf_nome').value      = rf.nome || '';
+  document.getElementById('rf_emissor').value   = rf.emissor || '';
+  document.getElementById('rf_codigo').value    = rf.codigo || '';
+  document.getElementById('rf_indexador').value = rf.indexador || 'CDI';
+  document.getElementById('rf_taxa').value      = rf.taxa || '';
+  document.getElementById('rf_vencimento').value= rf.vencimento || '';
+  document.getElementById('rf_liquidez').value  = rf.liquidez || 'vencimento';
+  if(rf.tdSubtipo) document.getElementById('rf_tdSubtipo').value = rf.tdSubtipo;
+
+  // Limpa apenas os campos que devem ser novos
+  document.getElementById('rf_valorInv').value   = '';
+  document.getElementById('rf_valorAtual').value = '';
+  document.getElementById('rf_dataInicio').value = today;
+
+  onRFTipoChange();
+  document.getElementById('modalRF').style.display = 'block';
+}
+
 // ── RENDER ALL ────────────────────────────────────────────────
 function renderAll(){
   renderKPIs();
@@ -1202,5 +1464,64 @@ document.getElementById('themeBtn').addEventListener('click',function(){
   buscarIndicadores();
 })();
 </script>
+
+<!-- MODAL RESGATE -->
+<div id="modalResgate" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:9999;overflow-y:auto;">
+  <div style="background:#1c2030;color:#f4f6fa;border:1px solid rgba(255,255,255,0.2);border-radius:16px;padding:24px;width:90%;max-width:420px;margin:40px auto;font-family:DM Sans,sans-serif;">
+    <div style="font-size:16px;font-weight:700;color:#f4f6fa;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">
+      <span>💰 Registrar Resgate</span>
+      <button onclick="fecharModal('modalResgate')" style="background:none;border:none;color:#b0bac8;font-size:20px;cursor:pointer;">✕</button>
+    </div>
+    <div id="resgateInfo" style="font-size:12px;color:#6b7a94;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid rgba(255,255,255,.08)"></div>
+    <input type="hidden" id="resgate_idx">
+
+    <div style="margin-bottom:16px">
+      <label style="font-size:11px;font-weight:700;color:#b0bac8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;display:block">Tipo de Resgate</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button id="btnResgateParcial" onclick="setTipoResgate('parcial')"
+          style="padding:10px;border-radius:8px;border:2px solid #f59e0b;background:rgba(245,158,11,.15);color:#f59e0b;font-size:12px;font-weight:700;cursor:pointer">
+          Parcial
+        </button>
+        <button id="btnResgateTotal" onclick="setTipoResgate('total')"
+          style="padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:transparent;color:#b0bac8;font-size:12px;font-weight:700;cursor:pointer">
+          Total
+        </button>
+      </div>
+    </div>
+
+    <div id="resgateValorWrap" style="margin-bottom:16px">
+      <label style="font-size:11px;font-weight:700;color:#b0bac8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;display:block">Valor Resgatado (R$)</label>
+      <input id="resgate_valor" type="number" min="0" step="0.01" placeholder="0,00" oninput="calcResgatePrev()"
+        style="width:100%;background:#0f1117;border:1px solid rgba(255,255,255,.15);color:#f4f6fa;padding:9px 12px;border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box">
+    </div>
+
+    <div style="margin-bottom:16px">
+      <label style="font-size:11px;font-weight:700;color:#b0bac8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;display:block">Data do Resgate</label>
+      <input id="resgate_data" type="date"
+        style="width:100%;background:#0f1117;border:1px solid rgba(255,255,255,.15);color:#f4f6fa;padding:9px 12px;border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box">
+    </div>
+
+    <!-- Preview do saldo restante -->
+    <div id="resgatePrev" style="background:#0f1117;border-radius:10px;padding:14px;margin-bottom:20px;display:none">
+      <div style="font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#6b7a94;margin-bottom:10px">Após o resgate</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <div style="font-size:10px;color:#6b7a94;margin-bottom:3px">Saldo restante</div>
+          <div id="prevSaldo" style="font-size:16px;font-weight:700;color:#10b981">—</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:#6b7a94;margin-bottom:3px">Novo investido</div>
+          <div id="prevInv" style="font-size:16px;font-weight:700;color:#f4f6fa">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button onclick="fecharModal('modalResgate')" style="padding:9px 16px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:transparent;color:#b0bac8;cursor:pointer;font-size:12px;font-weight:600">Cancelar</button>
+      <button onclick="confirmarResgate()" style="padding:9px 16px;border-radius:8px;border:none;background:#10b981;color:#fff;cursor:pointer;font-size:13px;font-weight:700">💰 Confirmar Resgate</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
