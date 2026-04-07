@@ -1393,7 +1393,7 @@ function fecharNotifOutside(e){
     if(roleEl) roleEl.textContent = role;
     if(initEl) initEl.textContent = initials;
     if(photo && avatarEl) {
-      avatarEl.innerHTML = '<img src="'+photo+'" onerror="this.style.display='none'">';
+      avatarEl.innerHTML = '<img src="'+photo+'" onerror="this.style.display=\'none\'">';
     }
   } catch(e) {}
 })();
@@ -1403,6 +1403,19 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
 
 <script>
 // ── Firebase Auth ─────────────────────────────────────────
+var _fbAuth, _fbDb;
+
+// Logout — definido globalmente antes de tudo
+window.g20Logout = function() {
+  if (_fbAuth) {
+    _fbAuth.signOut().then(function(){
+      window.location.href = 'login.html';
+    }).catch(function(){ window.location.href = 'login.html'; });
+  } else {
+    window.location.href = 'login.html';
+  }
+};
+
 (function(){
   var firebaseConfig = {
     apiKey: "AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",
@@ -1413,63 +1426,40 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
     appId: "1:1052719482127:web:537c1d67c96532be8a2a7a"
   };
   if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-  var auth = firebase.auth();
-  var db   = firebase.firestore();
+  _fbAuth = firebase.auth();
+  _fbDb   = firebase.firestore();
 
-  // Verifica sessão ativa
-  auth.onAuthStateChanged(function(user) {
-    if (!user) {
-      window.location.href = 'login.html';
-      return;
-    }
-    // Verifica aprovação
-    db.collection('users').doc(user.uid).get().then(function(doc) {
+  _fbAuth.onAuthStateChanged(function(user) {
+    if (!user) { window.location.href = 'login.html'; return; }
+
+    _fbDb.collection('users').doc(user.uid).get().then(function(doc) {
       if (!doc.exists || (doc.data().aprovado !== true && doc.data().role !== 'admin')) {
-        auth.signOut().then(function(){ window.location.href = 'login.html'; });
+        _fbAuth.signOut().then(function(){ window.location.href = 'login.html'; });
         return;
       }
-      // Carrega dados do perfil do Firestore
-      var data = doc.data();
-      var profile = data.profile || data;
-      var name    = profile.name || profile.nome || user.displayName || 'Israel';
-      var turma   = profile.turma || 'Turma 20';
-      var role    = profile.role || data.role || 'Membro';
-      var photo   = profile.photo || user.photoURL || '';
+      var data     = doc.data();
+      var profile  = data.profile || data;
+      var name     = profile.name || profile.nome || user.displayName || 'Israel';
+      var turma    = profile.turma || 'Turma 20';
+      var role     = profile.role  || data.role   || 'Membro';
+      var photo    = profile.photo || user.photoURL || '';
       var initials = name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase() || 'IO';
 
-      // Atualiza sidebar
-      ['sidebarName','wName'].forEach(function(id){
-        var el = document.getElementById(id);
-        if(el) el.textContent = id==='wName' ? name.split(' ')[0] : name;
-      });
-      ['sidebarTurma'].forEach(function(id){
-        var el = document.getElementById(id); if(el) el.textContent = turma;
-      });
-      ['sidebarRole'].forEach(function(id){
-        var el = document.getElementById(id); if(el) el.textContent = role;
-      });
-      ['sidebarInitials'].forEach(function(id){
-        var el = document.getElementById(id); if(el) el.textContent = initials;
+      var ids = {sidebarName:name, wName:name.split(' ')[0], sidebarTurma:turma, sidebarRole:role, sidebarInitials:initials};
+      Object.keys(ids).forEach(function(id){
+        var el = document.getElementById(id); if(el) el.textContent = ids[id];
       });
       var avatarEl = document.getElementById('sidebarAvatar');
       if(avatarEl && photo){
-        avatarEl.innerHTML = '<img src="'+photo+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display='none'">';
+        avatarEl.innerHTML = '<img src="'+photo+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display=\'none\'">';
       }
-      // Salva no localStorage para compatibilidade
       try {
         localStorage.setItem('g20_user_profile', JSON.stringify({
           name:name, turma:turma, role:role, photo:photo, apelido:name.split(' ')[0]
         }));
       } catch(e) {}
-    }).catch(function(e){ console.warn('Firestore error:', e); });
+    }).catch(function(e){ console.warn('Firestore:', e); });
   });
-
-  // Logout
-  window.g20Logout = function() {
-    auth.signOut().then(function(){
-      window.location.href = 'login.html';
-    }).catch(function(e){ console.error(e); window.location.href = 'login.html'; });
-  };
 })();
 </script>
 </body>
