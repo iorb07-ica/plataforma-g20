@@ -713,8 +713,25 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
 </script>
 
 <script>
-// ── Firebase: carrega perfil + protege rota ───────────────
+// ── Firebase: auth rápido com cache local ────────────────
 (function(){
+  // 1. Carrega perfil do cache local IMEDIATAMENTE (sem esperar Firebase)
+  try {
+    var cached = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
+    if (cached.name) {
+      var ids = {sidebarName:cached.name, sidebarTurma:cached.turma||'Turma 20',
+                 sidebarRole:cached.role||'Membro',
+                 sidebarInitials:(cached.name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase()||'IO')};
+      Object.keys(ids).forEach(function(id){
+        var el=document.getElementById(id); if(el) el.textContent=ids[id];
+      });
+      var av = document.getElementById('sidebarAvatar');
+      if(av && cached.photo){
+        av.innerHTML = '<img src="'+cached.photo+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display=\'none\'">';
+      }
+    }
+  } catch(e) {}
+
   var cfg = {
     apiKey: "AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",
     authDomain: "g20-masterclass.firebaseapp.com",
@@ -732,9 +749,10 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
         .catch(function(){ window.location.href = 'login.html'; });
   };
 
+  // 2. Verifica auth em segundo plano
   auth.onAuthStateChanged(function(user) {
     if (!user) { window.location.href = 'login.html'; return; }
-    // Tenta carregar do Firestore
+    // Verifica aprovação e atualiza perfil (sem bloquear UI)
     db.collection('users').doc(user.uid).get().then(function(doc) {
       var data = doc.exists ? doc.data() : {};
       if (!doc.exists || (data.aprovado !== true && data.role !== 'admin')) {
@@ -747,7 +765,6 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
       var role     = profile.role  || data.role   || 'Membro';
       var photo    = profile.photo || user.photoURL || '';
       var initials = name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase()||'IO';
-
       var ids = {sidebarName:name, sidebarTurma:turma, sidebarRole:role, sidebarInitials:initials};
       Object.keys(ids).forEach(function(id){
         var el=document.getElementById(id); if(el) el.textContent=ids[id];
