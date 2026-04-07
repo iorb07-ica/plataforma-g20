@@ -476,6 +476,11 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .btn-logout:hover{border-color:var(--red);color:var(--red)}
 
 </style>
+
+<!-- Firebase Auth -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
 
@@ -521,14 +526,14 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
     <a href="#" class="nav-item" onclick="csm()"><span class="ico">💬</span>Grupo WhatsApp</a>
   </div>
   <div class="sidebar-footer">
-    <button class="btn-logout" onclick="location.href='login.html'">🚪 Sair</button>
+    <button class="btn-logout" onclick="g20Logout()">🚪 Sair</button>
   </div>
 </nav>
 
   <div class="sidebar-footer">
     <div class="sidebar-footer-links">
       <a class="sidebar-footer-link" onclick="toggleTheme()"><span id="themeIcon">🌙</span><span id="themeLabel">Modo Escuro</span></a>
-      <a class="sidebar-footer-link" onclick="location.href='login.html'">🚪 Sair</a>
+      <a class="sidebar-footer-link" onclick="g20Logout()">🚪 Sair</a>
     </div>
   </div>
 </nav>
@@ -1394,6 +1399,78 @@ function fecharNotifOutside(e){
 })();
 function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('sidebar'),ov=document.getElementById('overlay'); if(sb&&sb.classList.contains('open')){ sb.classList.remove('open'); if(ov) ov.classList.remove('show'); document.body.style.overflow=''; } } }
 
+</script>
+
+<script>
+// ── Firebase Auth ─────────────────────────────────────────
+(function(){
+  var firebaseConfig = {
+    apiKey: "AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",
+    authDomain: "g20-masterclass.firebaseapp.com",
+    projectId: "g20-masterclass",
+    storageBucket: "g20-masterclass.firebasestorage.app",
+    messagingSenderId: "1052719482127",
+    appId: "1:1052719482127:web:537c1d67c96532be8a2a7a"
+  };
+  if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+  var auth = firebase.auth();
+  var db   = firebase.firestore();
+
+  // Verifica sessão ativa
+  auth.onAuthStateChanged(function(user) {
+    if (!user) {
+      window.location.href = 'login.html';
+      return;
+    }
+    // Verifica aprovação
+    db.collection('users').doc(user.uid).get().then(function(doc) {
+      if (!doc.exists || (doc.data().aprovado !== true && doc.data().role !== 'admin')) {
+        auth.signOut().then(function(){ window.location.href = 'login.html'; });
+        return;
+      }
+      // Carrega dados do perfil do Firestore
+      var data = doc.data();
+      var profile = data.profile || data;
+      var name    = profile.name || profile.nome || user.displayName || 'Israel';
+      var turma   = profile.turma || 'Turma 20';
+      var role    = profile.role || data.role || 'Membro';
+      var photo   = profile.photo || user.photoURL || '';
+      var initials = name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase() || 'IO';
+
+      // Atualiza sidebar
+      ['sidebarName','wName'].forEach(function(id){
+        var el = document.getElementById(id);
+        if(el) el.textContent = id==='wName' ? name.split(' ')[0] : name;
+      });
+      ['sidebarTurma'].forEach(function(id){
+        var el = document.getElementById(id); if(el) el.textContent = turma;
+      });
+      ['sidebarRole'].forEach(function(id){
+        var el = document.getElementById(id); if(el) el.textContent = role;
+      });
+      ['sidebarInitials'].forEach(function(id){
+        var el = document.getElementById(id); if(el) el.textContent = initials;
+      });
+      var avatarEl = document.getElementById('sidebarAvatar');
+      if(avatarEl && photo){
+        avatarEl.innerHTML = '<img src="'+photo+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display='none'">';
+      }
+      // Salva no localStorage para compatibilidade
+      try {
+        localStorage.setItem('g20_user_profile', JSON.stringify({
+          name:name, turma:turma, role:role, photo:photo, apelido:name.split(' ')[0]
+        }));
+      } catch(e) {}
+    }).catch(function(e){ console.warn('Firestore error:', e); });
+  });
+
+  // Logout
+  window.g20Logout = function() {
+    auth.signOut().then(function(){
+      window.location.href = 'login.html';
+    }).catch(function(e){ console.error(e); window.location.href = 'login.html'; });
+  };
+})();
 </script>
 </body>
 </html>
