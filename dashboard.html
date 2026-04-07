@@ -1480,11 +1480,30 @@ window.g20Logout = function() {
   _fbAuth = firebase.auth();
   _fbDb   = firebase.firestore();
 
-  _fbAuth.onAuthStateChanged(function(user) {
-    if (!user) { window.location.href = 'login.html'; return; }
+  _fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function(){});
 
+  window.g20Logout = function() {
+    localStorage.removeItem('g20_uid');
+    localStorage.removeItem('g20_user_profile');
+    _fbAuth.signOut().then(function(){ window.location.href = 'login.html'; })
+        .catch(function(){ window.location.href = 'login.html'; });
+  };
+
+  // Redireciona imediatamente se não tem sessão salva
+  var savedUid = localStorage.getItem('g20_uid');
+  if (!savedUid) { window.location.href = 'login.html'; return; }
+
+  // Verifica em background
+  _fbAuth.onAuthStateChanged(function(user) {
+    if (!user) {
+      localStorage.removeItem('g20_uid');
+      window.location.href = 'login.html';
+      return;
+    }
+    localStorage.setItem('g20_uid', user.uid);
     _fbDb.collection('users').doc(user.uid).get().then(function(doc) {
       if (!doc.exists || (doc.data().aprovado !== true && doc.data().role !== 'admin')) {
+        localStorage.removeItem('g20_uid');
         _fbAuth.signOut().then(function(){ window.location.href = 'login.html'; });
         return;
       }
