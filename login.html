@@ -358,7 +358,6 @@ async function checkApprovalAndRedirect(user) {
     var doc = await db.collection('users').doc(user.uid).get();
 
     if (!doc.exists) {
-      // Primeiro acesso — cria conta (admin automático se email na lista)
       await db.collection('users').doc(user.uid).set({
         uid:       user.uid,
         email:     user.email,
@@ -370,24 +369,29 @@ async function checkApprovalAndRedirect(user) {
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
       });
       setLoading(false);
-      window.location.href = isAdminEmail ? 'dashboard.html' : 'aguardando.html';
+      if (isAdminEmail) {
+        localStorage.setItem('g20_uid', user.uid);
+        window.location.href = 'dashboard.html';
+      } else {
+        window.location.href = 'aguardando.html';
+      }
       return;
     }
 
     var data = doc.data();
 
-    // Admin sempre passa (por role OU por email na lista)
     if (data.role === 'admin' || isAdminEmail) {
-      // Garante que o doc está atualizado como admin
       if (isAdminEmail && (data.role !== 'admin' || data.aprovado !== true)) {
         await db.collection('users').doc(user.uid).update({ role: 'admin', aprovado: true });
       }
+      localStorage.setItem('g20_uid', user.uid);
       setLoading(false);
       window.location.href = 'dashboard.html';
       return;
     }
 
     if (data.aprovado === true) {
+      localStorage.setItem('g20_uid', user.uid);
       setLoading(false);
       window.location.href = 'dashboard.html';
     } else {
