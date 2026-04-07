@@ -249,22 +249,18 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
 </script>
 
 <script>
-// ── Firebase: auth rápido com cache local ────────────────
+// ── Firebase: auth instantâneo ────────────────────────────
 (function(){
-  // 1. Carrega perfil do cache local IMEDIATAMENTE (sem esperar Firebase)
+  // Carrega perfil do cache IMEDIATAMENTE
   try {
     var cached = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
     if (cached.name) {
       var ids = {sidebarName:cached.name, sidebarTurma:cached.turma||'Turma 20',
                  sidebarRole:cached.role||'Membro',
                  sidebarInitials:(cached.name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase()||'IO')};
-      Object.keys(ids).forEach(function(id){
-        var el=document.getElementById(id); if(el) el.textContent=ids[id];
-      });
-      var av = document.getElementById('sidebarAvatar');
-      if(av && cached.photo){
-        av.innerHTML = '<img src="'+cached.photo+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display=\'none\'">';
-      }
+      Object.keys(ids).forEach(function(id){ var el=document.getElementById(id); if(el) el.textContent=ids[id]; });
+      var av=document.getElementById('sidebarAvatar');
+      if(av&&cached.photo) av.innerHTML='<img src="'+cached.photo+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display=\'none\'">';
     }
   } catch(e) {}
 
@@ -280,18 +276,33 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
   var auth = firebase.auth();
   var db   = firebase.firestore();
 
+  // Persistência LOCAL — mantém login mesmo fechando o app
+  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function(){});
+
   window.g20Logout = function() {
+    localStorage.removeItem('g20_uid');
+    localStorage.removeItem('g20_user_profile');
     auth.signOut().then(function(){ window.location.href = 'login.html'; })
         .catch(function(){ window.location.href = 'login.html'; });
   };
 
-  // 2. Verifica auth em segundo plano
+  // Se não tem uid salvo, redireciona imediatamente
+  var savedUid = localStorage.getItem('g20_uid');
+  if (!savedUid) { window.location.href = 'login.html'; return; }
+
+  // Verifica auth em segundo plano (não bloqueia UI)
   auth.onAuthStateChanged(function(user) {
-    if (!user) { window.location.href = 'login.html'; return; }
-    // Verifica aprovação e atualiza perfil (sem bloquear UI)
+    if (!user) {
+      localStorage.removeItem('g20_uid');
+      window.location.href = 'login.html';
+      return;
+    }
+    localStorage.setItem('g20_uid', user.uid);
+    // Atualiza perfil em background
     db.collection('users').doc(user.uid).get().then(function(doc) {
       var data = doc.exists ? doc.data() : {};
       if (!doc.exists || (data.aprovado !== true && data.role !== 'admin')) {
+        localStorage.removeItem('g20_uid');
         auth.signOut().then(function(){ window.location.href = 'login.html'; });
         return;
       }
@@ -302,9 +313,7 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
       var photo    = profile.photo || user.photoURL || '';
       var initials = name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase()||'IO';
       var ids = {sidebarName:name, sidebarTurma:turma, sidebarRole:role, sidebarInitials:initials};
-      Object.keys(ids).forEach(function(id){
-        var el=document.getElementById(id); if(el) el.textContent=ids[id];
-      });
+      Object.keys(ids).forEach(function(id){ var el=document.getElementById(id); if(el) el.textContent=ids[id]; });
       var av = document.getElementById('sidebarAvatar');
       if(av && photo){
         av.innerHTML = '<img src="'+photo+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display=\'none\'">';
