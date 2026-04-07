@@ -878,7 +878,7 @@ var _DB_LOCAL_ONLY = ['indBCB_cache','indMkt_cache','cotacoesCache',
 var _DB_USER_KEYS = ['aportes','dividendos','rendaFixa','carteiraMeta',
   'splits','patrimonioBens','patrimonioSnaps','rvAportes',
   'tokenBrapi','tokenFmp','tokenLogoDev','tokenTwelve',
-  'colsVisiveis','colOrdem'];
+  'colsVisiveis','colOrdem','g20-theme'];
 
 function _dbIsUserKey(k){
   return _DB_USER_KEYS.indexOf(k) !== -1;
@@ -2949,19 +2949,22 @@ document.getElementById('overlay').addEventListener('click',function(){
 document.getElementById('themeBtn').addEventListener('click',function(){
   var l=document.body.classList.toggle('light');
   this.innerHTML=l?'☀️':'🌙';
-  try{localStorage.setItem('g20-theme-pat',l?'light':'dark');}catch(e){}
+  try{localStorage.setItem('g20-theme',l?'light':'dark');}catch(e){}
 });
 
 // ── INIT ─────────────────────────────────────────────────────
 (function(){
   try{
-    var t=localStorage.getItem('g20-theme-pat');
+    var t=localStorage.getItem('g20-theme');
     if(t==='light'){document.body.classList.add('light');document.getElementById('themeBtn').innerHTML='☀️';}
   }catch(e){}
 
-  renderAll();
   buscarIndicadores();
   renderSidebarUser();
+  // Aguarda Firestore antes de renderizar dados
+  _dbOnReady(function(){
+    renderAll();
+  });
 })();
 </script>
 
@@ -3222,6 +3225,19 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
     appId: "1:1052719482127:web:537c1d67c96532be8a2a7a"
   };
   if (!firebase.apps.length) firebase.initializeApp(cfg);
+  // Carrega perfil do cache IMEDIATAMENTE
+  try {
+    var cached = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
+    if (cached.name) {
+      var ids = {sidebarName:cached.name, sidebarTurma:cached.turma||'Turma 20',
+                 sidebarRole:cached.role||'Membro',
+                 sidebarInitials:(cached.name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase()||'IO')};
+      Object.keys(ids).forEach(function(id){ var el=document.getElementById(id); if(el) el.textContent=ids[id]; });
+      var av=document.getElementById('sidebarAvatar');
+      if(av&&cached.photo) av.innerHTML='<img src="'+cached.photo+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display=\'none\'">';
+    }
+  } catch(e) {}
+
   var auth = firebase.auth();
   var db   = firebase.firestore();
 
