@@ -340,31 +340,39 @@ function setTab(tab) {
 }
 
 // ── Verifica aprovação e redireciona ─────────────────────────
+// Emails que são automaticamente admin (nunca precisam de aprovação)
+var ADMIN_EMAILS = ['iorb@hotmail.com', 'iorb07@gmail.com'];
+
 async function checkApprovalAndRedirect(user) {
   try {
+    var isAdminEmail = ADMIN_EMAILS.indexOf(user.email) !== -1;
     var doc = await db.collection('users').doc(user.uid).get();
 
     if (!doc.exists) {
-      // Primeiro acesso — cria conta pendente
+      // Primeiro acesso — cria conta (admin automático se email na lista)
       await db.collection('users').doc(user.uid).set({
         uid:       user.uid,
         email:     user.email,
         name:      user.displayName || user.email.split('@')[0],
         photo:     user.photoURL || '',
         turma:     'Turma 20',
-        role:      'Membro',
-        aprovado:  false, // aguarda aprovação do Israel
+        role:      isAdminEmail ? 'admin' : 'Membro',
+        aprovado:  isAdminEmail ? true : false,
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
       });
       setLoading(false);
-      window.location.href = 'aguardando.html';
+      window.location.href = isAdminEmail ? 'dashboard.html' : 'aguardando.html';
       return;
     }
 
     var data = doc.data();
 
-    // Admin sempre passa
-    if (data.role === 'admin') {
+    // Admin sempre passa (por role OU por email na lista)
+    if (data.role === 'admin' || isAdminEmail) {
+      // Garante que o doc está atualizado como admin
+      if (isAdminEmail && (data.role !== 'admin' || data.aprovado !== true)) {
+        await db.collection('users').doc(user.uid).update({ role: 'admin', aprovado: true });
+      }
       setLoading(false);
       window.location.href = 'dashboard.html';
       return;
