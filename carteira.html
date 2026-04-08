@@ -3066,6 +3066,8 @@ function buscarCotacoes(){
       atualizarBadge('ok');
       saveCotacoesCache();
       showCacheInfo(Date.now());
+      // Atualiza sparklines com cotações recém-carregadas
+      setTimeout(renderSparklinesVisible, 100);
     } else {
       atualizarBadge('err');
     }
@@ -4131,17 +4133,21 @@ function renderSparklinesVisible(){
     var ticker = td.getAttribute('data-spark-ticker');
     var tipo   = td.getAttribute('data-spark-tipo');
     if(!ticker) return;
-    var canvas = td.querySelector('canvas');
-    if(!canvas){
-      canvas = document.createElement('canvas');
-      canvas.width = 80; canvas.height = 32;
-      canvas.className = 'spark-cell';
-      td.innerHTML = '';
-      td.appendChild(canvas);
-    }
-    getSparkData(ticker, tipo, function(prices){
-      drawSparkline(canvas, prices);
-    });
+
+    // Limpa e cria canvas fresh a cada render
+    td.innerHTML = '';
+    var canvas = document.createElement('canvas');
+    canvas.width = 80; canvas.height = 32;
+    canvas.style.cssText = 'width:80px;height:32px;display:block';
+    td.appendChild(canvas);
+
+    // Captura referência local para o closure
+    (function(cvs, tk, tp){
+      getSparkData(tk, tp, function(prices){
+        // Verifica se canvas ainda está no DOM antes de desenhar
+        if(cvs.parentNode) drawSparkline(cvs, prices);
+      });
+    })(canvas, ticker, tipo);
   });
 }
 
