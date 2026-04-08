@@ -899,11 +899,28 @@ function _dbInit(uid, callback){
     _db_ready = true; callback && callback(); return;
   }
   _db_ref = firebase.firestore().collection('users').doc(uid).collection('dados');
-  // Limpa cache local antes de popular com Firestore — garante que o servidor tem prioridade
-  _db_cache = {};
-  // Força busca no servidor (ignora cache offline do SDK)
+  // Busca do servidor — Firestore sobrescreve localStorage com dados da nuvem
   _db_ref.get({ source: 'server' }).then(function(snap){
-    snap.forEach(function(doc){ _db_cache[doc.id] = doc.data().value; });
+    snap.forEach(function(doc){
+      var val = doc.data().value;
+      _db_cache[doc.id] = val;
+      try{ localStorage.setItem('g20_'+doc.id, JSON.stringify(val)); }catch(e){}
+    });
+    // Sobe pro Firestore chaves que só existem no localStorage
+    _DB_USER_KEYS.forEach(function(k){
+      if(_db_cache.hasOwnProperty(k)) return;
+      try{
+        var v = localStorage.getItem('g20_'+k);
+        if(v !== null){
+          var parsed = JSON.parse(v);
+          _db_cache[k] = parsed;
+          _db_ref.doc(k).set({
+            value: parsed,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          }).catch(function(e){ console.warn('G20 sync ['+k+']:', e); });
+        }
+      }catch(e){}
+    });
     _db_ready = true;
     callback && callback();
     _db_ready_cbs.forEach(function(cb){ cb(); });
@@ -1291,7 +1308,11 @@ function salvarRF(){
   var codigo = document.getElementById('rf_codigo').value.trim();
   var obj={tipo,nome,emissor,valorInv,dataInicio,indexador,taxa,vencimento,liquidez,valorAtual,tdSubtipo,codigo};
   if(editIdx!=='') lista[parseInt(editIdx)]=obj; else lista.push(obj);
-  saveRF(lista); fecharModal('modalRF'); renderAll(); showToast('✅ Título salvo com sucesso');
+  // Save imediato no Firestore
+  _db_cache['rendaFixa'] = lista;
+  try{ localStorage.setItem('g20_rendaFixa', JSON.stringify(lista)); }catch(e){}
+  if(_db_ref){ _db_ref.doc('rendaFixa').set({value:lista,updatedAt:firebase.firestore.FieldValue.serverTimestamp()}).catch(function(e){console.warn(e);}); }
+  fecharModal('modalRF'); renderAll(); showToast('✅ Título salvo com sucesso');
 }
 
 function excluirRF(idx){
@@ -1709,7 +1730,11 @@ function salvarPat(){
   var editIdx=document.getElementById('pat_editId').value;
   var obj={tipo,subtipo,nome,valor,custo,dataAq,divida,obs,prevIdx,prevTaxa};
   if(editIdx!=='') lista[parseInt(editIdx)]=obj; else lista.push(obj);
-  savePat(lista); fecharModal('modalPat'); renderAll(); showToast('✅ Bem salvo com sucesso');
+  // Save imediato no Firestore
+  _db_cache['patrimonioBens'] = lista;
+  try{ localStorage.setItem('g20_patrimonioBens', JSON.stringify(lista)); }catch(e){}
+  if(_db_ref){ _db_ref.doc('patrimonioBens').set({value:lista,updatedAt:firebase.firestore.FieldValue.serverTimestamp()}).catch(function(e){console.warn(e);}); }
+  fecharModal('modalPat'); renderAll(); showToast('✅ Bem salvo com sucesso');
 }
 
 function excluirPat(idx){
@@ -2722,7 +2747,10 @@ function salvarRVAporte(){
   var obj = {id:editId||Date.now().toString(), ticker:ticker, tipo:tipo, op:op, data:data, qtd:qtd, preco:preco, moeda:moedaSalva, fxRate:isUS&&moedaSalva==='USD'?rvUsdBRL:1};
   if(editId){ var idx=aportes.findIndex(function(a){return a.id===editId;});if(idx>=0)aportes[idx]=obj;else aportes.push(obj);}
   else aportes.push(obj);
-  saveRVAportes(aportes);
+  // Save imediato no Firestore
+  _db_cache['rvAportes'] = aportes;
+  try{ localStorage.setItem('g20_rvAportes', JSON.stringify(aportes)); }catch(e){}
+  if(_db_ref){ _db_ref.doc('rvAportes').set({value:aportes,updatedAt:firebase.firestore.FieldValue.serverTimestamp()}).catch(function(e){console.warn(e);}); }
   fecharModalRVAporte();
   renderRVPosicoes();
   // Atualiza KPI patrimônio com novo valor
