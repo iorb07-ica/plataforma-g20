@@ -1184,91 +1184,99 @@ function initTickerDrag(){
   var track = document.getElementById('tickerTapeTrack');
   if(!wrap || !track) return;
 
-  var isDragging  = false;
-  var startX      = 0;
-  var baseOffset  = 0; // offset acumulado pelo arraste
-  var animOffset  = 0; // offset no momento do início do arraste
-  var resumeTimer = null;
+  var dragging   = false;
+  var startX     = 0;
+  var startOffset= 0;
+  var curOffset  = 0;
+  var resumeTimer= null;
+  var animPaused = false;
 
-  function getCurrentTranslateX(){
-    var mat = new DOMMatrix(window.getComputedStyle(track).transform);
-    return isNaN(mat.m41) ? 0 : mat.m41;
+  // Captura a posição X atual da animação CSS
+  function getX(){
+    var t = window.getComputedStyle(track).transform;
+    if(!t || t==='none') return 0;
+    var m = t.match(/matrix\([\d.,\s-]+,\s*([-\d.]+)\)/);
+    return m ? parseFloat(m[1]) : 0;
   }
 
-  function pauseAnim(){
+  function pause(){
+    if(animPaused) return;
     clearTimeout(resumeTimer);
-    // Captura posição atual da animação CSS
-    animOffset = getCurrentTranslateX();
-    track.style.animation = 'none';
-    track.style.transform = 'translateX(' + animOffset + 'px)';
+    curOffset = getX();
+    track.style.transition = 'none';
+    track.style.animation  = 'none';
+    track.style.transform  = 'translateX('+curOffset+'px)';
+    animPaused = true;
   }
 
-  function resumeAnim(){
+  function resume(){
     clearTimeout(resumeTimer);
     resumeTimer = setTimeout(function(){
-      // Calcula a offset percentual para reiniciar a animação no ponto certo
-      track.style.transform = '';
-      track.style.animation = '';
-      track.classList.remove('paused');
-    }, 1500);
+      track.style.animation  = '';
+      track.style.transform  = '';
+      animPaused = false;
+    }, 2000);
   }
 
-  function onDragStart(clientX){
-    pauseAnim();
-    isDragging = true;
-    startX = clientX;
-    baseOffset = animOffset;
-    wrap.classList.add('dragging');
-  }
+  // ── TOUCH ────────────────────────────────────────────────
+  var touchStartX = 0, touchStartY = 0, isHorizSwipe = null;
 
-  function onDragMove(clientX){
-    if(!isDragging) return;
-    var delta = clientX - startX;
-    track.style.transform = 'translateX(' + (baseOffset + delta) + 'px)';
-  }
-
-  function onDragEnd(){
-    if(!isDragging) return;
-    isDragging = false;
-    wrap.classList.remove('dragging');
-    // Salva o offset atual para o próximo arraste
-    animOffset = getCurrentTranslateX();
-    baseOffset = animOffset;
-    resumeAnim();
-  }
-
-  // Mouse (desktop)
-  wrap.addEventListener('mousedown', function(e){
-    onDragStart(e.clientX);
-    e.preventDefault();
-  });
-  document.addEventListener('mousemove', function(e){
-    onDragMove(e.clientX);
-  });
-  document.addEventListener('mouseup', onDragEnd);
-
-  // Touch (mobile) — não usa passive:false para não bloquear scroll da página
   wrap.addEventListener('touchstart', function(e){
-    // Só captura se o toque for horizontal
-    onDragStart(e.touches[0].clientX);
+    touchStartX  = e.touches[0].clientX;
+    touchStartY  = e.touches[0].clientY;
+    isHorizSwipe = null;
+    pause();
+    startOffset = curOffset;
   }, {passive:true});
 
   wrap.addEventListener('touchmove', function(e){
-    if(!isDragging) return;
-    var dx = Math.abs(e.touches[0].clientX - startX);
-    var dy = Math.abs(e.touches[0].clientY - (e.touches[0].screenY - wrap.getBoundingClientRect().top));
-    onDragMove(e.touches[0].clientX);
-  }, {passive:true});
+    var dx = e.touches[0].clientX - touchStartX;
+    var dy = e.touches[0].clientY - touchStartY;
 
-  wrap.addEventListener('touchend', onDragEnd);
-  wrap.addEventListener('touchcancel', onDragEnd);
+    // Determina direção na primeira movimentação
+    if(isHorizSwipe === null){
+      isHorizSwipe = Math.abs(dx) > Math.abs(dy);
+    }
+    if(!isHorizSwipe) return; // swipe vertical — deixa scroll da página
+
+    // É swipe horizontal — impede scroll da página
+    e.preventDefault();
+    curOffset = startOffset + dx;
+    track.style.transform = 'translateX('+curOffset+'px)';
+  }, {passive:false}); // passive:false necessário para poder chamar preventDefault
+
+  wrap.addEventListener('touchend',    resume, {passive:true});
+  wrap.addEventListener('touchcancel', resume, {passive:true});
+
+  // ── MOUSE (desktop) ──────────────────────────────────────
+  wrap.addEventListener('mousedown', function(e){
+    dragging = true;
+    startX   = e.clientX;
+    pause();
+    startOffset = curOffset;
+    wrap.style.cursor = 'grabbing';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', function(e){
+    if(!dragging) return;
+    curOffset = startOffset + (e.clientX - startX);
+    track.style.transform = 'translateX('+curOffset+'px)';
+  });
+
+  document.addEventListener('mouseup', function(){
+    if(!dragging) return;
+    dragging = false;
+    wrap.style.cursor = 'grab';
+    resume();
+  });
 }
 
 // Inicializa após DOM estar pronto
 if(document.readyState === 'loading'){
   document.addEventListener('DOMContentLoaded', initTickerDrag);
 } else {
-  initTickerDrag();
+  setTimeout(initTickerDrag, 100);
 }
 
 // -- PAINEL PATRIMONIAL (l- do localStorage) --------------------
