@@ -60,8 +60,7 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .ticker-tape-wrap::before,.ticker-tape-wrap::after{right:0;background:linear-gradient(to left,var(--bg2),transparent)}
 .ticker-tape-wrap::before{left:0;background:linear-gradient(to right,var(--bg2),transparent)}
 .ticker-tape-wrap::after{right:0;background:linear-gradient(to left,var(--bg2),transparent)}
-.ticker-tape-track{display:flex;align-items:center;white-space:nowrap;animation:tickerScroll 60s linear infinite;gap:0;will-change:transform}
-.ticker-tape-track:hover{animation-play-state:paused}
+.ticker-tape-track{display:flex;align-items:center;white-space:nowrap;gap:0;will-change:transform}
 @keyframes tickerScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 .tt-item{display:inline-flex;align-items:center;gap:8px;padding:0 22px;border-right:1px solid rgba(255,255,255,.08);height:52px;cursor:default;transition:background .15s}
 .tt-item:hover{background:rgba(255,255,255,.05)}
@@ -1022,7 +1021,8 @@ function buscarIndicadores(){
     ]).then(function(){
       saveData('indBCB_cache',{ts:Date.now(),data:IND});
       renderTape();
-      renderAll();
+      // Só renderiza dados se o Firestore já estiver pronto
+      if(_db_ready) renderAll();
     });
   }
 
@@ -1116,6 +1116,133 @@ function renderTape(){
 
 // Mantém compatibilidade — renderIndicadores agora chama renderTape
 function renderIndicadores(){ renderTape(); }
+
+function initTickerDrag(){
+  var wrap  = document.getElementById('tickerTapeWrap');
+  var track = document.getElementById('tickerTapeTrack');
+  if(!wrap || !track) return;
+
+  track.style.animation = 'none';
+
+  var trackW    = 0;
+  var curOffset = 0;
+  var velocity  = 0;
+  var autoSpeed = 0;
+  var dragging  = false;
+  var mainRAF   = null;
+  var resumeTimer = null;
+  var autoMode  = true;
+
+  function init(){
+    trackW    = track.scrollWidth / 2;
+    autoSpeed = trackW / (60 * 60);
+    curOffset = 0;
+    startMainLoop();
+  }
+
+  function norm(x){
+    x = x % trackW;
+    if(x > 0) x -= trackW;
+    return x;
+  }
+
+  function mainLoop(){
+    mainRAF = requestAnimationFrame(mainLoop);
+    if(dragging) return;
+    if(autoMode){
+      curOffset = norm(curOffset - autoSpeed);
+    } else {
+      if(Math.abs(velocity) > 0.1){
+        velocity *= 0.94;
+        curOffset = norm(curOffset + velocity);
+      } else {
+        velocity = 0;
+        if(!resumeTimer){
+          resumeTimer = setTimeout(function(){
+            resumeTimer = null;
+            autoMode = true;
+          }, 3000);
+        }
+      }
+    }
+    track.style.transform = 'translateX('+curOffset+'px)';
+  }
+
+  function startMainLoop(){
+    cancelAnimationFrame(mainRAF);
+    mainRAF = requestAnimationFrame(mainLoop);
+  }
+
+  var touchStartX = 0, touchStartY = 0, prevTouchX = 0, prevTouchTime = 0;
+  var isHoriz = null;
+
+  wrap.addEventListener('touchstart', function(e){
+    clearTimeout(resumeTimer); resumeTimer = null;
+    autoMode = false; velocity = 0; dragging = true; isHoriz = null;
+    touchStartX = prevTouchX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    prevTouchTime = Date.now();
+  }, {passive:true});
+
+  wrap.addEventListener('touchmove', function(e){
+    if(!dragging) return;
+    var dx = e.touches[0].clientX - touchStartX;
+    var dy = e.touches[0].clientY - touchStartY;
+    if(isHoriz === null) isHoriz = Math.abs(dx) > Math.abs(dy);
+    if(!isHoriz) return;
+    e.preventDefault();
+    var now = Date.now();
+    var dt  = Math.max(now - prevTouchTime, 1);
+    velocity = (e.touches[0].clientX - prevTouchX) / dt * 16;
+    curOffset = norm(curOffset + (e.touches[0].clientX - prevTouchX));
+    track.style.transform = 'translateX('+curOffset+'px)';
+    prevTouchX = e.touches[0].clientX;
+    prevTouchTime = now;
+    touchStartX = e.touches[0].clientX;
+  }, {passive:false});
+
+  wrap.addEventListener('touchend', function(){
+    dragging = false;
+    if(Math.abs(velocity) < 0.5){
+      resumeTimer = setTimeout(function(){ resumeTimer = null; autoMode = true; }, 3000);
+    }
+  }, {passive:true});
+
+  wrap.addEventListener('touchcancel', function(){
+    dragging = false; velocity = 0;
+    resumeTimer = setTimeout(function(){ resumeTimer = null; autoMode = true; }, 3000);
+  }, {passive:true});
+
+  var prevMouseX = 0, prevMouseTime = 0;
+
+  wrap.addEventListener('mousedown', function(e){
+    clearTimeout(resumeTimer); resumeTimer = null;
+    autoMode = false; velocity = 0; dragging = true;
+    prevMouseX = e.clientX; prevMouseTime = Date.now();
+    wrap.style.cursor = 'grabbing';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', function(e){
+    if(!dragging) return;
+    var now = Date.now();
+    var dt  = Math.max(now - prevMouseTime, 1);
+    velocity = (e.clientX - prevMouseX) / dt * 16;
+    curOffset = norm(curOffset + (e.clientX - prevMouseX));
+    track.style.transform = 'translateX('+curOffset+'px)';
+    prevMouseX = e.clientX; prevMouseTime = now;
+  });
+
+  document.addEventListener('mouseup', function(){
+    if(!dragging) return;
+    dragging = false; wrap.style.cursor = 'grab';
+    if(Math.abs(velocity) < 0.5){
+      resumeTimer = setTimeout(function(){ resumeTimer = null; autoMode = true; }, 3000);
+    }
+  });
+
+  setTimeout(init, 400);
+}
 
 // ── RENDA FIXA ────────────────────────────────────────────────
 var RF_CORES = {CDB:'#3b82f6',LCI:'#10b981',LCA:'#f59e0b',TD:'#8b5cf6',LIG:'#ec4899',DEB:'#ef4444',CRI:'#14b8a6',CRA:'#eab308'};
@@ -2998,6 +3125,12 @@ document.getElementById('themeBtn').addEventListener('click',function(){
 
   buscarIndicadores();
   renderSidebarUser();
+  // Inicia ticker drag após DOM ter dimensões
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', initTickerDrag);
+  } else {
+    setTimeout(initTickerDrag, 400);
+  }
   // Aguarda Firestore antes de renderizar dados
   _dbOnReady(function(){
     renderAll();
