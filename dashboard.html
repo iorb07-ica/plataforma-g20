@@ -1217,12 +1217,12 @@ function initTickerDrag(){
   function takeControl(){
     clearTimeout(resumeTimer);
     cancelAnimationFrame(momentumRAF);
-    if(track.style.animation !== 'none'){
-      curOffset = getX();
-      track.style.animation  = 'none';
-      track.style.transition = 'none';
-      track.style.transform  = 'translateX('+curOffset+'px)';
-    }
+    // Captura posição atual seja via transform manual ou via animação CSS em andamento
+    curOffset = getX();
+    track.style.animation  = 'none';
+    track.style.transition = 'none';
+    track.style.animationDelay = '0s';
+    track.style.transform  = 'translateX('+curOffset+'px)';
   }
 
   // Loop de momentum — desliza livre e desacelera gradualmente
@@ -1242,30 +1242,25 @@ function initTickerDrag(){
   function scheduleResume(){
     clearTimeout(resumeTimer);
     resumeTimer = setTimeout(function(){
-      // Atualiza trackW caso conteúdo tenha carregado depois
       trackW = track.scrollWidth / 2;
-      ANIM_SPEED = trackW / 60000;
 
       // Normaliza offset para [-trackW, 0]
       var norm = normalizeOffset(curOffset);
+      var elapsed = (Math.abs(norm) / trackW) * 60; // segundos dentro do ciclo de 60s
 
-      // Quantos segundos já foram percorridos neste ciclo
-      var elapsed = (Math.abs(norm) / trackW) * 60;
+      // 1) Para animação e fixa posição atual
+      track.style.animation  = 'none';
+      track.style.transition = 'none';
+      track.style.transform  = 'translateX(' + norm + 'px)';
 
-      // Pinta o transform atual antes de ligar a animação
-      track.style.transition      = 'none';
-      track.style.transform       = 'translateX(' + norm + 'px)';
+      // 2) Força reflow para o browser processar o transform acima
+      void track.offsetWidth;
 
-      // Dois rAFs garantem que o browser aplicou o transform acima
-      // antes de removermos e ligarmos a animação com delay negativo
-      requestAnimationFrame(function(){
-        requestAnimationFrame(function(){
-          track.style.transform       = '';
-          track.style.animationDelay  = '-' + elapsed.toFixed(3) + 's';
-          track.style.animation       = 'tickerScroll 60s linear infinite';
-        });
-      });
-    }, 300);
+      // 3) Liga animação com delay negativo para continuar do ponto certo
+      track.style.transform      = '';
+      track.style.animationDelay = '-' + elapsed.toFixed(3) + 's';
+      track.style.animation      = 'tickerScroll 60s linear infinite';
+    }, 3000);
   }
 
   // ── TOUCH ────────────────────────────────────────────────
