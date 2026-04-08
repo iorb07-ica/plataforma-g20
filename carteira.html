@@ -1494,6 +1494,26 @@ th.col-filtered { color:var(--gold) !important; }
         </div>
       </div>
 
+      <!-- GRÁFICO ROSCA PORTFOLIO -->
+      <div id="portfolioDonutWrap" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 20px;margin-bottom:16px">
+        <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">📊 Composição do Portfolio</div>
+        <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:center">
+          <!-- Canvas do donut -->
+          <div style="position:relative;flex-shrink:0">
+            <canvas id="portfolioDonutCanvas" width="260" height="260"></canvas>
+            <!-- Centro: logo G20 -->
+            <div id="portfolioDonutCenter" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:80px;height:80px;border-radius:50%;background:var(--bg3);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;pointer-events:none">
+              <img src="icons/icon-192x192.png" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display='none';this.nextSibling.style.display='flex'">
+              <div style="display:none;font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--gold);letter-spacing:2px">G20</div>
+            </div>
+          </div>
+          <!-- Legenda com logos -->
+          <div id="portfolioDonutLegend" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px;flex:1;min-width:200px;max-height:260px;overflow-y:auto"></div>
+        </div>
+        <!-- Tooltip -->
+        <div id="portfolioDonutTooltip" style="display:none;position:fixed;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;z-index:9999;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.4)"></div>
+      </div>
+
       <!-- FILTROS -->
       <div class="filter-bar">
         <input class="search-input" id="searchTicker" placeholder="🔍 Buscar ticker..." oninput="renderPosicoes()">
@@ -3375,7 +3395,6 @@ function mostrarAvisoToken(api){
   // Não abre o banner automaticamente — usuário acessa via botão 🔑
   console.warn('Token não configurado:', api);
 }
-}
 
 function mostrarErros(erros){
   var el = document.getElementById('errosMsg');
@@ -3465,7 +3484,146 @@ function toggleMoeda(){
   renderPosicoes();
 }
 
+// ============================================================
+// GRÁFICO ROSCA PORTFOLIO
+// ============================================================
+var _donutChart = null;
+var _DONUT_COLORS = [
+  '#e8b84b','#2ecc71','#3b82f6','#e63946','#8b5cf6',
+  '#f97316','#06b6d4','#ec4899','#a3e635','#f59e0b',
+  '#10b981','#6366f1','#ef4444','#14b8a6','#d946ef',
+  '#fb923c','#84cc16','#38bdf8','#f472b6','#a78bfa'
+];
+
+function getLogo(ticker, tipo){
+  if(!tokenLogoDev) return null;
+  var t = ticker.replace(/\d+$/, '').toUpperCase();
+  if(isBR(ticker, tipo)){
+    return 'https://img.logo.dev/ticker/' + t + '.SA?token=' + tokenLogoDev + '&size=64&format=png';
+  }
+  return 'https://img.logo.dev/ticker/' + t + '?token=' + tokenLogoDev + '&size=64&format=png';
+}
+
+function renderPortfolioDonut(){
+  var pos = calcPosicoes();
+  var wrap = document.getElementById('portfolioDonutWrap');
+  if(!wrap) return;
+  if(!pos || pos.length === 0){ wrap.style.display='none'; return; }
+  wrap.style.display = 'block';
+
+  // Calcula valor total usando cotações disponíveis
+  var total = 0;
+  pos.forEach(function(p){
+    var cot = cotacoes[p.ticker];
+    var val = cot ? p.qtd * (isBR(p.ticker,p.tipo) ? cot.price : cot.price * usdBRL) : p.totalInv;
+    p._donutVal = val;
+    total += val;
+  });
+  if(total <= 0){ wrap.style.display='none'; return; }
+
+  // Ordena por valor desc
+  pos.sort(function(a,b){ return b._donutVal - a._donutVal; });
+
+  // Agrupa os menores em "Outros" se > 12 ativos
+  var MAX_SLICES = 15;
+  var slices = pos.slice(0, MAX_SLICES);
+  var outros = pos.slice(MAX_SLICES);
+  if(outros.length > 0){
+    var outrosVal = outros.reduce(function(s,p){ return s + p._donutVal; }, 0);
+    slices.push({ ticker:'Outros', tipo:'', _donutVal: outrosVal, _isOthers: true });
+  }
+
+  var labels = slices.map(function(p){ return p.ticker; });
+  var vals   = slices.map(function(p){ return p._donutVal; });
+  var cores  = slices.map(function(p,i){ return _DONUT_COLORS[i % _DONUT_COLORS.length]; });
+
+  // Destrói chart anterior
+  if(_donutChart){ _donutChart.destroy(); _donutChart = null; }
+
+  var canvas = document.getElementById('portfolioDonutCanvas');
+  if(!canvas) return;
+  var ctx = canvas.getContext('2d');
+
+  _donutChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: { labels: labels, datasets: [{ data: vals, backgroundColor: cores, borderColor: 'var(--bg2)', borderWidth: 3, hoverBorderWidth: 4 }] },
+    options: {
+      cutout: '62%',
+      responsive: false,
+      animation: { duration: 600 },
+      plugins: {
+        legend: { display: false },
+        tooltip: { enabled: false }
+      },
+      onHover: function(event, elements){
+        canvas.style.cursor = elements.length ? 'pointer' : 'default';
+      }
+    }
+  });
+
+  // Tooltip e click customizados
+  canvas.onclick = function(e){
+    var pts = _donutChart.getElementsAtEventForMode(e, 'nearest', { intersect: true }, true);
+    if(!pts.length) return;
+    var idx = pts[0].index;
+    var sl = slices[idx];
+    if(!sl._isOthers) abrirDrawer(sl.ticker, sl.tipo, sl.ticker);
+  };
+  canvas.onmousemove = function(e){
+    var pts = _donutChart.getElementsAtEventForMode(e, 'nearest', { intersect: true }, true);
+    var tip = document.getElementById('portfolioDonutTooltip');
+    if(!tip) return;
+    if(!pts.length){ tip.style.display='none'; return; }
+    var idx = pts[0].index;
+    var sl = slices[idx];
+    var pct = (sl._donutVal / total * 100).toFixed(2);
+    var fmt = function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0}); };
+    tip.innerHTML = '<strong style="color:'+cores[idx]+'">' + sl.ticker + '</strong><br>' +
+      pct + '% &nbsp;·&nbsp; ' + fmt(sl._donutVal);
+    tip.style.display = 'block';
+    tip.style.left = (e.clientX + 12) + 'px';
+    tip.style.top  = (e.clientY - 36) + 'px';
+  };
+  canvas.onmouseleave = function(){
+    var tip = document.getElementById('portfolioDonutTooltip');
+    if(tip) tip.style.display='none';
+  };
+
+  // Renderiza legenda com logos
+  var legend = document.getElementById('portfolioDonutLegend');
+  if(!legend) return;
+  legend.innerHTML = '';
+  slices.forEach(function(sl, i){
+    var pct = (sl._donutVal / total * 100).toFixed(1);
+    var item = document.createElement('div');
+    item.style.cssText = 'display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:8px;background:var(--bg3);border:1px solid var(--border);cursor:'+(sl._isOthers?'default':'pointer')+';transition:.15s';
+    item.onmouseenter = function(){ this.style.borderColor = cores[i]; };
+    item.onmouseleave = function(){ this.style.borderColor = 'var(--border)'; };
+    if(!sl._isOthers) item.onclick = function(){ abrirDrawer(sl.ticker, sl.tipo, sl.ticker); };
+
+    // Logo ou fallback
+    var logoUrl = !sl._isOthers ? getLogo(sl.ticker, sl.tipo) : null;
+    var logoEl;
+    if(logoUrl){
+      logoEl = '<img src="'+logoUrl+'" style="width:22px;height:22px;border-radius:50%;object-fit:cover;flex-shrink:0;background:var(--bg2)" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\'">' +
+               '<div style="display:none;width:22px;height:22px;border-radius:50%;background:'+cores[i]+';align-items:center;justify-content:center;font-size:8px;font-weight:800;color:#000;flex-shrink:0">'+sl.ticker.slice(0,3)+'</div>';
+    } else {
+      logoEl = '<div style="width:22px;height:22px;border-radius:50%;background:'+cores[i]+';display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:800;color:#000;flex-shrink:0">'+sl.ticker.slice(0,3)+'</div>';
+    }
+
+    item.innerHTML = logoEl +
+      '<div style="min-width:0">' +
+        '<div style="font-size:11px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+sl.ticker+'</div>' +
+        '<div style="font-size:10px;color:'+cores[i]+';font-weight:600">'+pct+'%</div>' +
+      '</div>';
+    legend.appendChild(item);
+  });
+}
+
 function renderPosicoes(){
+  // Atualiza gráfico rosca
+  renderPortfolioDonut();
+
   var pos = calcPosicoes();
   var search = (document.getElementById('searchTicker').value||'').toUpperCase();
   var divs = loadData('dividendos',[]);
