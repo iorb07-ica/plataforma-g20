@@ -2237,8 +2237,10 @@ function _dbInit(uid, callback){
     _db_ready = true; callback && callback(); return;
   }
   _db_ref = firebase.firestore().collection('users').doc(uid).collection('dados');
-  // Carrega todos os dados do Firestore de uma vez
-  _db_ref.get().then(function(snap){
+  // Limpa cache local antes de popular com Firestore — garante que o servidor tem prioridade
+  _db_cache = {};
+  // Carrega todos os dados do Firestore de uma vez — força busca no servidor (ignora cache offline)
+  _db_ref.get({ source: 'server' }).then(function(snap){
     snap.forEach(function(doc){ _db_cache[doc.id] = doc.data().value; });
     _db_ready = true;
     callback && callback();
@@ -3733,7 +3735,10 @@ function renderPortfolioDonut(){
     }
   }
 
-  if(_donutChart){ _donutChart.destroy(); _donutChart=null; }
+  if(_donutChart){
+    try{ _donutChart.destroy(); } catch(e){}
+    _donutChart=null;
+  }
   var ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, size, size);
 
@@ -4221,7 +4226,7 @@ var COLORS_TIPO_ALPHA = {
 var grfPeriodo = 'tudo';
 
 function destroyChart(id){
-  if(chartsInstances[id]){chartsInstances[id].destroy();delete chartsInstances[id];}
+  if(chartsInstances[id]){ try{ chartsInstances[id].destroy(); }catch(e){} delete chartsInstances[id]; }
 }
 
 function setGrfPeriodo(p, btn){
@@ -7363,7 +7368,13 @@ function confirmarImport(novos){
 // ============================================================
 // TABS
 // ============================================================
+var _showTabTimers = {};
+var _renderGraficosRunning = false;
 function showTab(t){
+  // Cancela timers pendentes de tabs anteriores para evitar renders sobrepostos
+  Object.keys(_showTabTimers).forEach(function(k){ clearTimeout(_showTabTimers[k]); });
+  _showTabTimers = {};
+
   ['posicoes','composicao','graficos','aportes','dividendos','rebalancear','importar'].forEach(function(x){
     var el=document.getElementById('tab-'+x);
     if(el) el.style.display=x===t?'block':'none';
@@ -7372,24 +7383,32 @@ function showTab(t){
     var tabs=['posicoes','composicao','graficos','aportes','dividendos','rebalancear','importar'];
     b.classList.toggle('on',tabs[i]===t);
   });
-  if(t==='posicoes') { renderPosicoes(); setTimeout(function(){ aplicarOrdemColunas(); aplicarColsVisiveis(); },30); }
-  if(t==='composicao') {
+  if(t==='posicoes'){
+    renderPosicoes();
+    _showTabTimers.pos = setTimeout(function(){ aplicarOrdemColunas(); aplicarColsVisiveis(); }, 30);
+  }
+  if(t==='composicao'){
     var tabEl = document.getElementById('tab-composicao');
     if(tabEl) tabEl.style.display = 'block';
-    // Delay maior para garantir que o DOM está visível e tem dimensões
-    setTimeout(renderPortfolioDonut, 100);
+    _showTabTimers.donut = setTimeout(function(){
+      if(document.getElementById('tab-composicao').style.display !== 'none') renderPortfolioDonut();
+    }, 120);
   }
   if(t==='graficos'){
-    renderGraficos();
-    setTimeout(function(){
+    if(!_renderGraficosRunning){
+      _renderGraficosRunning = true;
+      try{ renderGraficos(); } catch(e){ console.warn('renderGraficos erro:', e); }
+      _renderGraficosRunning = false;
+    }
+    _showTabTimers.resize = setTimeout(function(){
       Object.values(chartsInstances||{}).forEach(function(c){
         if(c && typeof c.resize==='function') c.resize();
       });
-    }, 60);
+    }, 80);
   }
   if(t==='aportes') renderAportes();
   if(t==='dividendos'){
-    setTimeout(renderDividendos, 30);
+    _showTabTimers.div = setTimeout(renderDividendos, 30);
   }
   if(t==='rebalancear') calcularRebalanceamento();
 }
