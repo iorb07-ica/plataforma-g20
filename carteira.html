@@ -3522,11 +3522,13 @@ function getLogo(ticker, tipo){
 
 function _loadLogoImage(url, cb){
   if(!url){ cb(null); return; }
-  if(_donutLogoCache[url]){ cb(_donutLogoCache[url]); return; }
+  if(_donutLogoCache[url] !== undefined){ cb(_donutLogoCache[url]); return; }
+  // Marca como carregando para não duplicar requisições
+  _donutLogoCache[url] = null;
   var img = new Image();
-  img.crossOrigin = 'anonymous';
+  // NÃO usar crossOrigin — LogoDev não precisa e evita bloqueio CORS
   img.onload = function(){ _donutLogoCache[url] = img; cb(img); };
-  img.onerror = function(){ _donutLogoCache[url] = null; cb(null); };
+  img.onerror = function(){ cb(null); };
   img.src = url;
 }
 
@@ -3534,52 +3536,62 @@ function _loadLogoImage(url, cb){
 var donutLogoPlugin = {
   id: 'donutLogos',
   afterDraw: function(chart){
+    if(!_donutTotal || _donutTotal <= 0) return;
     var ctx = chart.ctx;
     var meta = chart.getDatasetMeta(0);
     if(!meta || !meta.data) return;
     meta.data.forEach(function(arc, i){
       var sl = _donutSlices[i];
-      if(!sl) return;
+      if(!sl || !sl._logoImg) return;
       var pct = sl._donutVal / _donutTotal;
-      if(pct < 0.02) return; // fatia muito pequena, pula logo
+      if(pct < 0.025) return;
 
-      // Ponto central da fatia (meio do ângulo, raio médio)
       var startAngle = arc.startAngle;
       var endAngle   = arc.endAngle;
       var midAngle   = (startAngle + endAngle) / 2;
       var outerR = arc.outerRadius;
       var innerR = arc.innerRadius;
-      var midR   = innerR + (outerR - innerR) * 0.5;
+      var midR   = innerR + (outerR - innerR) * 0.52;
       var x = arc.x + Math.cos(midAngle) * midR;
       var y = arc.y + Math.sin(midAngle) * midR;
 
-      // Tamanho do logo proporcional à fatia
       var arcLen = (endAngle - startAngle) * midR;
-      var size = Math.min(Math.max(arcLen * 0.55, 16), 36);
+      var size = Math.min(Math.max(arcLen * 0.6, 18), 38);
 
-      var logoImg = sl._logoImg;
-      if(logoImg){
-        // Desenha logo circular
+      try {
         ctx.save();
         ctx.beginPath();
         ctx.arc(x, y, size/2, 0, Math.PI*2);
         ctx.closePath();
+        // Fundo branco circular atrás do logo
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.fill();
         ctx.clip();
-        ctx.drawImage(logoImg, x - size/2, y - size/2, size, size);
+        ctx.drawImage(sl._logoImg, x - size/2, y - size/2, size, size);
         ctx.restore();
-      } else {
-        // Fallback: texto do ticker
-        if(pct < 0.04) return;
-        var fontSize = Math.min(Math.max(size * 0.38, 8), 13);
-        ctx.save();
-        ctx.fillStyle = 'rgba(0,0,0,0.7)';
-        ctx.font = 'bold ' + fontSize + 'px DM Sans, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        var label = sl.ticker.length > 5 ? sl.ticker.slice(0,4) : sl.ticker;
-        ctx.fillText(label, x, y);
-        ctx.restore();
-      }
+      } catch(e){ /* ignora erros de taint no canvas */ }
+    });
+
+    // Fallback texto para fatias sem logo
+    meta.data.forEach(function(arc, i){
+      var sl = _donutSlices[i];
+      if(!sl || sl._logoImg) return;
+      var pct = sl._donutVal / _donutTotal;
+      if(pct < 0.04) return;
+
+      var midAngle = (arc.startAngle + arc.endAngle) / 2;
+      var midR = arc.innerRadius + (arc.outerRadius - arc.innerRadius) * 0.52;
+      var x = arc.x + Math.cos(midAngle) * midR;
+      var y = arc.y + Math.sin(midAngle) * midR;
+      var fontSize = Math.min(Math.max((arc.outerRadius - arc.innerRadius) * 0.22, 9), 13);
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.75)';
+      ctx.font = 'bold ' + fontSize + 'px "DM Sans", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(sl.ticker.length > 5 ? sl.ticker.slice(0,4) : sl.ticker, x, y);
+      ctx.restore();
     });
   }
 };
@@ -3598,14 +3610,23 @@ function renderPortfolioDonut(){
   inner.style.display = 'block';
   if(empty) empty.style.display = 'none';
 
-  // Calcula valor total
+  // Calcula valor total — usa cotações se disponíveis, senão totalInv
   var total = 0;
   pos.forEach(function(p){
     var cot = cotacoes[p.ticker];
-    var val = cot ? p.qtd * (isBR(p.ticker,p.tipo) ? cot.price : cot.price * usdBRL) : p.totalInv;
+    var val;
+    if(cot && cot.price > 0){
+      val = p.qtd * (isBR(p.ticker,p.tipo) ? cot.price : cot.price * (usdBRL||1));
+    } else {
+      val = p.totalInv || 0;
+    }
     p._donutVal = Math.max(val, 0);
     total += p._donutVal;
   });
+  if(total <= 0){
+    // Último fallback: usa totalInv direto
+    pos.forEach(function(p){ p._donutVal = p.totalInv||0; total += p._donutVal; });
+  }
   if(total <= 0){ inner.style.display='none'; if(empty) empty.style.display='block'; return; }
   _donutTotal = total;
 
@@ -3697,7 +3718,10 @@ function renderPortfolioDonut(){
 }
 
 function _drawLogos(){
-  if(_donutChart) _donutChart.draw();
+  if(_donutChart && typeof _donutChart.draw === 'function'){
+    // Força o chart a redesenhar com os logos carregados
+    _donutChart.update('none'); // 'none' = sem animação
+  }
 }
 
 function _renderDonutLegend(slices, cores, total){
