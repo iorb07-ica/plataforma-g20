@@ -110,14 +110,12 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .notif-footer a:hover{color:var(--gold)}
 
 /* TICKER TAPE */
-.ticker-tape-wrap{position:relative;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:20px;height:52px;display:flex;align-items:center;box-shadow:0 2px 12px rgba(0,0,0,.15);cursor:grab}
+.ticker-tape-wrap{position:relative;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:20px;height:52px;display:flex;align-items:center;box-shadow:0 2px 12px rgba(0,0,0,.15);cursor:grab;user-select:none;-webkit-user-select:none}
 .ticker-tape-wrap.dragging{cursor:grabbing}
 .ticker-tape-wrap::before,.ticker-tape-wrap::after{content:'';position:absolute;top:0;bottom:0;width:48px;z-index:2;pointer-events:none}
 .ticker-tape-wrap::before{left:0;background:linear-gradient(to right,var(--bg2),transparent)}
 .ticker-tape-wrap::after{right:0;background:linear-gradient(to left,var(--bg2),transparent)}
 .ticker-tape-track{display:flex;align-items:center;white-space:nowrap;animation:tickerScroll 60s linear infinite;will-change:transform}
-.ticker-tape-track.paused{animation-play-state:paused}
-.ticker-tape-wrap:hover .ticker-tape-track{animation-play-state:paused}
 @keyframes tickerScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 .tt-item{display:inline-flex;align-items:center;gap:8px;padding:0 22px;border-right:1px solid var(--border);height:52px;cursor:default;transition:background .15s}
 .tt-item:hover{background:var(--sur2)}
@@ -1181,76 +1179,97 @@ function setTickerSpeed(){
 }
 
 // ── Ticker drag/swipe ─────────────────────────────────────
-(function(){
+function initTickerDrag(){
   var wrap  = document.getElementById('tickerTapeWrap');
   var track = document.getElementById('tickerTapeTrack');
   if(!wrap || !track) return;
 
-  var isDragging = false;
-  var startX = 0;
-  var currentOffset = 0;
-  var animOffset = 0;
+  var isDragging  = false;
+  var startX      = 0;
+  var baseOffset  = 0; // offset acumulado pelo arraste
+  var animOffset  = 0; // offset no momento do início do arraste
   var resumeTimer = null;
 
-  function getAnimOffset(){
-    // Pega o translateX atual da animação
-    var style = window.getComputedStyle(track);
-    var mat = new DOMMatrix(style.transform);
-    return mat.m41;
+  function getCurrentTranslateX(){
+    var mat = new DOMMatrix(window.getComputedStyle(track).transform);
+    return isNaN(mat.m41) ? 0 : mat.m41;
   }
 
   function pauseAnim(){
     clearTimeout(resumeTimer);
-    animOffset = getAnimOffset();
-    track.classList.add('paused');
+    // Captura posição atual da animação CSS
+    animOffset = getCurrentTranslateX();
+    track.style.animation = 'none';
     track.style.transform = 'translateX(' + animOffset + 'px)';
   }
 
   function resumeAnim(){
-    // Resume suavemente a partir do offset atual
+    clearTimeout(resumeTimer);
     resumeTimer = setTimeout(function(){
+      // Calcula a offset percentual para reiniciar a animação no ponto certo
       track.style.transform = '';
+      track.style.animation = '';
       track.classList.remove('paused');
-      currentOffset = 0;
-    }, 2000); // pausa 2s antes de retomar
+    }, 1500);
   }
 
-  // Mouse drag (desktop)
-  wrap.addEventListener('mousedown', function(e){
+  function onDragStart(clientX){
     pauseAnim();
     isDragging = true;
-    startX = e.clientX;
+    startX = clientX;
+    baseOffset = animOffset;
     wrap.classList.add('dragging');
-    e.preventDefault();
-  });
-  document.addEventListener('mousemove', function(e){
+  }
+
+  function onDragMove(clientX){
     if(!isDragging) return;
-    var delta = e.clientX - startX;
-    track.style.transform = 'translateX(' + (animOffset + delta) + 'px)';
-  });
-  document.addEventListener('mouseup', function(){
+    var delta = clientX - startX;
+    track.style.transform = 'translateX(' + (baseOffset + delta) + 'px)';
+  }
+
+  function onDragEnd(){
     if(!isDragging) return;
     isDragging = false;
     wrap.classList.remove('dragging');
+    // Salva o offset atual para o próximo arraste
+    animOffset = getCurrentTranslateX();
+    baseOffset = animOffset;
     resumeAnim();
-  });
+  }
 
-  // Touch swipe (mobile)
+  // Mouse (desktop)
+  wrap.addEventListener('mousedown', function(e){
+    onDragStart(e.clientX);
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', function(e){
+    onDragMove(e.clientX);
+  });
+  document.addEventListener('mouseup', onDragEnd);
+
+  // Touch (mobile) — não usa passive:false para não bloquear scroll da página
   wrap.addEventListener('touchstart', function(e){
-    pauseAnim();
-    startX = e.touches[0].clientX;
-    isDragging = true;
+    // Só captura se o toque for horizontal
+    onDragStart(e.touches[0].clientX);
   }, {passive:true});
+
   wrap.addEventListener('touchmove', function(e){
     if(!isDragging) return;
-    var delta = e.touches[0].clientX - startX;
-    track.style.transform = 'translateX(' + (animOffset + delta) + 'px)';
+    var dx = Math.abs(e.touches[0].clientX - startX);
+    var dy = Math.abs(e.touches[0].clientY - (e.touches[0].screenY - wrap.getBoundingClientRect().top));
+    onDragMove(e.touches[0].clientX);
   }, {passive:true});
-  wrap.addEventListener('touchend', function(){
-    isDragging = false;
-    resumeAnim();
-  });
-})();
+
+  wrap.addEventListener('touchend', onDragEnd);
+  wrap.addEventListener('touchcancel', onDragEnd);
+}
+
+// Inicializa após DOM estar pronto
+if(document.readyState === 'loading'){
+  document.addEventListener('DOMContentLoaded', initTickerDrag);
+} else {
+  initTickerDrag();
+}
 
 // -- PAINEL PATRIMONIAL (l- do localStorage) --------------------
 function loadPatStrip(){
