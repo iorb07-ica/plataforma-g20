@@ -2237,11 +2237,34 @@ function _dbInit(uid, callback){
     _db_ready = true; callback && callback(); return;
   }
   _db_ref = firebase.firestore().collection('users').doc(uid).collection('dados');
-  // Limpa cache local antes de popular com Firestore — garante que o servidor tem prioridade
-  _db_cache = {};
-  // Carrega todos os dados do Firestore de uma vez — força busca no servidor (ignora cache offline)
+  // Busca do servidor e sobrescreve localStorage com dados do Firestore
+  // NÃO limpa _db_cache antes — localStorage serve como fallback para chaves ausentes no Firestore
   _db_ref.get({ source: 'server' }).then(function(snap){
-    snap.forEach(function(doc){ _db_cache[doc.id] = doc.data().value; });
+    snap.forEach(function(doc){
+      var val = doc.data().value;
+      _db_cache[doc.id] = val;
+      // Sincroniza localStorage com o que veio do Firestore
+      try{ localStorage.setItem('g20_'+doc.id, JSON.stringify(val)); }catch(e){}
+    });
+    // Verifica se localStorage tem dados mais recentes que o Firestore
+    // e sincroniza pro Firestore se necessário
+    _DB_USER_KEYS.forEach(function(k){
+      if(_db_cache.hasOwnProperty(k)) return; // Firestore já tem — não sobrescreve
+      try{
+        var v = localStorage.getItem('g20_'+k);
+        if(v !== null){
+          var parsed = JSON.parse(v);
+          _db_cache[k] = parsed;
+          // Sobe pro Firestore o que só existe no localStorage
+          if(_db_ref){
+            _db_ref.doc(k).set({
+              value: parsed,
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }).catch(function(e){ console.warn('G20 sync ['+k+']:', e); });
+          }
+        }
+      }catch(e){}
+    });
     _db_ready = true;
     callback && callback();
     _db_ready_cbs.forEach(function(cb){ cb(); });
