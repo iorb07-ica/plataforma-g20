@@ -1555,6 +1555,7 @@ th.col-filtered { color:var(--gold) !important; }
               <th data-col="qtd" class="r" onclick="thClick('qtd')" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>Qtd <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
               <th data-col="pm" class="r" onclick="thClick('pm')" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>PM <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
               <th data-col="cotacao" class="r" onclick="thClick('cotacao')" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>Cotação <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
+              <th data-col="spark" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)" style="min-width:90px"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>30d<div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
               <th data-col="vardia" class="r" onclick="thClick('vardia')" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>1D <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
               <th data-col="varsem" class="r" onclick="thClick('varsem')" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>1W <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
               <th data-col="var30d" class="r" onclick="thClick('var30d')" draggable="true" ondragstart="thDragStart(event,this)" ondragover="thDragOver(event,this)" ondragleave="thDragLeave(this)" ondrop="thDrop(event,this)" ondragend="thDragEnd(this)"><span class="th-drag-handle" title="Arrastar para reordenar">⠿</span>1M <span class="sort-arrow">↕</span><div class="th-resizer" onmousedown="initResize(event,this)"></div></th>
@@ -2209,6 +2210,7 @@ var sortCol = 'posicao';
 var sortAsc = false;
 var modoMoeda = 'BRL';
 var chartsInstances = {};
+var _resizingCharts = false;
 var autoRefreshTimer = null;
 var AUTO_REFRESH_MIN = 15;
 
@@ -5385,9 +5387,10 @@ function renderGraficos(){
 
   // Força resize nos charts após render (necessário com zoom CSS)
   setTimeout(function(){
-    Object.values(chartsInstances||{}).forEach(function(c){
-      if(c && typeof c.resize === 'function') c.resize();
-    });
+    if(_resizingCharts) return;
+    _resizingCharts = true;
+    try{ Object.values(chartsInstances||{}).forEach(function(c){ if(c && typeof c.resize==='function') c.resize(); }); }catch(e){}
+    _resizingCharts = false;
   }, 100);
   // Atualiza badge de RF no patrimônio
   atualizarStatsComRF();
@@ -7571,9 +7574,14 @@ function showTab(t){
       _renderGraficosRunning = false;
     }
     _showTabTimers.resize = setTimeout(function(){
-      Object.values(chartsInstances||{}).forEach(function(c){
-        if(c && typeof c.resize==='function') c.resize();
-      });
+      if(_resizingCharts) return;
+      _resizingCharts = true;
+      try{
+        Object.values(chartsInstances||{}).forEach(function(c){
+          if(c && typeof c.resize==='function') c.resize();
+        });
+      }catch(e){}
+      _resizingCharts = false;
     }, 80);
   }
   if(t==='aportes') renderAportes();
@@ -7845,9 +7853,10 @@ window.resetZoom = function(){ /* no-op */ };
   window.addEventListener('resize', function(){
     clearTimeout(_zt);
     _zt = setTimeout(function(){
-      Object.values(chartsInstances||{}).forEach(function(c){
-        if(c && typeof c.resize === 'function') c.resize();
-      });
+      if(_resizingCharts) return;
+      _resizingCharts = true;
+      try{ Object.values(chartsInstances||{}).forEach(function(c){ if(c && typeof c.resize==='function') c.resize(); }); }catch(e){}
+      _resizingCharts = false;
     }, 150);
   });
 })();
@@ -8260,7 +8269,7 @@ function aplicarOrdemColunas(){
   // Reseta ordem salva se número de colunas mudou (evita bagunça após updates)
   (function(){
     var ordem = loadData('colOrdem', null);
-    if(ordem && ordem.length !== COL_DEFS.length){
+    if(ordem && (ordem.length !== COL_DEFS.length || ordem.indexOf('spark') === -1)){
       saveData('colOrdem', null);
       saveData('colsVisiveis', null);
     }
