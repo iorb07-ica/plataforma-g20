@@ -1460,6 +1460,11 @@ th.col-filtered { color:var(--gold) !important; }
         <div class="stat-val" id="statDivRecebidos">R$ ---</div>
         <div class="stat-sub" id="statDivDY" style="color:var(--gold)">DY acum. --</div>
       </div>
+      <div class="stat-card" id="statVarDiaCard" style="border-color:rgba(255,255,255,.08)">
+        <div class="stat-label">Variação do Dia</div>
+        <div class="stat-val" id="statVarDiaVal">---</div>
+        <div class="stat-sub" id="statVarDiaPct" style="color:var(--text3)">Atualize cotações</div>
+      </div>
     </div>
 
     <!-- TABS -->
@@ -4017,9 +4022,49 @@ function renderPosicoes(){
       +'</tr>';
   }).join('');
 
+  // Calcula variação do dia: soma de qtd * var1d_preco para cada ativo com cotação
+  var varDiaBRL = 0;
+  rows.forEach(function(r){
+    var cot = r.cot;
+    if(!cot || !cot.var1d) return;
+    var cotBRL = isBR(r.p.ticker, r.p.tipo) ? cot.preco : cot.preco * usdBRL;
+    // var1d é a variação absoluta do preço no dia em moeda original
+    var var1dBRL = isBR(r.p.ticker, r.p.tipo) ? (cot.var1d||0) : (cot.var1d||0) * usdBRL;
+    varDiaBRL += r.p.qtd * var1dBRL;
+  });
+
   atualizarStats(totalInvGlobal, totalPosGlobal, totalPosGlobal-totalInvGlobal, divRec, totalProvGlobal);
+  atualizarVarDia(varDiaBRL, totalPosGlobal);
   // Renderiza sparklines após um tick (DOM atualizado)
   setTimeout(renderSparklinesVisible, 50);
+}
+
+function atualizarVarDia(varBRL, totalPos){
+  var el    = document.getElementById('statVarDiaVal');
+  var elPct = document.getElementById('statVarDiaPct');
+  var elCard= document.getElementById('statVarDiaCard');
+  if(!el || !elPct) return;
+  if(!varBRL && varBRL !== 0){ el.textContent='---'; elPct.textContent='Atualize cotações'; return; }
+
+  var isPos = varBRL >= 0;
+  var pct   = totalPos > 0 ? (varBRL / (totalPos - varBRL) * 100) : 0;
+
+  // Formato BRL ou USD
+  var fmtBRL = function(v){ return 'R$ '+Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  var fmtUSD = function(v){ return '$ '+Math.abs(v/usdBRL).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  var valStr = (isPos?'+':'-') + (modoMoeda==='USD' ? fmtUSD(varBRL) : fmtBRL(varBRL));
+  var pctStr = (isPos?'+':'')+pct.toFixed(2)+'% no dia';
+
+  el.textContent    = valStr;
+  el.className      = 'stat-val '+(isPos?'up':'down');
+  elPct.textContent = pctStr;
+  elPct.className   = 'stat-sub '+(isPos?'up':'down');
+  if(elCard){
+    elCard.style.borderColor = isPos ? 'rgba(46,204,113,.3)' : 'rgba(230,57,70,.3)';
+    elCard.style.background  = isPos
+      ? 'linear-gradient(135deg,rgba(46,204,113,.06),rgba(46,204,113,.02))'
+      : 'linear-gradient(135deg,rgba(230,57,70,.06),rgba(230,57,70,.02))';
+  }
 }
 
 // ============================================================
@@ -4029,35 +4074,21 @@ var _sparkCache = {}; // ticker -> {prices, ts}
 var _sparkQueue = {}; // ticker -> [callbacks]
 
 function getSparkData(ticker, tipo, cb){
-  // Cache de 30min
-  var c = _sparkCache[ticker];
-  if(c && (Date.now()-c.ts) < 30*60*1000){ cb(c.prices); return; }
-  // Já buscando
-  if(_sparkQueue[ticker]){ _sparkQueue[ticker].push(cb); return; }
-  _sparkQueue[ticker] = [cb];
-  var symbol = isBR(ticker, tipo) ? ticker+'.SA'
-    : tipo==='Cripto' ? (ticker.includes('-')?ticker:ticker+'-USD')
-    : tipo==='UCITs' ? (ticker.includes('.')?ticker:ticker+'.L')
-    : ticker;
-  var from = new Date(); from.setDate(from.getDate()-35);
-  var fromStr = from.toISOString().split('T')[0];
-  fetch(PROXY_URL+'/api/history?symbol='+encodeURIComponent(symbol)+'&from='+fromStr)
-    .then(function(r){ return r.ok?r.json():{prices:[]}; })
-    .then(function(d){
-      var prices = [];
-      if(d.prices && d.prices.length) prices = d.prices.map(function(p){ return p.close||p[1]||0; });
-      else if(Array.isArray(d)) prices = d.map(function(p){ return p.close||0; });
-      prices = prices.filter(function(v){ return v>0; }).slice(-30);
-      _sparkCache[ticker] = {prices:prices, ts:Date.now()};
-      var cbs = _sparkQueue[ticker]||[];
-      delete _sparkQueue[ticker];
-      cbs.forEach(function(fn){ fn(prices); });
-    }).catch(function(){
-      _sparkCache[ticker] = {prices:[], ts:Date.now()};
-      var cbs = _sparkQueue[ticker]||[];
-      delete _sparkQueue[ticker];
-      cbs.forEach(function(fn){ fn([]); });
-    });
+  // Usa os pontos de referência já presentes no objeto cotacoes (sem chamada extra)
+  var cot = cotacoes[ticker];
+  if(!cot){ cb([]); return; }
+  var precoAtual = isBR(ticker, tipo) ? cot.preco : cot.preco;
+  // Monta série temporal com os refs disponíveis: ref5y, ref6m, ref3m, ref30d, refSemana, atual
+  var pontos = [];
+  if(cot.ref5y   && cot.ref5y.close)   pontos.push({t:0,  v:cot.ref5y.close});
+  if(cot.refYTD  && cot.refYTD.close)  pontos.push({t:1,  v:cot.refYTD.close});
+  if(cot.ref6m   && cot.ref6m.close)   pontos.push({t:2,  v:cot.ref6m.close});
+  if(cot.ref3m   && cot.ref3m.close)   pontos.push({t:3,  v:cot.ref3m.close});
+  if(cot.ref30d  && cot.ref30d.close)  pontos.push({t:4,  v:cot.ref30d.close});
+  if(cot.refSemana && cot.refSemana.close) pontos.push({t:5, v:cot.refSemana.close});
+  pontos.push({t:6, v:precoAtual});
+  var prices = pontos.map(function(p){ return p.v; }).filter(function(v){ return v>0; });
+  cb(prices);
 }
 
 function drawSparkline(canvas, prices){
