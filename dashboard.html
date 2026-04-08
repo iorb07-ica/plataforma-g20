@@ -110,12 +110,14 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .notif-footer a:hover{color:var(--gold)}
 
 /* TICKER TAPE */
-.ticker-tape-wrap{position:relative;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:20px;height:52px;display:flex;align-items:center;box-shadow:0 2px 12px rgba(0,0,0,.15)}
+.ticker-tape-wrap{position:relative;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:20px;height:52px;display:flex;align-items:center;box-shadow:0 2px 12px rgba(0,0,0,.15);cursor:grab}
+.ticker-tape-wrap.dragging{cursor:grabbing}
 .ticker-tape-wrap::before,.ticker-tape-wrap::after{content:'';position:absolute;top:0;bottom:0;width:48px;z-index:2;pointer-events:none}
 .ticker-tape-wrap::before{left:0;background:linear-gradient(to right,var(--bg2),transparent)}
 .ticker-tape-wrap::after{right:0;background:linear-gradient(to left,var(--bg2),transparent)}
 .ticker-tape-track{display:flex;align-items:center;white-space:nowrap;animation:tickerScroll 60s linear infinite;will-change:transform}
-.ticker-tape-track:hover{animation-play-state:paused}
+.ticker-tape-track.paused{animation-play-state:paused}
+.ticker-tape-wrap:hover .ticker-tape-track{animation-play-state:paused}
 @keyframes tickerScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 .tt-item{display:inline-flex;align-items:center;gap:8px;padding:0 22px;border-right:1px solid var(--border);height:52px;cursor:default;transition:background .15s}
 .tt-item:hover{background:var(--sur2)}
@@ -1177,6 +1179,78 @@ function setTickerSpeed(){
   var items=track.querySelectorAll('.tt-item').length;
   track.style.animationDuration=Math.max(40, items*3)+'s';
 }
+
+// ── Ticker drag/swipe ─────────────────────────────────────
+(function(){
+  var wrap  = document.getElementById('tickerTapeWrap');
+  var track = document.getElementById('tickerTapeTrack');
+  if(!wrap || !track) return;
+
+  var isDragging = false;
+  var startX = 0;
+  var currentOffset = 0;
+  var animOffset = 0;
+  var resumeTimer = null;
+
+  function getAnimOffset(){
+    // Pega o translateX atual da animação
+    var style = window.getComputedStyle(track);
+    var mat = new DOMMatrix(style.transform);
+    return mat.m41;
+  }
+
+  function pauseAnim(){
+    clearTimeout(resumeTimer);
+    animOffset = getAnimOffset();
+    track.classList.add('paused');
+    track.style.transform = 'translateX(' + animOffset + 'px)';
+  }
+
+  function resumeAnim(){
+    // Resume suavemente a partir do offset atual
+    resumeTimer = setTimeout(function(){
+      track.style.transform = '';
+      track.classList.remove('paused');
+      currentOffset = 0;
+    }, 2000); // pausa 2s antes de retomar
+  }
+
+  // Mouse drag (desktop)
+  wrap.addEventListener('mousedown', function(e){
+    pauseAnim();
+    isDragging = true;
+    startX = e.clientX;
+    wrap.classList.add('dragging');
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', function(e){
+    if(!isDragging) return;
+    var delta = e.clientX - startX;
+    track.style.transform = 'translateX(' + (animOffset + delta) + 'px)';
+  });
+  document.addEventListener('mouseup', function(){
+    if(!isDragging) return;
+    isDragging = false;
+    wrap.classList.remove('dragging');
+    resumeAnim();
+  });
+
+  // Touch swipe (mobile)
+  wrap.addEventListener('touchstart', function(e){
+    pauseAnim();
+    startX = e.touches[0].clientX;
+    isDragging = true;
+  }, {passive:true});
+  wrap.addEventListener('touchmove', function(e){
+    if(!isDragging) return;
+    var delta = e.touches[0].clientX - startX;
+    track.style.transform = 'translateX(' + (animOffset + delta) + 'px)';
+  }, {passive:true});
+  wrap.addEventListener('touchend', function(){
+    isDragging = false;
+    resumeAnim();
+  });
+})();
 
 // -- PAINEL PATRIMONIAL (l- do localStorage) --------------------
 function loadPatStrip(){
