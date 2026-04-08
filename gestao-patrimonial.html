@@ -1413,6 +1413,15 @@ function abrirModalRF(idx){
     document.getElementById('rf_liquidez').value='vencimento';
   }
   onRFTipoChange();
+  // Liga formatação de valores em tempo real
+  ['rf_valorInv','rf_valorAtual'].forEach(function(id){ bindValorInput(id); });
+  // Formata valores existentes ao editar
+  if(idx!==undefined){
+    ['rf_valorInv','rf_valorAtual'].forEach(function(id){
+      var el=document.getElementById(id);
+      if(el && el.value) formatarValorInput(el);
+    });
+  }
   document.getElementById('modalRF').style.display='block';
 }
 
@@ -1420,14 +1429,13 @@ function salvarRF(){
   var tipo=document.getElementById('rf_tipo').value;
   var nome=document.getElementById('rf_nome').value.trim();
   var emissor=document.getElementById('rf_emissor').value.trim();
-  var valorInv=parseFloat(document.getElementById('rf_valorInv').value.replace(',','.'));
+  var valorInv=parseBRLInput(document.getElementById('rf_valorInv'));
   var dataInicio=document.getElementById('rf_dataInicio').value;
   var indexador=document.getElementById('rf_indexador').value;
   var taxa=parseFloat(document.getElementById('rf_taxa').value.replace(',','.'));
   var vencimento=document.getElementById('rf_vencimento').value;
   var liquidez=document.getElementById('rf_liquidez').value;
-  var vaRaw=document.getElementById('rf_valorAtual').value.replace(',','.');
-  var valorAtual=vaRaw?parseFloat(vaRaw):0;
+  var valorAtual=parseBRLInput(document.getElementById('rf_valorAtual'));
   var tdSubtipo=document.getElementById('rf_tdSubtipo').value;
   if(!nome||isNaN(valorInv)||valorInv<=0||isNaN(taxa)||!dataInicio){alert('Preencha nome, valor, taxa e data.');return;}
   var lista=loadRF();
@@ -1564,7 +1572,17 @@ function renderRF(){
       '<div class="rf-venc-row">'+vbadge+'<span>Vence: '+(rf.vencimento?new Date(rf.vencimento+'T12:00:00').toLocaleDateString('pt-BR'):'Sem vencimento')+'</span></div>'+
       (isGroup ? '<div class="grupo-inline" id="gi-'+groupIdxs.join('-')+'" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08)"></div>' : '')+
       (function(){
-        var resgates = isGroup ? [] : (rf.resgates||[]);
+        // Para grupos, agrega resgates de todos os aportes do grupo
+        var resgates = [];
+        if(isGroup){
+          groupIdxs.forEach(function(gi){
+            var item = allRF ? allRF[gi] : null;
+            if(item && item.resgates) resgates = resgates.concat(item.resgates);
+          });
+          resgates.sort(function(a,b){ return a.data < b.data ? -1 : 1; });
+        } else {
+          resgates = rf.resgates||[];
+        }
         if(!resgates.length) return '';
         var totalResgatado = resgates.reduce(function(s,r){return s+(r.valor||0);},0);
         return '<div class="rf-resgate-hist">'+
@@ -1798,6 +1816,9 @@ function abrirModalPat(idx){
     document.getElementById('pat_tipo').value='imovel';
     onPatTipoChange();
   }
+  bindValorInput('pat_valor');
+  var pv=document.getElementById('pat_valor');
+  if(pv&&pv.value) formatarValorInput(pv);
   document.getElementById('modalPat').classList.add('show');
 }
 
@@ -1835,7 +1856,7 @@ function salvarPat(){
   var subtipo=document.getElementById('pat_subtipo').value;
 
   // Para previdência, valor pode ser calculado
-  var valorRaw=document.getElementById('pat_valor').value.replace(',','.');
+  var valorRaw=String(parseBRLInput(document.getElementById('pat_valor')));
   var valor=valorRaw?parseFloat(valorRaw):0;
   var divida=tipo!=='prev'?(parseFloat(document.getElementById('pat_divida').value.replace(',','.'))||0):0;
 
@@ -2338,6 +2359,7 @@ function abrirModalResgate(idx){
   document.getElementById('resgate_idx').value = idx;
   document.getElementById('resgate_data').value = new Date().toISOString().split('T')[0];
   document.getElementById('resgate_valor').value = '';
+  bindValorInput('resgate_valor');
   document.getElementById('resgatePrev').style.display = 'none';
   document.getElementById('resgateValorWrap').style.display = 'block';
 
@@ -2369,6 +2391,7 @@ function setTipoResgate(tipo){
     btnT.style.color = '#b0bac8';
     valWrap.style.display = 'block';
     document.getElementById('resgate_valor').value = '';
+  bindValorInput('resgate_valor');
     document.getElementById('resgatePrev').style.display = 'none';
   } else {
     btnT.style.border = '2px solid #e63946';
@@ -2391,7 +2414,7 @@ function calcResgatePrev(){
   var lista = loadRF();
   var idxRaw = document.getElementById('resgate_idx').value;
   var idxs; try { idxs = JSON.parse(idxRaw); if(!Array.isArray(idxs)) idxs=[parseInt(idxRaw)]; } catch(e){ idxs=[parseInt(idxRaw)]; }
-  var valorResgate = parseFloat(document.getElementById('resgate_valor').value) || 0;
+  var valorResgate = parseBRLInput(document.getElementById('resgate_valor'));
   var atual = idxs.reduce(function(s,i){ return s + (lista[i]?calcRFAtual(lista[i]):0); }, 0);
   var investido = idxs.reduce(function(s,i){ return s + (lista[i]?(lista[i].valorInv||0):0); }, 0);
 
@@ -2446,7 +2469,7 @@ function confirmarResgate(){
   if(_resgateTipo === 'total'){
     valorResgate = totalAtual;
   } else {
-    valorResgate = parseFloat(document.getElementById('resgate_valor').value);
+    valorResgate = parseBRLInput(document.getElementById('resgate_valor'));
     if(!valorResgate || valorResgate <= 0){ alert('Informe o valor do resgate.'); return; }
     if(valorResgate > totalAtual){ alert('Valor maior que o saldo disponível.'); return; }
   }
@@ -2511,6 +2534,7 @@ function abrirModalResgateGrupo(idxs){
   document.getElementById('resgate_idx').value = JSON.stringify(idxs);
   document.getElementById('resgate_data').value = new Date().toISOString().split('T')[0];
   document.getElementById('resgate_valor').value = '';
+  bindValorInput('resgate_valor');
   document.getElementById('resgatePrev').style.display = 'none';
   document.getElementById('resgateValorWrap').style.display = 'block';
 
@@ -3115,6 +3139,24 @@ document.getElementById('themeBtn').addEventListener('click',function(){
   this.innerHTML=l?'☀️':'🌙';
   try{localStorage.setItem('g20-theme',l?'light':'dark');}catch(e){}
 });
+
+// ── FORMATAÇÃO DE VALORES ──────────────────────────────────
+function formatarValorInput(input){
+  var raw = input.value.replace(/\D/g,'');
+  if(!raw){ input.value=''; return; }
+  var num = parseInt(raw, 10) / 100;
+  input.value = num.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function parseBRLInput(input){
+  return parseFloat((input.value||'0').replace(/\./g,'').replace(',','.')) || 0;
+}
+function bindValorInput(id){
+  var el = document.getElementById(id);
+  if(!el) return;
+  el.setAttribute('type','text');
+  el.setAttribute('inputmode','numeric');
+  el.addEventListener('input', function(){ formatarValorInput(this); });
+}
 
 // ── INIT ─────────────────────────────────────────────────────
 (function(){
