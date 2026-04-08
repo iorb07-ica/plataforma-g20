@@ -1242,20 +1242,29 @@ function initTickerDrag(){
   function scheduleResume(){
     clearTimeout(resumeTimer);
     resumeTimer = setTimeout(function(){
-      // Calcula quanto % do ciclo já passou com base no offset atual
-      var pct = Math.abs(normalizeOffset(curOffset)) / trackW; // 0..1
-      var elapsed = pct * 60; // segundos já "percorridos"
-      var remaining = 60 - elapsed; // segundos restantes no ciclo
+      // Atualiza trackW caso conteúdo tenha carregado depois
+      trackW = track.scrollWidth / 2;
+      ANIM_SPEED = trackW / 60000;
 
-      // Aplica animação com delay negativo para iniciar no ponto certo
-      track.style.transition = 'none';
-      track.style.transform  = '';
-      track.style.animation  = 'tickerScroll '+remaining+'s linear 1 forwards';
+      // Normaliza offset para [-trackW, 0]
+      var norm = normalizeOffset(curOffset);
 
-      // Após esse ciclo, retorna à animação infinita normal
-      setTimeout(function(){
-        track.style.animation = 'tickerScroll 60s linear infinite';
-      }, remaining * 1000);
+      // Quantos segundos já foram percorridos neste ciclo
+      var elapsed = (Math.abs(norm) / trackW) * 60;
+
+      // Pinta o transform atual antes de ligar a animação
+      track.style.transition      = 'none';
+      track.style.transform       = 'translateX(' + norm + 'px)';
+
+      // Dois rAFs garantem que o browser aplicou o transform acima
+      // antes de removermos e ligarmos a animação com delay negativo
+      requestAnimationFrame(function(){
+        requestAnimationFrame(function(){
+          track.style.transform       = '';
+          track.style.animationDelay  = '-' + elapsed.toFixed(3) + 's';
+          track.style.animation       = 'tickerScroll 60s linear infinite';
+        });
+      });
     }, 300);
   }
 
