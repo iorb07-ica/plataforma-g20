@@ -612,6 +612,10 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
   .filter-btn { font-size: 10px; padding: 4px 8px; }
   .search-input { min-width: 110px; font-size: 11px; }
 
+  /* SPARKLINE */
+  .spark-cell { width:80px; height:32px; display:block; }
+  .spark-loading { width:80px; height:32px; display:flex; align-items:center; justify-content:center; color:var(--text3); font-size:10px; }
+
   /* Tabela — scroll horizontal suave, colunas essenciais sempre visíveis */
   .table-wrap {
     overflow-x: auto;
@@ -3983,6 +3987,7 @@ function renderPosicoes(){
       +'<td data-col="qtd" class="r">'+p.qtd.toFixed(p.qtd%1===0?0:2)+'</td>'
       +'<td data-col="pm" class="r">'+fmt(r.pm, isUS)+'</td>'
       +'<td data-col="cotacao" class="r">'+cotStr+'</td>'
+      +'<td data-col="spark" data-spark-ticker="'+p.ticker+'" data-spark-tipo="'+p.tipo+'" style="padding:6px 8px"><div class="spark-loading">···</div></td>'
       +'<td data-col="vardia" class="r">'+varStr+'</td>'
 +(function(){
   function calcVar(ref, precoAtual){
@@ -4013,6 +4018,100 @@ function renderPosicoes(){
   }).join('');
 
   atualizarStats(totalInvGlobal, totalPosGlobal, totalPosGlobal-totalInvGlobal, divRec, totalProvGlobal);
+  // Renderiza sparklines após um tick (DOM atualizado)
+  setTimeout(renderSparklinesVisible, 50);
+}
+
+// ============================================================
+// SPARKLINE
+// ============================================================
+var _sparkCache = {}; // ticker -> {prices, ts}
+var _sparkQueue = {}; // ticker -> [callbacks]
+
+function getSparkData(ticker, tipo, cb){
+  // Cache de 30min
+  var c = _sparkCache[ticker];
+  if(c && (Date.now()-c.ts) < 30*60*1000){ cb(c.prices); return; }
+  // Já buscando
+  if(_sparkQueue[ticker]){ _sparkQueue[ticker].push(cb); return; }
+  _sparkQueue[ticker] = [cb];
+  var symbol = isBR(ticker, tipo) ? ticker+'.SA'
+    : tipo==='Cripto' ? (ticker.includes('-')?ticker:ticker+'-USD')
+    : tipo==='UCITs' ? (ticker.includes('.')?ticker:ticker+'.L')
+    : ticker;
+  var from = new Date(); from.setDate(from.getDate()-35);
+  var fromStr = from.toISOString().split('T')[0];
+  fetch(PROXY_URL+'/api/history?symbol='+encodeURIComponent(symbol)+'&from='+fromStr)
+    .then(function(r){ return r.ok?r.json():{prices:[]}; })
+    .then(function(d){
+      var prices = [];
+      if(d.prices && d.prices.length) prices = d.prices.map(function(p){ return p.close||p[1]||0; });
+      else if(Array.isArray(d)) prices = d.map(function(p){ return p.close||0; });
+      prices = prices.filter(function(v){ return v>0; }).slice(-30);
+      _sparkCache[ticker] = {prices:prices, ts:Date.now()};
+      var cbs = _sparkQueue[ticker]||[];
+      delete _sparkQueue[ticker];
+      cbs.forEach(function(fn){ fn(prices); });
+    }).catch(function(){
+      _sparkCache[ticker] = {prices:[], ts:Date.now()};
+      var cbs = _sparkQueue[ticker]||[];
+      delete _sparkQueue[ticker];
+      cbs.forEach(function(fn){ fn([]); });
+    });
+}
+
+function drawSparkline(canvas, prices){
+  if(!canvas || !prices || prices.length < 2) return;
+  var w = canvas.width, h = canvas.height;
+  var ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,w,h);
+  var min = Math.min.apply(null,prices);
+  var max = Math.max.apply(null,prices);
+  var range = max-min || 1;
+  var up = prices[prices.length-1] >= prices[0];
+  var color = up ? '#2ecc71' : '#e63946';
+  // Área preenchida
+  ctx.beginPath();
+  prices.forEach(function(v,i){
+    var x = i/(prices.length-1)*w;
+    var y = h - ((v-min)/range)*(h-4) - 2;
+    i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+  });
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  // Gradiente de área
+  var last = prices[prices.length-1];
+  var lastY = h - ((last-min)/range)*(h-4) - 2;
+  ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
+  var grad = ctx.createLinearGradient(0,0,0,h);
+  grad.addColorStop(0, up ? 'rgba(46,204,113,0.25)' : 'rgba(230,57,70,0.25)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+}
+
+function renderSparklinesVisible(){
+  var colsV = getColsVisiveis();
+  if(!colsV['spark']) return;
+  var tbody = document.getElementById('tbodyPosicoes');
+  var cells = tbody.querySelectorAll('td[data-col="spark"]');
+  cells.forEach(function(td){
+    var ticker = td.getAttribute('data-spark-ticker');
+    var tipo   = td.getAttribute('data-spark-tipo');
+    if(!ticker) return;
+    var canvas = td.querySelector('canvas');
+    if(!canvas){
+      canvas = document.createElement('canvas');
+      canvas.width = 80; canvas.height = 32;
+      canvas.className = 'spark-cell';
+      td.innerHTML = '';
+      td.appendChild(canvas);
+    }
+    getSparkData(ticker, tipo, function(prices){
+      drawSparkline(canvas, prices);
+    });
+  });
 }
 
 // ============================================================
@@ -7751,6 +7850,7 @@ var COL_DEFS = [
   {col:'qtd',     label:'Quantidade',  def:true},
   {col:'pm',      label:'Preço Médio', def:true},
   {col:'cotacao', label:'Cotação',     def:true},
+  {col:'spark',   label:'Gráfico 30d', def:false},
   {col:'vardia',  label:'1D',    def:true},
   {col:'varsem',  label:'1W', def:false},
   {col:'var30d',  label:'1M',    def:false},
