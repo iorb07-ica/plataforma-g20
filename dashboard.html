@@ -1184,83 +1184,156 @@ function initTickerDrag(){
   var track = document.getElementById('tickerTapeTrack');
   if(!wrap || !track) return;
 
-  var dragging   = false;
-  var startX     = 0;
-  var startOffset= 0;
-  var curOffset  = 0;
-  var resumeTimer= null;
-  var animPaused = false;
+  // Largura total do track (metade do conteúdo duplicado)
+  var trackW = track.scrollWidth / 2;
 
-  // Captura a posição X atual da animação CSS
+  var curOffset   = 0;      // posição atual em px
+  var velocity    = 0;      // velocidade do momentum em px/frame
+  var lastX       = 0;
+  var lastTime    = 0;
+  var dragging    = false;
+  var momentumRAF = null;
+  var resumeTimer = null;
+
+  // Velocidade base da animação CSS (px por ms)
+  var ANIM_SPEED  = trackW / 60000; // 60s para percorrer trackW px
+
+  // Captura posição atual do translateX
   function getX(){
     var t = window.getComputedStyle(track).transform;
-    if(!t || t==='none') return 0;
-    var m = t.match(/matrix\([\d.,\s-]+,\s*([-\d.]+)\)/);
+    if(!t || t === 'none') return 0;
+    var m = t.match(/matrix.*,\s*([-\d.]+)\)/);
     return m ? parseFloat(m[1]) : 0;
   }
 
-  function pause(){
-    if(animPaused) return;
-    clearTimeout(resumeTimer);
-    curOffset = getX();
-    track.style.transition = 'none';
-    track.style.animation  = 'none';
-    track.style.transform  = 'translateX('+curOffset+'px)';
-    animPaused = true;
+  // Normaliza offset para loop infinito
+  function normalizeOffset(x){
+    x = x % trackW;
+    if(x > 0) x -= trackW;
+    return x;
   }
 
-  function resume(){
+  // Para animação CSS e assume controle manual
+  function takeControl(){
+    clearTimeout(resumeTimer);
+    cancelAnimationFrame(momentumRAF);
+    if(track.style.animation !== 'none'){
+      curOffset = getX();
+      track.style.animation  = 'none';
+      track.style.transition = 'none';
+      track.style.transform  = 'translateX('+curOffset+'px)';
+    }
+  }
+
+  // Loop de momentum — desliza livre e desacelera gradualmente
+  function momentumLoop(){
+    if(Math.abs(velocity) < 0.2){
+      // Velocidade muito baixa — retoma animação CSS do ponto atual
+      scheduleResume();
+      return;
+    }
+    velocity *= 0.95; // fricção
+    curOffset = normalizeOffset(curOffset + velocity);
+    track.style.transform = 'translateX('+curOffset+'px)';
+    momentumRAF = requestAnimationFrame(momentumLoop);
+  }
+
+  // Retoma a animação CSS partindo do offset atual
+  function scheduleResume(){
     clearTimeout(resumeTimer);
     resumeTimer = setTimeout(function(){
-      track.style.animation  = '';
+      // Calcula quanto % do ciclo já passou com base no offset atual
+      var pct = Math.abs(normalizeOffset(curOffset)) / trackW; // 0..1
+      var elapsed = pct * 60; // segundos já "percorridos"
+      var remaining = 60 - elapsed; // segundos restantes no ciclo
+
+      // Aplica animação com delay negativo para iniciar no ponto certo
+      track.style.transition = 'none';
       track.style.transform  = '';
-      animPaused = false;
-    }, 2000);
+      track.style.animation  = 'tickerScroll '+remaining+'s linear 1 forwards';
+
+      // Após esse ciclo, retorna à animação infinita normal
+      setTimeout(function(){
+        track.style.animation = 'tickerScroll 60s linear infinite';
+      }, remaining * 1000);
+    }, 300);
   }
 
   // ── TOUCH ────────────────────────────────────────────────
-  var touchStartX = 0, touchStartY = 0, isHorizSwipe = null;
+  var touchStartX = 0, touchStartY = 0;
+  var isHoriz = null;
+  var prevTouchX = 0, prevTouchTime = 0;
 
   wrap.addEventListener('touchstart', function(e){
-    touchStartX  = e.touches[0].clientX;
-    touchStartY  = e.touches[0].clientY;
-    isHorizSwipe = null;
-    pause();
-    startOffset = curOffset;
+    takeControl();
+    touchStartX = prevTouchX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    prevTouchTime = Date.now();
+    isHoriz = null;
+    velocity = 0;
+    dragging = true;
+    wrap.style.cursor = 'grabbing';
   }, {passive:true});
 
   wrap.addEventListener('touchmove', function(e){
+    if(!dragging) return;
     var dx = e.touches[0].clientX - touchStartX;
     var dy = e.touches[0].clientY - touchStartY;
 
-    // Determina direção na primeira movimentação
-    if(isHorizSwipe === null){
-      isHorizSwipe = Math.abs(dx) > Math.abs(dy);
-    }
-    if(!isHorizSwipe) return; // swipe vertical — deixa scroll da página
+    if(isHoriz === null) isHoriz = Math.abs(dx) > Math.abs(dy);
+    if(!isHoriz) return;
 
-    // É swipe horizontal — impede scroll da página
     e.preventDefault();
-    curOffset = startOffset + dx;
+
+    var now = Date.now();
+    var dt  = now - prevTouchTime || 16;
+    velocity = (e.touches[0].clientX - prevTouchX) / dt * 16; // px/frame
+
+    prevTouchX    = e.touches[0].clientX;
+    prevTouchTime = now;
+
+    curOffset = normalizeOffset(curOffset + (e.touches[0].clientX - touchStartX));
+    touchStartX = e.touches[0].clientX; // reset para delta incremental
     track.style.transform = 'translateX('+curOffset+'px)';
-  }, {passive:false}); // passive:false necessário para poder chamar preventDefault
+  }, {passive:false});
 
-  wrap.addEventListener('touchend',    resume, {passive:true});
-  wrap.addEventListener('touchcancel', resume, {passive:true});
+  wrap.addEventListener('touchend', function(){
+    if(!dragging) return;
+    dragging = false;
+    wrap.style.cursor = 'grab';
+    // Inicia momentum com a velocidade do último swipe
+    cancelAnimationFrame(momentumRAF);
+    momentumRAF = requestAnimationFrame(momentumLoop);
+  }, {passive:true});
 
-  // ── MOUSE (desktop) ──────────────────────────────────────
+  wrap.addEventListener('touchcancel', function(){
+    dragging = false;
+    scheduleResume();
+  }, {passive:true});
+
+  // ── MOUSE ────────────────────────────────────────────────
+  var mouseStartX = 0;
+  var prevMouseX = 0, prevMouseTime = 0;
+
   wrap.addEventListener('mousedown', function(e){
+    takeControl();
+    mouseStartX = prevMouseX = e.clientX;
+    prevMouseTime = Date.now();
+    velocity = 0;
     dragging = true;
-    startX   = e.clientX;
-    pause();
-    startOffset = curOffset;
     wrap.style.cursor = 'grabbing';
     e.preventDefault();
   });
 
   document.addEventListener('mousemove', function(e){
     if(!dragging) return;
-    curOffset = startOffset + (e.clientX - startX);
+    var now = Date.now();
+    var dt  = now - prevMouseTime || 16;
+    velocity = (e.clientX - prevMouseX) / dt * 16;
+    prevMouseX    = e.clientX;
+    prevMouseTime = now;
+    curOffset = normalizeOffset(curOffset + (e.clientX - mouseStartX));
+    mouseStartX = e.clientX;
     track.style.transform = 'translateX('+curOffset+'px)';
   });
 
@@ -1268,15 +1341,15 @@ function initTickerDrag(){
     if(!dragging) return;
     dragging = false;
     wrap.style.cursor = 'grab';
-    resume();
+    cancelAnimationFrame(momentumRAF);
+    momentumRAF = requestAnimationFrame(momentumLoop);
   });
 }
 
-// Inicializa após DOM estar pronto
 if(document.readyState === 'loading'){
   document.addEventListener('DOMContentLoaded', initTickerDrag);
 } else {
-  setTimeout(initTickerDrag, 100);
+  setTimeout(initTickerDrag, 200);
 }
 
 // -- PAINEL PATRIMONIAL (l- do localStorage) --------------------
