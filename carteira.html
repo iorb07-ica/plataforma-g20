@@ -3610,7 +3610,7 @@ function renderPortfolioDonut(){
   inner.style.display = 'block';
   if(empty) empty.style.display = 'none';
 
-  // Calcula valor total — usa cotações se disponíveis, senão totalInv
+  // Calcula valor total — usa cotações se disponíveis, senão totalInv — usa cotações se disponíveis, senão totalInv
   var total = 0;
   pos.forEach(function(p){
     var cot = cotacoes[p.ticker];
@@ -3643,12 +3643,14 @@ function renderPortfolioDonut(){
   var vals  = slices.map(function(p){ return p._donutVal; });
   var cores = slices.map(function(p,i){ return _DONUT_COLORS[i % _DONUT_COLORS.length]; });
 
-  // Canvas responsivo
+  // Canvas responsivo — define tamanho ANTES de criar o chart
   var canvas = document.getElementById('portfolioDonutCanvas');
   if(!canvas) return;
-  var isMobile = window.innerWidth < 600;
-  var size = isMobile ? Math.min(window.innerWidth - 48, 320) : 400;
-  canvas.width = size;
+  var isMobile = window.innerWidth < 768;
+  var size = isMobile ? Math.min(window.innerWidth - 48, 300) : 380;
+  canvas.style.width  = size + 'px';
+  canvas.style.height = size + 'px';
+  canvas.width  = size;
   canvas.height = size;
 
   // Atualiza centro
@@ -3660,17 +3662,35 @@ function renderPortfolioDonut(){
   }
 
   if(_donutChart){ _donutChart.destroy(); _donutChart = null; }
+  // Limpa o canvas manualmente antes de recriar
   var ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   _donutChart = new Chart(ctx, {
     type: 'doughnut',
-    data: { labels: slices.map(function(p){ return p.ticker; }), datasets: [{ data: vals, backgroundColor: cores, borderColor: 'rgba(9,11,15,0.9)', borderWidth: 3, hoverBorderWidth: 5, hoverOffset: 6 }] },
+    data: {
+      labels: slices.map(function(p){ return p.ticker; }),
+      datasets: [{
+        data: vals,
+        backgroundColor: cores,
+        borderColor: 'rgba(9,11,15,0.9)',
+        borderWidth: 3,
+        hoverBorderWidth: 5,
+        hoverOffset: 8
+      }]
+    },
     options: {
       cutout: '58%',
       responsive: false,
-      animation: { duration: 700, onComplete: function(){ _drawLogos(); } },
-      plugins: { legend:{ display:false }, tooltip:{ enabled:false } },
-      onHover: function(event, elements){ canvas.style.cursor = elements.length ? 'pointer' : 'default'; }
+      animation: { duration: 800, onComplete: function(){ _drawLogos(); } },
+      plugins: {
+        legend:{ display:false },
+        tooltip:{ enabled:false }
+      },
+      events: ['mousemove','mouseout','click','touchstart','touchmove'],
+      onHover: function(event, elements){
+        canvas.style.cursor = elements && elements.length ? 'pointer' : 'default';
+      }
     },
     plugins: [donutLogoPlugin]
   });
@@ -7289,7 +7309,12 @@ function showTab(t){
     b.classList.toggle('on',tabs[i]===t);
   });
   if(t==='posicoes') { renderPosicoes(); setTimeout(function(){ aplicarOrdemColunas(); aplicarColsVisiveis(); },30); }
-  if(t==='composicao') { setTimeout(renderPortfolioDonut, 30); }
+  if(t==='composicao') {
+    var tabEl = document.getElementById('tab-composicao');
+    if(tabEl) tabEl.style.display = 'block';
+    // Delay maior para garantir que o DOM está visível e tem dimensões
+    setTimeout(renderPortfolioDonut, 100);
+  }
   if(t==='graficos'){
     renderGraficos();
     setTimeout(function(){
