@@ -345,8 +345,50 @@ a{text-decoration:none;color:inherit}
   </div>
 </div>
 
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script>
-var ADMIN_PASS = "g20admin2026";
+// ── Firebase Auth Guard (admin only) ─────────────────────────
+(function(){
+  var cfg = {
+    apiKey: "AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",
+    authDomain: "g20-masterclass.firebaseapp.com",
+    projectId: "g20-masterclass",
+    storageBucket: "g20-masterclass.firebasestorage.app",
+    messagingSenderId: "1052719482127",
+    appId: "1:1052719482127:web:537c1d67c96532be8a2a7a"
+  };
+  if (!firebase.apps.length) firebase.initializeApp(cfg);
+  var auth = firebase.auth();
+  var db   = firebase.firestore();
+
+  // Se não tem sessão salva, manda pro login imediatamente
+  if (!localStorage.getItem('g20_uid')) {
+    window.location.href = 'login.html'; 
+  }
+
+  auth.onAuthStateChanged(function(user) {
+    if (!user) { window.location.href = 'login.html'; return; }
+    db.collection('users').doc(user.uid).get().then(function(doc) {
+      if (!doc.exists || doc.data().role !== 'admin') {
+        // Não é admin — bloqueia
+        window.location.href = 'dashboard.html';
+        return;
+      }
+      // É admin — mostra o painel
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('adminApp').style.display = 'block';
+      if (typeof renderAll === 'function') renderAll();
+    }).catch(function() { window.location.href = 'login.html'; });
+  });
+
+  window._adminLogout = function() {
+    localStorage.removeItem('g20_uid');
+    localStorage.removeItem('g20_user_profile');
+    auth.signOut().then(function(){ window.location.href = 'login.html'; });
+  };
+})();
 
 // ─── CATEGORIAS DO G20FLIX ────────────────────────────────
 var FLIX_CATS = {
@@ -429,18 +471,8 @@ function defaultFlix() {
   return base;
 }
 
-// ─── LOGIN ────────────────────────────────────────────────
-function doLogin() {
-  if(document.getElementById("adminPwd").value === ADMIN_PASS) {
-    document.getElementById("loginScreen").style.display = "none";
-    document.getElementById("adminApp").style.display = "block";
-    renderAll();
-  } else {
-    document.getElementById("loginErr").style.display = "block";
-    document.getElementById("adminPwd").value = "";
-  }
-}
-function doLogout() { window.location.href = "dashboard.html"; }
+// ─── LOGIN/LOGOUT ─────────────────────────────────────────
+function doLogout() { if(window._adminLogout) window._adminLogout(); else window.location.href = 'login.html'; }
 
 // ─── TABS ─────────────────────────────────────────────────
 function showTab(t) {
