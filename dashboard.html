@@ -1676,39 +1676,16 @@ window.g20Logout = function() {
       return;
     }
     localStorage.setItem('g20_uid', user.uid);
-
-    // Polling: re-verifica aprovação a cada 3s (resolve aprovação após login)
-    function verificarAcesso(tentativa) {
-      _fbDb.collection('users').doc(user.uid).get().then(function(doc) {
-        if (!doc.exists || (doc.data().aprovado !== true && doc.data().role !== 'admin')) {
-          if ((tentativa || 0) < 20) {
-            setTimeout(function(){ verificarAcesso((tentativa||0)+1); }, 3000);
-          } else {
-            localStorage.removeItem('g20_uid');
-            _fbAuth.signOut().then(function(){ window.location.href = 'login.html'; });
-          }
-          return;
-        }
-        document.body.style.visibility="visible";
-        carregarPerfil(doc);
-      }).catch(function(){ setTimeout(function(){ verificarAcesso((tentativa||0)+1); }, 5000); });
-    }
-
-    _fbDb.collection('users').doc(user.uid).get().then(function(doc) {
-      if (!doc.exists || (doc.data().aprovado !== true && doc.data().role !== 'admin')) {
-        localStorage.removeItem('g20_uid');
-        _fbAuth.signOut().then(function(){ window.location.href = 'login.html'; });
-        return;
-      }
-      document.body.style.visibility="visible";
+    // Verifica aprovação e carrega perfil
+    function aplicarPerfil(doc, u) {
+      document.body.style.visibility = 'visible';
       var data     = doc.data();
       var profile  = data.profile || data;
-      var name     = profile.name || profile.nome || user.displayName || 'Israel';
-      var turma    = profile.turma || 'Turma 20';
+      var name     = profile.name || profile.nome || u.displayName || 'Aluno';
+      var turma    = profile.turma || 'Turma 21';
       var role     = profile.role  || data.role   || 'Membro';
-      var photo    = profile.photo || user.photoURL || '';
-      var initials = name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase() || 'IO';
-
+      var photo    = profile.photo || u.photoURL || '';
+      var initials = name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase() || 'G2';
       var ids = {sidebarName:name, wName:name.split(' ')[0], sidebarTurma:turma, sidebarRole:role, sidebarInitials:initials};
       Object.keys(ids).forEach(function(id){
         var el = document.getElementById(id); if(el) el.textContent = ids[id];
@@ -1722,7 +1699,19 @@ window.g20Logout = function() {
           name:name, turma:turma, role:role, photo:photo, apelido:name.split(' ')[0]
         }));
       } catch(e) {}
-    }).catch(function(e){ console.warn('Firestore:', e); });
+    }
+
+    _fbDb.collection('users').doc(user.uid).get().then(function(doc) {
+      if (!doc.exists || (doc.data().aprovado !== true && doc.data().role !== 'admin')) {
+        localStorage.removeItem('g20_uid');
+        _fbAuth.signOut().then(function(){ window.location.href = 'login.html'; });
+        return;
+      }
+      aplicarPerfil(doc, user);
+    }).catch(function(e){
+      console.warn('Firestore:', e);
+      if (localStorage.getItem('g20_uid')) document.body.style.visibility = 'visible';
+    });
   });
 })();
 </script>
