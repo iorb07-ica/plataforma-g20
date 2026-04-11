@@ -1676,6 +1676,24 @@ window.g20Logout = function() {
       return;
     }
     localStorage.setItem('g20_uid', user.uid);
+
+    // Polling: re-verifica aprovação a cada 3s (resolve aprovação após login)
+    function verificarAcesso(tentativa) {
+      _fbDb.collection('users').doc(user.uid).get().then(function(doc) {
+        if (!doc.exists || (doc.data().aprovado !== true && doc.data().role !== 'admin')) {
+          if ((tentativa || 0) < 20) {
+            setTimeout(function(){ verificarAcesso((tentativa||0)+1); }, 3000);
+          } else {
+            localStorage.removeItem('g20_uid');
+            _fbAuth.signOut().then(function(){ window.location.href = 'login.html'; });
+          }
+          return;
+        }
+        document.body.style.visibility="visible";
+        carregarPerfil(doc);
+      }).catch(function(){ setTimeout(function(){ verificarAcesso((tentativa||0)+1); }, 5000); });
+    }
+
     _fbDb.collection('users').doc(user.uid).get().then(function(doc) {
       if (!doc.exists || (doc.data().aprovado !== true && doc.data().role !== 'admin')) {
         localStorage.removeItem('g20_uid');
