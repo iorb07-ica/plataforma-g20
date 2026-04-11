@@ -1,4 +1,4 @@
-const CACHE = 'g20-v4';
+const CACHE = 'g20-v5';
 
 // Apenas assets estáticos que raramente mudam
 const STATIC = [
@@ -7,18 +7,6 @@ const STATIC = [
   'icon-512.png',
   'apple-touch-icon.png',
   'G20_Masterclass_-_logo_dashboard.png',
-];
-
-// Páginas HTML — sempre busca da rede primeiro
-const PAGES = [
-  'dashboard.html',
-  'login.html',
-  'carteira.html',
-  'gestao-patrimonial.html',
-  'g20flix.html',
-  'g20cast.html',
-  'sala-de-aula.html',
-  'aguardando.html',
 ];
 
 self.addEventListener('install', function(e) {
@@ -50,21 +38,13 @@ self.addEventListener('fetch', function(e) {
   if (url.includes('firebaseapp') || url.includes('googleapis') ||
       url.includes('firestore') || url.includes('anchor.fm') ||
       url.includes('brapi.dev') || url.includes('twelvedata') ||
-      url.includes('vercel.app') || url.includes('bcb.gov.br') ||
-      url.includes('fonts.googleapis') || url.includes('gstatic.com')) return;
+      url.includes('bcb.gov.br') || url.includes('fonts.googleapis') ||
+      url.includes('gstatic.com')) return;
 
-  // HTMLs — network-first: sempre tenta rede, só usa cache se offline
-  var isHTML = PAGES.some(function(p) { return url.endsWith(p) || url.includes(p + '?'); });
-  if (isHTML) {
+  // HTMLs — NUNCA usa cache, sempre busca da rede
+  if (url.endsWith('.html') || url.endsWith('/')) {
     e.respondWith(
-      fetch(e.request).then(function(response) {
-        if (response && response.status === 200) {
-          var clone = response.clone();
-          caches.open(CACHE).then(function(cache) { cache.put(e.request, clone); });
-        }
-        return response;
-      }).catch(function() {
-        // Offline: usa cache como fallback
+      fetch(e.request).catch(function() {
         return caches.match(e.request);
       })
     );
