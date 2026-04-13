@@ -170,6 +170,10 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .pat-kpi-label{font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text2);margin-bottom:5px}
 .pat-kpi-val{font-size:18px;font-weight:800;color:var(--pk-c,var(--gold));line-height:1;margin-bottom:2px}
 .pat-kpi-sub{font-size:12px;color:var(--text2)}
+.pat-kpi-var{font-size:11px;font-weight:700;margin-top:5px;padding:2px 6px;border-radius:4px;display:inline-block;min-height:16px}
+.pat-kpi-var.up{color:#10b981;background:rgba(16,185,129,.12)}
+.pat-kpi-var.down{color:#ef4444;background:rgba(239,68,68,.12)}
+.pat-kpi-var.neu{color:var(--text2);background:rgba(255,255,255,.06)}
 @media(max-width:480px){.pat-kpi-val{font-size:13px}}
 
 /* SECTION TITLE */
@@ -691,16 +695,19 @@ if(localStorage.getItem('g20_uid')){
         <div class="pat-kpi-label">Patrimônio Total</div>
         <div class="pat-kpi-val" id="dashPatTotal">–</div>
         <div class="pat-kpi-sub">RF + Bens + RV</div>
+        <div class="pat-kpi-var" id="dashPatVar"></div>
       </div>
       <div class="pat-kpi" style="--pk-c:#10b981" onclick="location.href='gestao-patrimonial.html'">
         <div class="pat-kpi-label">Renda Fixa</div>
         <div class="pat-kpi-val" id="dashRF">–</div>
         <div class="pat-kpi-sub" id="dashRFSub">–</div>
+        <div class="pat-kpi-var" id="dashRFVar"></div>
       </div>
-      <div class="pat-kpi" style="--pk-c:#8b5cf6" onclick="location.href='carteira.html'">
+      <div class="pat-kpi" style="--pk-c:#8b5cf6" onclick="location.href='gestao-patrimonial.html'">
         <div class="pat-kpi-label">Renda Variável</div>
         <div class="pat-kpi-val" id="dashRV">–</div>
         <div class="pat-kpi-sub" id="dashRVSub">da Gestão Patrimonial</div>
+        <div class="pat-kpi-var" id="dashRVVar">⏳ buscando cotações…</div>
       </div>
     </div>
 
@@ -1156,6 +1163,173 @@ var IND = {selic:null,cdi:null,ipca:null,igpm:null};
 var PROXY_URL = 'https://g20-proxy.vercel.app';
 
 function loadData(k,d){try{var v=localStorage.getItem('g20_'+k);return v?JSON.parse(v):d;}catch(e){return d;}}
+
+// ── ENGINE DE CÁLCULO RF (espelho do gestao-patrimonial) ──────────────────
+function _diasUteisEst(dc){ return dc*(252/365); }
+var _IOF_TAB=[96,93,90,86,83,80,76,73,70,66,63,60,56,53,50,46,43,40,36,33,30,26,23,20,16,13,10,6,3,0];
+var _RF_ISENTO_IR={LCI:1,LCA:1,CRI:1,CRA:1};
+var _RF_ISENTO_IOF={LCI:1,LCA:1};
+function _aliqIOF(d){ return d<=0?96:d>=30?0:_IOF_TAB[d-1]; }
+function _aliqIR(d){ return d<=180?22.5:d<=360?20:d<=720?17.5:15; }
+function _calcBrutoRF(valorInv,dataInicio,indexador,taxa){
+  if(!valorInv||!dataInicio||taxa===undefined||taxa===null||taxa==='') return valorInv||0;
+  var dc=Math.max(0,Math.floor((Date.now()-new Date(dataInicio))/86400000));
+  if(dc<=0) return valorInv;
+  var t=parseFloat(taxa)/100, fator=1;
+  var cdi=IND.cdi||10.65, selic=IND.selic||10.65, ipca=IND.ipca||4.83, igpm=IND.igpm||6.54;
+  if(indexador==='CDI'){      var du=_diasUteisEst(dc); fator=Math.pow(1+cdi/100,t*du/252); }
+  else if(indexador==='Selic'){ var du=_diasUteisEst(dc); fator=Math.pow(1+(selic/100)+t,du/252); }
+  else if(indexador==='IPCA'){ fator=Math.pow(1+(ipca/100)+t,dc/365); }
+  else if(indexador==='IGPM'){ fator=Math.pow(1+(igpm/100)+t,dc/365); }
+  else if(indexador==='Prefixado'){ fator=Math.pow(1+t,dc/365); }
+  return valorInv*fator;
+}
+// Rendimento de 1 dia útil estimado para RF
+function _calcRFVarDia(rf){
+  if(rf.encerrado) return 0;
+  var inv=rf.valorInv||0;
+  if(!inv||!rf.dataInicio||rf.taxa===undefined) return 0;
+  var hoje=_calcBrutoRF(inv,rf.dataInicio,rf.indexador,rf.taxa);
+  // Simula ontem: subtrai 1/252 de dia útil da data de início
+  var dtOntem=new Date(rf.dataInicio);
+  dtOntem.setTime(dtOntem.getTime()+(1/252)*365*86400000);
+  var ontem=_calcBrutoRF(inv,dtOntem.toISOString().slice(0,10),rf.indexador,rf.taxa);
+  return hoje-ontem;
+}
+
+// ── VARIAÇÃO DIÁRIA ───────────────────────────────────────────────────────
+var _dashRVCot={}, _dashUsdBRL=5.85;
+
+function _rvIsBR(ticker,tipo){
+  if(tipo==='Ação BR'||tipo==='FII'||tipo==='ETF BR') return true;
+  if(tipo==='Stock'||tipo==='ETF US'||tipo==='REIT'||tipo==='UCITs') return false;
+  return /\d$/.test(ticker);
+}
+
+function _renderVarEl(elId, varPct, varBRL){
+  var el=document.getElementById(elId);
+  if(!el) return;
+  if(varPct===null||varPct===undefined||isNaN(varPct)){ el.textContent=''; el.className='pat-kpi-var'; return; }
+  var sinal=varPct>=0?'+':'';
+  var cls=varPct>0?'up':varPct<0?'down':'neu';
+  el.className='pat-kpi-var '+cls;
+  el.textContent=sinal+varPct.toFixed(2)+'%'+(varBRL!==undefined?' ('+( varBRL>=0?'+':'')+varBRL.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})+')'  :'');
+}
+
+function _calcRFVariacaoDia(){
+  var rfData=loadData('rendaFixa',[]);
+  var rfAtivos=rfData.filter(function(r){return !r.encerrado;});
+  var rfHoje=rfAtivos.reduce(function(s,r){return s+_calcBrutoRF(r.valorInv||0,r.dataInicio,r.indexador,r.taxa);},0);
+  var rfVar1d=rfAtivos.reduce(function(s,r){return s+_calcRFVarDia(r);},0);
+  var rfPct=rfHoje>0?(rfVar1d/(rfHoje-rfVar1d))*100:0;
+  _renderVarEl('dashRFVar',rfPct,rfVar1d);
+  return {var1d:rfVar1d, pct:rfPct};
+}
+
+function _buscarCotacoesEAtualizarRV(){
+  var rvAportes=loadData('rvAportes',[]);
+  if(!rvAportes.length){
+    var el=document.getElementById('dashRVVar');
+    if(el){el.textContent='–';el.className='pat-kpi-var neu';}
+    return;
+  }
+  // Calcula posições
+  var posMap={};
+  rvAportes.sort(function(a,b){return a.data.localeCompare(b.data);}).forEach(function(a){
+    if(!posMap[a.ticker]) posMap[a.ticker]={qtd:0,totalInv:0,tipo:a.tipo||''};
+    var p=posMap[a.ticker];
+    var pr=a.moeda==='USD'?a.preco*(_dashUsdBRL):a.preco;
+    if(a.op==='C'){p.qtd+=a.qtd;p.totalInv+=a.qtd*pr;}
+    else{var pm=p.qtd>0?p.totalInv/p.qtd:0;p.totalInv-=a.qtd*pm;p.qtd-=a.qtd;}
+  });
+  var posicoes=Object.keys(posMap).filter(function(t){return posMap[t].qtd>0.001;}).map(function(t){return {ticker:t,qtd:posMap[t].qtd,totalInv:posMap[t].totalInv,tipo:posMap[t].tipo};});
+  if(!posicoes.length){
+    var el=document.getElementById('dashRVVar');
+    if(el){el.textContent='–';el.className='pat-kpi-var neu';}
+    return;
+  }
+
+  var PROXY='https://g20-proxy.vercel.app';
+  // Câmbio
+  fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL')
+    .then(function(r){return r.json();})
+    .then(function(d){if(d.USDBRL&&d.USDBRL.bid){var r=parseFloat(d.USDBRL.bid);if(r>3&&r<20)_dashUsdBRL=r;}})
+    .catch(function(){});
+
+  var tickersBR=posicoes.filter(function(p){return _rvIsBR(p.ticker,p.tipo);}).map(function(p){return p.ticker;});
+  var tickersUS=posicoes.filter(function(p){return !_rvIsBR(p.ticker,p.tipo);}).map(function(p){return p.tipo==='UCITs'&&!p.ticker.includes('.')?p.ticker+'.L':p.ticker;});
+  var promises=[];
+
+  tickersBR.forEach(function(ticker){
+    promises.push(
+      fetch(PROXY+'/api/quote?symbol='+encodeURIComponent(ticker+'.SA'))
+        .then(function(r){return r.json();})
+        .then(function(d){
+          if(d&&d.price>0) _dashRVCot[ticker]={preco:d.price,var1d:parseFloat(d.change||0),varPct:parseFloat(d.changePercent||0)};
+        }).catch(function(){})
+    );
+  });
+
+  if(tickersUS.length){
+    var BATCH=8;
+    for(var i=0;i<tickersUS.length;i+=BATCH){
+      (function(chunk){
+        promises.push(
+          fetch(PROXY+'/api/quote?symbol='+encodeURIComponent(chunk.join(',')))
+            .then(function(r){return r.json();})
+            .then(function(d){
+              if(d&&d.symbol&&d.price!==undefined){var tmp={};tmp[d.symbol]=d;d=tmp;}
+              chunk.forEach(function(t){
+                var item=d[t]||d[t.replace('.L','')]||d[t.toUpperCase()];
+                if(item&&item.price>0){
+                  var tk=t.replace('.L','');
+                  _dashRVCot[tk]={preco:item.price,var1d:parseFloat(item.change||0),varPct:parseFloat(item.changePercent||0),isUS:true};
+                }
+              });
+            }).catch(function(){})
+        );
+      })(tickersUS.slice(i,i+BATCH));
+    }
+  }
+
+  Promise.all(promises).then(function(){
+    // Calcula variação total RV
+    var rvVar1d=0, rvTotal=0;
+    posicoes.forEach(function(p){
+      var cot=_dashRVCot[p.ticker];
+      if(!cot) return;
+      var cotBRL=cot.isUS?cot.preco*_dashUsdBRL:cot.preco;
+      var var1dBRL=cot.isUS?cot.var1d*_dashUsdBRL:cot.var1d;
+      rvVar1d+=p.qtd*var1dBRL;
+      rvTotal+=p.qtd*cotBRL;
+    });
+    var rvPct=rvTotal>0?(rvVar1d/(rvTotal-rvVar1d))*100:0;
+    _renderVarEl('dashRVVar',rvPct,rvVar1d);
+
+    // Atualiza total com cotações reais
+    var rfData=loadData('rendaFixa',[]);
+    var rfLiq=rfData.filter(function(r){return !r.encerrado;}).reduce(function(s,r){
+      return s+_calcBrutoRF(r.valorInv||0,r.dataInicio,r.indexador,r.taxa);
+    },0);
+    var bensData=loadData('patrimonioBens',[]);
+    var bensLiq=bensData.reduce(function(s,b){return s+(b.valor||0)-(b.divida||0);},0);
+    var totalReal=rfLiq+bensLiq+rvTotal;
+    var fmtBRL=function(v){return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});};
+    var totalEl=document.getElementById('dashPatTotal');
+    if(totalEl&&totalReal>0) totalEl.textContent=fmtBRL(totalReal);
+
+    // Variação total patrimônio
+    var rfInfo=_calcRFVariacaoDia();
+    var totalVar1d=rfInfo.var1d+rvVar1d;
+    var totalPct=totalReal>0?(totalVar1d/(totalReal-totalVar1d))*100:0;
+    _renderVarEl('dashPatVar',totalPct,totalVar1d);
+  });
+}
+
+function _atualizarVariacoesPat(){
+  _calcRFVariacaoDia();
+  _buscarCotacoesEAtualizarRV();
+}
 
 function buscarTape(){
   // BCB cache 6h
@@ -1798,6 +1972,17 @@ window.g20Logout = function() {
       if (!data.tutorialVisto && data.perfilCompleto === true) {
         setTimeout(function(){ if(typeof tutStart==='function') tutStart(); }, 800);
       }
+
+      // ── Carrega dados patrimoniais do Firestore e atualiza painel ──
+      var dbRef = _fbDb.collection('users').doc(user.uid).collection('dados');
+      dbRef.get({ source: 'server' }).then(function(snap) {
+        snap.forEach(function(doc) {
+          try { localStorage.setItem('g20_' + doc.id, JSON.stringify(doc.data().value)); } catch(e) {}
+        });
+        loadPatStrip();
+        _atualizarVariacoesPat();
+      }).catch(function(e) { console.warn('Patrimônio Firestore:', e); });
+
     }).catch(function(e){ console.warn('Firestore:', e); });
   });
 })();
