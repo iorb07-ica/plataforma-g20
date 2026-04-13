@@ -6197,13 +6197,21 @@ function salvarProventosBR(ticker, divs, dataCompra, fonte){
     if(dataPag < dataCompra) return;
     // Inclui futuros — aparecem como "A Receber" na aba Proventos
 
+    var qtd = qtdNaData(ticker, dataEx || dataPag);
+    if(qtd <= 0) return;
+
     var existe = stored.find(function(x){
       return x.ticker===ticker && x.data===dataPag && Math.abs(x.valor-valor)<0.0001;
     });
-    if(existe) return;
 
-    var qtd = qtdNaData(ticker, dataEx || dataPag);
-    if(qtd <= 0) return;
+    if(existe){
+      // Atualiza qtdEx se estiver errado
+      if(Math.abs((existe.qtdEx||0) - qtd) > 0.001){
+        existe.qtdEx = qtd;
+        novos++; // conta como alterado
+      }
+      return;
+    }
 
     stored.push({
       id:     Date.now().toString()+Math.random(),
@@ -6245,12 +6253,19 @@ function importarProventosUS(ticker){
     divList.forEach(function(dv){
       var dataPag = dv.date || '';
       if(!dataPag) return;
+      var qtd = qtdNaData(ticker, dataPag);
+      if(qtd <= 0) return;
       var existe = stored.find(function(x){
         return x.ticker===ticker && x.data===dataPag && Math.abs(x.valor-dv.amount)<0.001;
       });
-      if(existe) return;
-      var qtd = qtdNaData(ticker, dataPag);
-      if(qtd <= 0) return;
+      if(existe){
+        // Atualiza qtdEx se estiver errado
+        if(Math.abs((existe.qtdEx||0) - qtd) > 0.001){
+          existe.qtdEx = qtd;
+          novos++;
+        }
+        return;
+      }
       stored.push({
         id: Date.now().toString()+Math.random(),
         ticker: ticker, tipo: 'Dividendo',
