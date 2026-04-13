@@ -2339,15 +2339,15 @@ function _gGridColor(){ return document.body.classList.contains('light')?'rgba(0
 
 // Classes de ativos e cores
 var _EVO_CLASSES = [
-  { key:'RF',    label:'Renda Fixa',    border:'#10b981', alpha:'rgba(16,185,129,' },
-  { key:'Bens',  label:'Bens',          border:'#3b82f6', alpha:'rgba(59,130,246,' },
-  { key:'Acao',  label:'Ações BR',      border:'#e8b84b', alpha:'rgba(232,184,75,' },
-  { key:'FII',   label:'FIIs',          border:'#f59e0b', alpha:'rgba(245,158,11,' },
-  { key:'Stock', label:'Stocks',        border:'#6366f1', alpha:'rgba(99,102,241,' },
-  { key:'REIT',  label:'REITs',         border:'#8b5cf6', alpha:'rgba(139,92,246,' },
-  { key:'ETF',   label:'ETFs',          border:'#06b6d4', alpha:'rgba(6,182,212,'  },
-  { key:'UCITs', label:'UCITs',         border:'#84cc16', alpha:'rgba(132,204,22,' },
-  { key:'Cripto',label:'Cripto',        border:'#f97316', alpha:'rgba(249,115,22,' },
+  { key:'RF',    label:'Renda Fixa', border:'#10b981', alpha:'rgba(16,185,129,' },
+  { key:'Bens',  label:'Bens',       border:'#3b82f6', alpha:'rgba(59,130,246,' },
+  { key:'Acao',  label:'Acoes BR',   border:'#e8b84b', alpha:'rgba(232,184,75,' },
+  { key:'FII',   label:'FIIs',       border:'#f43f5e', alpha:'rgba(244,63,94,'  },
+  { key:'Stock', label:'Stocks',     border:'#a855f7', alpha:'rgba(168,85,247,' },
+  { key:'REIT',  label:'REITs',      border:'#0ea5e9', alpha:'rgba(14,165,233,' },
+  { key:'ETF',   label:'ETFs',       border:'#14b8a6', alpha:'rgba(20,184,166,' },
+  { key:'UCITs', label:'UCITs',      border:'#84cc16', alpha:'rgba(132,204,22,' },
+  { key:'Cripto',label:'Cripto',     border:'#f97316', alpha:'rgba(249,115,22,' },
 ];
 
 // Classes visíveis (toggle)
@@ -2404,6 +2404,14 @@ function renderEvolucaoChart(meses){
   var uniqueSymbols = symbols.filter(function(s,i){ return symbols.indexOf(s)===i; });
 
   var fromMes = mesLabels[0];
+
+  // Invalida cache se o período mudou (fromMes ficou mais antigo que o cache anterior)
+  if(_histEvoCache.__fromMes && _histEvoCache.__fromMes > fromMes){
+    // Novo período é mais longo — limpa cache para rebuscar
+    Object.keys(_histEvoCache).forEach(function(k){ if(k!=='__fromMes') delete _histEvoCache[k]; });
+  }
+  _histEvoCache.__fromMes = fromMes;
+
   var toBuscar = uniqueSymbols.filter(function(s){ return !_histEvoCache[s]; });
 
   var fetches = toBuscar.map(function(sym){
@@ -2472,11 +2480,12 @@ function _renderEvoComHistorico(rfLista, bensList, rvAportes, tickers, mesLabels
       if(p.qtd<=0.001) return;
       var tipo = p.tipo||'Acao';
       var sym = _evoTickerSymbol(p.ticker,p.tipo);
-      var val = p.totalInv; // fallback custo
+      var val = null; // null = sem dado (não usa custo como fallback)
 
       if(isMesAtual){
         var cot=rvCotacoes[p.ticker];
         if(cot){ val=p.qtd*(rvIsBR(p.ticker,p.tipo)?cot.preco:cot.preco*rvUsdBRL); }
+        else { val=p.totalInv; } // cotação ao vivo não disponível, usa custo
       } else {
         var hist=_histEvoCache[sym]||{};
         var preco=hist[mes];
@@ -2488,13 +2497,15 @@ function _renderEvoComHistorico(rfLista, bensList, rvAportes, tickers, mesLabels
           }
         }
         if(preco&&preco>0){ val=p.qtd*preco*(rvIsBR(p.ticker,p.tipo)?1:rvUsdBRL); }
+        // Se não tem histórico antes da data de aporte, usa 0
+        if(val===null){ val=0; }
       }
 
       // Mapeia tipo para chave
       var chave = tipo;
       if(tipo==='FIAGRO') chave='FII';
       if(!byTipo.hasOwnProperty(chave)) chave='Acao';
-      byTipo[chave]=(byTipo[chave]||0)+val;
+      byTipo[chave]=(byTipo[chave]||0)+(val||0);
     });
 
     Object.keys(byTipo).forEach(function(k){ classeData[k].push(byTipo[k]); });
