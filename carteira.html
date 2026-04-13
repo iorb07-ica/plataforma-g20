@@ -5639,6 +5639,31 @@ function salvarAporte(){
   if(_drawerTicker && document.getElementById('drawerAtivo').classList.contains('open')){
     renderDrawerBody();
   }
+  // Recalcula qtdEx de todos os proventos do ticker afetado
+  _recalcularQtdExProventos(ticker);
+  // Reimporta proventos para pegar novos (desde data do primeiro aporte)
+  if(isBR(ticker, tipo)){
+    importarProventosBR(ticker).then(function(){ renderDividendos(); });
+  } else {
+    importarProventosUS(ticker).then(function(){ renderDividendos(); });
+  }
+}
+
+function _recalcularQtdExProventos(ticker){
+  var divs = loadData('dividendos', []);
+  var alterados = 0;
+  divs.forEach(function(d){
+    if(d.ticker !== ticker) return;
+    var qtdCorreta = qtdNaData(ticker, d.datex || d.data);
+    if(qtdCorreta > 0 && Math.abs((d.qtdEx||0) - qtdCorreta) > 0.001){
+      d.qtdEx = qtdCorreta;
+      alterados++;
+    }
+  });
+  if(alterados > 0){
+    saveData('dividendos', divs);
+    console.log('[Proventos] Recalculado qtdEx para '+alterados+' registro(s) de '+ticker);
+  }
 }
 
 function excluirAporte(id){if(!confirm('Excluir este aporte?'))return;var aportes=loadData('aportes',[]).filter(function(a){return a.id!==id;});saveData('aportes',aportes);renderPosicoes();renderAportes();}
@@ -6271,6 +6296,9 @@ function importarProventosUS(ticker){
 function importarTodosProventos(callback){
   var pos = calcPosicoes();
   if(!pos.length){ if(callback) callback(0); return; }
+
+  // Primeiro recalcula qtdEx de todos os proventos existentes
+  pos.forEach(function(p){ _recalcularQtdExProventos(p.ticker); });
 
   var btn = document.getElementById('btnImportarProventos');
   if(btn){ btn.textContent='⏳ Buscando...'; btn.disabled=true; }
