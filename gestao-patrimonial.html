@@ -46,17 +46,17 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .menu-btn{background:none;border:none;color:var(--text2);font-size:24px;display:none;cursor:pointer;padding:8px 10px;border-radius:8px;transition:background .15s;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 .menu-btn:active{background:var(--surface)}
 @media(max-width:768px){.menu-btn{display:block}}
-.page-title{font-size:16px;font-weight:700;letter-spacing:1px}
+.page-title{font-size:16px;font-weight:700;letter-spacing:1px;color:var(--text)}
 .topbar-right{display:flex;align-items:center;gap:10px}
 .btn-icon{background:none;border:1px solid var(--border);color:var(--text2);padding:6px 10px;border-radius:8px;font-size:13px;cursor:pointer;transition:all .2s}
 .btn-icon:hover{border-color:var(--gold);color:var(--gold)}
 
 /* CONTENT */
-.content{padding:20px 24px;padding-bottom:calc(60px + env(safe-area-inset-bottom,0px))}
+.content{padding:8px 28px;padding-bottom:calc(60px + env(safe-area-inset-bottom,0px))}
 @media(max-width:768px){.content{padding:14px 14px;padding-bottom:calc(60px + env(safe-area-inset-bottom,0px))}}
 
 /* TICKER TAPE */
-.ticker-tape-wrap{position:relative;background:var(--bg2);border:1px solid rgba(255,255,255,.12);border-radius:10px;overflow:hidden;margin-bottom:20px;height:52px;display:flex;align-items:center;box-shadow:0 2px 12px rgba(0,0,0,.4)}
+.ticker-tape-wrap{position:relative;background:var(--bg2);border:1px solid rgba(255,255,255,.12);border-radius:10px;overflow:hidden;margin-bottom:10px;height:52px;display:flex;align-items:center;box-shadow:0 2px 12px rgba(0,0,0,.4)}
 .ticker-tape-wrap::before,.ticker-tape-wrap::after{right:0;background:linear-gradient(to left,var(--bg2),transparent)}
 .ticker-tape-wrap::before{left:0;background:linear-gradient(to right,var(--bg2),transparent)}
 .ticker-tape-wrap::after{right:0;background:linear-gradient(to left,var(--bg2),transparent)}
@@ -972,6 +972,23 @@ function fecharModal(id){
   if(el){el.style.display='none'; el.classList.remove('show');}
 }
 
+// ESC fecha qualquer modal aberto
+document.addEventListener('keydown', function(e){
+  if(e.key !== 'Escape') return;
+  ['modalRF','modalPat','modalResgate','modalRVAporte'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el && (el.style.display === 'block' || el.classList.contains('show'))) fecharModal(id);
+  });
+  // Fecha drawer de grupo se estiver aberto
+  var drawer = document.getElementById('grupoDrawer');
+  if(drawer && drawer.style.display !== 'none') fecharDrawerGrupo && fecharDrawerGrupo();
+  // Fecha modal RV
+  if(typeof fecharModalRVAporte === 'function'){
+    var rv = document.getElementById('modalRVAporte');
+    if(rv && rv.style.display !== 'none') fecharModalRVAporte();
+  }
+});
+
 var _toastTimer=null;
 function showToast(msg,color){
   var t=document.getElementById('g20Toast');
@@ -1689,8 +1706,13 @@ function renderRF(){
         }
         if(!resgates.length) return '';
         var totalResgatado = resgates.reduce(function(s,r){return s+(r.valor||0);},0);
+        var rId = 'rh-'+Math.random().toString(36).slice(2,8);
         return '<div class="rf-resgate-hist">'+
-          '<div class="rf-resgate-hist-title">💰 Resgates (' + fmtBRL(totalResgatado) + ' total)</div>'+
+          '<div class="rf-resgate-hist-title" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="(function(el){var b=el.nextElementSibling;var arr=el.querySelector('.rh-arrow');if(b.style.display==='none'){b.style.display='';arr.textContent='▲';}else{b.style.display='none';arr.textContent='▼';}})(this)">'+
+            '<span>💰 Resgates (' + fmtBRL(totalResgatado) + ' total)</span>'+
+            '<span class="rh-arrow" style="font-size:9px;color:var(--text3)">▲</span>'+
+          '</div>'+
+          '<div class="rh-body">'+
           resgates.map(function(r){
             return '<div class="rf-resgate-item">'+
               '<div style="display:flex;align-items:center;gap:6px">'+
@@ -1700,6 +1722,7 @@ function renderRF(){
               '<span class="rf-resgate-val">- '+fmtBRL(r.valor)+'</span>'+
             '</div>';
           }).join('')+
+          '</div>'+
         '</div>';
       })()+
     '</div>';
@@ -2377,7 +2400,7 @@ function toggleGrupoInline(btn, idxs){
       '</div>'+
       '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:11px">'+
         '<div style="background:rgba(255,255,255,.06);border-radius:6px;padding:6px 8px"><div style="color:#6b7a94;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Investido</div><div style="font-weight:700">'+fmtBRL(rf.valorInv)+'</div></div>'+
-        '<div style="background:rgba(255,255,255,.06);border-radius:6px;padding:6px 8px"><div style="color:#6b7a94;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Saldo Líquido</div><div style="font-weight:700;color:'+cor+'">'+fmtBRL(_calcLiquidoAporte(ap.valorInv||0,ap.dataInicio,ap.indexador,ap.taxa,ap.tipo))+'</div></div>'+
+        '<div style="background:rgba(255,255,255,.06);border-radius:6px;padding:6px 8px"><div style="color:#6b7a94;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Saldo Líquido</div><div style="font-weight:700;color:'+cor+'">'+fmtBRL(_calcLiquidoAporte(rf.valorInv||0,rf.dataInicio,rf.indexador,rf.taxa,rf.tipo))+'</div></div>'+
         '<div style="background:rgba(255,255,255,.06);border-radius:6px;padding:6px 8px"><div style="color:#6b7a94;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Rentab.</div><div style="font-weight:700;color:'+(r>=0?'#2ecc71':'#e63946')+'">'+(r>=0?'+':'')+r.toFixed(2)+'%</div></div>'+
       '</div>'+
     '</div>';
