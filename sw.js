@@ -1,4 +1,4 @@
-const CACHE = 'g20-v5';
+const CACHE = 'g20-v6';
 
 // Apenas assets estáticos que raramente mudam
 const STATIC = [
@@ -39,7 +39,9 @@ self.addEventListener('fetch', function(e) {
       url.includes('firestore') || url.includes('anchor.fm') ||
       url.includes('brapi.dev') || url.includes('twelvedata') ||
       url.includes('bcb.gov.br') || url.includes('fonts.googleapis') ||
-      url.includes('gstatic.com')) return;
+      url.includes('gstatic.com') || url.includes('vercel.app') ||
+      url.includes('awesomeapi.com.br') || url.includes('yahoo') ||
+      url.includes('cdnjs.cloudflare.com')) return;
 
   // HTMLs — NUNCA usa cache, sempre busca da rede
   if (url.endsWith('.html') || url.endsWith('/')) {
