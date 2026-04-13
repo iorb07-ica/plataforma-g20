@@ -554,18 +554,18 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
         <div class="leg-list" id="legRVDist"></div>
       </div>
       <div class="chart-card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <div class="chart-card-title" style="margin-bottom:0"><span></span>Evolução Patrimonial</div>
           <div style="display:flex;gap:6px">
-            <button class="filter-pill active" id="evoBtn6m"  onclick="setEvoRange(6,this)">6M</button>
-            <button class="filter-pill"        id="evoBtn12m" onclick="setEvoRange(12,this)">12M</button>
-            <button class="filter-pill"        id="evoBtn24m" onclick="setEvoRange(24,this)">24M</button>
+            <button class="filter-pill active" id="evoBtn6m"   onclick="setEvoRange(6,this)">6M</button>
+            <button class="filter-pill"        id="evoBtn1a"   onclick="setEvoRange(12,this)">1A</button>
+            <button class="filter-pill"        id="evoBtn2a"   onclick="setEvoRange(24,this)">2A</button>
+            <button class="filter-pill"        id="evoBtn5a"   onclick="setEvoRange(60,this)">5A</button>
+            <button class="filter-pill"        id="evoBtn10a"  onclick="setEvoRange(120,this)">10A</button>
           </div>
         </div>
-        <div style="position:relative;height:220px"><canvas id="chartEvolucao"></canvas></div>
-        <div style="font-size:11px;color:var(--text2);margin-top:10px;text-align:center">
-          🔢 Simulação baseada nos dados atuais retroprojetados.
-        </div>
+        <div id="evoLegendaClasses" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px"></div>
+        <div style="position:relative;height:260px"><canvas id="chartEvolucao"></canvas></div>
       </div>
     </div>
 
@@ -2275,7 +2275,7 @@ var _evoMeses = 6;
 
 function setEvoRange(meses, btn){
   _evoMeses = meses;
-  document.querySelectorAll('#evoBtn6m,#evoBtn12m,#evoBtn24m').forEach(function(b){ b.classList.remove('active'); });
+  document.querySelectorAll('#evoBtn6m,#evoBtn1a,#evoBtn2a,#evoBtn5a,#evoBtn10a').forEach(function(b){ b.classList.remove('active'); });
   if(btn) btn.classList.add('active');
   renderEvolucaoChart(meses);
 }
@@ -2337,93 +2337,216 @@ function calcPatrimonioEmData(dataRef, rfLista, bensList, rvAtual){
 function _gTextColor(){ return document.body.classList.contains('light')?'#4a526a':'#9aa5b8'; }
 function _gGridColor(){ return document.body.classList.contains('light')?'rgba(0,0,0,0.05)':'rgba(255,255,255,0.05)'; }
 
-var _EVOLUCAO_CORES = {
-  rf:    { border:'#10b981', alpha:'rgba(16,185,129,' },
-  bens:  { border:'#3b82f6', alpha:'rgba(59,130,246,' },
-  rv:    { border:'#8b5cf6', alpha:'rgba(139,92,246,' },
-};
+// Classes de ativos e cores
+var _EVO_CLASSES = [
+  { key:'RF',    label:'Renda Fixa',    border:'#10b981', alpha:'rgba(16,185,129,' },
+  { key:'Bens',  label:'Bens',          border:'#3b82f6', alpha:'rgba(59,130,246,' },
+  { key:'Acao',  label:'Ações BR',      border:'#e8b84b', alpha:'rgba(232,184,75,' },
+  { key:'FII',   label:'FIIs',          border:'#f59e0b', alpha:'rgba(245,158,11,' },
+  { key:'Stock', label:'Stocks',        border:'#6366f1', alpha:'rgba(99,102,241,' },
+  { key:'REIT',  label:'REITs',         border:'#8b5cf6', alpha:'rgba(139,92,246,' },
+  { key:'ETF',   label:'ETFs',          border:'#06b6d4', alpha:'rgba(6,182,212,'  },
+  { key:'UCITs', label:'UCITs',         border:'#84cc16', alpha:'rgba(132,204,22,' },
+  { key:'Cripto',label:'Cripto',        border:'#f97316', alpha:'rgba(249,115,22,' },
+];
+
+// Classes visíveis (toggle)
+var _evoClassesVisiveis = {};
+_EVO_CLASSES.forEach(function(c){ _evoClassesVisiveis[c.key] = true; });
+
+// Cache de histórico mensal
+var _histEvoCache = {};
+
+function _evoTickerSymbol(ticker, tipo){
+  if(tipo==='Cripto'){ var cs=ticker.toUpperCase(); return cs.includes('-')?cs:cs+'-USD'; }
+  if(tipo==='UCITs'){ return ticker.includes('.')?ticker.toUpperCase():ticker.toUpperCase()+'.L'; }
+  if(tipo==='Acao'||tipo==='FII'||tipo==='FIAGRO'||/\d$/.test(ticker)) return ticker.toUpperCase()+'.SA';
+  return ticker.toUpperCase();
+}
+
+function _renderEvoLegenda(classesAtivas){
+  var el = document.getElementById('evoLegendaClasses');
+  if(!el) return;
+  el.innerHTML = classesAtivas.map(function(c){
+    var ativo = _evoClassesVisiveis[c.key];
+    return '<div onclick="toggleEvoClasse(\''+c.key+'\')" style="display:flex;align-items:center;gap:5px;cursor:pointer;padding:3px 8px;border-radius:12px;border:1px solid '+(ativo?c.border:'rgba(255,255,255,.1)')+';background:'+(ativo?'rgba(255,255,255,.05)':'transparent')+';transition:all .2s">'+
+      '<div style="width:8px;height:8px;border-radius:50%;background:'+(ativo?c.border:'#444')+';flex-shrink:0"></div>'+
+      '<span style="font-size:10px;font-weight:600;color:'+(ativo?c.border:'var(--text3)')+'">'+c.label+'</span>'+
+    '</div>';
+  }).join('');
+}
+
+function toggleEvoClasse(key){
+  _evoClassesVisiveis[key] = !_evoClassesVisiveis[key];
+  renderEvolucaoChart(_evoMeses);
+}
 
 function renderEvolucaoChart(meses){
   var rfLista  = loadRF();
   var bensList = loadPat();
-  var rvAtual  = calcRVTotal();
-  var hoje     = new Date();
+  var rvAportes = loadRVAportes();
+  var hoje = new Date();
 
-  // Gera labels e dados por classe
-  var labels = [];
-  var dataRF = [], dataBens = [], dataRV = [];
-
+  // Gera lista de meses
+  var mesLabels = [];
   for(var i=meses; i>=0; i--){
     var d = new Date(hoje.getFullYear(), hoje.getMonth()-i, 1);
-    var dataStr = d.toISOString().split('T')[0];
-    var mesYM   = dataStr.slice(0,7);
-    labels.push(mesYM);
+    mesLabels.push(d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1));
+  }
+
+  // Tickers únicos de RV
+  var posMap = {};
+  rvAportes.sort(function(a,b){ return a.data.localeCompare(b.data); }).forEach(function(a){
+    if(!posMap[a.ticker]) posMap[a.ticker]={ticker:a.ticker,tipo:a.tipo||'Acao'};
+  });
+  var tickers = Object.values(posMap);
+  var symbols = tickers.map(function(p){ return _evoTickerSymbol(p.ticker,p.tipo); });
+  var uniqueSymbols = symbols.filter(function(s,i){ return symbols.indexOf(s)===i; });
+
+  var fromMes = mesLabels[0];
+  var toBuscar = uniqueSymbols.filter(function(s){ return !_histEvoCache[s]; });
+
+  var fetches = toBuscar.map(function(sym){
+    return fetch(PROXY_URL_RV+'/api/history-monthly?symbol='+encodeURIComponent(sym)+'&from='+fromMes)
+      .then(function(r){ return r.ok?r.json():{prices:{}}; })
+      .then(function(d){ _histEvoCache[sym]=d.prices||{}; })
+      .catch(function(){ _histEvoCache[sym]={}; });
+  });
+
+  Promise.all(fetches).then(function(){
+    _renderEvoComHistorico(rfLista, bensList, rvAportes, tickers, mesLabels, meses);
+  });
+}
+
+function _renderEvoComHistorico(rfLista, bensList, rvAportes, tickers, mesLabels, meses){
+  var hoje = new Date();
+  var mn = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+
+  // Calcula dados por classe por mês
+  var classeData = {};
+  _EVO_CLASSES.forEach(function(c){ classeData[c.key]=[]; });
+
+  mesLabels.forEach(function(mes){
+    var dataRef = mes+'-01';
 
     // RF
     var rfAtivos = rfLista.filter(function(r){ return !r.encerrado; });
     var rfVal = rfAtivos.reduce(function(s,r){
-      if(!r.dataInicio || r.dataInicio > dataStr) return s;
-      var diasCorridos = Math.max(0,Math.floor((new Date(dataStr)-new Date(r.dataInicio))/86400000));
-      var taxa = parseFloat(r.taxa)/100;
-      var rendAnual = 0;
-      if(r.indexador==='CDI')       rendAnual=(getCDI()/100)*taxa;
-      else if(r.indexador==='Selic') rendAnual=(getSelic()/100)+taxa;
-      else if(r.indexador==='IPCA')  rendAnual=(getIPCA()/100)+taxa;
-      else if(r.indexador==='Prefixado') rendAnual=taxa;
-      var du = diasUteisEstimados(diasCorridos);
-      var fator = (r.indexador==='CDI'||r.indexador==='Selic') ? Math.pow(1+rendAnual,du/252) : Math.pow(1+rendAnual,diasCorridos/365);
-      return s + (r._invOriginal||r.valorInv||0)*fator;
+      if(!r.dataInicio||r.dataInicio>dataRef) return s;
+      var dc=Math.max(0,Math.floor((new Date(dataRef)-new Date(r.dataInicio))/86400000));
+      var taxa=parseFloat(r.taxa)/100, rend=0;
+      if(r.indexador==='CDI') rend=(getCDI()/100)*taxa;
+      else if(r.indexador==='Selic') rend=(getSelic()/100)+taxa;
+      else if(r.indexador==='IPCA') rend=(getIPCA()/100)+taxa;
+      else if(r.indexador==='Prefixado') rend=taxa;
+      var du=diasUteisEstimados(dc);
+      var f=(r.indexador==='CDI'||r.indexador==='Selic')?Math.pow(1+rend,du/252):Math.pow(1+rend,dc/365);
+      return s+(r._invOriginal||r.valorInv||0)*f;
     },0);
-    dataRF.push(rfVal);
+    classeData['RF'].push(rfVal);
 
     // Bens
     var bensVal = bensList.reduce(function(s,b){
-      if(b.dataAq && b.dataAq > dataStr) return s;
-      return s + calcBemValorAtual(b) - (b.divida||0);
+      if(b.dataAq&&b.dataAq>dataRef) return s;
+      return s+Math.max(0,calcBemValorAtual(b)-(b.divida||0));
     },0);
-    dataBens.push(Math.max(0,bensVal));
+    classeData['Bens'].push(bensVal);
 
-    // RV — usa valor atual para todos os meses (retroprojeção simples)
-    dataRV.push(rvAtual);
-  }
+    // RV por tipo
+    var isMesAtual = mes===mesLabels[mesLabels.length-1];
+    var rvPos = {};
+    rvAportes.forEach(function(a){
+      if(a.data.substring(0,7)>mes) return;
+      if(!rvPos[a.ticker]) rvPos[a.ticker]={ticker:a.ticker,tipo:a.tipo||'Acao',qtd:0,totalInv:0};
+      var p=rvPos[a.ticker];
+      var preco=a.moeda==='USD'?a.preco*(a.fxRate||rvUsdBRL):a.preco;
+      if(a.op==='C'){p.qtd+=a.qtd;p.totalInv+=a.qtd*preco;}
+      else{var pm=p.qtd>0?p.totalInv/p.qtd:0;p.totalInv-=a.qtd*pm;p.qtd-=a.qtd;}
+    });
+
+    // Agrupa por tipo
+    var byTipo = {};
+    _EVO_CLASSES.forEach(function(c){ if(c.key!=='RF'&&c.key!=='Bens') byTipo[c.key]=0; });
+
+    Object.values(rvPos).forEach(function(p){
+      if(p.qtd<=0.001) return;
+      var tipo = p.tipo||'Acao';
+      var sym = _evoTickerSymbol(p.ticker,p.tipo);
+      var val = p.totalInv; // fallback custo
+
+      if(isMesAtual){
+        var cot=rvCotacoes[p.ticker];
+        if(cot){ val=p.qtd*(rvIsBR(p.ticker,p.tipo)?cot.preco:cot.preco*rvUsdBRL); }
+      } else {
+        var hist=_histEvoCache[sym]||{};
+        var preco=hist[mes];
+        if(!preco){
+          for(var bk=1;bk<=3;bk++){
+            var bd=new Date(mes+'-01'); bd.setMonth(bd.getMonth()-bk);
+            var bk2=bd.getFullYear()+'-'+(bd.getMonth()<9?'0':'')+(bd.getMonth()+1);
+            if(hist[bk2]){preco=hist[bk2];break;}
+          }
+        }
+        if(preco&&preco>0){ val=p.qtd*preco*(rvIsBR(p.ticker,p.tipo)?1:rvUsdBRL); }
+      }
+
+      // Mapeia tipo para chave
+      var chave = tipo;
+      if(tipo==='FIAGRO') chave='FII';
+      if(!byTipo.hasOwnProperty(chave)) chave='Acao';
+      byTipo[chave]=(byTipo[chave]||0)+val;
+    });
+
+    Object.keys(byTipo).forEach(function(k){ classeData[k].push(byTipo[k]); });
+  });
+
+  // Filtra classes que têm dados
+  var classesAtivas = _EVO_CLASSES.filter(function(c){
+    return classeData[c.key] && classeData[c.key].some(function(v){ return v>0; });
+  });
+
+  _renderEvoLegenda(classesAtivas);
 
   destroyChart('chartEvolucao');
   var ctx = document.getElementById('chartEvolucao');
   if(!ctx) return;
   var c2d = ctx.getContext('2d');
 
-  // Gradientes
   function makeGrad(alpha){
-    var g = c2d.createLinearGradient(0,0,0,280);
-    g.addColorStop(0, alpha+'0.5)');
-    g.addColorStop(1, alpha+'0.02)');
+    var g=c2d.createLinearGradient(0,0,0,280);
+    g.addColorStop(0,alpha+'0.5)');
+    g.addColorStop(1,alpha+'0.02)');
     return g;
   }
 
-  var mn = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  var datasets = classesAtivas
+    .filter(function(c){ return _evoClassesVisiveis[c.key]; })
+    .map(function(c){
+      return {
+        label:c.label, data:classeData[c.key],
+        borderColor:c.border, backgroundColor:makeGrad(c.alpha),
+        borderWidth:1.5, fill:true, tension:0.35,
+        pointRadius:0, pointHoverRadius:5,
+        pointHoverBackgroundColor:'#fff',
+        pointHoverBorderColor:c.border, pointHoverBorderWidth:2
+      };
+    });
 
   _charts['chartEvolucao'] = new Chart(c2d,{
     type:'line',
-    data:{
-      labels: labels,
-      datasets:[
-        { label:'Renda Variável', data:dataRV,  borderColor:_EVOLUCAO_CORES.rv.border,   backgroundColor:makeGrad(_EVOLUCAO_CORES.rv.alpha),   borderWidth:1.5, fill:true, tension:0.35, pointRadius:0, pointHoverRadius:5, pointHoverBackgroundColor:'#fff', pointHoverBorderColor:_EVOLUCAO_CORES.rv.border, pointHoverBorderWidth:2 },
-        { label:'Bens',          data:dataBens, borderColor:_EVOLUCAO_CORES.bens.border, backgroundColor:makeGrad(_EVOLUCAO_CORES.bens.alpha), borderWidth:1.5, fill:true, tension:0.35, pointRadius:0, pointHoverRadius:5, pointHoverBackgroundColor:'#fff', pointHoverBorderColor:_EVOLUCAO_CORES.bens.border, pointHoverBorderWidth:2 },
-        { label:'Renda Fixa',    data:dataRF,   borderColor:_EVOLUCAO_CORES.rf.border,   backgroundColor:makeGrad(_EVOLUCAO_CORES.rf.alpha),   borderWidth:1.5, fill:true, tension:0.35, pointRadius:0, pointHoverRadius:5, pointHoverBackgroundColor:'#fff', pointHoverBorderColor:_EVOLUCAO_CORES.rf.border, pointHoverBorderWidth:2 },
-      ]
-    },
+    data:{ labels:mesLabels, datasets:datasets },
     options:{
       responsive:true, maintainAspectRatio:false,
       interaction:{ mode:'index', intersect:false },
-      animation:{ duration:600, easing:'easeOutQuart' },
+      animation:{ duration:500, easing:'easeOutQuart' },
       plugins:{
-        legend:{ display:true, position:'bottom', labels:{ color:_gTextColor(), font:{size:11}, boxWidth:12, padding:16 } },
+        legend:{ display:false },
         tooltip:{
           mode:'index', intersect:false,
           backgroundColor:'rgba(9,11,15,0.95)',
           borderColor:'rgba(255,255,255,0.1)',
           borderWidth:1, padding:14,
-          titleFont:{size:11,weight:'600'},
+          titleFont:{size:12,weight:'700'},
           bodyFont:{size:12},
           callbacks:{
             title:function(items){
@@ -2441,13 +2564,12 @@ function renderEvolucaoChart(meses){
       scales:{
         x:{
           stacked:true,
-          grid:{color:_gGridColor(), drawBorder:false},
+          grid:{color:_gGridColor(),drawBorder:false},
           border:{display:false},
           ticks:{
-            maxTicksLimit:8, color:_gTextColor(), font:{size:11},
+            maxTicksLimit:10, color:_gTextColor(), font:{size:11},
             callback:function(val,i){
-              var l=this.getLabelForValue(val);
-              if(!l) return '';
+              var l=this.getLabelForValue(val); if(!l) return '';
               var p=l.split('-');
               return mn[parseInt(p[1])-1]+'/'+p[0].substring(2);
             }
@@ -2455,13 +2577,13 @@ function renderEvolucaoChart(meses){
         },
         y:{
           stacked:true,
-          grid:{color:_gGridColor(), drawBorder:false},
+          grid:{color:_gGridColor(),drawBorder:false},
           border:{display:false},
           ticks:{
             color:_gTextColor(), font:{size:11},
             callback:function(v){
               if(v>=1000000) return 'R$'+(v/1000000).toFixed(1)+'M';
-              if(v>=1000)    return 'R$'+(v/1000).toFixed(0)+'k';
+              if(v>=1000) return 'R$'+(v/1000).toFixed(0)+'k';
               return 'R$'+v;
             }
           }
@@ -2470,7 +2592,6 @@ function renderEvolucaoChart(meses){
     }
   });
 }
-
 
 // ── GRUPO INLINE ─────────────────────────────────────────────
 function toggleGrupoInline(btn, idxs){
