@@ -30,9 +30,12 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 @media(max-width:768px){.sidebar{transform:translateX(-100%);z-index:210!important}.sidebar.open{transform:translateX(0)}}
 .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:199}
 .overlay.show{display:block}
-.logo-ball-wrap{display:flex;align-items:center;justify-content:center;padding:16px;border-bottom:1px solid var(--border)}
-.logo-ball{width:48px;height:48px}
-.logo-ball img{width:100%;height:100%;border-radius:50%;object-fit:cover}
+.logo-ball-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px 16px 16px;border-bottom:1px solid var(--border);text-decoration:none;cursor:pointer}
+.logo-ball{width:64px;height:64px;border-radius:50%;overflow:hidden;flex-shrink:0;position:relative;box-shadow:0 0 0 2px rgba(232,184,75,.4),0 0 16px rgba(232,184,75,.4),0 0 36px rgba(232,184,75,.18),0 0 56px rgba(232,184,75,.08);transition:box-shadow .35s ease,transform .3s ease}
+.logo-ball:hover{box-shadow:0 0 0 3px rgba(232,184,75,.7),0 0 22px rgba(232,184,75,.6),0 0 48px rgba(232,184,75,.28);transform:scale(1.08)}
+.logo-ball img{width:100%;height:100%;object-fit:cover;display:block;border-radius:50%}
+.logo-ball::after{content:'';position:absolute;inset:-3px;border-radius:50%;border:1.5px solid rgba(232,184,75,.5);animation:logoRing 3s linear infinite}
+@keyframes logoRing{0%{opacity:.6;transform:rotate(0deg) scale(1)}50%{opacity:.2;transform:rotate(180deg) scale(1.04)}100%{opacity:.6;transform:rotate(360deg) scale(1)}}
 .sidebar-user{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .2s}
 .sidebar-user:hover{background:var(--sur2)}
 .user-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--gold),var(--goldd));display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#090b0f;flex-shrink:0;overflow:hidden}
@@ -868,8 +871,8 @@ function preencherFormulario(data, user) {
 
   // Hero
   var nome = p.nome || data.name || user.displayName || '';
-  document.getElementById('heroName').textContent = nome || 'Seu Nome';
-  document.getElementById('heroTurma').textContent = (data.turma || 'Turma 21') + ' · ' + (data.role || 'Membro');
+  var _hn=document.getElementById('heroName');if(_hn)_hn.textContent=nome||'Seu Nome';
+  var _ht=document.getElementById('heroTurma');if(_ht)_ht.textContent=(data.turma||'Turma 21')+' · '+(data.role||'Membro');
 
   // Badge G20 Infinite
   if (data.infinite === true) {
@@ -879,13 +882,13 @@ function preencherFormulario(data, user) {
   }
 
   // Sidebar
-  document.getElementById('sidebarName').textContent = nome || 'Aluno G20';
+  var _sn=document.getElementById('sidebarName');if(_sn)_sn.textContent=nome||'Aluno G20';
   var _bi=document.getElementById('badgeInfinity');if(_bi)_bi.style.display=(_userData.infinite===true)?'inline-block':'none';
-  document.getElementById('sidebarTurma').textContent = data.turma || 'Turma 21';
-  document.getElementById('sidebarRole').textContent = data.role || 'Membro';
+  var _st=document.getElementById('sidebarTurma');if(_st)_st.textContent=data.turma||'Turma 21';
+  var _sr=document.getElementById('sidebarRole');if(_sr)_sr.textContent=data.role||'Membro';
   var initials = (nome || 'G2').split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase() || 'G2';
-  document.getElementById('sidebarInitials').textContent = initials;
-  document.getElementById('avatarInitials').textContent = initials;
+  var _si=document.getElementById('sidebarInitials');if(_si)_si.textContent=initials;
+  var _ai=document.getElementById('avatarInitials');if(_ai)_ai.textContent=initials;
 
   // Avatar
   var foto = p.foto || data.photo || user.photoURL || '';
@@ -1109,7 +1112,11 @@ async function salvarPerfil() {
       var el = document.getElementById(id); return el && el.value.trim();
     });
 
-    var perfil = {
+    // Começa com dados existentes e mescla com o que foi preenchido agora
+    // Assim campos não preenchidos no form não apagam dados já salvos
+    var existing = (_userData && _userData.perfil) ? _userData.perfil : {};
+
+    var formData = {
       sobre:           getVal('f-sobre'),
       nome:            getVal('f-nome'),
       nascimento:      getVal('f-nascimento'),
@@ -1140,29 +1147,41 @@ async function salvarPerfil() {
       youtube:         getVal('f-youtube'),
       hobbies:         getVal('f-hobbies'),
       favoritos:       getVal('f-favoritos'),
-      completionPct:   pct,
-      updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
     };
 
-    // Avatar
+    // Mescla: mantém valor existente se o campo do form estiver vazio
+    var perfil = Object.assign({}, existing);
+    Object.keys(formData).forEach(function(k) {
+      var v = formData[k];
+      if (v && v.trim && v.trim()) perfil[k] = v;
+      else if (v && !v.trim) perfil[k] = v; // para valores não-string
+    });
+    perfil.completionPct = pct;
+    perfil.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+
+    // Avatar — salva se tiver novo, mantém o existente caso contrário
     if (_avatarBase64) {
       perfil.foto = _avatarBase64;
+    } else if (existing.foto) {
+      perfil.foto = existing.foto;
     }
 
     var updateData = {
       perfil: perfil,
-      name: perfil.nome,
       perfilCompleto: perfilCompleto,
       perfilPct: pct
     };
+    // Só atualiza name se tiver valor
+    if (perfil.nome && perfil.nome.trim()) updateData.name = perfil.nome;
 
     await db.collection('users').doc(_uid).update(updateData);
 
     // Salva cache local
     try {
       var cached = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
-      cached.name = perfil.nome;
+      if (perfil.nome && perfil.nome.trim()) cached.name = perfil.nome;
       if (_avatarBase64) cached.photo = _avatarBase64;
+      else if (perfil.foto) cached.photo = perfil.foto; // mantém foto existente no cache
       localStorage.setItem('g20_user_profile', JSON.stringify(cached));
     } catch(e){}
 
@@ -1223,6 +1242,48 @@ function closeSidebar() {
   document.body.style.overflow = '';
 }
 function csm() { if (window.innerWidth <= 768) closeSidebar(); }
+
+// ── SISTEMA DE ABAS DESKTOP ──────────────────────────────────
+var TAB_FIELDS = {
+  pessoal:    ['f-sobre','f-nome','f-nascimento','f-telefone','f-cidade','f-estado'],
+  financeiro: ['f-renda','f-patrimonio','f-aporte-mensal','f-experiencia','f-meta','f-objetivo','f-disponibilidade','f-porqueg20'],
+  profissao:  ['f-profissao','f-area','f-empresa','f-escolaridade'],
+  redes:      ['f-instagram','f-linkedin','f-twitter','f-youtube'],
+  hobbies:    ['f-hobbies','f-favoritos'],
+  conquistas: []
+};
+
+function switchTab(tab) {
+  document.querySelectorAll('.perfil-tab').forEach(function(t){
+    t.classList.toggle('active', t.dataset.tab === tab);
+  });
+  document.querySelectorAll('.perfil-tab-panel').forEach(function(p){
+    p.classList.toggle('active', p.id === 'panel-' + tab);
+  });
+  var tc = document.querySelector('.perfil-tab-content');
+  if(tc) tc.scrollTop = 0;
+}
+
+function atualizarTabProgress() {
+  Object.keys(TAB_FIELDS).forEach(function(tab) {
+    var fields = TAB_FIELDS[tab];
+    if(!fields.length) return;
+    var filled = fields.filter(function(id){
+      var el = document.getElementById(id);
+      return el && el.value && el.value.trim() && el.value !== 'Selecione...';
+    }).length;
+    var pct = Math.round((filled / fields.length) * 100);
+    var pctEl = document.getElementById('tpct-' + tab);
+    var tabEl = document.querySelector('[data-tab="' + tab + '"]');
+    if(pctEl) pctEl.textContent = pct + '%';
+    if(tabEl) {
+      tabEl.classList.toggle('done', pct === 100);
+    }
+  });
+}
+
+document.addEventListener('input', atualizarTabProgress);
+document.addEventListener('change', atualizarTabProgress);
 
 function toggleTheme() {
   var l = document.body.classList.toggle('light');
