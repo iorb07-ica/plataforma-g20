@@ -160,6 +160,13 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .field textarea{resize:vertical;min-height:90px}
 .field select option{background:var(--bg3)}
 .field-hint{font-size:11px;color:var(--text3);margin-top:2px}
+.field.invalid input,.field.invalid select,.field.invalid textarea{
+  border-color:#e63946!important;
+  box-shadow:0 0 0 3px rgba(230,57,70,.15)!important;
+}
+.field.invalid label{color:#e63946!important;}
+.field-error-msg{font-size:11px;color:#e63946;margin-top:3px;display:none}
+.field.invalid .field-error-msg{display:block}
 
 /* ── CONQUISTAS ── */
 .conquistas-grid{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
@@ -917,9 +924,40 @@ async function salvarPerfil() {
     return !el || !el.value.trim();
   });
 
+  // Limpa erros anteriores
+  document.querySelectorAll('.field.invalid').forEach(function(f){ f.classList.remove('invalid'); });
+
   if (vazios.length > 0) {
-    showToast('⚠️ Preencha todos os campos obrigatórios (★)', 'err');
-    // Abrir seções com campos faltando
+    // Avisa mas NÃO bloqueia — salva mesmo assim
+    showToast('⚠️ Perfil incompleto: ' + vazios.length + ' campo(s) obrigatório(s) faltando.', 'warn');
+    // Destaca em vermelho cada campo vazio
+    vazios.forEach(function(id){
+      var el = document.getElementById(id);
+      if(el){
+        var fieldDiv = el.closest('.field');
+        if(fieldDiv){
+          fieldDiv.classList.add('invalid');
+          // Adiciona msg de erro se ainda não tiver
+          if(!fieldDiv.querySelector('.field-error-msg')){
+            var msg = document.createElement('span');
+            msg.className = 'field-error-msg';
+            msg.textContent = 'Campo obrigatório';
+            fieldDiv.appendChild(msg);
+          }
+          // Remove o erro quando o usuário preencher
+          el.addEventListener('input', function(){
+            if(el.value.trim()) fieldDiv.classList.remove('invalid');
+          }, {once:true});
+          el.addEventListener('change', function(){
+            if(el.value.trim()) fieldDiv.classList.remove('invalid');
+          }, {once:true});
+        }
+      }
+    });
+    // Scroll para o primeiro campo inválido
+    var primeiro = document.querySelector('.field.invalid input, .field.invalid select, .field.invalid textarea');
+    if(primeiro) primeiro.scrollIntoView({behavior:'smooth', block:'center'});
+    // Abre seções com campos faltando para facilitar
     if (['f-nome','f-nascimento','f-telefone','f-cidade','f-estado','f-sobre'].some(function(f){return vazios.includes(f);})) {
       document.getElementById('sec-pessoal').classList.add('open');
     }
@@ -929,7 +967,17 @@ async function salvarPerfil() {
     if (vazios.includes('f-profissao')) {
       document.getElementById('sec-profissao').classList.add('open');
     }
-    return;
+    // Salva notificação no localStorage para o dashboard exibir
+    try {
+      var notifKey = 'g20_notifications';
+      var notifs = JSON.parse(localStorage.getItem(notifKey) || 'null') || [];
+      var jaExiste = notifs.some(function(n){ return n.id === 'perfil-incompleto'; });
+      if (!jaExiste) {
+        notifs.unshift({id:'perfil-incompleto', tipo:'aviso', ico:'👤', bg:'rgba(245,158,11,.12)', titulo:'Complete seu perfil', desc:'Você tem ' + vazios.length + ' campo(s) obrigatório(s) não preenchido(s). Complete seu perfil para aproveitar melhor a plataforma.', ts: Date.now(), link:'perfil.html'});
+        localStorage.setItem(notifKey, JSON.stringify(notifs));
+      }
+    } catch(e) {}
+    // Continua salvando o que foi preenchido...
   }
 
   var btn = document.getElementById('btnSave');
@@ -1009,10 +1057,10 @@ async function salvarPerfil() {
     document.getElementById('saveBar').classList.remove('visible');
     showToast('✅ Perfil salvo com sucesso!', 'ok');
 
-    // Se primeira vez completando, vai para boas-vindas
+    // Se primeira vez completando, vai para o dashboard
     if (perfilCompleto && !_userData.perfilCompleto) {
       setTimeout(function() {
-        window.location.href = 'boas-vindas.html';
+        window.location.href = 'dashboard.html';
       }, 1500);
     }
 
