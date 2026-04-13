@@ -2334,88 +2334,137 @@ function calcPatrimonioEmData(dataRef, rfLista, bensList, rvAtual){
   return rfVal + bensVal + rvAtual;
 }
 
+function _gTextColor(){ return document.body.classList.contains('light')?'#4a526a':'#9aa5b8'; }
+function _gGridColor(){ return document.body.classList.contains('light')?'rgba(0,0,0,0.05)':'rgba(255,255,255,0.05)'; }
+
+var _EVOLUCAO_CORES = {
+  rf:    { border:'#10b981', alpha:'rgba(16,185,129,' },
+  bens:  { border:'#3b82f6', alpha:'rgba(59,130,246,' },
+  rv:    { border:'#8b5cf6', alpha:'rgba(139,92,246,' },
+};
+
 function renderEvolucaoChart(meses){
   var rfLista  = loadRF();
   var bensList = loadPat();
   var rvAtual  = calcRVTotal();
+  var hoje     = new Date();
 
-  // Gera labels mensais retroativos
-  var labels=[], valores=[];
-  var hoje = new Date();
+  // Gera labels e dados por classe
+  var labels = [];
+  var dataRF = [], dataBens = [], dataRV = [];
+
   for(var i=meses; i>=0; i--){
     var d = new Date(hoje.getFullYear(), hoje.getMonth()-i, 1);
     var dataStr = d.toISOString().split('T')[0];
-    var mesLabel = d.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'});
-    labels.push(mesLabel);
-    valores.push(calcPatrimonioEmData(dataStr, rfLista, bensList, rvAtual));
-  }
+    var mesYM   = dataStr.slice(0,7);
+    labels.push(mesYM);
 
-  // Pontos manuais salvos (snapshots do usuário)
-  var snaps = loadData('patrimonioSnaps',[]);
-  var snapMap = {};
-  snaps.forEach(function(s){ snapMap[s.data]=s.valor; });
+    // RF
+    var rfAtivos = rfLista.filter(function(r){ return !r.encerrado; });
+    var rfVal = rfAtivos.reduce(function(s,r){
+      if(!r.dataInicio || r.dataInicio > dataStr) return s;
+      var diasCorridos = Math.max(0,Math.floor((new Date(dataStr)-new Date(r.dataInicio))/86400000));
+      var taxa = parseFloat(r.taxa)/100;
+      var rendAnual = 0;
+      if(r.indexador==='CDI')       rendAnual=(getCDI()/100)*taxa;
+      else if(r.indexador==='Selic') rendAnual=(getSelic()/100)+taxa;
+      else if(r.indexador==='IPCA')  rendAnual=(getIPCA()/100)+taxa;
+      else if(r.indexador==='Prefixado') rendAnual=taxa;
+      var du = diasUteisEstimados(diasCorridos);
+      var fator = (r.indexador==='CDI'||r.indexador==='Selic') ? Math.pow(1+rendAnual,du/252) : Math.pow(1+rendAnual,diasCorridos/365);
+      return s + (r._invOriginal||r.valorInv||0)*fator;
+    },0);
+    dataRF.push(rfVal);
 
-  // Onde há snapshot, sobrescreve
-  for(var j=0;j<labels.length;j++){
-    var d2 = new Date(hoje.getFullYear(), hoje.getMonth()-(meses-j), 1);
-    var ds = d2.toISOString().split('T')[0].slice(0,7); // YYYY-MM
-    var found = Object.keys(snapMap).find(function(k){ return k.startsWith(ds); });
-    if(found) valores[j] = snapMap[found];
+    // Bens
+    var bensVal = bensList.reduce(function(s,b){
+      if(b.dataAq && b.dataAq > dataStr) return s;
+      return s + calcBemValorAtual(b) - (b.divida||0);
+    },0);
+    dataBens.push(Math.max(0,bensVal));
+
+    // RV — usa valor atual para todos os meses (retroprojeção simples)
+    dataRV.push(rvAtual);
   }
 
   destroyChart('chartEvolucao');
   var ctx = document.getElementById('chartEvolucao');
   if(!ctx) return;
+  var c2d = ctx.getContext('2d');
 
-  var maxVal = Math.max.apply(null,valores);
-  var minVal = Math.min.apply(null,valores.filter(function(v){return v>0;}));
+  // Gradientes
+  function makeGrad(alpha){
+    var g = c2d.createLinearGradient(0,0,0,280);
+    g.addColorStop(0, alpha+'0.5)');
+    g.addColorStop(1, alpha+'0.02)');
+    return g;
+  }
 
-  _charts['chartEvolucao'] = new Chart(ctx.getContext('2d'),{
+  var mn = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+
+  _charts['chartEvolucao'] = new Chart(c2d,{
     type:'line',
     data:{
       labels: labels,
-      datasets:[{
-        label:'Patrimônio Total',
-        data: valores,
-        borderColor:'#e8b84b',
-        backgroundColor:'rgba(232,184,75,0.08)',
-        borderWidth:2.5,
-        pointBackgroundColor:'#e8b84b',
-        pointRadius:4,
-        pointHoverRadius:6,
-        fill:true,
-        tension:0.35
-      }]
+      datasets:[
+        { label:'Renda Variável', data:dataRV,  borderColor:_EVOLUCAO_CORES.rv.border,   backgroundColor:makeGrad(_EVOLUCAO_CORES.rv.alpha),   borderWidth:1.5, fill:true, tension:0.35, pointRadius:0, pointHoverRadius:5, pointHoverBackgroundColor:'#fff', pointHoverBorderColor:_EVOLUCAO_CORES.rv.border, pointHoverBorderWidth:2 },
+        { label:'Bens',          data:dataBens, borderColor:_EVOLUCAO_CORES.bens.border, backgroundColor:makeGrad(_EVOLUCAO_CORES.bens.alpha), borderWidth:1.5, fill:true, tension:0.35, pointRadius:0, pointHoverRadius:5, pointHoverBackgroundColor:'#fff', pointHoverBorderColor:_EVOLUCAO_CORES.bens.border, pointHoverBorderWidth:2 },
+        { label:'Renda Fixa',    data:dataRF,   borderColor:_EVOLUCAO_CORES.rf.border,   backgroundColor:makeGrad(_EVOLUCAO_CORES.rf.alpha),   borderWidth:1.5, fill:true, tension:0.35, pointRadius:0, pointHoverRadius:5, pointHoverBackgroundColor:'#fff', pointHoverBorderColor:_EVOLUCAO_CORES.rf.border, pointHoverBorderWidth:2 },
+      ]
     },
     options:{
-      responsive:true,
-      maintainAspectRatio:false,
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      animation:{ duration:600, easing:'easeOutQuart' },
       plugins:{
-        legend:{display:false},
+        legend:{ display:true, position:'bottom', labels:{ color:_gTextColor(), font:{size:11}, boxWidth:12, padding:16 } },
         tooltip:{
+          mode:'index', intersect:false,
+          backgroundColor:'rgba(9,11,15,0.95)',
+          borderColor:'rgba(255,255,255,0.1)',
+          borderWidth:1, padding:14,
+          titleFont:{size:11,weight:'600'},
+          bodyFont:{size:12},
           callbacks:{
-            label:function(c){ return '  '+fmtBRL(c.raw); }
+            title:function(items){
+              var p=items[0].label.split('-');
+              return mn[parseInt(p[1])-1]+'/'+p[0];
+            },
+            label:function(c){ return '  '+c.dataset.label+':  '+fmtBRL(c.raw); },
+            footer:function(items){
+              var t=items.reduce(function(s,i){return s+(i.raw||0);},0);
+              return '  Total: '+fmtBRL(t);
+            }
           }
         }
       },
       scales:{
         x:{
-          grid:{color:'rgba(255,255,255,0.04)'},
-          ticks:{color:'#6b7a94',font:{size:10}}
+          stacked:true,
+          grid:{color:_gGridColor(), drawBorder:false},
+          border:{display:false},
+          ticks:{
+            maxTicksLimit:8, color:_gTextColor(), font:{size:11},
+            callback:function(val,i){
+              var l=this.getLabelForValue(val);
+              if(!l) return '';
+              var p=l.split('-');
+              return mn[parseInt(p[1])-1]+'/'+p[0].substring(2);
+            }
+          }
         },
         y:{
-          grid:{color:'rgba(255,255,255,0.04)'},
+          stacked:true,
+          grid:{color:_gGridColor(), drawBorder:false},
+          border:{display:false},
           ticks:{
-            color:'#6b7a94',
-            font:{size:10},
+            color:_gTextColor(), font:{size:11},
             callback:function(v){
               if(v>=1000000) return 'R$'+(v/1000000).toFixed(1)+'M';
-              if(v>=1000) return 'R$'+(v/1000).toFixed(0)+'k';
+              if(v>=1000)    return 'R$'+(v/1000).toFixed(0)+'k';
               return 'R$'+v;
             }
-          },
-          suggestedMin: minVal*0.97,
-          suggestedMax: maxVal*1.03
+          }
         }
       }
     }
