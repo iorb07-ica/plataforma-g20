@@ -262,6 +262,21 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .period-wrap .filter-pill.active{background:var(--gold);color:#000;box-shadow:0 2px 8px rgba(232,184,75,.3)}
 .period-wrap .filter-pill:hover:not(.active){background:rgba(255,255,255,.07);color:var(--text)}
 
+/* ── FAB SPEED DIAL ── */
+.gp-fab-overlay{display:none;position:fixed;inset:0;z-index:499}
+.gp-fab-overlay.show{display:block}
+.gp-fab-wrap{position:fixed;bottom:28px;right:24px;z-index:500;display:flex;flex-direction:column;align-items:flex-end;gap:10px}
+@media(max-width:768px){.gp-fab-wrap{bottom:calc(72px + var(--safe-bottom,0px) + 12px)}}
+.gp-fab-main{width:60px;height:60px;border-radius:50%;background:var(--gold);color:#000;border:none;font-size:30px;font-weight:700;line-height:1;box-shadow:0 6px 28px rgba(232,184,75,.55);cursor:pointer;transition:transform .2s,box-shadow .2s;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.gp-fab-main:hover{transform:scale(1.08);box-shadow:0 8px 36px rgba(232,184,75,.7)}
+.gp-fab-main.open{transform:rotate(45deg)}
+.gp-fab-items{display:flex;flex-direction:column;align-items:flex-end;gap:8px;opacity:0;pointer-events:none;transform:translateY(10px);transition:opacity .2s,transform .2s}
+.gp-fab-items.open{opacity:1;pointer-events:all;transform:translateY(0)}
+.gp-fab-item{display:flex;align-items:center;gap:10px;cursor:pointer}
+.gp-fab-label{background:rgba(12,14,22,0.95);color:#f4f6fa;font-size:13px;font-weight:700;padding:7px 14px;border-radius:10px;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.08)}
+.gp-fab-btn{width:46px;height:46px;border-radius:50%;border:none;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.3);flex-shrink:0;transition:transform .15s}
+.gp-fab-btn:hover{transform:scale(1.12)}
+
 /* BOTTOM NAV */
 .bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;z-index:180;background:var(--bg2);border-top:1px solid var(--border);height:calc(52px + env(safe-area-inset-bottom,0px));padding-bottom:env(safe-area-inset-bottom,0px)}
 @media(max-width:768px){.bottom-nav{display:flex}}
@@ -791,6 +806,16 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
             </div>
             <div style="display:flex;gap:8px;align-items:center">
               <button class="btn-sm btn-outline" id="rvBtnMoeda" onclick="toggleRVMoeda()" title="Alternar BRL / USD" style="font-size:11px;min-width:72px">🇧🇷 BRL</button>
+              <div style="position:relative" id="rvColSelectorWrap">
+                <button class="btn-sm btn-outline" onclick="toggleRVColSelector()" title="Colunas" style="font-size:12px">⚙️ Colunas</button>
+                <div id="rvColSelectorPanel" class="col-selector-panel" style="display:none;position:absolute;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;min-width:220px;z-index:999;box-shadow:0 8px 32px rgba(0,0,0,.4)">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                    <span style="font-size:13px;font-weight:700">⚙️ Colunas</span>
+                    <button onclick="rvResetCols()" style="font-size:11px;background:none;border:1px solid var(--border);color:var(--text2);padding:3px 8px;border-radius:6px;cursor:pointer">↺ Reset</button>
+                  </div>
+                  <div id="rvColCheckList" style="display:grid;grid-template-columns:1fr 1fr;gap:6px"></div>
+                </div>
+              </div>
               <button class="btn-sm btn-outline" onclick="buscarCotacoesRV()" id="rvBtnAtualizar" style="font-size:12px">↻ Cotações</button>
               <button class="btn-sm btn-gold" onclick="abrirModalRVAporte(null)" style="font-size:13px;font-weight:800">＋ Novo Aporte</button>
             </div>
@@ -798,19 +823,30 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
           <!-- Status cotações -->
           <div id="rvCotStatus" style="font-size:12px;color:var(--text2);margin-bottom:10px;min-height:14px"></div>
           <!-- Tabela de posições -->
-          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:4px">
-            <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px">
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:4px" id="rvTableWrap">
+            <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px" id="rvTable">
               <thead>
                 <tr style="border-bottom:1px solid var(--border)">
-                  <th style="text-align:left;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Ticker</th>
-                  <th style="text-align:left;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Tipo</th>
-                  <th style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Qtd</th>
-                  <th style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">PM</th>
-                  <th style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Cotação</th>
-                  <th style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">1D</th>
-                  <th style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap" id="rvThPosicao">Posição (R$)</th>
-                  <th style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap" id="rvThResult">Result. (R$)</th>
-                  <th style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Rent.%</th>
+                  <th data-rvcol="ticker" style="text-align:left;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Ticker</th>
+                  <th data-rvcol="nome"   style="text-align:left;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Nome</th>
+                  <th data-rvcol="tipo"   style="text-align:left;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Tipo</th>
+                  <th data-rvcol="mkt"    style="text-align:left;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 8px;white-space:nowrap">MKT</th>
+                  <th data-rvcol="qtd"    style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Qtd</th>
+                  <th data-rvcol="pm"     style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">PM</th>
+                  <th data-rvcol="cotacao"style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Cotação</th>
+                  <th data-rvcol="vardia" style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">1D</th>
+                  <th data-rvcol="varsem" style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">1W</th>
+                  <th data-rvcol="var30d" style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">1M</th>
+                  <th data-rvcol="var3m"  style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">3M</th>
+                  <th data-rvcol="var6m"  style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">6M</th>
+                  <th data-rvcol="varano" style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">YTD</th>
+                  <th data-rvcol="var5y"  style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">5Y</th>
+                  <th data-rvcol="totalInv" style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Total Inv.</th>
+                  <th data-rvcol="posicao"  id="rvThPosicao" style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Posição (R$)</th>
+                  <th data-rvcol="result"   id="rvThResult"  style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Result. (R$)</th>
+                  <th data-rvcol="rentPct"  style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Rent.%</th>
+                  <th data-rvcol="proventos"style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Proventos</th>
+                  <th data-rvcol="totalRet" style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Total Ret.%</th>
                   <th style="width:72px;padding:10px 8px"></th>
                 </tr>
               </thead>
@@ -1068,6 +1104,30 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 
   </div><!-- /content -->
 </main>
+
+<!-- ── FAB SPEED DIAL ── -->
+<div class="gp-fab-overlay" id="gpFabOverlay" onclick="gpCloseFab()"></div>
+<div class="gp-fab-wrap" id="gpFabWrap">
+  <div class="gp-fab-items" id="gpFabItems">
+    <div class="gp-fab-item" onclick="gpCloseFab();abrirModalRVAporte(null)">
+      <div class="gp-fab-label">Aporte RV</div>
+      <button class="gp-fab-btn" style="background:#8b5cf6;color:#fff" title="Novo aporte RV">📈</button>
+    </div>
+    <div class="gp-fab-item" onclick="gpCloseFab();abrirModalRF()">
+      <div class="gp-fab-label">Renda Fixa</div>
+      <button class="gp-fab-btn" style="background:#10b981;color:#fff" title="Novo título RF">🏦</button>
+    </div>
+    <div class="gp-fab-item" onclick="gpCloseFab();abrirModalPat()">
+      <div class="gp-fab-label">Bem Patrimonial</div>
+      <button class="gp-fab-btn" style="background:#3b82f6;color:#fff" title="Novo bem">🏛️</button>
+    </div>
+    <div class="gp-fab-item" onclick="gpCloseFab();abrirModalProvento()">
+      <div class="gp-fab-label">Lançar Provento</div>
+      <button class="gp-fab-btn" style="background:#e8b84b;color:#000" title="Novo provento">💰</button>
+    </div>
+  </div>
+  <button class="gp-fab-main" id="gpFabMain" onclick="gpToggleFab()" title="Nova transação">＋</button>
+</div>
 
 <!-- BOTTOM NAV -->
 <nav class="bottom-nav">
@@ -4132,11 +4192,52 @@ function buscarCotacoesRV(){
   }
 
   Promise.all(promises).then(function(){
-    if(btn){ btn.textContent='↻ Cotações'; btn.disabled=false; }
-    var found = Object.keys(rvCotacoes).length;
-    rvSetCotStatus(found>0 ? '✅ '+found+' cotações atualizadas · USD/BRL: R$ '+rvUsdBRL.toFixed(2) : '⚠️ Sem cotações');
-    renderRVPosicoes();
-    renderKPIs(); renderCharts();
+    // Busca referências históricas (1W, 1M, 3M, 6M, YTD, 5Y)
+    var hoje = new Date();
+    function dateStr(d){ return d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate(); }
+    var d1w  = new Date(hoje); d1w.setDate(d1w.getDate()-7);
+    var d1m  = new Date(hoje); d1m.setMonth(d1m.getMonth()-1);
+    var d3m  = new Date(hoje); d3m.setMonth(d3m.getMonth()-3);
+    var d6m  = new Date(hoje); d6m.setMonth(d6m.getMonth()-6);
+    var dytd = new Date(hoje.getFullYear(),0,2);
+    var d5y  = new Date(hoje); d5y.setFullYear(d5y.getFullYear()-5);
+    var refs = [
+      {key:'refSemana',date:dateStr(d1w)},
+      {key:'ref30d',   date:dateStr(d1m)},
+      {key:'ref3m',    date:dateStr(d3m)},
+      {key:'ref6m',    date:dateStr(d6m)},
+      {key:'refYTD',   date:dateStr(dytd)},
+      {key:'ref5y',    date:dateStr(d5y)},
+    ];
+
+    var allTickers = pos.map(function(p){
+      if(rvIsBR(p.ticker,p.tipo)) return {tk:p.ticker, sym:p.ticker+'.SA'};
+      return {tk:p.ticker, sym:p.tipo==='UCITs'&&!p.ticker.includes('.')?p.ticker+'.L':p.ticker};
+    });
+
+    var histPromises = [];
+    refs.forEach(function(ref){
+      allTickers.forEach(function(t){
+        histPromises.push(
+          fetch(PROXY_URL_RV+'/api/history-date?symbol='+encodeURIComponent(t.sym)+'&date='+ref.date)
+            .then(function(r){ return r.json(); })
+            .then(function(d){
+              if(d && d.close && d.close>0){
+                if(!rvCotacoes[t.tk]) rvCotacoes[t.tk]={};
+                rvCotacoes[t.tk][ref.key] = {close: d.close};
+              }
+            }).catch(function(){})
+        );
+      });
+    });
+
+    Promise.all(histPromises).then(function(){
+      if(btn){ btn.textContent='↻ Cotações'; btn.disabled=false; }
+      var found = Object.keys(rvCotacoes).length;
+      rvSetCotStatus(found>0 ? '✅ '+found+' cotações atualizadas · USD/BRL: R$ '+rvUsdBRL.toFixed(2) : '⚠️ Sem cotações');
+      renderRVPosicoes();
+      renderKPIs(); renderCharts();
+    });
   });
 }
 
@@ -4153,7 +4254,110 @@ function setRVFiltro(tipo, btn){
   renderRVPosicoes();
 }
 
+// ── COLUNAS RV (Gestão Patrimonial) ─────────────────────────
+var RV_COL_DEFS = [
+  {col:'ticker',   label:'Ticker',      fixed:true},
+  {col:'nome',     label:'Nome',        def:true},
+  {col:'tipo',     label:'Tipo',        def:true},
+  {col:'mkt',      label:'MKT',         def:true},
+  {col:'qtd',      label:'Qtd',         def:true},
+  {col:'pm',       label:'PM',          def:true},
+  {col:'cotacao',  label:'Cotação',     def:true},
+  {col:'vardia',   label:'1D',          def:true},
+  {col:'varsem',   label:'1W',          def:false},
+  {col:'var30d',   label:'1M',          def:false},
+  {col:'var3m',    label:'3M',          def:false},
+  {col:'var6m',    label:'6M',          def:false},
+  {col:'varano',   label:'YTD',         def:false},
+  {col:'var5y',    label:'5Y',          def:false},
+  {col:'totalInv', label:'Total Inv.',  def:true},
+  {col:'posicao',  label:'Posição',     def:true},
+  {col:'result',   label:'Resultado',   def:true},
+  {col:'rentPct',  label:'Rent.%',      def:true},
+  {col:'proventos',label:'Proventos',   def:true},
+  {col:'totalRet', label:'Total Ret.%', def:true},
+];
+
+function getRVColsVis(){
+  var saved = loadData('rvColsVis', null);
+  var def = {};
+  RV_COL_DEFS.forEach(function(c){ def[c.col] = c.fixed ? true : !!c.def; });
+  if(!saved) return def;
+  RV_COL_DEFS.forEach(function(c){
+    if(c.fixed) saved[c.col] = true;
+    if(saved[c.col] === undefined) saved[c.col] = def[c.col];
+  });
+  return saved;
+}
+
+function aplicarRVCols(){
+  var cols = getRVColsVis();
+  var styleId = 'gp-rv-col-vis';
+  var el = document.getElementById(styleId);
+  if(!el){ el = document.createElement('style'); el.id = styleId; document.head.appendChild(el); }
+  var rules = [];
+  RV_COL_DEFS.forEach(function(c){
+    if(!c.fixed && !cols[c.col]){
+      rules.push('#rvTable th[data-rvcol="'+c.col+'"], #rvTable td[data-rvcol="'+c.col+'"] { display:none !important; }');
+    }
+  });
+  el.textContent = rules.join('\n');
+}
+
+function toggleRVColSelector(){
+  var panel = document.getElementById('rvColSelectorPanel');
+  var open = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : 'block';
+  if(!open){
+    rvRenderColCheckList();
+    setTimeout(function(){
+      document.addEventListener('click', closeRVColOnOutside);
+    }, 10);
+  }
+}
+
+function closeRVColOnOutside(e){
+  var wrap = document.getElementById('rvColSelectorWrap');
+  if(wrap && !wrap.contains(e.target)){
+    var p = document.getElementById('rvColSelectorPanel');
+    if(p) p.style.display = 'none';
+    document.removeEventListener('click', closeRVColOnOutside);
+  }
+}
+
+function rvRenderColCheckList(){
+  var cols = getRVColsVis();
+  var el = document.getElementById('rvColCheckList');
+  if(!el) return;
+  el.innerHTML = RV_COL_DEFS.map(function(c){
+    var checked = c.fixed ? true : (cols[c.col] !== false);
+    var fixedLabel = c.fixed ? ' <span style="font-size:9px;opacity:.5">(fixo)</span>' : '';
+    return '<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:'+(c.fixed?'default':'pointer')+';color:var(--text2)">'+
+      '<input type="checkbox"'+(checked?' checked':'')+(c.fixed?' disabled':'')+
+        (c.fixed?'':' onchange="onRVColToggle(\''+c.col+'\',this.checked)"')+'>'+
+      c.label + fixedLabel +
+    '</label>';
+  }).join('');
+}
+
+function onRVColToggle(col, visible){
+  var def = RV_COL_DEFS.find(function(c){ return c.col===col; });
+  if(def && def.fixed) return;
+  var cols = getRVColsVis();
+  cols[col] = visible;
+  saveData('rvColsVis', cols);
+  aplicarRVCols();
+  rvRenderColCheckList();
+}
+
+function rvResetCols(){
+  saveData('rvColsVis', null);
+  aplicarRVCols();
+  rvRenderColCheckList();
+}
+
 function renderRVPosicoes(){
+  aplicarRVCols();
   var pos = calcRVPosicoes();
   var search = (document.getElementById('rvSearch')||{value:''}).value.toUpperCase();
   if(rvFiltroAtivo!=='todos') pos=pos.filter(function(p){ return p.tipo===rvFiltroAtivo; });
@@ -4163,67 +4367,52 @@ function renderRVPosicoes(){
   if(!tbody) return;
 
   var modoUSD = rvModoMoeda === 'USD';
-
-  // Formatadores BRL e USD
   var fmtBRL = function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
   var fmtUSD = function(v){ return '$ '+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); };
-  // fmt principal — aplica USD apenas para ativos US quando modo USD
   var fmt = function(v, isUS){
     if(modoUSD && isUS) return fmtUSD(v / rvUsdBRL);
     return fmtBRL(v);
   };
-  // Cotação bruta — mostra preço nativo do ativo
-  var fmtCot = function(r){
-    if(!r.cot) return '<span style="color:var(--text3);font-style:italic">--</span>';
-    if(modoUSD && !r.isBR){
-      return '<span style="color:#64b4ff">$ '+(r.cot.precoUSD||r.cotBRL/rvUsdBRL).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span>';
-    }
-    return fmtBRL(r.cotBRL);
-  };
-  var fmtPm = function(r){
-    if(modoUSD && !r.isBR) return '<span style="color:#64b4ff">$ '+(r.pm/rvUsdBRL).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span>';
-    return fmtBRL(r.pm);
-  };
   var fmtPct = function(v){ return (v>=0?'+':'')+v.toFixed(2)+'%'; };
+  var calcVar = function(ref, preco){
+    if(!ref||!ref.close||!preco) return '<span style="color:var(--text3)">--</span>';
+    var v=((preco-ref.close)/ref.close*100);
+    return '<span style="color:'+(v>=0?'var(--green)':'var(--red)')+'">'+(v>=0?'+':'')+v.toFixed(2)+'%</span>';
+  };
 
   if(!pos.length){
-    tbody.innerHTML='<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--text3);font-size:13px">'+
+    tbody.innerHTML='<tr><td colspan="21" style="text-align:center;padding:40px;color:var(--text3);font-size:13px">'+
       (calcRVPosicoes().length?'Nenhum resultado para o filtro.':'Nenhum aporte registrado. Clique em <strong>+ Novo Aporte</strong>.')+
     '</td></tr>';
     rvRenderKpiStrip([]);
     return;
   }
 
-  var totalInvGlobal=0, totalPosGlobal=0;
+  var totalPosGlobal = 0;
   var rows = pos.map(function(p){
-    var pm = p.qtd>0?p.totalInv/p.qtd:0;
-    var cot = rvCotacoes[p.ticker];
-    var isBR = rvIsBR(p.ticker,p.tipo);
-    var cotBRL = cot?(isBR?cot.preco:cot.preco*rvUsdBRL):0;
-    var posVal = cot?p.qtd*cotBRL:0;
-    var result = cot?posVal-p.totalInv:0;
-    var rentPct= p.totalInv>0?(result/p.totalInv*100):0;
-    totalInvGlobal+=p.totalInv;
-    if(cot) totalPosGlobal+=posVal;
-    return {p:p,pm:pm,cot:cot,cotBRL:cotBRL,posVal:posVal,result:result,rentPct:rentPct,isBR:isBR};
+    var pm     = p.qtd>0 ? p.totalInv/p.qtd : 0;
+    var cot    = rvCotacoes[p.ticker];
+    var isBR   = rvIsBR(p.ticker,p.tipo);
+    var cotBRL = cot ? (isBR ? cot.preco : cot.preco*rvUsdBRL) : 0;
+    var posVal = cot ? p.qtd*cotBRL : 0;
+    var result = cot ? posVal-p.totalInv : 0;
+    var rentPct= p.totalInv>0 ? (result/p.totalInv*100) : 0;
+    // Proventos do ativo (usa dividendos salvos)
+    var divs = loadData('dividendos',[]);
+    var hoje = new Date().toISOString().split('T')[0];
+    var prov = divs.filter(function(d){ return d.ticker===p.ticker && d.data<hoje; })
+                   .reduce(function(s,d){ return s+((d.valor||0)*(d.qtdEx||0)); }, 0);
+    var totalRet    = cot ? result+prov : 0;
+    var totalRetPct = p.totalInv>0 ? (totalRet/p.totalInv*100) : 0;
+    if(cot) totalPosGlobal += posVal;
+    return {p:p, pm:pm, cot:cot, cotBRL:cotBRL, posVal:posVal, result:result,
+            rentPct:rentPct, prov:prov, totalRet:totalRet, totalRetPct:totalRetPct, isBR:isBR};
   });
 
   var cor = RV_TIPO_CORES;
   tbody.innerHTML = rows.map(function(r){
-    var p=r.p;
+    var p=r.p, cot=r.cot;
     var badgeCor = cor[p.tipo]||'#888';
-    var varStr = r.cot
-      ? '<span style="color:'+(r.cot.var>=0?'var(--green)':'var(--red)')+'">'+(r.cot.var>=0?'+':'')+r.cot.var.toFixed(2)+'%</span>'
-      : '--';
-    var posStr = r.cot ? fmt(r.posVal, !r.isBR) : '--';
-    var resStr = r.cot
-      ? '<span style="color:'+(r.result>=0?'var(--green)':'var(--red)')+'">'+
-          (r.result>=0?'+':'')+fmt(r.result, !r.isBR)+'</span>'
-      : '--';
-    var rentStr = r.cot
-      ? '<span style="color:'+(r.rentPct>=0?'var(--green)':'var(--red)')+'">'+fmtPct(r.rentPct)+'</span>'
-      : '--';
-    // Badge de mercado
     var mktBadge = p.tipo==='Cripto'
       ? '<span style="background:rgba(247,147,26,.15);color:#f7931a;border:1px solid rgba(247,147,26,.3);border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700">₿</span>'
       : p.tipo==='UCITs'
@@ -4232,16 +4421,43 @@ function renderRVPosicoes(){
           ? '<span style="background:rgba(46,204,113,.1);color:#2ecc71;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:700">BR</span>'
           : '<span style="background:rgba(52,152,219,.1);color:#3498db;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:700">US</span>';
 
+    var nomeStr = (cot&&cot.nome) ? cot.nome.substring(0,18) : '--';
+    var cotStr  = cot
+      ? (modoUSD&&!r.isBR
+          ? '<span style="color:#64b4ff">$ '+(cot.precoUSD||r.cotBRL/rvUsdBRL).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span>'
+          : fmtBRL(r.cotBRL))
+      : '<span style="color:var(--text3)">--</span>';
+    var varStr  = cot ? '<span style="color:'+(cot.var>=0?'var(--green)':'var(--red)')+'">'+(cot.var>=0?'+':'')+cot.var.toFixed(2)+'%</span>' : '--';
+    var posStr  = cot ? fmt(r.posVal, !r.isBR) : '--';
+    var resStr  = cot ? '<span style="color:'+(r.result>=0?'var(--green)':'var(--red)')+'">'+
+                   (r.result>=0?'+':'')+fmt(r.result, !r.isBR)+'</span>' : '--';
+    var rentStr = cot ? '<span style="color:'+(r.rentPct>=0?'var(--green)':'var(--red)')+'">'+fmtPct(r.rentPct)+'</span>' : '--';
+    var provStr = r.prov>0 ? '<span style="color:var(--gold)">'+fmt(r.prov, !r.isBR)+'</span>' : '<span style="color:var(--text3)">--</span>';
+    var trStr   = cot ? '<span style="color:'+(r.totalRetPct>=0?'var(--green)':'var(--red)')+'">'+fmtPct(r.totalRetPct)+'</span>' : '--';
+    var fmtPm   = modoUSD&&!r.isBR ? '<span style="color:#64b4ff">$ '+(r.pm/rvUsdBRL).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span>' : fmtBRL(r.pm);
+    var precoBase = cot ? cot.preco : 0;
+
     return '<tr style="border-bottom:1px solid rgba(255,255,255,.03)" onmouseenter="this.style.background=\'var(--sur2)\'" onmouseleave="this.style.background=\'\'">'
-      +'<td style="padding:10px 12px"><span style="font-weight:700;font-size:13px;letter-spacing:.3px">'+p.ticker+'</span> '+mktBadge+'</td>'
-      +'<td style="padding:10px 12px"><span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;background:'+badgeCor+'22;color:'+badgeCor+'">'+p.tipo+'</span></td>'
-      +'<td style="padding:10px 12px;text-align:right">'+p.qtd.toFixed(p.qtd%1===0?0:4)+'</td>'
-      +'<td style="padding:10px 12px;text-align:right;color:var(--text2)">'+fmtPm(r)+'</td>'
-      +'<td style="padding:10px 12px;text-align:right">'+fmtCot(r)+'</td>'
-      +'<td style="padding:10px 12px;text-align:right">'+varStr+'</td>'
-      +'<td style="padding:10px 12px;text-align:right;font-weight:600">'+posStr+'</td>'
-      +'<td style="padding:10px 12px;text-align:right">'+resStr+'</td>'
-      +'<td style="padding:10px 12px;text-align:right">'+rentStr+'</td>'
+      +'<td data-rvcol="ticker" style="padding:10px 12px"><span style="font-weight:700;font-size:13px;letter-spacing:.3px">'+p.ticker+'</span></td>'
+      +'<td data-rvcol="nome"   style="padding:10px 12px;color:var(--text2);font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+nomeStr+'</td>'
+      +'<td data-rvcol="tipo"   style="padding:10px 12px"><span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;background:'+badgeCor+'22;color:'+badgeCor+'">'+p.tipo+'</span></td>'
+      +'<td data-rvcol="mkt"    style="padding:10px 8px">'+mktBadge+'</td>'
+      +'<td data-rvcol="qtd"    style="padding:10px 12px;text-align:right">'+p.qtd.toFixed(p.qtd%1===0?0:4)+'</td>'
+      +'<td data-rvcol="pm"     style="padding:10px 12px;text-align:right;color:var(--text2)">'+fmtPm+'</td>'
+      +'<td data-rvcol="cotacao"style="padding:10px 12px;text-align:right">'+cotStr+'</td>'
+      +'<td data-rvcol="vardia" style="padding:10px 12px;text-align:right">'+varStr+'</td>'
+      +'<td data-rvcol="varsem" style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.refSemana,precoBase)+'</td>'
+      +'<td data-rvcol="var30d" style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.ref30d,precoBase)+'</td>'
+      +'<td data-rvcol="var3m"  style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.ref3m,precoBase)+'</td>'
+      +'<td data-rvcol="var6m"  style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.ref6m,precoBase)+'</td>'
+      +'<td data-rvcol="varano" style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.refYTD,precoBase)+'</td>'
+      +'<td data-rvcol="var5y"  style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.ref5y,precoBase)+'</td>'
+      +'<td data-rvcol="totalInv"style="padding:10px 12px;text-align:right">'+fmt(p.totalInv, !r.isBR)+'</td>'
+      +'<td data-rvcol="posicao" style="padding:10px 12px;text-align:right;font-weight:600">'+posStr+'</td>'
+      +'<td data-rvcol="result"  style="padding:10px 12px;text-align:right">'+resStr+'</td>'
+      +'<td data-rvcol="rentPct" style="padding:10px 12px;text-align:right">'+rentStr+'</td>'
+      +'<td data-rvcol="proventos"style="padding:10px 12px;text-align:right">'+provStr+'</td>'
+      +'<td data-rvcol="totalRet" style="padding:10px 12px;text-align:right">'+trStr+'</td>'
       +'<td style="padding:10px 8px;white-space:nowrap">'
         +'<button onclick="abrirModalRVAporte(\''+p.ticker+'\')" style="background:rgba(232,184,75,.12);border:1.5px solid rgba(232,184,75,.45);color:#e8b84b;padding:3px 7px;border-radius:7px;font-size:14px;font-weight:800;cursor:pointer;margin-right:4px" title="Novo aporte">＋</button>'
         +'<button onclick="excluirRVAtivo(\''+p.ticker+'\')" style="background:none;border:1px solid rgba(230,57,70,.4);color:#e63946;padding:3px 7px;border-radius:6px;font-size:11px;cursor:pointer" title="Excluir ativo">🗑️</button>'
@@ -6036,6 +6252,24 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
           .catch(function(e) { console.warn('SW erro:', e); });
       });
     }
-  </script>
+  
+// ── FAB SPEED DIAL ──────────────────────────────────────────
+function gpToggleFab(){
+  var items=document.getElementById('gpFabItems');
+  var main=document.getElementById('gpFabMain');
+  var ov=document.getElementById('gpFabOverlay');
+  var open=items.classList.toggle('open');
+  main.classList.toggle('open',open);
+  if(ov) ov.classList.toggle('show',open);
+}
+function gpCloseFab(){
+  var items=document.getElementById('gpFabItems');
+  var main=document.getElementById('gpFabMain');
+  var ov=document.getElementById('gpFabOverlay');
+  if(items) items.classList.remove('open');
+  if(main)  main.classList.remove('open');
+  if(ov)    ov.classList.remove('show');
+}
+</script>
 </body>
 </html>
