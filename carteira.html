@@ -541,17 +541,61 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
 /* ═══════════════════════════════════════
    FAB MOBILE
 ═══════════════════════════════════════ */
-.btn-plus-fab{
-  position:fixed;bottom:24px;right:20px;z-index:150;
-  width:56px;height:56px;border-radius:50%;
-  background:var(--gold);color:#000;border:none;
-  font-size:26px;font-weight:700;
-  box-shadow:0 4px 20px rgba(232,184,75,.5);
-  align-items:center;justify-content:center;
-  cursor:pointer;transition:transform .15s,box-shadow .15s;display:none
+/* ── FAB SPEED DIAL ── */
+.fab-wrap{
+  position:fixed;bottom:28px;right:24px;z-index:500;
+  display:flex;flex-direction:column;align-items:flex-end;gap:10px;
 }
-.btn-plus-fab:active{transform:scale(.93)}
-@media(max-width:768px){.btn-plus-fab{display:flex!important}}
+@media(max-width:768px){
+  .fab-wrap{bottom:calc(72px + var(--safe-bottom) + 12px);}
+}
+.fab-main{
+  width:60px;height:60px;border-radius:50%;
+  background:var(--gold);color:#000;border:none;
+  font-size:30px;font-weight:700;line-height:1;
+  box-shadow:0 6px 28px rgba(232,184,75,.55);
+  cursor:pointer;transition:transform .2s,box-shadow .2s;
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;
+}
+.fab-main:hover{transform:scale(1.08);box-shadow:0 8px 36px rgba(232,184,75,.7);}
+.fab-main.open{transform:rotate(45deg);}
+.fab-items{
+  display:flex;flex-direction:column;align-items:flex-end;gap:8px;
+  opacity:0;pointer-events:none;
+  transform:translateY(10px);
+  transition:opacity .2s,transform .2s;
+}
+.fab-items.open{opacity:1;pointer-events:all;transform:translateY(0);}
+.fab-item{
+  display:flex;align-items:center;gap:10px;
+  cursor:pointer;
+  animation:none;
+}
+.fab-item-label{
+  background:rgba(12,14,22,0.95);
+  color:#f4f6fa;
+  font-size:13px;font-weight:700;
+  padding:7px 14px;border-radius:10px;
+  white-space:nowrap;
+  box-shadow:0 4px 16px rgba(0,0,0,.4);
+  border:1px solid rgba(255,255,255,.08);
+}
+.fab-item-btn{
+  width:46px;height:46px;border-radius:50%;
+  border:none;font-size:18px;
+  cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 4px 14px rgba(0,0,0,.3);
+  flex-shrink:0;
+  transition:transform .15s;
+}
+.fab-item-btn:hover{transform:scale(1.12);}
+/* overlay para fechar ao clicar fora */
+.fab-overlay{
+  display:none;position:fixed;inset:0;z-index:499;
+}
+.fab-overlay.show{display:block;}
 
 /* ═══════════════════════════════════════
    RESPONSIVO MOBILE + ZOOM ADAPTATIVO
@@ -1149,7 +1193,7 @@ th.col-filtered { color:var(--gold) !important; }
 .bottom-nav a .bn-icon{font-size:20px;line-height:1;pointer-events:none}
 .bottom-nav a .bn-label{font-size:9px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;pointer-events:none}
 /* FAB fica acima do bottom nav no mobile */
-@media(max-width:768px){.btn-plus-fab{bottom:calc(72px + var(--safe-bottom))!important}}
+
 
 /* Transações — sticky na coluna Data no mobile */
 @media(max-width:768px){
@@ -2074,7 +2118,24 @@ th.col-filtered { color:var(--gold) !important; }
 </div>
 
 <!-- FAB mobile -->
-<button class="btn-plus-fab" onclick="abrirModalAporte(null)" title="Novo aporte">＋</button>
+<div class="fab-overlay" id="fabOverlay" onclick="closeFab()"></div>
+<div class="fab-wrap" id="fabWrap">
+  <div class="fab-items" id="fabItems">
+    <div class="fab-item" onclick="closeFab();abrirModalAporte(null)">
+      <div class="fab-item-label">Nova Transação</div>
+      <button class="fab-item-btn" style="background:#3b82f6;color:#fff" title="Nova transação">📈</button>
+    </div>
+    <div class="fab-item" onclick="closeFab();abrirModalDividendo()">
+      <div class="fab-item-label">Lançar Provento</div>
+      <button class="fab-item-btn" style="background:#10b981;color:#fff" title="Lançar provento">💰</button>
+    </div>
+    <div class="fab-item" onclick="closeFab();showTab('importar')">
+      <div class="fab-item-label">Importar CSV</div>
+      <button class="fab-item-btn" style="background:#8b5cf6;color:#fff" title="Importar CSV">📄</button>
+    </div>
+  </div>
+  <button class="fab-main" id="fabMain" onclick="toggleFab()" title="Nova transação">＋</button>
+</div>
 
 <!-- DRAWER TRANSAÇÕES POR ATIVO -->
 <div class="drawer-overlay" id="drawerOverlay" onclick="fecharDrawer()"></div>
@@ -4340,27 +4401,35 @@ function _renderChartEvolucaoComHistorico(aportes, meses, posAtual, histCache){
       plugins:{
         legend:{display:false},
         tooltip:{
+          enabled:true,
+          mode:'index',
+          intersect:false,
           backgroundColor:'rgba(8,10,18,0.97)',
-          borderColor:'rgba(255,255,255,0.10)',
-          borderWidth:1, padding:16,
+          borderColor:'rgba(255,255,255,0.12)',
+          borderWidth:1, padding:14,
           titleFont:{size:13,weight:'700'},
+          titleColor:'#f4f6fa',
           bodyFont:{size:12},
-          bodySpacing:4,
+          bodyColor:'#b0bac8',
+          bodySpacing:5,
+          footerFont:{size:12,weight:'700'},
+          footerColor:'#f4f6fa',
           callbacks:{
             title:function(items){
+              if(!items.length) return '';
               var p=items[0].label.split('-');
               var mn=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
               return mn[parseInt(p[1])-1]+'/'+p[0];
             },
             label:function(c){
               var v=c.raw||0;
-              if(v<1) return null;
-              var col=BORDER_GLOW[c.dataset.label]||'#fff';
+              if(v<0.01) return null;
               return '  '+c.dataset.label+':  '+fmtBRL(v);
             },
             footer:function(items){
               var t=items.reduce(function(s,i){return s+(i.raw||0);},0);
-              return '\n  Total: '+fmtBRL(t);
+              if(t<0.01) return '';
+              return 'Total: '+fmtBRL(t);
             }
           }
         }
@@ -4396,7 +4465,26 @@ function _renderChartEvolucaoComHistorico(aportes, meses, posAtual, histCache){
         }
       }
     },
-    plugins:[gradientPlugin]
+    plugins:[gradientPlugin, {
+      id:'crosshair',
+      afterDraw:function(chart){
+        if(chart.tooltip._active && chart.tooltip._active.length){
+          var ctx=chart.ctx;
+          var x=chart.tooltip._active[0].element.x;
+          var top=chart.chartArea.top;
+          var bot=chart.chartArea.bottom;
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(x,top);
+          ctx.lineTo(x,bot);
+          ctx.lineWidth=1;
+          ctx.strokeStyle='rgba(255,255,255,0.18)';
+          ctx.setLineDash([4,4]);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+    }]
   });
 
   document.getElementById('gLegendEvolucao').innerHTML = dsAtivos.map(function(t){
@@ -8363,6 +8451,21 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
           .catch(function(e) { console.warn('SW erro:', e); });
       });
     }
-  </script>
+  
+function toggleFab(){
+  var items=document.getElementById('fabItems');
+  var main=document.getElementById('fabMain');
+  var ov=document.getElementById('fabOverlay');
+  var open=items.classList.toggle('open');
+  main.classList.toggle('open',open);
+  if(ov) ov.classList.toggle('show',open);
+}
+function closeFab(){
+  document.getElementById('fabItems').classList.remove('open');
+  document.getElementById('fabMain').classList.remove('open');
+  var ov=document.getElementById('fabOverlay');
+  if(ov) ov.classList.remove('show');
+}
+</script>
 </body>
 </html>
