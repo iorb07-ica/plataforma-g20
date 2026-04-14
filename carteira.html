@@ -4274,13 +4274,14 @@ function _renderChartEvolucaoComHistorico(aportes, meses, posAtual, histCache){
   var chartDatasets = dsAtivos.map(function(t){
     var baseColor = COLORS_TIPO[t]||'#888';
     var alpha = COLORS_TIPO_ALPHA[t]||'rgba(100,100,100,';
-    var grad = ctx2.createLinearGradient(0,0,0,320);
-    grad.addColorStop(0, alpha+'0.55)');
-    grad.addColorStop(1, alpha+'0.02)');
     return {
       label:t, data:datasets[t],
-      backgroundColor:grad, borderColor:baseColor,
-      borderWidth:1.5, fill:true, tension:0.35,
+      backgroundColor: alpha+'0.75)',
+      borderColor: baseColor,
+      borderWidth:1.5,
+      fill:true,
+      stack:'patrimonio',
+      tension:0.35,
       pointRadius:0, pointHoverRadius:5,
       pointHoverBackgroundColor:'#fff',
       pointHoverBorderColor:baseColor, pointHoverBorderWidth:2
@@ -4300,14 +4301,13 @@ function _renderChartEvolucaoComHistorico(aportes, meses, posAtual, histCache){
       responsive:true, maintainAspectRatio:false,
       interaction:{ mode:'index', intersect:false },
       animation:{ duration:700, easing:'easeOutQuart' },
-      stacked:true,
       plugins:{
         legend:{display:false},
         tooltip:{
           backgroundColor:'rgba(9,11,15,0.95)',
-          borderColor:'rgba(255,255,255,0.08)',
+          borderColor:'rgba(255,255,255,0.12)',
           borderWidth:1, padding:14,
-          titleFont:{size:11,weight:'600'},
+          titleFont:{size:12,weight:'700'},
           bodyFont:{size:12},
           callbacks:{
             title:function(items){
@@ -4315,10 +4315,14 @@ function _renderChartEvolucaoComHistorico(aportes, meses, posAtual, histCache){
               var mn=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
               return mn[parseInt(p[1])-1]+'/'+p[0];
             },
-            label:function(c){ return '  '+c.dataset.label+':  '+fmtBRL(c.raw); },
+            label:function(c){
+              var v = c.raw||0;
+              if(v < 1) return null;
+              return '  '+c.dataset.label+':  '+fmtBRL(v);
+            },
             footer:function(items){
-              var t=items.reduce(function(s,i){ return s+i.raw; },0);
-              return '  Total: '+fmtBRL(t);
+              var t=items.reduce(function(s,i){ return s+(i.raw||0); },0);
+              return '\n  Total: '+fmtBRL(t);
             }
           }
         }
@@ -4357,10 +4361,21 @@ function _renderChartEvolucaoComHistorico(aportes, meses, posAtual, histCache){
   });
 
   document.getElementById('gLegendEvolucao').innerHTML = dsAtivos.map(function(t){
-    return '<div class="g-leg-item">'+
+    return '<div class="g-leg-item" style="cursor:pointer;opacity:1;transition:opacity .2s" onclick="toggleEvoDataset(\''+t+'\',this)">'+
       '<div class="g-leg-dot" style="background:'+COLORS_TIPO[t]+'"></div>'+t+
     '</div>';
   }).join('');
+}
+
+function toggleEvoDataset(label, el){
+  var chart = chartsInstances['chartEvolucao'];
+  if(!chart) return;
+  var idx = chart.data.datasets.findIndex(function(d){ return d.label===label; });
+  if(idx < 0) return;
+  var meta = chart.getDatasetMeta(idx);
+  meta.hidden = !meta.hidden;
+  el.style.opacity = meta.hidden ? '0.35' : '1';
+  chart.update();
 }
 
 
