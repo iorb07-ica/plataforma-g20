@@ -373,51 +373,54 @@ td[data-col="ticker"] .ticker-cell{display:flex;align-items:center;gap:0}
   z-index: 9999;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-  max-height: 280px;
+  border-radius: 10px;
+  box-shadow: 0 12px 36px rgba(0,0,0,0.5);
+  max-height: 320px;
   overflow-y: auto;
-  width: 100%;
-  top: 100%;
+  min-width: 380px;
+  width: max-content;
+  max-width: 520px;
+  top: calc(100% + 4px);
   left: 0;
-  margin-top: 2px;
 }
 .ticker-autocomplete-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
+  gap: 12px;
+  padding: 11px 16px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.12s;
   border-bottom: 1px solid rgba(255,255,255,0.04);
 }
 .ticker-autocomplete-item:last-child { border-bottom: none; }
 .ticker-autocomplete-item:hover, .ticker-autocomplete-item.active {
-  background: rgba(232,184,75,0.08);
+  background: rgba(232,184,75,0.1);
 }
 .tac-symbol {
   font-family: monospace;
-  font-weight: 700;
-  font-size: 13px;
+  font-weight: 800;
+  font-size: 14px;
   color: var(--gold);
-  min-width: 72px;
+  min-width: 80px;
 }
 .tac-name {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text2);
   flex: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 220px;
 }
 .tac-badge {
   font-size: 10px;
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 .tac-loading {
-  padding: 10px 12px;
+  padding: 14px 16px;
   font-size: 12px;
   color: var(--text3);
   text-align: center;
@@ -1936,6 +1939,41 @@ th.col-filtered { color:var(--gold) !important; }
 
   </div><!-- /content -->
 </main>
+
+<!-- FAB SPEED DIAL -->
+<style>
+.fab-wrap{position:fixed;bottom:28px;right:24px;z-index:500;display:flex;flex-direction:column;align-items:flex-end;gap:10px}
+@media(max-width:768px){.fab-wrap{bottom:calc(72px + var(--safe-bottom,0px) + 12px)}}
+.fab-main{width:60px;height:60px;border-radius:50%;background:var(--gold);color:#000;border:none;font-size:30px;font-weight:700;line-height:1;box-shadow:0 6px 28px rgba(232,184,75,.55);cursor:pointer;transition:transform .2s,box-shadow .2s;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.fab-main:hover{transform:scale(1.08);box-shadow:0 8px 36px rgba(232,184,75,.7)}
+.fab-main.open{transform:rotate(45deg)}
+.fab-items{display:flex;flex-direction:column;align-items:flex-end;gap:8px;opacity:0;pointer-events:none;transform:translateY(10px);transition:opacity .2s,transform .2s}
+.fab-items.open{opacity:1;pointer-events:all;transform:translateY(0)}
+.fab-item{display:flex;align-items:center;gap:10px;cursor:pointer}
+.fab-item-label{background:rgba(12,14,22,0.95);color:#f4f6fa;font-size:13px;font-weight:700;padding:7px 14px;border-radius:10px;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.08)}
+.fab-item-btn{width:46px;height:46px;border-radius:50%;border:none;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.3);flex-shrink:0;transition:transform .15s}
+.fab-item-btn:hover{transform:scale(1.12)}
+.fab-overlay{display:none;position:fixed;inset:0;z-index:499}
+.fab-overlay.show{display:block}
+</style>
+<div class="fab-overlay" id="fabOverlay" onclick="closeFab()"></div>
+<div class="fab-wrap" id="fabWrap">
+  <div class="fab-items" id="fabItems">
+    <div class="fab-item" onclick="closeFab();abrirModalAporte(null)">
+      <div class="fab-item-label">Nova Transação</div>
+      <button class="fab-item-btn" style="background:#3b82f6;color:#fff">📈</button>
+    </div>
+    <div class="fab-item" onclick="closeFab();abrirModalDividendo()">
+      <div class="fab-item-label">Lançar Provento</div>
+      <button class="fab-item-btn" style="background:#10b981;color:#fff">💰</button>
+    </div>
+    <div class="fab-item" onclick="closeFab();showTab('importar')">
+      <div class="fab-item-label">Importar CSV</div>
+      <button class="fab-item-btn" style="background:#8b5cf6;color:#fff">📄</button>
+    </div>
+  </div>
+  <button class="fab-main" id="fabMain" onclick="toggleFab()">＋</button>
+</div>
 
 <!-- MODAL APORTE PREMIUM -->
 <style>
@@ -8310,6 +8348,23 @@ function aplNavAC(e, acId, r){
   else return;
   items.forEach(function(el){el.classList.remove('active');});
   if(items[idx]){items[idx].classList.add('active');items[idx].scrollIntoView({block:'nearest'});}
+}
+
+function toggleFab(){
+  var items=document.getElementById('fabItems');
+  var main=document.getElementById('fabMain');
+  var ov=document.getElementById('fabOverlay');
+  var open=items.classList.toggle('open');
+  main.classList.toggle('open',open);
+  if(ov) ov.classList.toggle('show',open);
+}
+function closeFab(){
+  var items=document.getElementById('fabItems');
+  var main=document.getElementById('fabMain');
+  var ov=document.getElementById('fabOverlay');
+  if(items) items.classList.remove('open');
+  if(main)  main.classList.remove('open');
+  if(ov)    ov.classList.remove('show');
 }
 </script>
 </body>
