@@ -191,9 +191,9 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 }
 .gp-tabs-bar::-webkit-scrollbar{display:none}
 .gp-tab{
-  flex:1;min-width:110px;
+  flex:0 0 auto;
   display:flex;align-items:center;justify-content:center;gap:7px;
-  padding:9px 16px;
+  padding:9px 18px;
   border-radius:8px;
   font-size:12px;font-weight:700;letter-spacing:.3px;
   color:var(--text2);
@@ -224,7 +224,7 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 }
 .gp-subtabs-wrap::-webkit-scrollbar{display:none}
 .gp-subtab{
-  flex:1;min-width:120px;
+  flex:0 0 auto;
   padding:8px 18px;
   border:none;
   border-radius:7px;
@@ -1543,14 +1543,13 @@ function renderTape(){
   function chgStr(v){ if(v===null||isNaN(v)) return ''; return (v>=0?'+':'')+v.toFixed(2)+'%'; }
 
   var items = TT_ITEMS.map(function(it){
-    var val='--', chg=null, extra='';
+    var val='--', chg=null;
     if(it.tipo==='bcb'){
       var v = it.id==='selic'?IND.selic:it.id==='cdi'?IND.cdi:it.id==='ipca'?IND.ipca:IND.igpm;
       if(v!==null&&v!==undefined) val=fmtNum(v,2)+'%'+it.sufixo;
     } else {
       var mkt = IND_MKT[it.symbol];
       if(mkt){
-        // Formata preço por tipo
         if(it.id==='btc'||it.id==='eth') val='US$ '+fmtNum(mkt.preco,0);
         else if(it.id==='sp500'||it.id==='nasd'||it.id==='ibov') val=fmtNum(mkt.preco,0);
         else if(it.id==='usd'||it.id==='eur') val='R$ '+fmtNum(mkt.preco,4);
@@ -1568,18 +1567,12 @@ function renderTape(){
     '</div>';
   }).join('');
 
-  // Duplica para loop contínuo sem salto
+  // Duplica para loop contínuo
   track.innerHTML = items + items;
 
-  // Ajusta velocidade baseado no total de itens (mais itens = mais lento)
-  var totalItems = TT_ITEMS.length * 2;
-  var speed = Math.max(40, totalItems * 4); // ~4s por item
-  track.style.animationDuration = speed + 's';
-
-  // Reinicia o drag/loop JS após atualizar o conteúdo
-  if(typeof initTickerDrag === 'function'){
-    setTimeout(initTickerDrag, 50);
-  }
+  // Sempre reinicia o drag após popular o conteúdo
+  // (garante que trackW seja calculado com o HTML real)
+  setTimeout(initTickerDrag, 50);
 }
 
 // Mantém compatibilidade — renderIndicadores agora chama renderTape
@@ -4567,6 +4560,12 @@ function bindValorInput(id){
   }catch(e){}
 
   buscarIndicadores();
+  // Atualiza tape a cada 15 minutos (igual ao dashboard)
+  setInterval(function(){
+    try{ localStorage.removeItem('g20_indMkt_cache'); }catch(e){}
+    IND_MKT = {};
+    buscarIndicadores();
+  }, 15 * 60 * 1000);
   // Carrega perfil do usuário na sidebar
   (function(){
     try{
@@ -4582,12 +4581,6 @@ function bindValorInput(id){
       if(av && photo){ var img=document.createElement('img'); img.src=photo; img.style.cssText='width:100%;height:100%;object-fit:cover;border-radius:50%'; img.onerror=function(){this.style.display='none';}; av.appendChild(img); }
     }catch(e){}
   })();
-  // Inicia ticker drag após DOM ter dimensões
-  if(document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', initTickerDrag);
-  } else {
-    setTimeout(initTickerDrag, 400);
-  }
   // Aguarda Firestore antes de renderizar dados
   _dbOnReady(function(){
     renderAll();
