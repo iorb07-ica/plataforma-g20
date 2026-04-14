@@ -2002,9 +2002,32 @@ input[type="text"].apl-inp-preco{text-align:right}
 .apl-sel option{background:#1a1d28;color:#f4f6fa}
 .apl-tk-wrap{position:relative;min-width:0}
 .apl-tk-hint{position:absolute;top:calc(100% + 2px);left:4px;font-size:9px;font-weight:700;white-space:nowrap;pointer-events:none;z-index:2}
-/* 5) Autocomplete: scroll interno, não externo */
-.apl-tk-ac{position:absolute;top:calc(100% + 4px);left:0;min-width:320px;max-width:440px;z-index:1200;display:none;max-height:280px;overflow-y:auto}
-.ticker-autocomplete{max-height:280px;overflow-y:auto}
+/* Autocomplete: fixed no viewport, não limitado pelo modal */
+.ticker-autocomplete{
+  position:fixed!important;
+  z-index:9999;
+  background:var(--bg2);
+  border:1px solid rgba(255,255,255,.15);
+  border-radius:12px;
+  box-shadow:0 16px 48px rgba(0,0,0,.7);
+  max-height:60vh;
+  overflow-y:auto;
+  min-width:420px;
+  max-width:560px;
+  top:auto;left:auto;
+}
+.apl-tk-ac{
+  position:fixed!important;
+  z-index:9999;
+  background:var(--bg2);
+  border:1px solid rgba(255,255,255,.15);
+  border-radius:12px;
+  box-shadow:0 16px 48px rgba(0,0,0,.7);
+  max-height:60vh;
+  overflow-y:auto;
+  min-width:420px;
+  max-width:560px;
+}
 .apl-preco-row{display:flex;gap:5px;align-items:center}
 .apl-preco-row .apl-inp{flex:1;min-width:0}
 .apl-moeda{background:#1a1d28;border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.6);padding:8px 5px;border-radius:8px;font-size:10px;font-weight:800;cursor:pointer;outline:none;width:48px;flex-shrink:0;font-family:inherit;transition:all .15s}
@@ -2704,11 +2727,18 @@ function buscarSugestoesTicker(q){
   clearTimeout(_autocompleteTimer);
   _autocompleteTimer = setTimeout(function(){
     if(!PROXY_URL){ fecharAutocomplete(); return; }
+    // Posiciona fixed abaixo do input
+    var inp = document.getElementById('aporte_ticker');
+    if(inp && box){
+      var rect = inp.getBoundingClientRect();
+      box.style.top  = (rect.bottom + 6) + 'px';
+      box.style.left = rect.left + 'px';
+    }
     box.innerHTML = '<div class="tac-loading">Buscando...</div>';
     box.style.display = 'block';
     _autocompleteIdx = -1;
 
-    fetch(PROXY_URL+'/api/search?q='+encodeURIComponent(q))
+    fetch(PROXY_URL+'/api/search?q='+encodeURIComponent(q)+'&limit=20')
       .then(function(r){ return r.json(); })
       .then(function(d){
         var results = d.results || [];
@@ -8304,9 +8334,16 @@ function aplBuscarAC(r, q, acId){
   clearTimeout(window['_acT'+r]);
   window['_acT'+r]=setTimeout(function(){
     if(!PROXY_URL){box.style.display='none';return;}
+    // Posiciona fixed abaixo do input
+    var tk=document.getElementById('aplTk'+r);
+    if(tk){
+      var rect=tk.getBoundingClientRect();
+      box.style.top=(rect.bottom+6)+'px';
+      box.style.left=rect.left+'px';
+    }
     box.innerHTML='<div class="tac-loading">Buscando...</div>';
     box.style.display='block';
-    fetch(PROXY_URL+'/api/search?q='+encodeURIComponent(q))
+    fetch(PROXY_URL+'/api/search?q='+encodeURIComponent(q)+'&limit=20')
       .then(function(res){return res.json();})
       .then(function(d){
         var results=d.results||[];
