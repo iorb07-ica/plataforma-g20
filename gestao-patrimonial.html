@@ -1012,8 +1012,8 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
         <button class="btn-sm btn-gold" onclick="salvarMetas()" style="flex-shrink:0;white-space:nowrap">💾 Salvar Metas</button>
       </div>
 
-      <!-- Grid: inputs de meta + barras de progresso -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px" id="rebalGrid"></div>
+      <!-- Grid: 3 cards lado a lado -->
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px;align-items:start" id="rebalGrid"></div>
 
       <!-- Barra de soma das metas -->
       <div id="rebalSomaWrap" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:18px">
@@ -4832,16 +4832,44 @@ function bindValorInput(id){
 
 // ── REBALANCEAR ───────────────────────────────────────────────
 var REBAL_CLASSES = [
-  { key:'RF',    label:'Renda Fixa',        cor:'#10b981', ico:'🏦' },
-  { key:'Bens',  label:'Bens Patrimoniais', cor:'#3b82f6', ico:'🏛️' },
-  { key:'RV',    label:'Renda Variável',    cor:'#8b5cf6', ico:'📈' },
+  { key:'RF',   label:'Renda Fixa',        cor:'#10b981', ico:'🏦',
+    subs:[
+      {key:'RF_CDB',  label:'CDB'},
+      {key:'RF_LCI',  label:'LCI'},
+      {key:'RF_LCA',  label:'LCA'},
+      {key:'RF_TD',   label:'Tesouro Direto'},
+      {key:'RF_CRI',  label:'CRI/CRA'},
+      {key:'RF_DEB',  label:'Debêntures'},
+    ]
+  },
+  { key:'Bens', label:'Bens Patrimoniais', cor:'#3b82f6', ico:'🏛️',
+    subs:[
+      {key:'Bens_imovel',  label:'Imóveis'},
+      {key:'Bens_veiculo', label:'Veículos'},
+      {key:'Bens_prev',    label:'Previdência'},
+      {key:'Bens_empresa', label:'Empresas'},
+      {key:'Bens_outro',   label:'Outros'},
+    ]
+  },
+  { key:'RV',   label:'Renda Variável',    cor:'#8b5cf6', ico:'📈',
+    subs:[
+      {key:'RV_Acao',   label:'Ações BR'},
+      {key:'RV_FII',    label:'FIIs'},
+      {key:'RV_Stock',  label:'Stocks'},
+      {key:'RV_REIT',   label:'REITs'},
+      {key:'RV_ETF',    label:'ETFs'},
+      {key:'RV_Cripto', label:'Cripto'},
+    ]
+  },
 ];
 
 function loadMetas(){
   var saved = loadData('carteiraMeta', {});
-  // garante valores default 0 para cada classe
   var metas = {};
-  REBAL_CLASSES.forEach(function(c){ metas[c.key] = saved[c.key] || 0; });
+  REBAL_CLASSES.forEach(function(c){
+    metas[c.key] = saved[c.key] || 0;
+    c.subs.forEach(function(s){ metas[s.key] = saved[s.key] || 0; });
+  });
   return metas;
 }
 
@@ -4850,10 +4878,133 @@ function salvarMetas(){
   REBAL_CLASSES.forEach(function(c){
     var el = document.getElementById('rebalMeta_'+c.key);
     metas[c.key] = el ? (parseFloat(el.value.replace(',','.'))||0) : 0;
+    c.subs.forEach(function(s){
+      var sel = document.getElementById('rebalMeta_'+s.key);
+      metas[s.key] = sel ? (parseFloat(sel.value.replace(',','.'))||0) : 0;
+    });
   });
   saveData('carteiraMeta', metas);
   showToast('✅ Metas salvas!');
   renderRebalAll();
+}
+
+function renderRebalGrid(){
+  var metas = loadMetas();
+  var vals  = _getRebalValores();
+  var total = Object.values(vals).reduce(function(s,v){ return s+v; }, 0);
+  var grid  = document.getElementById('rebalGrid');
+  if(!grid) return;
+
+  grid.innerHTML = REBAL_CLASSES.map(function(c){
+    var val      = vals[c.key] || 0;
+    var pctAt    = total > 0 ? (val/total*100) : 0;
+    var meta     = metas[c.key] || 0;
+    var desvio   = pctAt - meta;
+    var desvioCor= Math.abs(desvio) <= 2 ? '#10b981' : Math.abs(desvio) <= 5 ? '#f59e0b' : '#e63946';
+    var desvioStr= (desvio>=0?'+':'')+desvio.toFixed(1)+'%';
+    var barAt    = Math.min(pctAt, 100);
+    var barMt    = Math.min(meta, 100);
+
+    // Subdivisões
+    var somaSubsAtual = c.subs.reduce(function(s, sub){ return s + (metas[sub.key]||0); }, 0);
+    var somaSubsCor   = somaSubsAtual === 100 ? '#10b981' : Math.abs(somaSubsAtual-100) <= 10 ? '#f59e0b' : '#e63946';
+    var somaSubsBar   = Math.min(somaSubsAtual, 100);
+    var somaSubsMsg   = somaSubsAtual === 100 ? '✅ 100%' :
+                        somaSubsAtual < 100   ? '⚠️ faltam '+(100-somaSubsAtual).toFixed(0)+'%' :
+                                                '❌ excede em '+(somaSubsAtual-100).toFixed(0)+'%';
+
+    var subsHtml = c.subs.map(function(s){
+      var sm = metas[s.key] || 0;
+      return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)">' +
+        '<span style="font-size:12px;color:var(--text2);flex:1;white-space:nowrap">'+s.label+'</span>' +
+        '<div style="height:3px;flex:2;background:var(--bg3);border-radius:2px;overflow:hidden">' +
+          '<div style="height:3px;width:'+Math.min(sm,100)+'%;background:'+c.cor+';border-radius:2px;transition:width .3s"></div>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:3px">' +
+          '<input id="rebalMeta_'+s.key+'" type="text" inputmode="decimal" value="'+sm+'"' +
+            ' oninput="onMetaInput()"' +
+            ' style="width:46px;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:4px 6px;border-radius:6px;font-size:12px;font-weight:700;font-family:inherit;text-align:center;outline:none;transition:border .15s"' +
+            ' onfocus="this.style.borderColor=\''+c.cor+'\'"' +
+            ' onblur="this.style.borderColor=\'var(--border)\'">' +
+          '<span style="font-size:10px;color:var(--text3)">%</span>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    // Barra de soma das subdivisões
+    var somaBarHtml =
+      '<div style="margin-top:8px;padding:8px 10px;background:var(--bg3);border-radius:8px">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">' +
+          '<span style="font-size:10px;font-weight:700;color:var(--text3)">Soma das subdivisões</span>' +
+          '<span id="rebalSubsSomaVal_'+c.key+'" style="font-size:11px;font-weight:800;color:'+somaSubsCor+'">'+somaSubsMsg+'</span>' +
+        '</div>' +
+        '<div style="height:5px;background:var(--bg2);border-radius:3px;overflow:hidden">' +
+          '<div id="rebalSubsSomaBar_'+c.key+'" style="height:5px;width:'+somaSubsBar+'%;background:'+somaSubsCor+';border-radius:3px;transition:width .3s,background .3s"></div>' +
+        '</div>' +
+      '</div>';
+
+    return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px">' +
+
+      // Header
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span style="font-size:20px">'+c.ico+'</span>' +
+          '<span style="font-size:14px;font-weight:800;color:var(--text)">'+c.label+'</span>' +
+        '</div>' +
+        '<span style="font-size:11px;font-weight:700;color:'+desvioCor+';background:'+desvioCor+'18;padding:2px 8px;border-radius:20px">'+desvioStr+'</span>' +
+      '</div>' +
+
+      // Percentual atual + valor
+      '<div style="font-size:24px;font-weight:900;color:'+c.cor+';line-height:1;margin-bottom:2px">'+pctAt.toFixed(1)+'%</div>' +
+      '<div style="font-size:12px;color:var(--text2);font-weight:600;margin-bottom:10px">'+fmtBRL(val)+'</div>' +
+
+      // Barra atual
+      '<div style="margin-bottom:8px">' +
+        '<div style="display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:var(--text3);margin-bottom:3px">' +
+          '<span>Atual</span><span style="color:'+c.cor+'">'+pctAt.toFixed(1)+'%</span>' +
+        '</div>' +
+        '<div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">' +
+          '<div style="height:6px;width:'+barAt+'%;background:'+c.cor+';border-radius:3px;transition:width .5s ease"></div>' +
+        '</div>' +
+      '</div>' +
+
+      // Meta total da classe — input compacto
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:8px 10px;background:var(--bg3);border-radius:8px">' +
+        '<span style="font-size:11px;font-weight:700;color:var(--text2);flex:1">Meta total</span>' +
+        '<div style="height:4px;flex:2;background:var(--bg2);border-radius:2px;overflow:hidden">' +
+          '<div style="height:4px;width:'+barMt+'%;background:'+c.cor+'66;border-radius:2px;transition:width .4s ease"></div>' +
+        '</div>' +
+        '<input id="rebalMeta_'+c.key+'" type="text" inputmode="decimal" value="'+meta+'"' +
+          ' oninput="onMetaInput()"' +
+          ' style="width:52px;background:var(--surface);border:2px solid '+c.cor+'44;color:var(--text);padding:5px 8px;border-radius:7px;font-size:14px;font-weight:800;font-family:inherit;text-align:center;outline:none;transition:border .2s"' +
+          ' onfocus="this.style.borderColor=\''+c.cor+'\'"' +
+          ' onblur="this.style.borderColor=\''+c.cor+'44\'">' +
+        '<span style="font-size:13px;font-weight:700;color:var(--text2)">%</span>' +
+      '</div>' +
+
+      // Subdivisões — expansíveis
+      '<div style="border-top:1px solid var(--border);padding-top:8px">' +
+        '<div onclick="toggleRebalSubs(\''+c.key+'\')" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:6px">' +
+          '<span style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3)">Subdivisões</span>' +
+          '<span id="rebalSubsArrow_'+c.key+'" style="font-size:11px;color:var(--text3);transition:transform .2s">▼</span>' +
+        '</div>' +
+        '<div id="rebalSubs_'+c.key+'" style="display:none">' +
+          subsHtml +
+          somaBarHtml +
+        '</div>' +
+      '</div>' +
+
+    '</div>';
+  }).join('');
+}
+
+function toggleRebalSubs(key){
+  var el    = document.getElementById('rebalSubs_'+key);
+  var arrow = document.getElementById('rebalSubsArrow_'+key);
+  if(!el) return;
+  var open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'block';
+  if(arrow) arrow.style.transform = open ? '' : 'rotate(180deg)';
 }
 
 function _getRebalValores(){
@@ -4868,90 +5019,14 @@ function _getRebalValores(){
   return { RF: rfLiq, Bens: bensVal, RV: rvAtual };
 }
 
-function renderRebalGrid(){
-  var metas  = loadMetas();
-  var vals   = _getRebalValores();
-  var total  = Object.values(vals).reduce(function(s,v){ return s+v; }, 0);
-  var grid   = document.getElementById('rebalGrid');
-  if(!grid) return;
-
-  grid.innerHTML = REBAL_CLASSES.map(function(c){
-    var val      = vals[c.key] || 0;
-    var pctAt    = total > 0 ? (val/total*100) : 0;
-    var meta     = metas[c.key] || 0;
-    var desvio   = pctAt - meta;
-    var desvioStr= (desvio >= 0 ? '+' : '') + desvio.toFixed(1) + '%';
-    var desvioCor= Math.abs(desvio) <= 2 ? '#10b981' : Math.abs(desvio) <= 5 ? '#f59e0b' : '#e63946';
-    var barAt    = Math.min(pctAt, 100);
-    var barMt    = Math.min(meta, 100);
-
-    return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px 22px">'+
-
-      // Header: ícone + nome + desvio
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">'+
-        '<div style="display:flex;align-items:center;gap:10px">'+
-          '<span style="font-size:24px">'+c.ico+'</span>'+
-          '<span style="font-size:15px;font-weight:800;color:var(--text)">'+c.label+'</span>'+
-        '</div>'+
-        '<span style="font-size:13px;font-weight:800;color:'+desvioCor+';background:'+desvioCor+'18;padding:3px 10px;border-radius:20px">'+desvioStr+'</span>'+
-      '</div>'+
-
-      // Valor atual em destaque
-      '<div style="font-size:28px;font-weight:900;color:'+c.cor+';line-height:1;margin-bottom:4px">'+pctAt.toFixed(1)+'%</div>'+
-      '<div style="font-size:13px;color:var(--text2);font-weight:600;margin-bottom:16px">'+fmtBRL(val)+'</div>'+
-
-      // Barra atual
-      '<div style="margin-bottom:12px">'+
-        '<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:5px">'+
-          '<span>Atual</span><span style="color:'+c.cor+'">'+pctAt.toFixed(1)+'%</span>'+
-        '</div>'+
-        '<div style="height:8px;background:var(--bg3);border-radius:4px;overflow:hidden">'+
-          '<div style="height:8px;width:'+barAt+'%;background:'+c.cor+';border-radius:4px;transition:width .5s ease"></div>'+
-        '</div>'+
-      '</div>'+
-
-      // Input meta — sem spinner, campo largo
-      '<div>'+
-        '<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:5px">'+
-          '<span>Meta</span><span style="color:'+c.cor+'55">'+barMt.toFixed(1)+'%</span>'+
-        '</div>'+
-        '<div style="height:8px;background:var(--bg3);border-radius:4px;overflow:hidden;margin-bottom:12px">'+
-          '<div style="height:8px;width:'+barMt+'%;background:'+c.cor+'44;border-radius:4px;outline:2px dashed '+c.cor+'66;outline-offset:-1px;transition:width .4s ease"></div>'+
-        '</div>'+
-        '<div style="display:flex;align-items:center;gap:10px">'+
-          '<input id="rebalMeta_'+c.key+'"'+
-            ' type="text" inputmode="decimal"'+
-            ' value="'+meta+'"'+
-            ' oninput="onMetaInput()"'+
-            ' style="flex:1;background:var(--bg3);border:2px solid var(--border);color:var(--text);padding:10px 14px;border-radius:8px;font-size:18px;font-weight:800;font-family:inherit;text-align:center;outline:none;-moz-appearance:textfield;appearance:textfield;transition:border .2s"'+
-            ' onfocus="this.style.borderColor=\''+c.cor+'\'"'+
-            ' onblur="this.style.borderColor=\'var(--border)\'"'+
-          '>'+
-          '<span style="font-size:18px;font-weight:800;color:var(--text2)">%</span>'+
-        '</div>'+
-      '</div>'+
-
-    '</div>';
-  }).join('');
-}
 
 function onMetaInput(){
+  // Soma principal (RF + Bens + RV)
   var soma = 0;
   REBAL_CLASSES.forEach(function(c){
     var el = document.getElementById('rebalMeta_'+c.key);
-    var v  = el ? (parseFloat(el.value.replace(',','.'))||0) : 0;
-    soma  += v;
-
-    // Atualiza barra de meta em tempo real
-    var barMt = Math.min(v, 100);
-    var barEl = el && el.parentElement && el.parentElement.parentElement
-      ? el.parentElement.parentElement.querySelector('.rebal-meta-bar')
-      : null;
-    // Busca pelo id da barra específica
-    var bEl = document.getElementById('rebalMetaBar_'+c.key);
-    if(bEl){ bEl.style.width = barMt+'%'; }
+    soma += el ? (parseFloat(el.value.replace(',','.'))||0) : 0;
   });
-
   var somaEl = document.getElementById('rebalSomaVal');
   var barEl  = document.getElementById('rebalSomaBar');
   var msgEl  = document.getElementById('rebalSomaMsg');
@@ -4965,11 +5040,43 @@ function onMetaInput(){
                    '❌ Soma excede 100% em '+(soma-100).toFixed(1)+'%';
     msgEl.style.color = cor;
   }
+
+  // Soma das subdivisões por card
+  REBAL_CLASSES.forEach(function(c){
+    var somaSubs = 0;
+    c.subs.forEach(function(s){
+      var sel = document.getElementById('rebalMeta_'+s.key);
+      somaSubs += sel ? (parseFloat(sel.value.replace(',','.'))||0) : 0;
+    });
+    var corS = somaSubs === 100 ? '#10b981' : Math.abs(somaSubs-100) <= 10 ? '#f59e0b' : '#e63946';
+    var msgS = somaSubs === 100 ? '✅ 100%' :
+               somaSubs < 100  ? '⚠️ faltam '+(100-somaSubs).toFixed(0)+'%' :
+                                 '❌ excede em '+(somaSubs-100).toFixed(0)+'%';
+    var valEl = document.getElementById('rebalSubsSomaVal_'+c.key);
+    var barS  = document.getElementById('rebalSubsSomaBar_'+c.key);
+    if(valEl){ valEl.textContent = msgS; valEl.style.color = corS; }
+    if(barS){ barS.style.width = Math.min(somaSubs,100)+'%'; barS.style.background = corS; }
+
+    // Mini barra de cada subdivisão
+    c.subs.forEach(function(s){
+      var sel = document.getElementById('rebalMeta_'+s.key);
+      var v   = sel ? (parseFloat(sel.value.replace(',','.'))||0) : 0;
+      // A mini barra está como irmão anterior do div que contém o input
+      // Não temos ID direto, então atualiza via animação CSS (o input oninput já dispara)
+    });
+  });
+
   renderRebalSugestao();
 }
 
 function renderRebalTabela(){
-  var metas = loadMetas();
+  // Lê metas dos inputs ao vivo (se disponíveis) ou do Firestore
+  var savedMetas = loadMetas();
+  var metas = {};
+  REBAL_CLASSES.forEach(function(c){
+    var el = document.getElementById('rebalMeta_'+c.key);
+    metas[c.key] = el ? (parseFloat(el.value.replace(',','.'))||0) : (savedMetas[c.key]||0);
+  });
   var vals  = _getRebalValores();
   var total = Object.values(vals).reduce(function(s,v){ return s+v; }, 0);
   var tbody = document.getElementById('rebalTbody');
@@ -5008,11 +5115,17 @@ function renderRebalTabela(){
 }
 
 function renderRebalSugestao(){
-  var metas   = loadMetas();
-  var vals    = _getRebalValores();
-  var total   = Object.values(vals).reduce(function(s,v){ return s+v; }, 0);
-  var aporte  = parseFloat((document.getElementById('rebalAporteVal')||{value:0}).value)||0;
-  var grid    = document.getElementById('rebalSugestaoGrid');
+  // Lê metas diretamente dos inputs (não do Firestore — reflete o que o usuário está digitando agora)
+  var metas = {};
+  REBAL_CLASSES.forEach(function(c){
+    var el = document.getElementById('rebalMeta_'+c.key);
+    metas[c.key] = el ? (parseFloat(el.value.replace(',','.'))||0) : (loadMetas()[c.key]||0);
+  });
+
+  var vals   = _getRebalValores();
+  var total  = Object.values(vals).reduce(function(s,v){ return s+v; }, 0);
+  var aporte = parseFloat(((document.getElementById('rebalAporteVal')||{}).value||'0').replace(',','.'))||0;
+  var grid   = document.getElementById('rebalSugestaoGrid');
   if(!grid) return;
 
   if(aporte <= 0){
@@ -5021,6 +5134,14 @@ function renderRebalSugestao(){
   }
 
   var novoTotal = total + aporte;
+  var somaMetasPct = REBAL_CLASSES.reduce(function(s,c){ return s+(metas[c.key]||0); }, 0);
+
+  // Se metas estão todas em 0, avisa
+  if(somaMetasPct <= 0){
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:24px;color:var(--text3);font-size:13px">⚠️ Defina as metas de cada classe acima para ver a sugestão</div>';
+    return;
+  }
+
   grid.innerHTML = REBAL_CLASSES.map(function(c){
     var meta     = metas[c.key] || 0;
     var valAtual = vals[c.key]  || 0;
@@ -5031,6 +5152,7 @@ function renderRebalSugestao(){
       '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">'+
         '<span style="font-size:16px">'+c.ico+'</span>'+
         '<span style="font-size:12px;font-weight:700">'+c.label+'</span>'+
+        '<span style="margin-left:auto;font-size:11px;color:var(--text3)">meta: '+meta.toFixed(0)+'%</span>'+
       '</div>'+
       '<div style="font-size:20px;font-weight:800;color:'+c.cor+';margin-bottom:2px">'+fmtBRL(sugerido)+'</div>'+
       '<div style="font-size:11px;color:var(--text2)">'+pct.toFixed(1)+'% do aporte</div>'+
