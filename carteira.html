@@ -1437,6 +1437,11 @@ th.col-filtered { color:var(--gold) !important; }
         <div class="stat-sub" id="statRentTotal">--</div>
         <div style="margin-top:4px"><span id="statRFBadge" style="display:none;font-size:10px;font-weight:700;color:#10b981;background:rgba(16,185,129,.12);padding:2px 7px;border-radius:10px"></span></div>
       </div>
+      <div class="stat-card" id="statVarDiaCard" style="border-color:rgba(255,255,255,.08)">
+        <div class="stat-label">Variação do Dia</div>
+        <div class="stat-val" id="statVarDiaVal">---</div>
+        <div class="stat-sub" id="statVarDiaPct" style="color:var(--text3)">Atualize cotações</div>
+      </div>
       <div class="stat-card">
         <div class="stat-label">Total Aportado</div>
         <div class="stat-val" id="statAportado">R$ ---</div>
@@ -1456,11 +1461,6 @@ th.col-filtered { color:var(--gold) !important; }
         <div class="stat-label">Proventos Recebidos</div>
         <div class="stat-val" id="statDivRecebidos">R$ ---</div>
         <div class="stat-sub" id="statDivDY" style="color:var(--gold)">DY acum. --</div>
-      </div>
-      <div class="stat-card" id="statVarDiaCard" style="border-color:rgba(255,255,255,.08)">
-        <div class="stat-label">Variação do Dia</div>
-        <div class="stat-val" id="statVarDiaVal">---</div>
-        <div class="stat-sub" id="statVarDiaPct" style="color:var(--text3)">Atualize cotações</div>
       </div>
     </div>
 
@@ -1867,10 +1867,25 @@ th.col-filtered { color:var(--gold) !important; }
       <!-- Cards de resumo -->
       <div class="reb-summary" id="rebSummary"></div>
 
+      <!-- ── CARDS DE ALOCAÇÃO (estilo Gestão Patrimonial) ── -->
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px;align-items:start" id="rebClassGrid"></div>
+
+      <!-- Barra de soma das metas -->
+      <div id="rebSomaWrap" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:18px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:12px;font-weight:700">Soma das Metas (classes)</span>
+          <span id="rebSomaVal" style="font-size:14px;font-weight:800;color:var(--gold)">0%</span>
+        </div>
+        <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+          <div id="rebSomaBar" style="height:6px;border-radius:3px;transition:width .4s,background .3s"></div>
+        </div>
+        <div id="rebSomaMsg" style="font-size:11px;color:var(--text3);margin-top:6px"></div>
+      </div>
+
       <!-- Simulador de aporte -->
       <div class="reb-aporte-box">
         <div>
-          <div class="reb-aporte-label">💰 Simular Novo Aporte</div>
+          <div class="reb-aporte-label">💰 Sugestão de Próximo Aporte</div>
           <div style="font-size:11px;color:var(--text3);margin-top:2px">Distribui automaticamente para reequilibrar a carteira</div>
         </div>
         <div class="reb-aporte-input">
@@ -7099,7 +7114,7 @@ function showTab(t){
   if(t==='dividendos'){
     _showTabTimers.div = setTimeout(renderDividendos, 30);
   }
-  if(t==='rebalancear') calcularRebalanceamento();
+  if(t==='rebalancear'){ calcularRebalanceamento(); renderRebClassGrid(); }
 }
 
 // ============================================================
@@ -7111,6 +7126,230 @@ function fmtRebAporte(input){
   var num = parseInt(raw,10)/100;
   input.value = num.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
   calcularRebalanceamento();
+}
+
+// ── REBALANCEAR — CARDS DE CLASSES (estilo Gestão Patrimonial) ──
+var REBAL_GP = [
+  { key:'RV',   label:'Renda Variável',    cor:'#8b5cf6', ico:'📈',
+    subs:[
+      {key:'RV_Acao',   label:'Ações BR'},
+      {key:'RV_FII',    label:'FIIs'},
+      {key:'RV_Stock',  label:'Stocks'},
+      {key:'RV_REIT',   label:'REITs'},
+      {key:'RV_ETF',    label:'ETFs'},
+      {key:'RV_Cripto', label:'Cripto'},
+    ]
+  },
+  { key:'RF',   label:'Renda Fixa',        cor:'#10b981', ico:'🏦',
+    subs:[
+      {key:'RF_CDB',  label:'CDB'},
+      {key:'RF_LCI',  label:'LCI'},
+      {key:'RF_LCA',  label:'LCA'},
+      {key:'RF_TD',   label:'Tesouro Direto'},
+      {key:'RF_CRI',  label:'CRI/CRA'},
+      {key:'RF_DEB',  label:'Debêntures'},
+    ]
+  },
+  { key:'Bens', label:'Bens Patrimoniais', cor:'#3b82f6', ico:'🏛️',
+    subs:[
+      {key:'Bens_imovel',  label:'Imóveis'},
+      {key:'Bens_veiculo', label:'Veículos'},
+      {key:'Bens_prev',    label:'Previdência'},
+      {key:'Bens_empresa', label:'Empresas'},
+      {key:'Bens_outro',   label:'Outros'},
+    ]
+  },
+];
+
+function loadMetasRebGP(){
+  var saved = loadData('carteiraMetaGP', {});
+  var m = {};
+  REBAL_GP.forEach(function(c){
+    m[c.key] = saved[c.key] || 0;
+    c.subs.forEach(function(s){ m[s.key] = saved[s.key] || 0; });
+  });
+  return m;
+}
+
+function salvarMetasRebGP(){
+  var m = {};
+  REBAL_GP.forEach(function(c){
+    var el = document.getElementById('rebGPMeta_'+c.key);
+    m[c.key] = el ? (parseFloat(el.value.replace(',','.'))||0) : 0;
+    c.subs.forEach(function(s){
+      var sel = document.getElementById('rebGPMeta_'+s.key);
+      m[s.key] = sel ? (parseFloat(sel.value.replace(',','.'))||0) : 0;
+    });
+  });
+  saveData('carteiraMetaGP', m);
+  showToast('✅ Metas salvas!');
+}
+
+function onRebMetaInput(){
+  var soma = 0;
+  REBAL_GP.forEach(function(c){
+    var el = document.getElementById('rebGPMeta_'+c.key);
+    soma += el ? (parseFloat(el.value.replace(',','.'))||0) : 0;
+  });
+  var somaEl = document.getElementById('rebSomaVal');
+  var barEl  = document.getElementById('rebSomaBar');
+  var msgEl  = document.getElementById('rebSomaMsg');
+  var cor = soma === 100 ? '#10b981' : Math.abs(soma-100) <= 5 ? '#f59e0b' : '#e63946';
+  if(somaEl){ somaEl.textContent = soma.toFixed(1)+'%'; somaEl.style.color = cor; }
+  if(barEl){ barEl.style.width = Math.min(soma,100)+'%'; barEl.style.background = cor; }
+  if(msgEl){
+    msgEl.textContent = soma===100 ? '✅ Soma perfeita!' :
+      soma<100 ? '⚠️ Faltam '+(100-soma).toFixed(1)+'%' : '❌ Excede em '+(soma-100).toFixed(1)+'%';
+    msgEl.style.color = cor;
+  }
+  // Somas das subdivisões
+  REBAL_GP.forEach(function(c){
+    var ss = 0;
+    c.subs.forEach(function(s){
+      var sel = document.getElementById('rebGPMeta_'+s.key);
+      ss += sel ? (parseFloat(sel.value.replace(',','.'))||0) : 0;
+    });
+    var corS = ss===100?'#10b981':Math.abs(ss-100)<=10?'#f59e0b':'#e63946';
+    var msgS = ss===100?'✅ 100%': ss<100?'⚠️ faltam '+(100-ss).toFixed(0)+'%':'❌ excede '+(ss-100).toFixed(0)+'%';
+    var sVal = document.getElementById('rebGPSubsVal_'+c.key);
+    var sBar = document.getElementById('rebGPSubsBar_'+c.key);
+    if(sVal){ sVal.textContent=msgS; sVal.style.color=corS; }
+    if(sBar){ sBar.style.width=Math.min(ss,100)+'%'; sBar.style.background=corS; }
+  });
+  calcularRebalanceamento();
+}
+
+function toggleRebGPSubs(key){
+  var el = document.getElementById('rebGPSubs_'+key);
+  var ar = document.getElementById('rebGPArrow_'+key);
+  if(!el) return;
+  var open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'block';
+  if(ar) ar.style.transform = open ? '' : 'rotate(180deg)';
+}
+
+function renderRebClassGrid(){
+  var metas = loadMetasRebGP();
+  var pos   = calcPosicoes ? calcPosicoes() : [];
+  var totalPos = pos.reduce(function(s,p){
+    var cot = cotacoes[p.ticker];
+    var cotBRL = cot ? (isBR(p.ticker,p.tipo)?cot.preco:cot.preco*usdBRL) : 0;
+    return s + (cot ? p.qtd*cotBRL : p.totalInv);
+  }, 0);
+
+  // Valor atual por classe (mapeando tipos da carteira para classes GP)
+  var tipoParaClasse = {Acao:'RV',FII:'RV',FIAGRO:'RV',Stock:'RV',REIT:'RV',ETF:'RV',Cripto:'RV'};
+  var valPorClasse = {RF:0, Bens:0, RV:0};
+  pos.forEach(function(p){
+    var cot = cotacoes[p.ticker];
+    var cotBRL = cot ? (isBR(p.ticker,p.tipo)?cot.preco:cot.preco*usdBRL) : 0;
+    var v = cot ? p.qtd*cotBRL : p.totalInv;
+    var cls = tipoParaClasse[p.tipo] || 'RV';
+    valPorClasse[cls] = (valPorClasse[cls]||0) + v;
+  });
+
+  var grid = document.getElementById('rebClassGrid');
+  if(!grid) return;
+
+  grid.innerHTML = REBAL_GP.map(function(c){
+    var val    = valPorClasse[c.key] || 0;
+    var pctAt  = totalPos > 0 ? (val/totalPos*100) : 0;
+    var meta   = metas[c.key] || 0;
+    var desvio = pctAt - meta;
+    var dCor   = Math.abs(desvio)<=2?'#10b981':Math.abs(desvio)<=5?'#f59e0b':'#e63946';
+    var dStr   = (desvio>=0?'+':'')+desvio.toFixed(1)+'%';
+    var barAt  = Math.min(pctAt,100);
+    var barMt  = Math.min(meta,100);
+
+    var somaSubsAtual = c.subs.reduce(function(s,sub){ return s+(metas[sub.key]||0);},0);
+    var corSS  = somaSubsAtual===100?'#10b981':Math.abs(somaSubsAtual-100)<=10?'#f59e0b':'#e63946';
+    var msgSS  = somaSubsAtual===100?'✅ 100%':somaSubsAtual<100?'⚠️ faltam '+(100-somaSubsAtual).toFixed(0)+'%':'❌ excede '+(somaSubsAtual-100).toFixed(0)+'%';
+
+    var subsHtml = c.subs.map(function(s){
+      var sm = metas[s.key]||0;
+      return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)">'+
+        '<span style="font-size:12px;color:var(--text2);flex:1;white-space:nowrap">'+s.label+'</span>'+
+        '<div style="height:3px;flex:2;background:var(--bg3);border-radius:2px;overflow:hidden">'+
+          '<div style="height:3px;width:'+Math.min(sm,100)+'%;background:'+c.cor+';border-radius:2px;transition:width .3s"></div>'+
+        '</div>'+
+        '<div style="display:flex;align-items:center;gap:3px">'+
+          '<input id="rebGPMeta_'+s.key+'" type="text" inputmode="decimal" value="'+sm+'"'+
+            ' oninput="onRebMetaInput()"'+
+            ' style="width:46px;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:4px 6px;border-radius:6px;font-size:12px;font-weight:700;font-family:inherit;text-align:center;outline:none;transition:border .15s"'+
+            ' onfocus="this.style.borderColor=\''+c.cor+'\'"'+
+            ' onblur="this.style.borderColor=\'var(--border)\'">'+
+          '<span style="font-size:10px;color:var(--text3)">%</span>'+
+        '</div>'+
+      '</div>';
+    }).join('');
+
+    var somaBarHtml =
+      '<div style="margin-top:8px;padding:8px 10px;background:var(--bg3);border-radius:8px">'+
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">'+
+          '<span style="font-size:10px;font-weight:700;color:var(--text3)">Soma das subdivisões</span>'+
+          '<span id="rebGPSubsVal_'+c.key+'" style="font-size:11px;font-weight:800;color:'+corSS+'">'+msgSS+'</span>'+
+        '</div>'+
+        '<div style="height:5px;background:var(--bg2);border-radius:3px;overflow:hidden">'+
+          '<div id="rebGPSubsBar_'+c.key+'" style="height:5px;width:'+Math.min(somaSubsAtual,100)+'%;background:'+corSS+';border-radius:3px;transition:width .3s,background .3s"></div>'+
+        '</div>'+
+      '</div>';
+
+    return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'+
+        '<div style="display:flex;align-items:center;gap:8px">'+
+          '<span style="font-size:20px">'+c.ico+'</span>'+
+          '<span style="font-size:14px;font-weight:800;color:var(--text)">'+c.label+'</span>'+
+        '</div>'+
+        '<span style="font-size:11px;font-weight:700;color:'+dCor+';background:'+dCor+'18;padding:2px 8px;border-radius:20px">'+dStr+'</span>'+
+      '</div>'+
+      '<div style="font-size:24px;font-weight:900;color:'+c.cor+';line-height:1;margin-bottom:2px">'+pctAt.toFixed(1)+'%</div>'+
+      '<div style="font-size:12px;color:var(--text2);font-weight:600;margin-bottom:10px">'+fmtBRL2(val)+'</div>'+
+      '<div style="margin-bottom:8px">'+
+        '<div style="display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:var(--text3);margin-bottom:3px">'+
+          '<span>Atual</span><span style="color:'+c.cor+'">'+pctAt.toFixed(1)+'%</span>'+
+        '</div>'+
+        '<div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">'+
+          '<div style="height:6px;width:'+barAt+'%;background:'+c.cor+';border-radius:3px;transition:width .5s ease"></div>'+
+        '</div>'+
+      '</div>'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:8px 10px;background:var(--bg3);border-radius:8px">'+
+        '<span style="font-size:11px;font-weight:700;color:var(--text2);flex:1">Meta total</span>'+
+        '<div style="height:4px;flex:2;background:var(--bg2);border-radius:2px;overflow:hidden">'+
+          '<div style="height:4px;width:'+barMt+'%;background:'+c.cor+'66;border-radius:2px;transition:width .4s"></div>'+
+        '</div>'+
+        '<input id="rebGPMeta_'+c.key+'" type="text" inputmode="decimal" value="'+meta+'"'+
+          ' oninput="onRebMetaInput()"'+
+          ' style="width:52px;background:var(--surface);border:2px solid '+c.cor+'44;color:var(--text);padding:5px 8px;border-radius:7px;font-size:14px;font-weight:800;font-family:inherit;text-align:center;outline:none;transition:border .2s"'+
+          ' onfocus="this.style.borderColor=\''+c.cor+'\'"'+
+          ' onblur="this.style.borderColor=\''+c.cor+'44\'">'+
+        '<span style="font-size:13px;font-weight:700;color:var(--text2)">%</span>'+
+      '</div>'+
+      '<div style="border-top:1px solid var(--border);padding-top:8px">'+
+        '<div onclick="toggleRebGPSubs(\''+c.key+'\')" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:6px">'+
+          '<span style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3)">Subdivisões</span>'+
+          '<span id="rebGPArrow_'+c.key+'" style="font-size:11px;color:var(--text3);transition:transform .2s">▼</span>'+
+        '</div>'+
+        '<div id="rebGPSubs_'+c.key+'" style="display:none">'+
+          subsHtml+somaBarHtml+
+        '</div>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+
+  // Salvar btn
+  var intro = document.getElementById('rebClassIntro');
+  if(!intro){
+    var introEl = document.createElement('div');
+    introEl.id = 'rebClassIntro';
+    introEl.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px';
+    introEl.innerHTML =
+      '<div style="font-size:13px;font-weight:700">⚖️ Metas de Alocação por Classe</div>'+
+      '<button onclick="salvarMetasRebGP()" style="background:var(--gold);color:#000;border:none;padding:8px 18px;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">💾 Salvar Metas</button>';
+    grid.parentNode.insertBefore(introEl, grid);
+  }
+
+  // Inicializa soma
+  onRebMetaInput();
 }
 
 function calcularRebalanceamento(){
