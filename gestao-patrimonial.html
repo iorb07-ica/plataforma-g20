@@ -1033,9 +1033,9 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
           <div style="font-size:14px;font-weight:700">💵 Sugestão de Próximo Aporte</div>
           <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
             <label style="font-size:12px;color:var(--text2)">Valor do aporte (R$)</label>
-            <input id="rebalAporteVal" type="number" min="0" step="100" placeholder="Ex: 2000"
-              oninput="renderRebalSugestao()"
-              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:7px 12px;border-radius:8px;font-size:13px;font-family:inherit;width:140px">
+            <input id="rebalAporteVal" type="text" inputmode="numeric" placeholder="R$ 0,00"
+              oninput="fmtRebalAporte(this)"
+              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:7px 12px;border-radius:8px;font-size:13px;font-weight:700;font-family:inherit;width:160px;text-align:right">
           </div>
         </div>
         <div id="rebalSugestaoGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px"></div>
@@ -4830,7 +4830,26 @@ function bindValorInput(id){
 
 <script>
 
-// ── REBALANCEAR ───────────────────────────────────────────────
+// ── FORMATAÇÃO DO CAMPO DE APORTE ────────────────────────────
+function fmtRebalAporte(input){
+  // Remove tudo exceto dígitos
+  var raw = input.value.replace(/\D/g, '');
+  if(!raw){ input.value = ''; renderRebalSugestao(); return; }
+  // Trata como centavos: 10000 → 100,00
+  var num = parseInt(raw, 10) / 100;
+  // Formata em pt-BR: 1.500,00
+  input.value = num.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+  renderRebalSugestao();
+}
+
+function _parseRebalAporte(){
+  var el = document.getElementById('rebalAporteVal');
+  if(!el || !el.value) return 0;
+  // Remove pontos de milhar, troca vírgula por ponto
+  return parseFloat(el.value.replace(/\./g,'').replace(',','.')) || 0;
+}
+
+
 var REBAL_CLASSES = [
   { key:'RF',   label:'Renda Fixa',        cor:'#10b981', ico:'🏦',
     subs:[
@@ -5115,7 +5134,7 @@ function renderRebalTabela(){
 }
 
 function renderRebalSugestao(){
-  // Lê metas diretamente dos inputs (não do Firestore — reflete o que o usuário está digitando agora)
+  // Lê metas dos inputs ao vivo
   var metas = {};
   REBAL_CLASSES.forEach(function(c){
     var el = document.getElementById('rebalMeta_'+c.key);
@@ -5124,7 +5143,7 @@ function renderRebalSugestao(){
 
   var vals   = _getRebalValores();
   var total  = Object.values(vals).reduce(function(s,v){ return s+v; }, 0);
-  var aporte = parseFloat(((document.getElementById('rebalAporteVal')||{}).value||'0').replace(',','.'))||0;
+  var aporte = _parseRebalAporte();
   var grid   = document.getElementById('rebalSugestaoGrid');
   if(!grid) return;
 
@@ -5133,31 +5152,75 @@ function renderRebalSugestao(){
     return;
   }
 
-  var novoTotal = total + aporte;
   var somaMetasPct = REBAL_CLASSES.reduce(function(s,c){ return s+(metas[c.key]||0); }, 0);
-
-  // Se metas estão todas em 0, avisa
   if(somaMetasPct <= 0){
     grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:24px;color:var(--text3);font-size:13px">⚠️ Defina as metas de cada classe acima para ver a sugestão</div>';
     return;
   }
 
-  grid.innerHTML = REBAL_CLASSES.map(function(c){
+  // ── Lógica correta de sugestão ──────────────────────────────
+  // 1. Calcula quanto cada classe deveria ter no total atual
+  // 2. Calcula o desvio em R$ (falta ou sobra)
+  // 3. Distribui o aporte proporcionalmente aos que estão abaixo da meta
+  //    Quem está ACIMA da meta recebe 0 do aporte
+  //    Quem está ABAIXO recebe proporcional ao seu déficit
+
+  var novoTotal = total + aporte;
+
+  // Desvios em R$ de cada classe (negativo = abaixo da meta = precisa comprar)
+  var deficits = REBAL_CLASSES.map(function(c){
     var meta     = metas[c.key] || 0;
     var valAtual = vals[c.key]  || 0;
-    var valMeta  = novoTotal * meta / 100;
-    var sugerido = Math.max(0, valMeta - valAtual);
-    var pct      = aporte > 0 ? (sugerido/aporte*100) : 0;
-    return '<div style="background:var(--sur2);border:1px solid var(--border);border-radius:10px;padding:14px">'+
-      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">'+
+    var valMeta  = novoTotal * meta / 100;   // valor-alvo no novo total
+    var deficit  = valMeta - valAtual;       // quanto falta (positivo = falta, negativo = sobra)
+    return { c: c, meta: meta, valAtual: valAtual, deficit: deficit };
+  });
+
+  // Soma dos déficits positivos (classes que precisam de aporte)
+  var somaDeficits = deficits.reduce(function(s,d){ return s + Math.max(0, d.deficit); }, 0);
+
+  // Distribui o aporte proporcional ao déficit de cada classe
+  // Se somaDeficits < aporte, distribui tudo nos deficitários
+  // Se somaDeficits >= aporte, distribui proporcionalmente
+  var sugestoes = deficits.map(function(d){
+    if(d.deficit <= 0) return { c: d.c, meta: d.meta, sugerido: 0, pct: 0 };
+    var proporcao = somaDeficits > 0 ? d.deficit / somaDeficits : 0;
+    var sugerido  = Math.min(proporcao * aporte, d.deficit); // nunca mais que o déficit
+    var pct       = aporte > 0 ? (sugerido / aporte * 100) : 0;
+    return { c: d.c, meta: d.meta, sugerido: sugerido, pct: pct };
+  });
+
+  // Arredonda para centavos e garante que a soma = aporte exato
+  var somasSugeridas = sugestoes.reduce(function(s,d){ return s + d.sugerido; }, 0);
+  var resto = aporte - somasSugeridas;
+  // Distribui o resto (centavos de arredondamento) para o maior déficit
+  if(Math.abs(resto) > 0.005 && somasSugeridas > 0){
+    var iMax = 0;
+    sugestoes.forEach(function(d,i){ if(d.sugerido > sugestoes[iMax].sugerido) iMax = i; });
+    sugestoes[iMax].sugerido += resto;
+    sugestoes[iMax].pct = aporte > 0 ? (sugestoes[iMax].sugerido/aporte*100) : 0;
+  }
+
+  grid.innerHTML = sugestoes.map(function(d){
+    var c        = d.c;
+    var cor      = d.sugerido > 0 ? c.cor : 'var(--text3)';
+    var pctAtual = total > 0 ? ((vals[c.key]||0)/total*100) : 0;
+    var desvioR  = deficits.find(function(x){ return x.c.key === c.key; });
+    var desvio   = desvioR ? desvioR.deficit : 0;
+    var desvioStr= desvio > 0 ? '▼ falta '+fmtBRL(desvio) : desvio < 0 ? '▲ sobra '+fmtBRL(Math.abs(desvio)) : '✅ ok';
+    var desvioCor= desvio > 0 ? '#f59e0b' : desvio < 0 ? '#e63946' : '#10b981';
+
+    return '<div style="background:var(--sur2);border:1px solid '+(d.sugerido>0?c.cor+'44':'var(--border)')+';border-radius:10px;padding:14px">'+
+      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">'+
         '<span style="font-size:16px">'+c.ico+'</span>'+
-        '<span style="font-size:12px;font-weight:700">'+c.label+'</span>'+
-        '<span style="margin-left:auto;font-size:11px;color:var(--text3)">meta: '+meta.toFixed(0)+'%</span>'+
+        '<span style="font-size:12px;font-weight:700;color:var(--text)">'+c.label+'</span>'+
+        '<span style="margin-left:auto;font-size:10px;font-weight:700;color:var(--text3)">meta '+d.meta.toFixed(0)+'% · atual '+pctAtual.toFixed(1)+'%</span>'+
       '</div>'+
-      '<div style="font-size:20px;font-weight:800;color:'+c.cor+';margin-bottom:2px">'+fmtBRL(sugerido)+'</div>'+
-      '<div style="font-size:11px;color:var(--text2)">'+pct.toFixed(1)+'% do aporte</div>'+
+      '<div style="font-size:22px;font-weight:900;color:'+cor+';margin-bottom:2px">'+fmtBRL(d.sugerido)+'</div>'+
+      '<div style="font-size:11px;color:var(--text2);margin-bottom:4px">'+d.pct.toFixed(1)+'% do aporte</div>'+
+      '<div style="font-size:10px;font-weight:700;color:'+desvioCor+'">'+desvioStr+'</div>'+
       '<div style="height:4px;background:var(--bg3);border-radius:2px;margin-top:8px;overflow:hidden">'+
-        '<div style="height:4px;width:'+Math.min(pct,100)+'%;background:'+c.cor+';border-radius:2px;transition:width .4s ease"></div>'+
+        '<div style="height:4px;width:'+Math.min(d.pct,100)+'%;background:'+cor+';border-radius:2px;transition:width .4s ease"></div>'+
       '</div>'+
     '</div>';
   }).join('');
