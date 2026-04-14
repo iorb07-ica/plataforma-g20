@@ -2722,52 +2722,92 @@ function toggleEvoClasse(key){
 }
 
 function renderEvolucaoChart(meses){
-  var rfLista  = loadRF();
-  var bensList = loadPat();
+  var rfLista   = loadRF();
+  var bensList  = loadPat();
   var rvAportes = loadRVAportes();
-  var hoje = new Date();
+  var hoje      = new Date();
 
-  // Gera lista de meses
+  // Gera lista de meses (meses+1 pontos: do passado até hoje)
   var mesLabels = [];
   for(var i=meses; i>=0; i--){
     var d = new Date(hoje.getFullYear(), hoje.getMonth()-i, 1);
     mesLabels.push(d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1));
   }
 
-  // Tickers únicos de RV
+  // Mês atual para comparação
+  var mesAtualStr = hoje.getFullYear()+'-'+(hoje.getMonth()<9?'0':'')+(hoje.getMonth()+1);
+
+  // Tickers únicos de RV — só busca histórico dos que têm aporte
   var posMap = {};
   rvAportes.sort(function(a,b){ return a.data.localeCompare(b.data); }).forEach(function(a){
     if(!posMap[a.ticker]) posMap[a.ticker]={ticker:a.ticker,tipo:a.tipo||'Acao'};
   });
-  var tickers = Object.values(posMap);
-  var symbols = tickers.map(function(p){ return _evoTickerSymbol(p.ticker,p.tipo); });
+  var tickers       = Object.values(posMap);
+  var symbols       = tickers.map(function(p){ return _evoTickerSymbol(p.ticker,p.tipo); });
   var uniqueSymbols = symbols.filter(function(s,i){ return symbols.indexOf(s)===i; });
 
-  var fromMes = mesLabels[0];
+  var fromMes   = mesLabels[0];
+  var agora     = Date.now();
+  var TTL_MS    = 30 * 60 * 1000; // 30 min
 
-  // Invalida cache se o período mudou (fromMes ficou mais antigo que o cache anterior)
+  // Invalida cache se período expandiu
   if(_histEvoCache.__fromMes && _histEvoCache.__fromMes > fromMes){
-    // Novo período é mais longo — limpa cache para rebuscar
-    Object.keys(_histEvoCache).forEach(function(k){ if(k!=='__fromMes') delete _histEvoCache[k]; });
+    Object.keys(_histEvoCache).forEach(function(k){
+      if(k !== '__fromMes' && k !== '__ts') delete _histEvoCache[k];
+    });
   }
   _histEvoCache.__fromMes = fromMes;
 
-  var toBuscar = uniqueSymbols.filter(function(s){ return !_histEvoCache[s]; });
+  // Quais símbolos precisam ser buscados:
+  // - nunca buscados (_histEvoCache[s] === undefined)
+  // - buscados mas falhou (null) E já passou TTL para tentar de novo
+  // - buscados mas cache expirou (TTL)
+  var cacheTs   = _histEvoCache.__ts || 0;
+  var cacheVelho= (agora - cacheTs) > TTL_MS;
+
+  var toBuscar = uniqueSymbols.filter(function(s){
+    if(_histEvoCache[s] === undefined) return true;   // nunca buscado
+    if(_histEvoCache[s] === null && cacheVelho) return true; // falhou, tenta de novo
+    if(_histEvoCache[s] !== null && cacheVelho) return true; // expirou, atualiza
+    return false;
+  });
 
   var fetches = toBuscar.map(function(sym){
     return fetch(PROXY_URL_RV+'/api/history-monthly?symbol='+encodeURIComponent(sym)+'&from='+fromMes)
-      .then(function(r){ return r.ok?r.json():{prices:{}}; })
-      .then(function(d){ _histEvoCache[sym]=d.prices||{}; })
-      .catch(function(){ _histEvoCache[sym]={}; });
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d){
+        if(!d || !d.prices || Object.keys(d.prices).length === 0){
+          // API falhou ou retornou vazio — marca como null (tentará de novo após TTL)
+          // Mas SÓ sobrescreve se não tinha dados antes
+          if(!_histEvoCache[sym] || Object.keys(_histEvoCache[sym]||{}).length === 0){
+            _histEvoCache[sym] = null;
+          }
+        } else {
+          _histEvoCache[sym] = d.prices;
+        }
+      })
+      .catch(function(){
+        if(!_histEvoCache[sym] || Object.keys(_histEvoCache[sym]||{}).length === 0){
+          _histEvoCache[sym] = null;
+        }
+      });
   });
 
   Promise.all(fetches).then(function(){
-    _renderEvoComHistorico(rfLista, bensList, rvAportes, tickers, mesLabels, meses);
+    _histEvoCache.__ts = Date.now();
+    _renderEvoComHistorico(rfLista, bensList, rvAportes, tickers, mesLabels, meses, mesAtualStr);
   });
+
+  // Renderiza imediatamente com o que tem em cache (pode ser incompleto)
+  // Quando os fetches completarem, atualiza novamente
+  if(toBuscar.length === 0 || tickers.length === 0){
+    _renderEvoComHistorico(rfLista, bensList, rvAportes, tickers, mesLabels, meses, mesAtualStr);
+  }
 }
 
-function _renderEvoComHistorico(rfLista, bensList, rvAportes, tickers, mesLabels, meses){
+function _renderEvoComHistorico(rfLista, bensList, rvAportes, tickers, mesLabels, meses, mesAtualStr){
   var hoje = new Date();
+  if(!mesAtualStr) mesAtualStr = hoje.getFullYear()+'-'+(hoje.getMonth()<9?'0':'')+(hoje.getMonth()+1);
   var mn = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 
   // Calcula dados por classe por mês
@@ -2818,7 +2858,7 @@ function _renderEvoComHistorico(rfLista, bensList, rvAportes, tickers, mesLabels
     classeData['Bens'].push(bensVal);
 
     // ── RV por tipo ───────────────────────────────────────────────
-    var isMesAtual = mes === mesLabels[mesLabels.length-1];
+    var isMesAtual = mes === mesAtualStr;
     var rvPos = {};
     rvAportes.forEach(function(a){
       if(a.data.substring(0,7) > mes) return;
@@ -2853,21 +2893,25 @@ function _renderEvoComHistorico(rfLista, bensList, rvAportes, tickers, mesLabels
           ? p.qtd * (rvIsBR(p.ticker,p.tipo) ? cot.preco : cot.preco*rvUsdBRL)
           : p.totalInv; // fallback: custo
       } else {
-        var hist  = _histEvoCache[sym] || {};
-        var precoH = hist[mes];
-        // Tenta até 3 meses anteriores se não houver dado nesse mês exato
-        if(!precoH){
-          for(var bk=1; bk<=3; bk++){
-            var bd  = new Date(mes+'-01'); bd.setMonth(bd.getMonth()-bk);
-            var bk2 = bd.getFullYear()+'-'+(bd.getMonth()<9?'0':'')+(bd.getMonth()+1);
-            if(hist[bk2]){ precoH=hist[bk2]; break; }
+        // Meses passados: busca no cache
+        var cache  = _histEvoCache[sym]; // undefined = nunca buscado, null = falhou, {} ou {m:p} = resultado
+        var precoH = null;
+
+        if(cache && typeof cache === 'object'){
+          precoH = cache[mes];
+          if(!precoH){
+            for(var bk=1; bk<=3; bk++){
+              var bd  = new Date(mes+'-01'); bd.setMonth(bd.getMonth()-bk);
+              var bk2 = bd.getFullYear()+'-'+(bd.getMonth()<9?'0':'')+(bd.getMonth()+1);
+              if(cache[bk2]){ precoH=cache[bk2]; break; }
+            }
           }
         }
+
         if(precoH && precoH > 0){
           val = p.qtd * precoH * (rvIsBR(p.ticker,p.tipo) ? 1 : rvUsdBRL);
         } else {
-          // BUG FIX 5: sem histórico de preço → usa custo de aquisição como fallback
-          // Evita quedas falsas no gráfico
+          // Sem preço histórico: custo como fallback (evita linha flat a zero)
           val = p.totalInv;
         }
       }
@@ -2978,7 +3022,134 @@ function _renderEvoComHistorico(rfLista, bensList, rvAportes, tickers, mesLabels
 // ── EVOLUÇÃO CHART — CÓPIA PARA ABA GRÁFICOS ─────────────────
 var _evoMeses2 = 6;
 
-function setEvoRange2(meses, btn){
+// Renderiza a evolução no canvas chartEvolucao2 (aba Gráficos)
+// Reutiliza toda a lógica de dados de _renderEvoComHistorico
+function _renderEvoComHistorico2(rfLista, bensList, rvAportes, tickers, mesLabels, meses, mesAtualStr){
+  var hoje = new Date();
+  if(!mesAtualStr) mesAtualStr = hoje.getFullYear()+'-'+(hoje.getMonth()<9?'0':'')+(hoje.getMonth()+1);
+  var mn = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+  // ── Mesma lógica de cálculo de _renderEvoComHistorico ──
+  var classeData = {};
+  _EVO_CLASSES.forEach(function(c){ classeData[c.key]=[]; });
+
+  mesLabels.forEach(function(mes){
+    var dataRef    = mes+'-01';
+    var isMesAtual = mes === mesAtualStr;
+
+    // RF (com encerrados corrigido)
+    var rfVal = rfLista.reduce(function(s,r){
+      if(!r.dataInicio||r.dataInicio>dataRef) return s;
+      if(r.encerrado){
+        var dataEnc='';
+        if(r.resgates&&r.resgates.length){
+          var datas=r.resgates.map(function(rg){return rg.data||'';}).filter(Boolean);
+          if(datas.length) dataEnc=datas.sort().pop();
+        }
+        if(dataEnc&&dataEnc.substring(0,7)<mes) return s;
+      }
+      var dc=Math.max(0,Math.floor((new Date(dataRef)-new Date(r.dataInicio))/86400000));
+      var taxa=parseFloat(r.taxa)/100, rend=0;
+      if(r.indexador==='CDI')        rend=(getCDI()/100)*taxa;
+      else if(r.indexador==='Selic') rend=(getSelic()/100)+taxa;
+      else if(r.indexador==='IPCA')  rend=(getIPCA()/100)+taxa;
+      else if(r.indexador==='IGPM')  rend=(getIGPM()/100)+taxa;
+      else if(r.indexador==='Prefixado') rend=taxa;
+      var du=diasUteisEstimados(dc);
+      var f=(r.indexador==='CDI'||r.indexador==='Selic')?Math.pow(1+rend,du/252):Math.pow(1+rend,dc/365);
+      return s+(r._invOriginal||r.valorInv||0)*f;
+    },0);
+    classeData['RF'].push(rfVal);
+
+    // Bens
+    var bensVal=bensList.reduce(function(s,b){
+      if(b.dataAq&&b.dataAq>dataRef) return s;
+      return s+Math.max(0,calcBemValorAtual(b)-(b.divida||0));
+    },0);
+    classeData['Bens'].push(bensVal);
+
+    // RV
+    var rvPos={};
+    rvAportes.forEach(function(a){
+      if(a.data.substring(0,7)>mes) return;
+      if(!rvPos[a.ticker]) rvPos[a.ticker]={ticker:a.ticker,tipo:a.tipo||'Acao',qtd:0,totalInv:0};
+      var p=rvPos[a.ticker];
+      var preco=a.moeda==='USD'?a.preco*(a.fxRate||rvUsdBRL):a.preco;
+      if(a.op==='C'||!a.op){p.totalInv+=a.qtd*preco;p.qtd+=a.qtd;}
+      else{var pm=p.qtd>0?p.totalInv/p.qtd:0;p.totalInv-=a.qtd*pm;p.qtd-=a.qtd;if(p.qtd<0.001){p.qtd=0;p.totalInv=0;}}
+    });
+
+    var byTipo={};
+    _EVO_CLASSES.forEach(function(c){if(c.key!=='RF'&&c.key!=='Bens')byTipo[c.key]=0;});
+    Object.values(rvPos).forEach(function(p){
+      if(p.qtd<=0.001) return;
+      var sym=_evoTickerSymbol(p.ticker,p.tipo);
+      var val=null;
+      if(isMesAtual){
+        var cot=rvCotacoes[p.ticker];
+        val=cot?p.qtd*(rvIsBR(p.ticker,p.tipo)?cot.preco:cot.preco*rvUsdBRL):p.totalInv;
+      } else {
+        var cache=_histEvoCache[sym];
+        var precoH=null;
+        if(cache&&typeof cache==='object'){
+          precoH=cache[mes];
+          if(!precoH){for(var bk=1;bk<=3;bk++){var bd=new Date(mes+'-01');bd.setMonth(bd.getMonth()-bk);var bk2=bd.getFullYear()+'-'+(bd.getMonth()<9?'0':'')+(bd.getMonth()+1);if(cache[bk2]){precoH=cache[bk2];break;}}}
+        }
+        val=(precoH&&precoH>0)?p.qtd*precoH*(rvIsBR(p.ticker,p.tipo)?1:rvUsdBRL):p.totalInv;
+      }
+      var chave=p.tipo||'Acao';
+      if(chave==='FIAGRO')chave='FII';
+      if(!byTipo.hasOwnProperty(chave))chave='Acao';
+      byTipo[chave]=(byTipo[chave]||0)+(val||0);
+    });
+    Object.keys(byTipo).forEach(function(k){classeData[k].push(byTipo[k]);});
+  });
+
+  var classesAtivas=_EVO_CLASSES.filter(function(c){
+    return classeData[c.key]&&classeData[c.key].some(function(v){return v>0;});
+  });
+  _renderEvoLegenda2(classesAtivas);
+
+  destroyChart('chartEvolucao2');
+  var ctx=document.getElementById('chartEvolucao2');
+  if(!ctx) return;
+  var c2d=ctx.getContext('2d');
+
+  function makeGrad2(alpha){
+    var g=c2d.createLinearGradient(0,0,0,280);
+    g.addColorStop(0,alpha+'0.5)');g.addColorStop(1,alpha+'0.02)');return g;
+  }
+
+  var datasets=classesAtivas.filter(function(c){return _evoClassesVisiveis[c.key];}).map(function(c){
+    return {label:c.label,data:classeData[c.key],borderColor:c.border,backgroundColor:makeGrad2(c.alpha),borderWidth:1.5,fill:true,tension:0.35,pointRadius:0,pointHoverRadius:5,pointHoverBackgroundColor:'#fff',pointHoverBorderColor:c.border,pointHoverBorderWidth:2};
+  });
+
+  _charts['chartEvolucao2']=new Chart(c2d,{
+    type:'line',
+    data:{labels:mesLabels,datasets:datasets},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      animation:{duration:500,easing:'easeOutQuart'},
+      plugins:{
+        legend:{display:false},
+        tooltip:{mode:'index',intersect:false,backgroundColor:'rgba(9,11,15,0.95)',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:14,titleFont:{size:12,weight:'700'},bodyFont:{size:12},
+          callbacks:{
+            title:function(items){var p=items[0].label.split('-');return mn[parseInt(p[1])-1]+'/'+p[0];},
+            label:function(c){return '  '+c.dataset.label+':  '+fmtBRL(c.raw);},
+            footer:function(items){var t=items.reduce(function(s,i){return s+(i.raw||0);},0);return '  Total: '+fmtBRL(t);}
+          }
+        }
+      },
+      scales:{
+        x:{stacked:true,grid:{color:_gGridColor(),drawBorder:false},border:{display:false},ticks:{maxTicksLimit:10,color:_gTextColor(),font:{size:11},callback:function(val,i){var l=this.getLabelForValue(val);if(!l)return '';var p=l.split('-');return mn[parseInt(p[1])-1]+'/'+p[0].substring(2);}}},
+        y:{stacked:true,grid:{color:_gGridColor(),drawBorder:false},border:{display:false},ticks:{color:_gTextColor(),font:{size:11},callback:function(v){if(v>=1000000)return 'R$'+(v/1000000).toFixed(1)+'M';if(v>=1000)return 'R$'+(v/1000).toFixed(0)+'k';return 'R$'+v;}}}
+      }
+    }
+  });
+}
+
+
   _evoMeses2 = meses;
   document.querySelectorAll('#evoBtn6m2,#evoBtn1a2,#evoBtn2a2,#evoBtn5a2,#evoBtn10a2').forEach(function(b){ b.classList.remove('active'); });
   if(btn) btn.classList.add('active');
@@ -3002,98 +3173,65 @@ function _toggleEvoClasse2(key, btn){
 }
 
 function renderEvolucaoChart2(meses){
-  // Reutiliza toda a lógica de dados de renderEvolucaoChart
+  // Reutiliza o mesmo cache e lógica de renderEvolucaoChart
   // mas renderiza no canvas chartEvolucao2
-  var rfLista=loadRF(); var bensList=loadPat();
-  var rfAtivos=rfLista.filter(function(r){return !r.encerrado;});
-  var rvAportes=loadData('rvAportes')||[];
-  var hoje=new Date(); var mesLabels=[];
-  for(var i=meses-1;i>=0;i--){
-    var d=new Date(hoje.getFullYear(),hoje.getMonth()-i,1);
+  var rfLista   = loadRF();
+  var bensList  = loadPat();
+  var rvAportes = loadRVAportes();
+  var hoje      = new Date();
+  var mesAtualStr = hoje.getFullYear()+'-'+(hoje.getMonth()<9?'0':'')+(hoje.getMonth()+1);
+
+  var mesLabels = [];
+  for(var i=meses-1; i>=0; i--){
+    var d=new Date(hoje.getFullYear(), hoje.getMonth()-i, 1);
     mesLabels.push(d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1));
   }
-  var mn=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-  var mesAtual=hoje.getFullYear()+'-'+(hoje.getMonth()<9?'0':'')+(hoje.getMonth()+1);
-  var classeData={};
-  _EVO_CLASSES.forEach(function(c){ classeData[c.key]=[]; });
 
-  mesLabels.forEach(function(mes){
-    var isMesAtual=(mes===mesAtual);
-    // RF
-    var rfVal=rfAtivos.reduce(function(s,r){
-      if(!r.dataInicio||r.dataInicio.substring(0,7)>mes) return s;
-      var dataEnc='';
-      if(r.encerrado&&r.resgates&&r.resgates.length) dataEnc=r.resgates[r.resgates.length-1].data||'';
-      if(dataEnc&&dataEnc.substring(0,7)<mes) return s;
-      var dias=Math.max(0,Math.floor((new Date(mes+'-15')-new Date(r.dataInicio))/86400000));
-      var taxa=parseFloat(r.taxa)/100; var rendAnual=0;
-      if(r.indexador==='CDI') rendAnual=(getCDI()/100)*taxa;
-      else if(r.indexador==='Selic') rendAnual=(getSelic()/100)+taxa;
-      else if(r.indexador==='IPCA') rendAnual=(getIPCA()/100)+taxa;
-      else if(r.indexador==='IGPM') rendAnual=(getIGPM()/100)+taxa;
-      else if(r.indexador==='Prefixado') rendAnual=taxa;
-      var fator=(['CDI','Selic'].indexOf(r.indexador)>=0)?Math.pow(1+rendAnual,diasUteisEstimados(dias)/252):Math.pow(1+rendAnual,dias/365);
-      return s+(r._invOriginal||r.valorInv||0)*fator;
-    },0);
-    classeData['RF'].push(rfVal);
-    // Bens
-    var bensVal=bensList.reduce(function(s,b){
-      if(b.dataAq&&b.dataAq.substring(0,7)>mes) return s;
-      return s+calcBemValorAtual(b)-(b.divida||0);
-    },0);
-    classeData['Bens'].push(bensVal);
-    // RV
-    var rvPos={};
-    rvAportes.forEach(function(a){
-      if(a.data.substring(0,7)>mes) return;
-      if(!rvPos[a.ticker]) rvPos[a.ticker]={ticker:a.ticker,tipo:a.tipo||'Acao',qtd:0,totalInv:0};
-      var p=rvPos[a.ticker];
-      var preco=a.moeda==='USD'?a.preco*(a.fxRate||rvUsdBRL):a.preco;
-      if(a.op==='C'){p.qtd+=a.qtd;p.totalInv+=a.qtd*preco;}
-      else{var pm=p.qtd>0?p.totalInv/p.qtd:0;p.totalInv-=a.qtd*pm;p.qtd-=a.qtd;}
-    });
-    var byTipo={};
-    _EVO_CLASSES.forEach(function(c){ if(c.key!=='RF'&&c.key!=='Bens') byTipo[c.key]=0; });
-    Object.values(rvPos).forEach(function(p){
-      if(p.qtd<=0.001) return;
-      var sym=_evoTickerSymbol(p.ticker,p.tipo);
-      var val=null;
-      if(isMesAtual){ var cot=rvCotacoes[p.ticker]; val=cot?p.qtd*(rvIsBR(p.ticker,p.tipo)?cot.preco:cot.preco*rvUsdBRL):p.totalInv; }
-      else{ var hist=_histEvoCache[sym]||{}; var preco2=hist[mes]; if(!preco2){for(var bk=1;bk<=3;bk++){var bd=new Date(mes+'-01');bd.setMonth(bd.getMonth()-bk);var bk2=bd.getFullYear()+'-'+(bd.getMonth()<9?'0':'')+(bd.getMonth()+1);if(hist[bk2]){preco2=hist[bk2];break;}}} val=(preco2&&preco2>0)?p.qtd*preco2*(rvIsBR(p.ticker,p.tipo)?1:rvUsdBRL):p.totalInv; }
-      var chave=p.tipo||'Acao'; if(chave==='FIAGRO') chave='FII'; if(!byTipo.hasOwnProperty(chave)) chave='Acao';
-      byTipo[chave]=(byTipo[chave]||0)+(val||0);
-    });
-    Object.keys(byTipo).forEach(function(k){ classeData[k].push(byTipo[k]); });
+  // Tickers únicos
+  var posMap={};
+  rvAportes.sort(function(a,b){return a.data.localeCompare(b.data);}).forEach(function(a){
+    if(!posMap[a.ticker]) posMap[a.ticker]={ticker:a.ticker,tipo:a.tipo||'Acao'};
   });
+  var tickers=Object.values(posMap);
+  var symbols=tickers.map(function(p){return _evoTickerSymbol(p.ticker,p.tipo);});
+  var uniqueSymbols=symbols.filter(function(s,i){return symbols.indexOf(s)===i;});
 
-  var classesAtivas=_EVO_CLASSES.filter(function(c){ return classeData[c.key]&&classeData[c.key].some(function(v){return v>0;}); });
-  _renderEvoLegenda2(classesAtivas);
-
-  destroyChart('chartEvolucao2');
-  var ctx=document.getElementById('chartEvolucao2');
-  if(!ctx) return;
-  var c2d=ctx.getContext('2d');
-
-  function makeGrad2(alpha){
-    var g=c2d.createLinearGradient(0,0,0,280);
-    g.addColorStop(0,alpha+'0.5)'); g.addColorStop(1,alpha+'0.02)'); return g;
+  var fromMes=mesLabels[0];
+  var agora=Date.now();
+  var TTL_MS=30*60*1000;
+  if(_histEvoCache.__fromMes && _histEvoCache.__fromMes>fromMes){
+    Object.keys(_histEvoCache).forEach(function(k){if(k!=='__fromMes'&&k!=='__ts')delete _histEvoCache[k];});
   }
-
-  var datasets=classesAtivas.filter(function(c){return _evoClassesVisiveis[c.key];}).map(function(c){
-    return {label:c.label,data:classeData[c.key],borderColor:c.border,backgroundColor:makeGrad2(c.alpha),borderWidth:1.5,fill:true,tension:0.35,pointRadius:0,pointHoverRadius:5,pointHoverBackgroundColor:'#fff',pointHoverBorderColor:c.border,pointHoverBorderWidth:2};
+  _histEvoCache.__fromMes=fromMes;
+  var cacheTs=_histEvoCache.__ts||0;
+  var cacheVelho=(agora-cacheTs)>TTL_MS;
+  var toBuscar=uniqueSymbols.filter(function(s){
+    if(_histEvoCache[s]===undefined) return true;
+    if(_histEvoCache[s]===null&&cacheVelho) return true;
+    if(_histEvoCache[s]!==null&&cacheVelho) return true;
+    return false;
   });
 
-  _charts['chartEvolucao2']=new Chart(c2d,{
-    type:'line',
-    data:{labels:mesLabels,datasets:datasets},
-    options:{
-      responsive:true,maintainAspectRatio:false,
-      interaction:{mode:'index',intersect:false},
-      animation:{duration:500,easing:'easeOutQuart'},
-      plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false,backgroundColor:'rgba(9,11,15,0.95)',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:14,titleFont:{size:12,weight:'700'},bodyFont:{size:12},callbacks:{title:function(items){var p=items[0].label.split('-');return mn[parseInt(p[1])-1]+'/'+p[0];},label:function(c){return '  '+c.dataset.label+':  '+fmtBRL(c.raw);},footer:function(items){var t=items.reduce(function(s,i){return s+(i.raw||0);},0);return '  Total: '+fmtBRL(t);}}}},
-      scales:{x:{stacked:true,grid:{color:_gGridColor(),drawBorder:false},border:{display:false},ticks:{maxTicksLimit:10,color:_gTextColor(),font:{size:11},callback:function(val,i){var l=this.getLabelForValue(val);if(!l)return '';var p=l.split('-');return mn[parseInt(p[1])-1]+'/'+p[0].substring(2);}}},y:{stacked:true,grid:{color:_gGridColor(),drawBorder:false},border:{display:false},ticks:{color:_gTextColor(),font:{size:11},callback:function(v){if(v>=1000000)return 'R$'+(v/1000000).toFixed(1)+'M';if(v>=1000)return 'R$'+(v/1000).toFixed(0)+'k';return 'R$'+v;}}}}
-    }
+  var fetches=toBuscar.map(function(sym){
+    return fetch(PROXY_URL_RV+'/api/history-monthly?symbol='+encodeURIComponent(sym)+'&from='+fromMes)
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(d){
+        if(!d||!d.prices||Object.keys(d.prices).length===0){
+          if(!_histEvoCache[sym]||Object.keys(_histEvoCache[sym]||{}).length===0) _histEvoCache[sym]=null;
+        } else { _histEvoCache[sym]=d.prices; }
+      })
+      .catch(function(){
+        if(!_histEvoCache[sym]||Object.keys(_histEvoCache[sym]||{}).length===0) _histEvoCache[sym]=null;
+      });
   });
+
+  Promise.all(fetches).then(function(){
+    _histEvoCache.__ts=Date.now();
+    _renderEvoComHistorico2(rfLista,bensList,rvAportes,tickers,mesLabels,meses,mesAtualStr);
+  });
+  if(toBuscar.length===0||tickers.length===0){
+    _renderEvoComHistorico2(rfLista,bensList,rvAportes,tickers,mesLabels,meses,mesAtualStr);
+  }
 }
 
 // ── BENCHMARK ─────────────────────────────────────────────────
