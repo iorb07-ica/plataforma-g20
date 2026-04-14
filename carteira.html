@@ -1873,8 +1873,8 @@ th.col-filtered { color:var(--gold) !important; }
           <div style="font-size:11px;color:var(--text3);margin-top:2px">Distribui automaticamente para reequilibrar a carteira</div>
         </div>
         <div class="reb-aporte-input">
-          <input type="number" id="rebAporteVal" placeholder="R$ 0,00" min="0" step="100"
-            oninput="calcularRebalanceamento()" style="font-family:inherit">
+          <input type="text" inputmode="numeric" id="rebAporteVal" placeholder="R$ 0,00"
+            oninput="fmtRebAporte(this)" style="font-family:inherit;text-align:right;font-weight:700">
           <select id="rebMoeda" onchange="calcularRebalanceamento()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:9px;font-size:13px;font-family:inherit">
             <option value="BRL">R$ Real</option>
             <option value="USD">$ Dólar</option>
@@ -3380,7 +3380,7 @@ function getProventosAtivo(ticker){
 
 function totalProventosAtivo(ticker, tipo){
   return getProventosAtivo(ticker).reduce(function(s,d){
-    var val = d.valor * (d.qtdEx||0);
+    var val = (d.valor||0) * (d.qtdEx||0);
     if(!isBR(ticker,tipo)) val *= usdBRL;
     return s + val;
   },0);
@@ -3423,7 +3423,7 @@ function renderPosicoes(){
   var search = (document.getElementById('searchTicker').value||'').toUpperCase();
   var divs = loadData('dividendos',[]);
   var divRec = divs.filter(function(d){return d.data<new Date().toISOString().split('T')[0];})
-                   .reduce(function(s,d){return s+(d.valor*(d.qtdEx||0));},0);
+                   .reduce(function(s,d){return s+((d.valor||0)*(d.qtdEx||0));},0);
 
   if(filtroAtivo!=='todos') pos=pos.filter(function(p){return p.tipo===filtroAtivo;});
   if(search) pos=pos.filter(function(p){return p.ticker.includes(search);});
@@ -3865,7 +3865,7 @@ function renderDrawerProv(){
     : function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
 
   var totalProv = divs.filter(function(d){ return d.data < new Date().toISOString().split('T')[0]; })
-    .reduce(function(s,d){ return s+d.valor*(d.qtdEx||0); },0);
+    .reduce(function(s,d){ return s+(d.valor||0)*(d.qtdEx||0); },0);
 
   var summaryHtml = divs.length ? '<div class="dtx-summary" style="margin-bottom:14px">'+
     '<div class="dtx-sum-card"><div class="lbl">Total Recebido</div><div class="val" style="color:var(--green)">'+fmt(totalProv)+'</div></div>'+
@@ -3874,14 +3874,14 @@ function renderDrawerProv(){
 
   var rowsHtml = divs.length
     ? divs.map(function(d){
-        var total = d.valor*(d.qtdEx||0);
+        var total = (d.valor||0)*(d.qtdEx||0);
         var isPast = d.data < new Date().toISOString().split('T')[0];
         var autoTag = d.fonte&&d.fonte.indexOf('Auto')>=0
           ? '<span style="font-size:9px;background:rgba(46,204,113,.15);color:var(--green);padding:1px 5px;border-radius:3px;margin-left:4px">Auto</span>':'' ;
         return '<div class="prov-row">'+
           '<div>'+
             '<div class="prov-tipo">'+d.tipo+autoTag+'</div>'+
-            '<div style="font-size:10px;color:var(--text3);margin-top:2px">'+fmt2(d.valor)+'/cota · '+( d.qtdEx||0)+(['FII','FIAGRO'].indexOf(_drawerTipo)>=0?' cotas':' ações')+'</div>'+
+            '<div style="font-size:10px;color:var(--text3);margin-top:2px">'+fmt2((d.valor||0))+'/cota · '+( d.qtdEx||0)+(['FII','FIAGRO'].indexOf(_drawerTipo)>=0?' cotas':' ações')+'</div>'+
           '</div>'+
           '<div class="prov-date">'+fmtDate(d.data)+(d.datex&&d.datex!==d.data?'<br><span style="font-size:10px">EX: '+fmtDate(d.datex)+'</span>':'')+'</div>'+
           '<div>'+
@@ -3927,12 +3927,6 @@ function destroyChart(id){
   if(chartsInstances[id]){ try{ chartsInstances[id].destroy(); }catch(e){} delete chartsInstances[id]; }
 }
 
-function setGrfPeriodo(p, btn){
-  grfPeriodo = p;
-  document.querySelectorAll('.g-tab-chart').forEach(function(b){ b.classList.remove('on'); });
-  if(btn) btn.classList.add('on');
-  renderChartEvolucao();
-}
 
 // ── helpers visuais ──────────────────────────────────────────
 function gGridColor(){ return document.body.classList.contains('light')?'rgba(0,0,0,0.05)':'rgba(255,255,255,0.04)'; }
@@ -4427,7 +4421,7 @@ function renderChartProv(){
   var byMonth = {};
   divs.forEach(function(d){
     var m=d.data.substring(0,7);
-    byMonth[m]=(byMonth[m]||0)+d.valor*(d.qtdEx||0);
+    byMonth[m]=(byMonth[m]||0)+(d.valor||0)*(d.qtdEx||0);
   });
   var months = Object.keys(byMonth).sort().slice(-18);
   if(!months.length) return;
@@ -6027,13 +6021,6 @@ function renderAportes(){
   }).join('');
 }
 
-function limparFiltrosAportes(){
-  ['filtroAporteTipo','filtroAportePeriodo','filtroAporteOp','filtroAporteTicker','searchAporte'].forEach(function(id){
-    var el = document.getElementById(id);
-    if(el) el.value = '';
-  });
-  renderAportes();
-}
 
 // ★ PATCH: editarAporte — onTipoChange sincroniza moeda ao editar
 function editarAporte(id){
@@ -6612,13 +6599,13 @@ function renderCalendarioDividendos(){
   // Mapeia dividendos por data (YYYY-MM-DD)
   var byDate = {};
   divs.forEach(function(d){
-    if(!d.data || !d.valor) return;
-    var total = d.valor * (d.qtdEx || 0);
+    if(!d.data || !(d.valor||0)) return;
+    var total = (d.valor||0) * (d.qtdEx || 0);
     if(total <= 0) return;
     var isUS = d.moeda === 'USD' || ['Stock','REIT','ETF','UCITs'].indexOf(tipoMap[d.ticker]) >= 0;
     var item = {
       ticker: d.ticker, tipo: tipoMap[d.ticker] || 'Acao',
-      total: total, valor: d.valor, qtd: d.qtdEx || 0,
+      total: total, valor: (d.valor||0), qtd: d.qtdEx || 0,
       data: d.data, future: d.data > hoje, isUS: isUS
     };
     if(!byDate[d.data]) byDate[d.data] = [];
@@ -6630,8 +6617,8 @@ function renderCalendarioDividendos(){
   var totalAnual = 0, totalMensal = 0, mesesComDiv = 0;
   var contMeses = {};
   divs.forEach(function(d){
-    if(!d.data || !d.valor) return;
-    var total = d.valor*(d.qtdEx||0);
+    if(!d.data || !(d.valor||0)) return;
+    var total = (d.valor||0)*(d.qtdEx||0);
     if(total <= 0) return;
     if(d.data <= hoje){ // só recebidos para médias
       var yr = parseInt(d.data.substring(0,4));
@@ -6795,27 +6782,27 @@ function renderDividendos(){
   if(busca)    divs = divs.filter(function(d){ return d.ticker.toUpperCase().includes(busca); });
 
   var hoje = new Date().toISOString().split('T')[0];
-  var fmt  = function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
-  var fmtK = function(v){ return v >= 1000 ? 'R$ '+(v/1000).toFixed(1)+'k' : fmt(v); };
+  var fmt  = function(v){ var n=isNaN(v)?0:(v||0); return 'R$ '+n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  var fmtK = function(v){ var n=isNaN(v)?0:(v||0); return n >= 1000 ? 'R$ '+(n/1000).toFixed(1)+'k' : fmt(n); };
 
   var recebidos = divs.filter(function(d){ return d.data < hoje; });
   var futuros   = divs.filter(function(d){ return d.data >= hoje; });
 
   // ── KPIs ────────────────────────────────────────────────────
-  var totalRec   = recebidos.reduce(function(s,d){ return s+d.valor*(d.qtdEx||0); }, 0);
-  var totalFut   = futuros.reduce(function(s,d){ return s+d.valor*(d.qtdEx||0); }, 0);
+  var totalRec   = recebidos.reduce(function(s,d){ return s+(d.valor||0)*(d.qtdEx||0); }, 0);
+  var totalFut   = futuros.reduce(function(s,d){ return s+(d.valor||0)*(d.qtdEx||0); }, 0);
   var anoAtual   = new Date().getFullYear();
   var mesAtual   = new Date().getMonth()+1;
-  var recAno     = recebidos.filter(function(d){ return d.data.startsWith(anoAtual+''); }).reduce(function(s,d){ return s+d.valor*(d.qtdEx||0); },0);
+  var recAno     = recebidos.filter(function(d){ return d.data.startsWith(anoAtual+''); }).reduce(function(s,d){ return s+(d.valor||0)*(d.qtdEx||0); },0);
   var recMes     = recebidos.filter(function(d){
     var p = d.data.split('-'); return parseInt(p[0])===anoAtual && parseInt(p[1])===mesAtual;
-  }).reduce(function(s,d){ return s+d.valor*(d.qtdEx||0); },0);
+  }).reduce(function(s,d){ return s+(d.valor||0)*(d.qtdEx||0); },0);
 
   // Média mensal (últimos 12 meses com dados)
   var mesesComDados = {};
   recebidos.forEach(function(d){
     var k = d.data.substring(0,7);
-    mesesComDados[k] = (mesesComDados[k]||0) + d.valor*(d.qtdEx||0);
+    mesesComDados[k] = (mesesComDados[k]||0) + (d.valor||0)*(d.qtdEx||0);
   });
   var mediaKeys = Object.keys(mesesComDados).sort().slice(-12);
   var mediaMensal = mediaKeys.length ? mediaKeys.reduce(function(s,k){ return s+mesesComDados[k]; },0)/mediaKeys.length : 0;
@@ -6853,7 +6840,7 @@ function renderDividendos(){
   var valPorMes = {};
   divs.forEach(function(d){
     var k = d.data.substring(0,7);
-    valPorMes[k] = (valPorMes[k]||0) + d.valor*(d.qtdEx||0);
+    valPorMes[k] = (valPorMes[k]||0) + (d.valor||0)*(d.qtdEx||0);
   });
 
   var maxBar = Math.max(1, ...meses.map(function(m){ return valPorMes[m.key]||0; }));
@@ -6881,7 +6868,7 @@ function renderDividendos(){
   // ── BREAKDOWN POR ATIVO ─────────────────────────────────────
   var porTicker = {};
   recebidos.forEach(function(d){
-    porTicker[d.ticker] = (porTicker[d.ticker]||0) + d.valor*(d.qtdEx||0);
+    porTicker[d.ticker] = (porTicker[d.ticker]||0) + (d.valor||0)*(d.qtdEx||0);
   });
   var tickersSorted = Object.keys(porTicker).sort(function(a,b){ return porTicker[b]-porTicker[a]; });
   var maxTicker = Math.max(1, ...Object.values(porTicker));
@@ -6919,7 +6906,7 @@ function renderDividendos(){
   var hmPorMes = {};
   hmDivs.forEach(function(d){
     var m = parseInt(d.data.split('-')[1]);
-    hmPorMes[m] = (hmPorMes[m]||0) + d.valor*(d.qtdEx||0);
+    hmPorMes[m] = (hmPorMes[m]||0) + (d.valor||0)*(d.qtdEx||0);
   });
   var maxHm = Math.max(1, ...Object.values(hmPorMes));
   var mLabels = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
@@ -6941,7 +6928,7 @@ function renderDividendos(){
   var porAno = {};
   recebidos.forEach(function(d){
     var a = d.data.substring(0,4);
-    porAno[a] = (porAno[a]||0) + d.valor*(d.qtdEx||0);
+    porAno[a] = (porAno[a]||0) + (d.valor||0)*(d.qtdEx||0);
   });
   var anosOrdenados = Object.keys(porAno).sort();
   var maxAno = Math.max(1, ...Object.values(porAno));
@@ -6971,13 +6958,13 @@ function renderDividendos(){
     if(futuros.length){
       fEl.innerHTML='<div class="prov-card-title">📅 A Receber <span style="color:var(--gold);font-size:12px">'+fmt(totalFut)+'</span></div>'+
       futuros.sort(function(a,b){ return a.data.localeCompare(b.data); }).slice(0,8).map(function(d){
-        var total = d.valor*(d.qtdEx||0);
+        var total = (d.valor||0)*(d.qtdEx||0);
         var isAprv = d.datex && d.datex < hoje;
         return '<div class="prov-list-item prov-list-future">'+
           '<div class="prov-list-ticker">'+d.ticker+'</div>'+
           '<div class="prov-list-tipo">'+d.tipo+'</div>'+
           '<div class="prov-list-info">'+
-            (d.datex?'Ex: '+fmtDate(d.datex)+' · ':'')+'R$ '+d.valor.toFixed(4)+'/cota'+
+            (d.datex?'Ex: '+fmtDate(d.datex)+' · ':'')+'R$ '+(d.valor||0).toFixed(4)+'/cota'+
           '</div>'+
           '<div>'+
             '<div class="prov-list-val" style="color:'+(isAprv?'var(--green)':'var(--gold)')+'">'+fmt(total)+'</div>'+
@@ -6998,11 +6985,11 @@ function renderDividendos(){
     var recentes = recebidos.sort(function(a,b){ return b.data.localeCompare(a.data); }).slice(0,8);
     rEl.innerHTML = '<div class="prov-card-title">✅ Recebidos <span style="color:var(--green);font-size:12px">'+fmt(totalRec)+'</span></div>'+
     (recentes.length ? recentes.map(function(d){
-      var total = d.valor*(d.qtdEx||0);
+      var total = (d.valor||0)*(d.qtdEx||0);
       return '<div class="prov-list-item">'+
         '<div class="prov-list-ticker">'+d.ticker+'</div>'+
         '<div class="prov-list-tipo">'+d.tipo+'</div>'+
-        '<div class="prov-list-info">R$ '+d.valor.toFixed(4)+'/cota · '+(d.qtdEx||0)+' cotas</div>'+
+        '<div class="prov-list-info">R$ '+(d.valor||0).toFixed(4)+'/cota · '+(d.qtdEx||0)+' cotas</div>'+
         '<div>'+
           '<div class="prov-list-val">'+fmt(total)+'</div>'+
           '<div class="prov-list-date">'+fmtDate(d.data)+'</div>'+
@@ -7117,6 +7104,14 @@ function showTab(t){
 // ============================================================
 // REBALANCEAMENTO
 // ============================================================
+function fmtRebAporte(input){
+  var raw = input.value.replace(/\D/g,'');
+  if(!raw){ input.value=''; calcularRebalanceamento(); return; }
+  var num = parseInt(raw,10)/100;
+  input.value = num.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  calcularRebalanceamento();
+}
+
 function calcularRebalanceamento(){
   var pos      = calcPosicoes();
   var meta     = getMeta ? getMeta() : loadData('carteiraMeta',{Acao:45,FII:15,FIAGRO:0,Stock:15,REIT:5,ETF:10,Cripto:10});
@@ -7222,7 +7217,7 @@ function calcularRebalanceamento(){
   }
 
   // 7. Aporte simulado
-  var aporteRaw  = parseFloat(document.getElementById('rebAporteVal').value)||0;
+  var aporteRaw  = parseFloat((document.getElementById('rebAporteVal').value||'').replace(/\./g,'').replace(',','.'))||0;
   var moedaAporte= document.getElementById('rebMoeda').value;
   var aporteBRL  = moedaAporte==='USD' ? aporteRaw*usdBRL : aporteRaw;
 
