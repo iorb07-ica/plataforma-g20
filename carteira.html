@@ -4271,22 +4271,58 @@ function _renderChartEvolucaoComHistorico(aportes, meses, posAtual, histCache){
   if(!canvasEl) return;
   var ctx2 = canvasEl.getContext('2d');
 
-  var chartDatasets = dsAtivos.map(function(t){
-    var baseColor = COLORS_TIPO[t]||'#888';
-    var alpha = COLORS_TIPO_ALPHA[t]||'rgba(100,100,100,';
+  var SOLID_C = {
+    Acao:  {r:56, g:139,b:255}, FII:  {r:16, g:230,b:140},
+    FIAGRO:{r:250,g:175,b:30 }, Stock:{r:168,g:85, b:247},
+    REIT:  {r:239,g:68, b:68 }, ETF:  {r:249,g:115,b:22 },
+    Cripto:{r:247,g:179,b:26 }, UCITs:{r:0,  g:210,b:230}
+  };
+  var BORDER_C = {
+    Acao:'#388bff', FII:'#10e68c', FIAGRO:'#faaf1e',
+    Stock:'#a855f7', REIT:'#ef4444', ETF:'#f97316',
+    Cripto:'#f7b31a', UCITs:'#00d2e6'
+  };
+
+  // Datasets com backgroundColor placeholder — o plugin substitui após layout
+  var chartDatasets = dsAtivos.map(function(t, i){
+    var c = SOLID_C[t]||{r:120,g:120,b:120};
     return {
-      label:t, data:datasets[t],
-      backgroundColor: alpha+'0.75)',
-      borderColor: baseColor,
-      borderWidth:1.5,
-      fill:true,
-      stack:'patrimonio',
-      tension:0.35,
-      pointRadius:0, pointHoverRadius:5,
-      pointHoverBackgroundColor:'#fff',
-      pointHoverBorderColor:baseColor, pointHoverBorderWidth:2
+      _tipo: t,
+      label: t,
+      data: datasets[t],
+      backgroundColor: 'rgba('+c.r+','+c.g+','+c.b+',0.5)', // placeholder
+      borderColor: BORDER_C[t]||COLORS_TIPO[t],
+      borderWidth: 1.5,
+      fill: true,          // Chart.js v4: fill:true com stack empilha corretamente
+      stack: 'patrimonio',
+      tension: 0.4,
+      pointRadius: 0,
+      pointHoverRadius: 6,
+      pointHoverBackgroundColor: '#fff',
+      pointHoverBorderColor: BORDER_C[t]||COLORS_TIPO[t],
+      pointHoverBorderWidth: 2,
+      order: dsAtivos.length - i  // ordem inversa: primeiro tipo na base
     };
   });
+
+  // Plugin: recria gradientes após Chart.js calcular yScale.top/bottom reais
+  var gradientPlugin = {
+    id: 'stackedGradient',
+    afterLayout: function(chart){
+      var yS = chart.scales.y;
+      if(!yS) return;
+      var top = yS.top, bottom = yS.bottom;
+      chart.data.datasets.forEach(function(ds){
+        var c = SOLID_C[ds._tipo]||{r:120,g:120,b:120};
+        var g = chart.ctx.createLinearGradient(0, top, 0, bottom);
+        g.addColorStop(0,    'rgba('+c.r+','+c.g+','+c.b+',0.85)');
+        g.addColorStop(0.40, 'rgba('+c.r+','+c.g+','+c.b+',0.60)');
+        g.addColorStop(0.75, 'rgba('+c.r+','+c.g+','+c.b+',0.35)');
+        g.addColorStop(1,    'rgba('+c.r+','+c.g+','+c.b+',0.08)');
+        ds.backgroundColor = g;
+      });
+    }
+  };
 
   var fmtBRL = function(v){
     if(v>=1000000) return 'R$'+(v/1000000).toFixed(2)+'M';
@@ -4300,15 +4336,16 @@ function _renderChartEvolucaoComHistorico(aportes, meses, posAtual, histCache){
     options:{
       responsive:true, maintainAspectRatio:false,
       interaction:{ mode:'index', intersect:false },
-      animation:{ duration:700, easing:'easeOutQuart' },
+      animation:{ duration:800, easing:'easeOutQuart' },
       plugins:{
         legend:{display:false},
         tooltip:{
-          backgroundColor:'rgba(9,11,15,0.95)',
-          borderColor:'rgba(255,255,255,0.12)',
-          borderWidth:1, padding:14,
-          titleFont:{size:12,weight:'700'},
+          backgroundColor:'rgba(8,10,18,0.97)',
+          borderColor:'rgba(255,255,255,0.10)',
+          borderWidth:1, padding:16,
+          titleFont:{size:13,weight:'700'},
           bodyFont:{size:12},
+          bodySpacing:4,
           callbacks:{
             title:function(items){
               var p=items[0].label.split('-');
@@ -4316,12 +4353,13 @@ function _renderChartEvolucaoComHistorico(aportes, meses, posAtual, histCache){
               return mn[parseInt(p[1])-1]+'/'+p[0];
             },
             label:function(c){
-              var v = c.raw||0;
-              if(v < 1) return null;
+              var v=c.raw||0;
+              if(v<1) return null;
+              var col=BORDER_GLOW[c.dataset.label]||'#fff';
               return '  '+c.dataset.label+':  '+fmtBRL(v);
             },
             footer:function(items){
-              var t=items.reduce(function(s,i){ return s+(i.raw||0); },0);
+              var t=items.reduce(function(s,i){return s+(i.raw||0);},0);
               return '\n  Total: '+fmtBRL(t);
             }
           }
@@ -4357,7 +4395,8 @@ function _renderChartEvolucaoComHistorico(aportes, meses, posAtual, histCache){
           }
         }
       }
-    }
+    },
+    plugins:[gradientPlugin]
   });
 
   document.getElementById('gLegendEvolucao').innerHTML = dsAtivos.map(function(t){
