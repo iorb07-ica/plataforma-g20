@@ -1395,6 +1395,7 @@ var _db_cache = {};
 var _db_pending_saves = {};
 var _db_ready = false;
 var _db_ready_cbs = [];
+var _firstRenderDone = false;
 
 var _DB_LOCAL_ONLY = ['indBCB_cache','indMkt_cache','cotacoesCache',
   'bonificacoes_cache','splits_cache'];
@@ -1569,7 +1570,8 @@ function buscarIndicadores(){
       saveData('indBCB_cache',{ts:Date.now(),data:IND});
       renderTape();
       // Só renderiza dados se o Firestore já estiver pronto
-      if(_db_ready) renderAll();
+      // E apenas se o _dbOnReady ainda não disparou o primeiro renderAll
+      if(_db_ready && !_firstRenderDone) renderAll();
     });
   }
 
@@ -4804,14 +4806,19 @@ function rvNavAutocomplete(e){
 }
 
 // ── RENDER ALL ────────────────────────────────────────────────
+var _renderAllTimer = null;
 function renderAll(){
+  // Debounce — evita renders duplicados em rajada (ex: save + indicadores)
+  clearTimeout(_renderAllTimer);
+  _renderAllTimer = setTimeout(_renderAllNow, 50);
+}
+function _renderAllNow(){
   renderKPIs();
   renderCharts();
   renderRF();
   renderBens();
   if(_rvOpen) renderRVPosicoes();
   _atualizarSubtitulosCollapse();
-  // Atualiza strip de KPIs no header colapsável
   var posRV = calcRVPosicoes();
   rvRenderKpiStrip(posRV.map(function(p){
     var cot=rvCotacoes[p.ticker];
@@ -4891,6 +4898,7 @@ function bindValorInput(id){
   })();
   // Aguarda Firestore antes de renderizar dados
   _dbOnReady(function(){
+    _firstRenderDone = true;
     renderAll();
     buscarCotacoesRV(); // busca cotações automaticamente ao abrir
     setInterval(buscarCotacoesRV, 15 * 60 * 1000); // atualiza a cada 15 minutos
