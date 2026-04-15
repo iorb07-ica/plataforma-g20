@@ -2972,10 +2972,8 @@ function buscarCotacoes(){
   var temBR = tickersBR.length > 0;
   var temUS = tickersUS.length > 0;
 
-  if(temBR && !tokenBrapi){
-    mostrarAvisoToken('brapi');
-    if(!temUS) return;
-  }
+  // Proxy BR não precisa de token — aviso de Brapi só aparece se proxy também falhar
+  // (não bloqueia a busca)
 
   atualizarBadge('loading');
   document.getElementById('btnAtualizar').textContent = '⏳ Buscando...';
@@ -7851,14 +7849,7 @@ function aplicarOrdemColunas(){
 
   atualizarDisplayCambio(usdBRL);
 
-  var cache = getCachedCotacoes();
-  if(cache){
-    cotacoes = cache.cotacoes;
-    usdBRL = cache.usdBRL || 5.85;
-    atualizarBadge('ok');
-    showCacheInfo(cache.ts);
-    atualizarDisplayCambio(usdBRL);
-  }
+  // Cache será lido dentro do _dbOnReady (após Firestore pronto)
 
   // Normaliza silenciosamente tickers .SA já salvos (ex: VULC3.SA → VULC3)
   (function normalizarTickersSA(){
@@ -7910,7 +7901,20 @@ function aplicarOrdemColunas(){
     // Aplica visibilidade de colunas após render
     setTimeout(function(){ aplicarOrdemColunas(); aplicarColsVisiveis(); }, 50);
 
-    if((tokenBrapi || tokenFmp || tokenTwelve) && calcPosicoes().length && !cache){
+    // Relê cache aqui dentro — após Firestore pronto — para decisão correta
+    var cacheAtual = getCachedCotacoes();
+    if(cacheAtual){
+      cotacoes = cacheAtual.cotacoes;
+      usdBRL = cacheAtual.usdBRL || 5.85;
+      atualizarBadge('ok');
+      showCacheInfo(cacheAtual.ts);
+      atualizarDisplayCambio(usdBRL);
+      renderPosicoes();
+    }
+
+    // Proxy BR funciona sem token — só exige token para fallback Brapi
+    // Busca se: não tem cache válido, ou cache tem mais de 15min
+    if(calcPosicoes().length && !cacheAtual){
       setTimeout(buscarCotacoes, 500);
     }
     iniciarAutoRefresh(); // auto-refresh a cada 15 min
