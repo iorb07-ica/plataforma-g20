@@ -3006,86 +3006,76 @@ function buscarCotacoes(){
   }
 
   if(temBR){
+    var brValidos = [];
     tickersBR.forEach(function(ticker){
       var tickerB3 = ticker.replace(/\.SA$/i, '').toUpperCase();
       if(!/\d/.test(tickerB3)){
         erros.push(tickerB3+' — tipo "Acao" mas parece Stock US. Edite e mude o tipo para Stock.');
         return;
       }
-      // 1ª tentativa: Proxy Vercel → Yahoo Finance (sem token)
-      var tickerSA = tickerB3+'.SA';
-      var proxyQuoteUrl = PROXY_URL+'/api/quote?symbol='+encodeURIComponent(tickerSA);
-      var proxyHistUrl  = PROXY_URL+'/api/history?symbol='+encodeURIComponent(tickerSA);
+      brValidos.push({ticker: ticker, tickerB3: tickerB3, tickerSA: tickerB3+'.SA'});
+    });
+
+    // Batch de 5 — quote + history-br juntos
+    var BR_BATCH = 5;
+    var brChunks = [];
+    for(var _bi=0; _bi<brValidos.length; _bi+=BR_BATCH) brChunks.push(brValidos.slice(_bi,_bi+BR_BATCH));
+
+    brChunks.forEach(function(chunk){
+      var symbols = chunk.map(function(x){ return x.tickerSA; }).join(',');
+      var quoteUrl = PROXY_URL+'/api/quote?symbol='+encodeURIComponent(symbols);
+      var histUrl  = PROXY_URL+'/api/history-br?symbol='+encodeURIComponent(symbols);
       promises.push(
         Promise.all([
-          fetch(proxyQuoteUrl).then(function(r){ return r.json(); }),
-          fetch(proxyHistUrl).then(function(r){ return r.json(); })
+          fetch(quoteUrl).then(function(r){ return r.json(); }).catch(function(){ return {}; }),
+          fetch(histUrl).then(function(r){ return r.json(); }).catch(function(){ return {}; })
         ]).then(function(results){
-          var q = results[0];
+          var qAll = results[0];
           var hAll = results[1];
-          var hd = (hAll[tickerSA] || hAll[tickerB3]) || {};
-          if(q && q.price && q.price > 0){
-            var cotObj = {
-              preco: q.price, var: parseFloat(q.changePercent||0),
-              var1d: parseFloat(q.change||0), nome: q.name||tickerB3,
-              dy: 0, mkt: 'BR', ts: Date.now(),
-              refSemana: hd.refSemana||null, ref30d: hd.ref30d||null,
-              ref3m: hd.ref3m||null, ref6m: hd.ref6m||null,
-              refYTD: hd.refYTD||null, ref5y: hd.ref5y||null
-            };
-            cotacoes[tickerB3] = cotObj;
-            cotacoes[ticker]   = cotObj;
-            // Se o proxy não retornou histórico BR, busca direto no Yahoo
-            var semHistorico = !hd.refSemana && !hd.ref30d && !hd.ref3m;
-            if(semHistorico){
-              promises.push(calcularRefsBR(tickerSA, cotObj));
-            }
-            return;
+          if(qAll && qAll.symbol && qAll.price !== undefined){
+            var tmp={}; tmp[qAll.symbol]=qAll; qAll=tmp;
           }
-          // 2ª tentativa: Brapi (fallback se tiver token)
-          if(!tokenBrapi) throw new Error('sem cotação');
-          var url = BRAPI_URL+'/quote/'+tickerB3+'?range=1y&interval=1d&token='+tokenBrapi;
-          return fetch(url)
-            .then(function(r){
-              if(!r.ok) throw new Error('HTTP '+r.status);
-              return r.json();
-            })
-            .then(function(d){
-              if(d.error){ throw new Error(d.message||'Erro Brapi'); }
-              if(d.results && d.results[0]){
-                var r = d.results[0];
-                var hist = (r.historicalDataPrice||[]).filter(function(h){return h.close;}).map(function(h){return{date:new Date(h.date*1000).toISOString().split('T')[0],close:h.close,dow:new Date(h.date*1000).getDay()};}).sort(function(a,b){return a.date.localeCompare(b.date);});
-                function _cb(tgt){var t=tgt.toISOString().split('T')[0];var b=hist.filter(function(p){return p.date<=t;});return b[b.length-1]||null;}
-                var _t=new Date(),_lf=[...hist].reverse().find(function(p){return p.dow===5;})||null;
-                var _d30=new Date(_t);_d30.setDate(_d30.getDate()-30);
-                var _d3m=new Date(_t);_d3m.setMonth(_d3m.getMonth()-3);
-                var _d6m=new Date(_t);_d6m.setMonth(_d6m.getMonth()-6);
-                var _dytd=new Date(_t.getFullYear()-1,11,31);
-                var cotObj = {
-                  preco: r.regularMarketPrice || 0,
-                  var:   r.regularMarketChangePercent || 0,
-                  var1d: r.regularMarketChange || 0,
-                  nome:  r.shortName || r.longName || '',
-                  dy:    r.dividendYield || 0,
-                  mkt:   'BR',
-                  ts:    Date.now(),
-                  refSemana:_lf, ref30d:_cb(_d30), ref3m:_cb(_d3m), ref6m:_cb(_d6m), refYTD:_cb(_dytd), ref5y:null
-                };
-                cotacoes[r.symbol] = cotObj;
-                if(ticker !== r.symbol) cotacoes[ticker] = cotObj;
+          if(hAll && hAll.symbol && !hAll[hAll.symbol]){
+            var tmp2={}; tmp2[hAll.symbol]=hAll; hAll=tmp2;
+          }
+          chunk.forEach(function(item){
+            var ticker   = item.ticker;
+            var tickerB3 = item.tickerB3;
+            var tickerSA = item.tickerSA;
+            var q  = (qAll||{})[tickerSA] || (qAll||{})[tickerB3] || {};
+            var hd = (hAll||{})[tickerSA] || (hAll||{})[tickerB3] || {};
+            if(q && q.price && q.price > 0){
+              var cotObj = {
+                preco: q.price, var: parseFloat(q.changePercent||0),
+                var1d: parseFloat(q.change||0), nome: q.name||tickerB3,
+                dy: 0, mkt: 'BR', ts: Date.now(),
+                refSemana: hd.refSemana||null, ref30d: hd.ref30d||null,
+                ref3m: hd.ref3m||null, ref6m: hd.ref6m||null,
+                refYTD: hd.refYTD||null, ref5y: hd.ref5y||null
+              };
+              cotacoes[tickerB3] = cotObj;
+              cotacoes[ticker]   = cotObj;
+              var semHistorico = !hd.refSemana && !hd.ref30d && !hd.ref3m;
+              if(semHistorico) promises.push(calcularRefsBR(tickerSA, cotObj));
+            } else {
+              if(tokenBrapi){
+                var url = BRAPI_URL+'/quote/'+tickerB3+'?range=1y&interval=1d&token='+tokenBrapi;
+                promises.push(fetch(url).then(function(r){ return r.json(); }).then(function(d){
+                  if(d.results && d.results[0]){
+                    var r2 = d.results[0];
+                    cotacoes[tickerB3] = { preco: r2.regularMarketPrice||0, var: r2.regularMarketChangePercent||0, var1d: r2.regularMarketChange||0, nome: r2.longName||tickerB3, dy:0, mkt:'BR', ts:Date.now() };
+                    cotacoes[ticker] = cotacoes[tickerB3];
+                  }
+                }).catch(function(){}));
               } else {
-                erros.push(ticker+' — não encontrado');
+                erros.push(tickerB3+' — sem cotação');
               }
-            }).catch(function(e){
-              erros.push('BR fallback ['+tickerB3+'] - '+e.message);
-            });
-        }).catch(function(e){
-          erros.push('BR proxy ['+tickerB3+'] - '+e.message);
+            }
+          });
         })
       );
     });
   }
-
   if(temUS){
     promises.push(buscarUSTickersBatch(tickersUS, erros));
   }
