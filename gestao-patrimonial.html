@@ -581,6 +581,35 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 #rvTable{background:#0d0f17}
 #rvTable thead tr{background:#0d0f17}
 #rvTable tbody tr{background:#0d0f17}
+
+/* ── MODAL IMPORTAR IA ── */
+#modalImportIA{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:none;align-items:center;justify-content:center;padding:16px}
+#modalImportIA.show{display:flex}
+#modalImportIA .ia-box{background:var(--bg2);border:1px solid var(--border);border-radius:16px;width:100%;max-width:860px;max-height:92vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.7)}
+#modalImportIA .ia-header{display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid var(--border);flex-shrink:0}
+#modalImportIA .ia-header-title{font-size:16px;font-weight:700;display:flex;align-items:center;gap:10px}
+#modalImportIA .ia-body{padding:20px 24px;overflow-y:auto;flex:1}
+#modalImportIA .ia-footer{padding:14px 24px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end;flex-shrink:0}
+#modalImportIA .ia-tabs{display:flex;gap:4px;background:var(--bg3);border-radius:10px;padding:4px;margin-bottom:16px;width:fit-content}
+#modalImportIA .ia-tab{padding:7px 16px;border-radius:7px;font-size:12px;font-weight:700;border:none;background:transparent;color:var(--text2);cursor:pointer;transition:all .2s}
+#modalImportIA .ia-tab.active{background:var(--surface);color:var(--gold);box-shadow:0 2px 8px rgba(0,0,0,.3)}
+#modalImportIA textarea{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:12px;font-size:12px;font-family:monospace;resize:vertical;min-height:140px;outline:none;box-sizing:border-box;transition:border .2s}
+#modalImportIA textarea:focus{border-color:var(--gold)}
+#modalImportIA .ia-drop{border:2px dashed var(--border);border-radius:10px;padding:32px;text-align:center;cursor:pointer;transition:all .2s;background:var(--bg3)}
+#modalImportIA .ia-drop:hover,#modalImportIA .ia-drop.drag{border-color:var(--gold);background:rgba(232,184,75,.05)}
+#modalImportIA .ia-drop input{display:none}
+#modalImportIA .ia-status{font-size:12px;padding:10px 14px;background:var(--bg3);border-radius:8px;margin:12px 0;display:none}
+#modalImportIA .ia-status.show{display:block}
+#modalImportIA .ia-preview-table{width:100%;border-collapse:collapse;font-size:12px}
+#modalImportIA .ia-preview-table th{background:var(--bg3);color:var(--text3);font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:8px 10px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
+#modalImportIA .ia-preview-table td{padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+#modalImportIA .ia-preview-table tr:last-child td{border-bottom:none}
+#modalImportIA .ia-preview-table tr:hover td{background:var(--sur2)}
+#modalImportIA .ia-preview-table input,#modalImportIA .ia-preview-table select{background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:3px 7px;font-size:11px;font-family:inherit}
+#modalImportIA .ia-row-remove{background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;padding:2px 6px;border-radius:4px}
+#modalImportIA .ia-row-remove:hover{color:#e63946}
+#modalImportIA .ia-badge-ok{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;background:rgba(46,204,113,.15);color:#2ecc71}
+#modalImportIA .ia-badge-warn{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;background:rgba(230,57,70,.15);color:#e63946}
 </style>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -649,6 +678,7 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
       <span class="page-title">GESTÃO PATRIMONIAL</span>
     </div>
     <div class="topbar-right">
+      <button class="btn-icon" onclick="abrirImportIA()" title="Importar transações com IA" style="font-size:13px;border-color:rgba(139,92,246,.5);color:#8b5cf6">🤖 Importar IA</button>
       <button class="btn-icon" onclick="forcarAtualizacaoBCB()" title="Atualizar indicadores BCB" id="refreshBtn">🔄</button>
       <button class="btn-icon" id="themeBtn" title="Alternar tema">🌙</button>
     </div>
@@ -4165,89 +4195,48 @@ function buscarCotacoesRV(){
   if(btn){ btn.textContent='⏳...'; btn.disabled=true; }
   rvSetCotStatus('⏳ Buscando cotações...');
 
+  // Busca câmbio primeiro
+  fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL')
+    .then(function(r){ return r.json(); })
+    .then(function(d){ if(d.USDBRL&&d.USDBRL.bid){ var r=parseFloat(d.USDBRL.bid); if(r>3&&r<20) rvUsdBRL=r; } })
+    .catch(function(){});
+
   var tickersBR = pos.filter(function(p){ return rvIsBR(p.ticker,p.tipo); }).map(function(p){ return p.ticker; });
   var tickersUS = pos.filter(function(p){ return !rvIsBR(p.ticker,p.tipo); }).map(function(p){
     return p.tipo==='UCITs'&&!p.ticker.includes('.')?p.ticker+'.L':p.ticker;
   });
-  var temUS = tickersUS.length > 0;
 
   var promises = [];
 
-  // Câmbio via proxy
-  if(temUS){
-    promises.push(
-      fetch(PROXY_URL_RV+'/api/quote?symbol=USDBRL=X')
-        .then(function(r){ return r.json(); })
-        .then(function(d){ if(d&&d.price>3&&d.price<20) rvUsdBRL=d.price; })
-        .catch(function(){
-          // fallback awesomeapi
-          return fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL')
-            .then(function(r){ return r.json(); })
-            .then(function(d){ if(d.USDBRL&&d.USDBRL.bid){ var r=parseFloat(d.USDBRL.bid); if(r>3&&r<20) rvUsdBRL=r; } })
-            .catch(function(){});
-        })
-    );
-  }
-
-  // BR: quote + histórico via history-br (igual carteira)
+  // BR via proxy
   tickersBR.forEach(function(ticker){
     var sa = ticker+'.SA';
-    var cotObj = null;
     promises.push(
-      Promise.all([
-        fetch(PROXY_URL_RV+'/api/quote?symbol='+encodeURIComponent(sa)).then(function(r){ return r.json(); }),
-        fetch(PROXY_URL_RV+'/api/history?symbol='+encodeURIComponent(sa)).then(function(r){ return r.json(); })
-      ]).then(function(results){
-        var q = results[0];
-        var hAll = results[1];
-        var hd = (hAll[sa] || hAll[ticker]) || {};
-        if(q && q.price && q.price>0){
-          cotObj = {
-            preco:q.price, var:parseFloat(q.changePercent||0),
-            var1d:parseFloat(q.change||0), nome:q.name||ticker,
-            mkt:'BR', ts:Date.now(),
-            refSemana:hd.refSemana||null, ref30d:hd.ref30d||null,
-            ref3m:hd.ref3m||null, ref6m:hd.ref6m||null,
-            refYTD:hd.refYTD||null, ref5y:hd.ref5y||null
-          };
-          rvCotacoes[ticker] = cotObj;
-          // Se histórico não veio, busca via history-br
-          if(!hd.refSemana && !hd.ref30d){
-            fetch(PROXY_URL_RV+'/api/history-br?symbol='+encodeURIComponent(sa))
-              .then(function(r){ return r.json(); })
-              .then(function(d){
-                if(d && !d.error){
-                  cotObj.refSemana=d.refSemana||null; cotObj.ref30d=d.ref30d||null;
-                  cotObj.ref3m=d.ref3m||null; cotObj.ref6m=d.ref6m||null;
-                  cotObj.refYTD=d.refYTD||null; cotObj.ref5y=d.ref5y||null;
-                  renderRVPosicoes();
-                }
-              }).catch(function(){});
+      fetch(PROXY_URL_RV+'/api/quote?symbol='+encodeURIComponent(sa))
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if(d&&d.price>0){
+            rvCotacoes[ticker]={preco:d.price,var:parseFloat(d.changePercent||0),var1d:parseFloat(d.change||0),nome:d.name||ticker,mkt:'BR',ts:Date.now()};
           }
-        }
-      }).catch(function(){})
+        }).catch(function(){})
     );
   });
 
-  // US: quote em batch + histórico em chunks de 5 (igual carteira)
-  if(temUS){
-    var BATCH = 10;
-    for(var i=0; i<tickersUS.length; i+=BATCH){
+  // US em batch via proxy
+  if(tickersUS.length){
+    var BATCH=8;
+    for(var i=0;i<tickersUS.length;i+=BATCH){
       (function(chunk){
-        var apiChunk = chunk.map(function(t){ return t==='BRK.B'?'BRK-B':t; });
         promises.push(
-          fetch(PROXY_URL_RV+'/api/quote?symbol='+encodeURIComponent(apiChunk.join(',')))
+          fetch(PROXY_URL_RV+'/api/quote?symbol='+encodeURIComponent(chunk.join(',')))
             .then(function(r){ return r.json(); })
             .then(function(d){
               if(d&&d.symbol&&d.price!==undefined){ var tmp={};tmp[d.symbol]=d;d=tmp; }
               chunk.forEach(function(t){
-                var apiT = t==='BRK.B'?'BRK-B':t;
-                var item = d[t]||d[apiT]||d[t.replace('.L','')]||d[t.toUpperCase()];
+                var item=d[t]||d[t.replace('.L','')]||d[t.toUpperCase()];
                 if(item&&item.price>0){
-                  var tk = t.replace('.L','');
-                  rvCotacoes[tk]={preco:item.price,var:parseFloat(item.changePercent||0),
-                    var1d:parseFloat(item.change||0),nome:item.name||tk,
-                    mkt:'US',precoUSD:item.price,ts:Date.now()};
+                  var tk=t.replace('.L','');
+                  rvCotacoes[tk]={preco:item.price,var:parseFloat(item.changePercent||0),var1d:parseFloat(item.change||0),nome:item.name||tk,mkt:'US',precoUSD:item.price,ts:Date.now()};
                 }
               });
             }).catch(function(){})
@@ -4257,43 +4246,52 @@ function buscarCotacoesRV(){
   }
 
   Promise.all(promises).then(function(){
-    // Histórico US em chunks de 5 (evita timeout Vercel)
-    if(temUS){
-      var allUS = tickersUS.map(function(t){ return t==='BRK.B'?'BRK-B':t; });
-      var HIST_BATCH = 5;
-      var histChunks = [];
-      for(var i=0; i<allUS.length; i+=HIST_BATCH){
-        histChunks.push({api: allUS.slice(i,i+HIST_BATCH), orig: tickersUS.slice(i,i+HIST_BATCH)});
-      }
-      Promise.all(histChunks.map(function(chunk){
-        var histUrl = PROXY_URL_RV+'/api/history?symbol='+encodeURIComponent(chunk.api.join(','));
-        return fetch(histUrl).then(function(r){ return r.json(); }).then(function(hd){
-          if(chunk.api.length===1&&hd.symbol){ var tmp={};tmp[hd.symbol]=hd;hd=tmp; }
-          chunk.orig.forEach(function(ticker){
-            var apiTicker = ticker==='BRK.B'?'BRK-B':ticker;
-            var h = hd[ticker]||hd[apiTicker]||hd[ticker.toUpperCase()]||hd[apiTicker.toUpperCase()];
-            if(h&&rvCotacoes[ticker]){
-              rvCotacoes[ticker].refSemana=h.refSemana||null;
-              rvCotacoes[ticker].ref30d=h.ref30d||null;
-              rvCotacoes[ticker].ref3m=h.ref3m||null;
-              rvCotacoes[ticker].ref6m=h.ref6m||null;
-              rvCotacoes[ticker].refYTD=h.refYTD||null;
-              rvCotacoes[ticker].ref5y=h.ref5y||null;
-            }
-          });
-        }).catch(function(){});
-      })).then(function(){
-        if(btn){ btn.textContent='↻ Cotações'; btn.disabled=false; }
-        var found = Object.keys(rvCotacoes).length;
-        rvSetCotStatus(found>0 ? '✅ '+found+' cotações · USD/BRL: R$ '+rvUsdBRL.toFixed(2) : '⚠️ Sem cotações');
-        renderRVPosicoes(); renderKPIs(); renderCharts();
+    // Busca referências históricas (1W, 1M, 3M, 6M, YTD, 5Y)
+    var hoje = new Date();
+    function dateStr(d){ return d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate(); }
+    var d1w  = new Date(hoje); d1w.setDate(d1w.getDate()-7);
+    var d1m  = new Date(hoje); d1m.setMonth(d1m.getMonth()-1);
+    var d3m  = new Date(hoje); d3m.setMonth(d3m.getMonth()-3);
+    var d6m  = new Date(hoje); d6m.setMonth(d6m.getMonth()-6);
+    var dytd = new Date(hoje.getFullYear(),0,2);
+    var d5y  = new Date(hoje); d5y.setFullYear(d5y.getFullYear()-5);
+    var refs = [
+      {key:'refSemana',date:dateStr(d1w)},
+      {key:'ref30d',   date:dateStr(d1m)},
+      {key:'ref3m',    date:dateStr(d3m)},
+      {key:'ref6m',    date:dateStr(d6m)},
+      {key:'refYTD',   date:dateStr(dytd)},
+      {key:'ref5y',    date:dateStr(d5y)},
+    ];
+
+    var allTickers = pos.map(function(p){
+      if(rvIsBR(p.ticker,p.tipo)) return {tk:p.ticker, sym:p.ticker+'.SA'};
+      return {tk:p.ticker, sym:p.tipo==='UCITs'&&!p.ticker.includes('.')?p.ticker+'.L':p.ticker};
+    });
+
+    var histPromises = [];
+    refs.forEach(function(ref){
+      allTickers.forEach(function(t){
+        histPromises.push(
+          fetch(PROXY_URL_RV+'/api/history-date?symbol='+encodeURIComponent(t.sym)+'&date='+ref.date)
+            .then(function(r){ return r.json(); })
+            .then(function(d){
+              if(d && d.close && d.close>0){
+                if(!rvCotacoes[t.tk]) rvCotacoes[t.tk]={};
+                rvCotacoes[t.tk][ref.key] = {close: d.close};
+              }
+            }).catch(function(){})
+        );
       });
-    } else {
+    });
+
+    Promise.all(histPromises).then(function(){
       if(btn){ btn.textContent='↻ Cotações'; btn.disabled=false; }
       var found = Object.keys(rvCotacoes).length;
-      rvSetCotStatus(found>0 ? '✅ '+found+' cotações · USD/BRL: R$ '+rvUsdBRL.toFixed(2) : '⚠️ Sem cotações');
-      renderRVPosicoes(); renderKPIs(); renderCharts();
-    }
+      rvSetCotStatus(found>0 ? '✅ '+found+' cotações atualizadas · USD/BRL: R$ '+rvUsdBRL.toFixed(2) : '⚠️ Sem cotações');
+      renderRVPosicoes();
+      renderKPIs(); renderCharts();
+    });
   });
 }
 
@@ -6608,6 +6606,154 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
   });
 })();
 </script>
+<script>
+
+// ============================================================
+// IMPORTAR COM IA — GESTÃO PATRIMONIAL
+// ============================================================
+var _iaTab = 'texto';
+var _iaImageBase64 = null;
+var _iaImageMime = null;
+var _iaTransacoes = [];
+
+function abrirImportIA(){
+  document.getElementById('modalImportIA').classList.add('show');
+  _iaTransacoes = []; _iaImageBase64 = null;
+  document.getElementById('iaTextoInput').value = '';
+  document.getElementById('iaStatus').className = 'ia-status';
+  document.getElementById('iaPreview').innerHTML = '';
+  document.getElementById('iaFooter').style.display = 'none';
+  document.getElementById('iaImagePreviewWrap').style.display = 'none';
+  var input = document.getElementById('iaImageInput'); if(input) input.value='';
+}
+function fecharImportIA(){ document.getElementById('modalImportIA').classList.remove('show'); }
+function iaSetTab(tab, btn){
+  _iaTab = tab;
+  document.querySelectorAll('#modalImportIA .ia-tab').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+  document.getElementById('iaTabTexto').style.display  = tab==='texto'  ? '' : 'none';
+  document.getElementById('iaTabImagem').style.display = tab==='imagem' ? '' : 'none';
+}
+function iaOnFileSelect(e){
+  var file = e.target.files[0]; if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(ev){
+    _iaImageBase64 = ev.target.result.split(',')[1]; _iaImageMime = file.type;
+    document.getElementById('iaImagePreview').src = ev.target.result;
+    document.getElementById('iaImagePreviewWrap').style.display = 'block';
+    document.getElementById('iaImageName').textContent = file.name+' ('+(file.size/1024).toFixed(0)+' KB)';
+  };
+  reader.readAsDataURL(file);
+}
+document.addEventListener('DOMContentLoaded', function(){
+  var zone = document.getElementById('iaDropZone'); if(!zone) return;
+  zone.addEventListener('dragover', function(e){ e.preventDefault(); zone.classList.add('drag'); });
+  zone.addEventListener('dragleave', function(){ zone.classList.remove('drag'); });
+  zone.addEventListener('drop', function(e){ e.preventDefault(); zone.classList.remove('drag'); var f=e.dataTransfer.files[0]; if(f) iaOnFileSelect({target:{files:e.dataTransfer.files}}); });
+});
+function iaSetStatus(msg, tipo){
+  var el = document.getElementById('iaStatus');
+  el.className='ia-status show';
+  el.style.color = tipo==='erro'?'var(--red)':tipo==='ok'?'var(--green)':'var(--text2)';
+  el.innerHTML = msg;
+}
+async function iaAnalisar(){
+  var btn = document.getElementById('iaBtnAnalisar');
+  btn.disabled=true; btn.textContent='⏳ Analisando...';
+  document.getElementById('iaPreview').innerHTML='';
+  document.getElementById('iaFooter').style.display='none';
+  iaSetStatus('🤖 Enviando para a IA...','info');
+  try {
+    var userContent = [];
+    var prompt = 'Você é um assistente especializado em extrair transações financeiras.\n\nAnalise o conteúdo e extraia TODAS as transações. Para cada uma retorne JSON com:\n- ticker: string maiúsculo\n- data: "YYYY-MM-DD"\n- op: "C" compra ou "V" venda\n- qtd: número\n- preco: número unitário\n- moeda: "BRL" ou "USD"\n- tipo: "Acao","FII","FIAGRO","Stock","REIT","ETF","Cripto","UCITs","RF"\n- obs: string\n\nPara RF também inclua: subTipo (CDB/LCI/LCA/TD/CRI/CRA/DEB), indexador (CDI/IPCA/Prefixado/Selic), taxa (número), vencimento (YYYY-MM-DD).\n\nRetorne APENAS JSON: {"transacoes":[...]}';
+    if(_iaTab==='texto'){
+      var texto = document.getElementById('iaTextoInput').value.trim();
+      if(!texto){ iaSetStatus('⚠️ Cole o texto antes.','erro'); btn.disabled=false; btn.textContent='🤖 Analisar com IA'; return; }
+      userContent.push({type:'text', text: prompt+'\n\nTexto:\n'+texto});
+    } else {
+      if(!_iaImageBase64){ iaSetStatus('⚠️ Selecione uma imagem.','erro'); btn.disabled=false; btn.textContent='🤖 Analisar com IA'; return; }
+      userContent.push({type:'text', text:prompt});
+      userContent.push({type:'image', source:{type:'base64', media_type:_iaImageMime, data:_iaImageBase64}});
+    }
+    var response = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({model:'claude-sonnet-4-20250514', max_tokens:4000, messages:[{role:'user',content:userContent}]})
+    });
+    var data = await response.json();
+    var text = (data.content||[]).map(function(i){ return i.text||''; }).join('');
+    var parsed = JSON.parse(text.replace(/```json|```/g,'').trim());
+    _iaTransacoes = parsed.transacoes || [];
+    if(!_iaTransacoes.length){ iaSetStatus('⚠️ Nenhuma transação encontrada.','erro'); btn.disabled=false; btn.textContent='🤖 Analisar com IA'; return; }
+    iaSetStatus('✅ '+_iaTransacoes.length+' transação(ões) identificada(s). Confira antes de importar:','ok');
+    iaRenderPreview(_iaTransacoes);
+    document.getElementById('iaFooter').style.display='flex';
+    document.getElementById('iaCountLabel').textContent=_iaTransacoes.length;
+  } catch(e){ iaSetStatus('❌ Erro: '+e.message,'erro'); }
+  btn.disabled=false; btn.textContent='🤖 Analisar com IA';
+}
+function iaRenderPreview(txs){
+  if(!txs.length){ document.getElementById('iaPreview').innerHTML=''; return; }
+  var html='<div style="overflow-x:auto;margin-top:8px"><table class="ia-preview-table"><thead><tr><th>Ticker</th><th>Data</th><th>Op</th><th>Qtd</th><th>Preço</th><th>Moeda</th><th>Tipo</th><th></th></tr></thead><tbody>';
+  txs.forEach(function(tx,i){
+    html+='<tr>';
+    html+='<td><input value="'+_escIA(tx.ticker)+'" onchange="_iaTransacoes['+i+'].ticker=this.value.toUpperCase()" style="width:75px"></td>';
+    html+='<td><input type="date" value="'+_escIA(tx.data)+'" onchange="_iaTransacoes['+i+'].data=this.value" style="width:125px"></td>';
+    html+='<td><select onchange="_iaTransacoes['+i+'].op=this.value"><option value="C"'+(tx.op==='C'?' selected':'')+'>Compra</option><option value="V"'+(tx.op==='V'?' selected':'')+'>Venda</option></select></td>';
+    html+='<td><input type="number" value="'+tx.qtd+'" onchange="_iaTransacoes['+i+'].qtd=parseFloat(this.value)||0" style="width:75px"></td>';
+    html+='<td><input type="number" value="'+tx.preco+'" onchange="_iaTransacoes['+i+'].preco=parseFloat(this.value)||0" style="width:85px"></td>';
+    html+='<td><select onchange="_iaTransacoes['+i+'].moeda=this.value"><option value="BRL"'+(tx.moeda==='BRL'?' selected':'')+'>R$</option><option value="USD"'+(tx.moeda==='USD'?' selected':'')+'>US$</option></select></td>';
+    html+='<td><select onchange="_iaTransacoes['+i+'].tipo=this.value">';
+    ['Acao','FII','FIAGRO','Stock','REIT','ETF','Cripto','UCITs','RF'].forEach(function(t){ html+='<option value="'+t+'"'+(tx.tipo===t?' selected':'')+'>'+t+'</option>'; });
+    html+='</select></td>';
+    html+='<td><button class="ia-row-remove" onclick="_iaTransacoes.splice('+i+',1);iaRenderPreview(_iaTransacoes);document.getElementById('iaCountLabel').textContent=_iaTransacoes.length">🗑</button></td>';
+    html+='</tr>';
+  });
+  html+='</tbody></table></div>';
+  document.getElementById('iaPreview').innerHTML=html;
+}
+function _escIA(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+function iaConfirmarImport(){
+  var validas = _iaTransacoes.filter(function(tx){ return tx.ticker && tx.data && tx.qtd>0 && tx.preco>0; });
+  if(!validas.length){ alert('Nenhuma transação válida.'); return; }
+  var rvItems = validas.filter(function(tx){ return tx.tipo !== 'RF'; });
+  var rfItems = validas.filter(function(tx){ return tx.tipo === 'RF'; });
+  // Importar RV
+  if(rvItems.length){
+    var aportes = loadData('rvAportes',[]);
+    rvItems.forEach(function(tx){
+      aportes.push({
+        ticker:tx.ticker.toUpperCase(), tipo:tx.tipo, op:tx.op||'C',
+        qtd:parseFloat(tx.qtd), preco:parseFloat(tx.preco),
+        moeda:tx.moeda||'BRL', data:tx.data, obs:tx.obs||'',
+        fxRate:tx.moeda==='USD'?(rvUsdBRL||5.85):1,
+        id:Date.now()+'_'+Math.random().toString(36).substr(2,6)
+      });
+    });
+    saveData('rvAportes', aportes);
+  }
+  // Importar RF
+  if(rfItems.length){
+    var rfList = loadData('rfData',[]);
+    rfItems.forEach(function(tx){
+      rfList.push({
+        id: Date.now()+'_'+Math.random().toString(36).substr(2,6),
+        nome: tx.ticker, tipo: tx.subTipo||'CDB',
+        emissor:'', codigo:'',
+        indexador: tx.indexador||'CDI', taxa: parseFloat(tx.taxa)||100,
+        valorInv: parseFloat(tx.preco)*parseFloat(tx.qtd),
+        valorAtual: parseFloat(tx.preco)*parseFloat(tx.qtd),
+        dataInicio: tx.data, vencimento: tx.vencimento||'',
+        liquidez:'vencimento', obs: tx.obs||''
+      });
+    });
+    saveData('rfData', rfList);
+  }
+  fecharImportIA();
+  renderAll();
+  showToast('✅ '+validas.length+' transação(ões) importada(s)!','#2ecc71');
+}
+
+</script>
 
   <script>
     if ('serviceWorker' in navigator) {
@@ -6740,5 +6886,53 @@ function rvAplicarOrdemColunas(){
   var acoesTh=row.querySelector('[data-rvcol="acoes"]'); if(acoesTh) row.appendChild(acoesTh);
 }
 </script>
+
+<!-- MODAL IMPORTAR COM IA -->
+<div id="modalImportIA">
+  <div class="ia-box">
+    <div class="ia-header">
+      <div class="ia-header-title">
+        <span style="font-size:22px">🤖</span>
+        <div>
+          <div>Importar Transações com IA</div>
+          <div style="font-size:11px;font-weight:400;color:var(--text2);margin-top:2px">Cole texto ou envie uma imagem — a IA interpreta qualquer formato (RV e RF)</div>
+        </div>
+      </div>
+      <button class="btn-icon" onclick="fecharImportIA()" style="font-size:18px;padding:4px 10px">✕</button>
+    </div>
+    <div class="ia-body">
+      <div class="ia-tabs">
+        <button class="ia-tab active" onclick="iaSetTab('texto',this)">📋 Colar Texto</button>
+        <button class="ia-tab" onclick="iaSetTab('imagem',this)">🖼️ Imagem / Print</button>
+      </div>
+      <div id="iaTabTexto">
+        <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Cole abaixo o texto copiado da sua corretora — qualquer formato funciona (ações, stocks, CDB, LCI, Tesouro...):</div>
+        <textarea id="iaTextoInput" placeholder="Ex:&#10;2026-04-14  Buy  AAPL  150  $182.50&#10;14/04/2026  Compra  VALE3  1000  R$88,50&#10;CDB Nubank 115% CDI  R$10.000  venc 2027-01-10"></textarea>
+      </div>
+      <div id="iaTabImagem" style="display:none">
+        <div class="ia-drop" onclick="document.getElementById('iaImageInput').click()" id="iaDropZone">
+          <input type="file" id="iaImageInput" accept="image/*" onchange="iaOnFileSelect(event)">
+          <div style="font-size:36px;margin-bottom:10px">📸</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:4px">Clique ou arraste uma imagem aqui</div>
+          <div style="font-size:11px;color:var(--text3)">PNG, JPG — print de extrato, nota de corretagem, tabela</div>
+        </div>
+        <div id="iaImagePreviewWrap" style="display:none;margin-top:10px;text-align:center">
+          <img id="iaImagePreview" style="max-width:100%;max-height:200px;border-radius:8px;border:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--text2);margin-top:6px" id="iaImageName"></div>
+        </div>
+      </div>
+      <div style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button class="btn-sm btn-gold" onclick="iaAnalisar()" id="iaBtnAnalisar" style="font-size:13px;padding:9px 20px">🤖 Analisar com IA</button>
+        <span style="font-size:11px;color:var(--text3)">Identifica ticker, data, quantidade, preço e tipo automaticamente</span>
+      </div>
+      <div class="ia-status" id="iaStatus"></div>
+      <div id="iaPreview"></div>
+    </div>
+    <div class="ia-footer" id="iaFooter" style="display:none">
+      <button class="btn-sm btn-outline" onclick="fecharImportIA()">Cancelar</button>
+      <button class="btn-sm btn-gold" onclick="iaConfirmarImport()" id="iaBtnConfirmar">✅ Importar <span id="iaCountLabel">0</span> transações</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
