@@ -3227,26 +3227,29 @@ function buscarUSTickersBatch(tickers, erros){
           });
         }).catch(function(){});
 })).then(function(){
-// Busca histórico US para variações de semana/mês/trimestre/semestre/ano
+// Busca histórico US em chunks de 5 para evitar timeout do Vercel
 var allUS = tickers.map(function(t){return t==='BRK.B'?'BRK-B':t;});
-var histUrl = PROXY_URL+'/api/history?symbol='+encodeURIComponent(allUS.join(','));
-return fetch(histUrl).then(function(r){return r.json();}).then(function(hd){
-  if(allUS.length===1&&hd.symbol){var tmp={};tmp[hd.symbol]=hd;hd=tmp;}
-  tickers.forEach(function(ticker){
-    var apiTicker=ticker==='BRK.B'?'BRK-B':ticker;
-    // tenta todas as variações de chave possíveis
-    var h=hd[ticker]||hd[apiTicker]||hd[ticker.toUpperCase()]||hd[apiTicker.toUpperCase()];
-    if(h&&cotacoes[ticker]){
-      cotacoes[ticker].refSemana=h.refSemana||null;
-      cotacoes[ticker].ref30d=h.ref30d||null;
-      cotacoes[ticker].ref3m=h.ref3m||null;
-      cotacoes[ticker].ref6m=h.ref6m||null;
-      cotacoes[ticker].refYTD=h.refYTD||null;
-      cotacoes[ticker].ref5y=h.ref5y||null;
-    }
-  });
-  setTimeout(function(){ renderPosicoes(); }, 0);
-}).catch(function(){});
+var HIST_BATCH = 5;
+var histChunks = [];
+for(var i=0; i<allUS.length; i+=HIST_BATCH) histChunks.push({api: allUS.slice(i,i+HIST_BATCH), orig: tickers.slice(i,i+HIST_BATCH)});
+return Promise.all(histChunks.map(function(chunk){
+  var histUrl = PROXY_URL+'/api/history?symbol='+encodeURIComponent(chunk.api.join(','));
+  return fetch(histUrl).then(function(r){return r.json();}).then(function(hd){
+    if(chunk.api.length===1&&hd.symbol){var tmp={};tmp[hd.symbol]=hd;hd=tmp;}
+    chunk.orig.forEach(function(ticker){
+      var apiTicker=ticker==='BRK.B'?'BRK-B':ticker;
+      var h=hd[ticker]||hd[apiTicker]||hd[ticker.toUpperCase()]||hd[apiTicker.toUpperCase()];
+      if(h&&cotacoes[ticker]){
+        cotacoes[ticker].refSemana=h.refSemana||null;
+        cotacoes[ticker].ref30d=h.ref30d||null;
+        cotacoes[ticker].ref3m=h.ref3m||null;
+        cotacoes[ticker].ref6m=h.ref6m||null;
+        cotacoes[ticker].refYTD=h.refYTD||null;
+        cotacoes[ticker].ref5y=h.ref5y||null;
+      }
+    });
+  }).catch(function(){});
+})).then(function(){ setTimeout(function(){ renderPosicoes(); }, 0); });
 }).then(function(){
       var falhos = tickers.filter(function(t){ return !cotacoes[t]; });
       if(!falhos.length) return;
