@@ -1725,8 +1725,9 @@ function _patSnapUpsert(total,rf,rv){
   if(!(total>0)) return;
   var arr=_patSnapLoad();
   var hoje=_todayISO();
-  // Se vazio: semeia 30 pontos sintéticos (random walk) pra mostrar algo útil imediatamente
-  if(arr.length===0){
+  // Migração: se TODOS os pontos são seed antigo (sem seedV:2), regenera
+  var allOldSeed = arr.length>0 && arr.every(function(s){return s.seed && s.seedV!==2;});
+  if(arr.length===0 || allOldSeed){
     arr=_patSeed(total,rf,rv,30);
   }
   var last=arr[arr.length-1];
@@ -1742,34 +1743,35 @@ function _patSnapUpsert(total,rf,rv){
   _patSnapSave(arr);
 }
 
-// Semente sintética: random walk ancorado no valor atual (só na 1ª visita)
+// Semente sintética: random walk ancorado HOJE, caminhando pra trás (v2)
 function _patSeed(total,rf,rv,dias){
   var arr=[], hoje=new Date();
   var cdiD=_cdiDaily();
-  // Gera série em reverso
-  var tFim=total, rfFim=rf, rvFim=rv;
-  var pts=[];
-  var vol=0.006; // ~0.6% diário
-  for(var i=0;i<dias;i++){
-    var driftT = (Math.random()*2-1)*vol;
-    var driftRV = (Math.random()*2-1)*vol*1.8;
-    tFim = tFim/(1+driftT);
-    rvFim = rvFim/(1+driftRV);
-    rfFim = rfFim/cdiD; // RF cresce como CDI ~
-    pts.push({t:tFim,rf:rfFim,rv:rvFim});
+  var volT=0.008;   // ~0.8% dia no total
+  var volRV=0.015;  // ~1.5% dia na RV
+  // tSer[0] = hoje; vamos caminhando pra trás e empilhando
+  var tSer=[total], rfSer=[rf], rvSer=[rv];
+  var t=total, r=rf, v=rv;
+  for(var i=1;i<dias;i++){
+    var dT=(Math.random()*2-1)*volT;
+    var dV=(Math.random()*2-1)*volRV;
+    t = t/(1+dT);
+    v = v/(1+dV);
+    r = r/cdiD; // RF rende ~CDI
+    tSer.push(t); rfSer.push(r); rvSer.push(v);
   }
-  pts.reverse();
-  // Normaliza de volta ao valor atual (garante fim = total)
-  var factorT=total/(pts[pts.length-1]?pts[pts.length-1].t:total);
+  tSer.reverse(); rfSer.reverse(); rvSer.reverse();
+  // Adiciona ruído leve no RF pra não ficar reta visual (±0.08% dia)
+  for(var k=0;k<rfSer.length-1;k++){
+    rfSer[k] *= (1 + (Math.random()*2-1)*0.0008);
+  }
   var cdiAcc=100;
-  for(var j=0;j<pts.length;j++){
+  for(var j=0;j<dias;j++){
     var dt=new Date(hoje); dt.setDate(dt.getDate()-(dias-1-j));
     var iso=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
     if(j>0) cdiAcc *= cdiD;
-    arr.push({d:iso,t:pts[j].t,rf:pts[j].rf,rv:pts[j].rv,c:cdiAcc,seed:true});
+    arr.push({d:iso,t:tSer[j],rf:rfSer[j],rv:rvSer[j],c:cdiAcc,seed:true,seedV:2});
   }
-  // Último ponto = valor real atual
-  if(arr.length) { arr[arr.length-1].t=total; arr[arr.length-1].rf=rf; arr[arr.length-1].rv=rv; }
   return arr;
 }
 
