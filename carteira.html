@@ -2609,54 +2609,16 @@ function checkTokenBanner(){
 // ============================================================
 // AUTO-REFRESH
 // ============================================================
-
-// Retorna status dos mercados em horário de Brasília (UTC-3)
-function statusMercados(){
-  var now = new Date();
-  // Converte para BRT (UTC-3) independente do fuso do dispositivo
-  var utcMs = now.getTime() + now.getTimezoneOffset() * 60000; // agora em UTC
-  var brt   = new Date(utcMs - 3 * 60 * 60 * 1000);            // UTC-3
-  var dow = brt.getDay();   // 0=Dom, 6=Sáb
-  var hm  = brt.getHours() * 60 + brt.getMinutes();
-  var fds = (dow === 0 || dow === 6);
-  // B3: seg–sex, 10h00–17h30 BRT
-  var brAberto = !fds && hm >= 600 && hm < 1050;
-  // NYSE/NASDAQ: seg–sex, 10h30–17h00 BRT
-  var usAberto = !fds && hm >= 630 && hm < 1020;
-  return { br: brAberto, us: usAberto, algumAberto: brAberto || usAberto };
-}
-
 function iniciarAutoRefresh(){
   pararAutoRefresh();
   autoRefreshTimer = setInterval(function(){
-    var pos = calcPosicoes();
-    if(!pos.length) return;
-    var status = statusMercados();
-    var temCripto = pos.some(function(p){ return p.tipo === 'Cripto'; });
-    if(status.algumAberto){
-      buscarCotacoes();
-    } else if(temCripto){
-      buscarSoCripto();
-    }
-    // Mercado fechado sem cripto: não faz nada
+    if(calcPosicoes().length) buscarCotacoes();
   }, AUTO_REFRESH_MIN * 60 * 1000);
   atualizarCountdown();
 }
 function pararAutoRefresh(){
   if(autoRefreshTimer){ clearInterval(autoRefreshTimer); autoRefreshTimer=null; }
 }
-
-// Busca apenas cripto (24/7)
-function buscarSoCripto(){
-  var pos = calcPosicoes();
-  var tickersCripto = pos.filter(function(p){ return p.tipo === 'Cripto'; }).map(function(p){ return p.ticker; });
-  if(!tickersCripto.length || !PROXY_URL) return;
-  Promise.all(tickersCripto.map(function(t){ return buscarCotacaoCripto(t); })).then(function(){
-    saveCotacoesCache();
-    renderPosicoes();
-  });
-}
-
 var _countdownInterval = null;
 function atualizarCountdown(){
   if(_countdownInterval) clearInterval(_countdownInterval);
@@ -2671,16 +2633,13 @@ function atualizarCountdown(){
 }
 
 // ============================================================
-// CACHE INTELIGENTE (15 min mercado aberto / estendido se fechado)
+// CACHE INTELIGENTE (15 min)
 // ============================================================
 var CACHE_TTL = 15 * 60 * 1000;
 function getCachedCotacoes(){
   var c = loadData('cotacoesCache', null);
   if(!c) return null;
-  var status = statusMercados();
-  // Mercado aberto: TTL de 15 min. Fechado: TTL de 4h (dados não mudam)
-  var ttl = status.algumAberto ? CACHE_TTL : 4 * 60 * 60 * 1000;
-  if(Date.now() - c.ts > ttl) return null;
+  if(Date.now() - c.ts > CACHE_TTL) return null;
   return c;
 }
 function saveCotacoesCache(){
@@ -2952,9 +2911,8 @@ function atualizarLabelMoeda(){
 // ============================================================
 function calcularRefsBR(symbolSA, cotObj){
   var url1  = PROXY_URL+'/api/history-br?symbol='+encodeURIComponent(symbolSA);
-  var url2  = url1; // fallback igual, proxy já tem retry interno
 
-  // O proxy retorna {refSemana, ref30d, ref3m, ref6m, refYTD, ref5y} já calculados
+  // Retorna Promise para poder ser aguardada pelo Promise.all
   return fetch(url1)
     .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
     .then(function(d){
@@ -3141,7 +3099,7 @@ function buscarCotacoes(){
     }
 
     renderPosicoes();
-    // Salva cache APÓS renderizar, garantindo que históricos já estejam completos
+    // Salva cache APÓS renderizar, garantindo históricos completos
     if(found > 0) saveCotacoesCache();
     if(document.getElementById('tab-graficos').style.display!=='none') renderGraficos();
 
@@ -7952,20 +7910,10 @@ function aplicarOrdemColunas(){
     // Aplica visibilidade de colunas após render
     setTimeout(function(){ aplicarOrdemColunas(); aplicarColsVisiveis(); }, 50);
 
-    var pos = calcPosicoes();
-    if((tokenBrapi || tokenFmp || tokenTwelve) && pos.length && !cache){
-      var status = statusMercados();
-      var temCripto = pos.some(function(p){ return p.tipo === 'Cripto'; });
-      if(status.algumAberto){
-        // Mercado aberto: busca tudo
-        setTimeout(buscarCotacoes, 500);
-      } else if(temCripto){
-        // Mercado fechado mas tem cripto: busca só cripto
-        setTimeout(buscarSoCripto, 500);
-      }
-      // Mercado fechado sem cripto: usa dados do cache/fechamento, não busca
+    if((tokenBrapi || tokenFmp || tokenTwelve) && calcPosicoes().length && !cache){
+      setTimeout(buscarCotacoes, 500);
     }
-    iniciarAutoRefresh(); // auto-refresh inteligente por horário de mercado
+    iniciarAutoRefresh(); // auto-refresh a cada 15 min
   });
 })();
 </script>
