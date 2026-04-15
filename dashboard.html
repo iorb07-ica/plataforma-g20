@@ -1729,16 +1729,27 @@ function _patSnapUpsert(total,rf,rv){
   var allOldSeed = arr.length>0 && arr.every(function(s){return s.seed && s.seedV!==2;});
   if(arr.length===0 || allOldSeed){
     arr=_patSeed(total,rf,rv,30);
+  } else {
+    // Se o histórico ainda é só seed e o novo valor diverge muito (>3%) do último,
+    // significa que o seed foi gerado com base de custo e agora veio o valor de mercado.
+    // Regenera o seed ancorado no valor correto.
+    var allSeed = arr.every(function(s){return s.seed;});
+    var last0 = arr[arr.length-1];
+    if(allSeed && last0 && last0.t>0){
+      var divergTotal = Math.abs(total-last0.t)/last0.t;
+      var divergRV = last0.rv>0 ? Math.abs(rv-last0.rv)/last0.rv : 0;
+      if(divergTotal>0.03 || divergRV>0.03){
+        arr=_patSeed(total,rf,rv,30);
+      }
+    }
   }
   var last=arr[arr.length-1];
   if(last&&last.d===hoje){
     last.t=total; last.rf=rf; last.rv=rv;
   }else{
-    // avança CDI acumulado desde o último ponto
     var cdiAcc = last ? last.c * Math.pow(_cdiDaily(), Math.max(1,_daysBetween(last.d,hoje))) : 100;
     arr.push({d:hoje,t:total,rf:rf,rv:rv,c:cdiAcc});
   }
-  // Limita a 400 dias
   if(arr.length>400) arr=arr.slice(-400);
   _patSnapSave(arr);
 }
@@ -1864,14 +1875,15 @@ function _patRenderAllSparks(){
   });
 }
 
-// Bind botões de range
+// Bind botões de range (fase de captura, pra não ser bloqueado por stopPropagation do container)
 document.addEventListener('click',function(e){
   var btn=e.target.closest('#rangeTotal button');
   if(!btn) return;
+  e.stopPropagation();
   var d=parseInt(btn.getAttribute('data-d'),10);
   _patSetRange(d);
   _patRenderAllSparks();
-});
+}, true);
 
 // -- SIDEBAR / THEME --------------------------------------------
 function toggleSidebar(){
