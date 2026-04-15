@@ -88,15 +88,16 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .search-input{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 12px;border-radius:8px;font-size:12px;font-family:inherit;min-width:160px}
 .search-input:focus{outline:none;border-color:var(--gold)}
 /* TABLE */
-.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
+.table-wrap{background:var(--bg);border:1px solid var(--border);border-radius:12px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text3);padding:10px 14px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none;transition:color .2s}
+thead{background:var(--bg2)}
+th{text-align:left;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text3);padding:10px 14px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none;transition:color .2s;background:var(--bg2)}
 th:hover{color:var(--gold)}
 th .sort-arrow{margin-left:4px;opacity:.5}
 th.sorted .sort-arrow{opacity:1;color:var(--gold)}
-td{padding:11px 14px;border-bottom:1px solid rgba(255,255,255,.03);vertical-align:middle}
+td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:middle;background:var(--bg)}
 tr:last-child td{border-bottom:none}
-tr:hover td{background:var(--sur2)}
+tr:hover td{background:var(--sur2)!important}
 .r{text-align:right}
 .ticker-cell{font-weight:700;font-size:13px;color:var(--text);letter-spacing:.3px}
 .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.3px}
@@ -7908,7 +7909,19 @@ function aplicarOrdemColunas(){
 
     // Relê cache aqui dentro — após Firestore pronto — para decisão correta
     var cacheAtual = getCachedCotacoes();
-    if(cacheAtual){
+
+    // Valida se o cache tem cotações BR (evita usar cache incompleto)
+    function cacheTemBR(c){
+      if(!c || !c.cotacoes) return false;
+      var pos = calcPosicoes();
+      var tickersBR = pos.filter(function(p){ return isBR(p.ticker, p.tipo); });
+      if(!tickersBR.length) return true; // sem BR na carteira, cache ok
+      return tickersBR.some(function(p){ return c.cotacoes[p.ticker] && c.cotacoes[p.ticker].preco > 0; });
+    }
+
+    var cacheValido = cacheAtual && cacheTemBR(cacheAtual);
+
+    if(cacheValido){
       cotacoes = cacheAtual.cotacoes;
       usdBRL = cacheAtual.usdBRL || 5.85;
       atualizarBadge('ok');
@@ -7917,9 +7930,8 @@ function aplicarOrdemColunas(){
       renderPosicoes();
     }
 
-    // Proxy BR funciona sem token — só exige token para fallback Brapi
-    // Busca se: não tem cache válido, ou cache tem mais de 15min
-    if(calcPosicoes().length && !cacheAtual){
+    // Busca sempre se não tem cache válido com BR
+    if(calcPosicoes().length && !cacheValido){
       setTimeout(buscarCotacoes, 500);
     }
     iniciarAutoRefresh(); // auto-refresh a cada 15 min
