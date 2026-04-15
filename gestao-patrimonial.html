@@ -4165,48 +4165,89 @@ function buscarCotacoesRV(){
   if(btn){ btn.textContent='⏳...'; btn.disabled=true; }
   rvSetCotStatus('⏳ Buscando cotações...');
 
-  // Busca câmbio primeiro
-  fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL')
-    .then(function(r){ return r.json(); })
-    .then(function(d){ if(d.USDBRL&&d.USDBRL.bid){ var r=parseFloat(d.USDBRL.bid); if(r>3&&r<20) rvUsdBRL=r; } })
-    .catch(function(){});
-
   var tickersBR = pos.filter(function(p){ return rvIsBR(p.ticker,p.tipo); }).map(function(p){ return p.ticker; });
   var tickersUS = pos.filter(function(p){ return !rvIsBR(p.ticker,p.tipo); }).map(function(p){
     return p.tipo==='UCITs'&&!p.ticker.includes('.')?p.ticker+'.L':p.ticker;
   });
+  var temUS = tickersUS.length > 0;
 
   var promises = [];
 
-  // BR via proxy
+  // Câmbio via proxy
+  if(temUS){
+    promises.push(
+      fetch(PROXY_URL_RV+'/api/quote?symbol=USDBRL=X')
+        .then(function(r){ return r.json(); })
+        .then(function(d){ if(d&&d.price>3&&d.price<20) rvUsdBRL=d.price; })
+        .catch(function(){
+          // fallback awesomeapi
+          return fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL')
+            .then(function(r){ return r.json(); })
+            .then(function(d){ if(d.USDBRL&&d.USDBRL.bid){ var r=parseFloat(d.USDBRL.bid); if(r>3&&r<20) rvUsdBRL=r; } })
+            .catch(function(){});
+        })
+    );
+  }
+
+  // BR: quote + histórico via history-br (igual carteira)
   tickersBR.forEach(function(ticker){
     var sa = ticker+'.SA';
+    var cotObj = null;
     promises.push(
-      fetch(PROXY_URL_RV+'/api/quote?symbol='+encodeURIComponent(sa))
-        .then(function(r){ return r.json(); })
-        .then(function(d){
-          if(d&&d.price>0){
-            rvCotacoes[ticker]={preco:d.price,var:parseFloat(d.changePercent||0),var1d:parseFloat(d.change||0),nome:d.name||ticker,mkt:'BR',ts:Date.now()};
+      Promise.all([
+        fetch(PROXY_URL_RV+'/api/quote?symbol='+encodeURIComponent(sa)).then(function(r){ return r.json(); }),
+        fetch(PROXY_URL_RV+'/api/history?symbol='+encodeURIComponent(sa)).then(function(r){ return r.json(); })
+      ]).then(function(results){
+        var q = results[0];
+        var hAll = results[1];
+        var hd = (hAll[sa] || hAll[ticker]) || {};
+        if(q && q.price && q.price>0){
+          cotObj = {
+            preco:q.price, var:parseFloat(q.changePercent||0),
+            var1d:parseFloat(q.change||0), nome:q.name||ticker,
+            mkt:'BR', ts:Date.now(),
+            refSemana:hd.refSemana||null, ref30d:hd.ref30d||null,
+            ref3m:hd.ref3m||null, ref6m:hd.ref6m||null,
+            refYTD:hd.refYTD||null, ref5y:hd.ref5y||null
+          };
+          rvCotacoes[ticker] = cotObj;
+          // Se histórico não veio, busca via history-br
+          if(!hd.refSemana && !hd.ref30d){
+            fetch(PROXY_URL_RV+'/api/history-br?symbol='+encodeURIComponent(sa))
+              .then(function(r){ return r.json(); })
+              .then(function(d){
+                if(d && !d.error){
+                  cotObj.refSemana=d.refSemana||null; cotObj.ref30d=d.ref30d||null;
+                  cotObj.ref3m=d.ref3m||null; cotObj.ref6m=d.ref6m||null;
+                  cotObj.refYTD=d.refYTD||null; cotObj.ref5y=d.ref5y||null;
+                  renderRVPosicoes();
+                }
+              }).catch(function(){});
           }
-        }).catch(function(){})
+        }
+      }).catch(function(){})
     );
   });
 
-  // US em batch via proxy
-  if(tickersUS.length){
-    var BATCH=8;
-    for(var i=0;i<tickersUS.length;i+=BATCH){
+  // US: quote em batch + histórico em chunks de 5 (igual carteira)
+  if(temUS){
+    var BATCH = 10;
+    for(var i=0; i<tickersUS.length; i+=BATCH){
       (function(chunk){
+        var apiChunk = chunk.map(function(t){ return t==='BRK.B'?'BRK-B':t; });
         promises.push(
-          fetch(PROXY_URL_RV+'/api/quote?symbol='+encodeURIComponent(chunk.join(',')))
+          fetch(PROXY_URL_RV+'/api/quote?symbol='+encodeURIComponent(apiChunk.join(',')))
             .then(function(r){ return r.json(); })
             .then(function(d){
               if(d&&d.symbol&&d.price!==undefined){ var tmp={};tmp[d.symbol]=d;d=tmp; }
               chunk.forEach(function(t){
-                var item=d[t]||d[t.replace('.L','')]||d[t.toUpperCase()];
+                var apiT = t==='BRK.B'?'BRK-B':t;
+                var item = d[t]||d[apiT]||d[t.replace('.L','')]||d[t.toUpperCase()];
                 if(item&&item.price>0){
-                  var tk=t.replace('.L','');
-                  rvCotacoes[tk]={preco:item.price,var:parseFloat(item.changePercent||0),var1d:parseFloat(item.change||0),nome:item.name||tk,mkt:'US',precoUSD:item.price,ts:Date.now()};
+                  var tk = t.replace('.L','');
+                  rvCotacoes[tk]={preco:item.price,var:parseFloat(item.changePercent||0),
+                    var1d:parseFloat(item.change||0),nome:item.name||tk,
+                    mkt:'US',precoUSD:item.price,ts:Date.now()};
                 }
               });
             }).catch(function(){})
@@ -4216,52 +4257,43 @@ function buscarCotacoesRV(){
   }
 
   Promise.all(promises).then(function(){
-    // Busca referências históricas (1W, 1M, 3M, 6M, YTD, 5Y)
-    var hoje = new Date();
-    function dateStr(d){ return d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate(); }
-    var d1w  = new Date(hoje); d1w.setDate(d1w.getDate()-7);
-    var d1m  = new Date(hoje); d1m.setMonth(d1m.getMonth()-1);
-    var d3m  = new Date(hoje); d3m.setMonth(d3m.getMonth()-3);
-    var d6m  = new Date(hoje); d6m.setMonth(d6m.getMonth()-6);
-    var dytd = new Date(hoje.getFullYear(),0,2);
-    var d5y  = new Date(hoje); d5y.setFullYear(d5y.getFullYear()-5);
-    var refs = [
-      {key:'refSemana',date:dateStr(d1w)},
-      {key:'ref30d',   date:dateStr(d1m)},
-      {key:'ref3m',    date:dateStr(d3m)},
-      {key:'ref6m',    date:dateStr(d6m)},
-      {key:'refYTD',   date:dateStr(dytd)},
-      {key:'ref5y',    date:dateStr(d5y)},
-    ];
-
-    var allTickers = pos.map(function(p){
-      if(rvIsBR(p.ticker,p.tipo)) return {tk:p.ticker, sym:p.ticker+'.SA'};
-      return {tk:p.ticker, sym:p.tipo==='UCITs'&&!p.ticker.includes('.')?p.ticker+'.L':p.ticker};
-    });
-
-    var histPromises = [];
-    refs.forEach(function(ref){
-      allTickers.forEach(function(t){
-        histPromises.push(
-          fetch(PROXY_URL_RV+'/api/history-date?symbol='+encodeURIComponent(t.sym)+'&date='+ref.date)
-            .then(function(r){ return r.json(); })
-            .then(function(d){
-              if(d && d.close && d.close>0){
-                if(!rvCotacoes[t.tk]) rvCotacoes[t.tk]={};
-                rvCotacoes[t.tk][ref.key] = {close: d.close};
-              }
-            }).catch(function(){})
-        );
+    // Histórico US em chunks de 5 (evita timeout Vercel)
+    if(temUS){
+      var allUS = tickersUS.map(function(t){ return t==='BRK.B'?'BRK-B':t; });
+      var HIST_BATCH = 5;
+      var histChunks = [];
+      for(var i=0; i<allUS.length; i+=HIST_BATCH){
+        histChunks.push({api: allUS.slice(i,i+HIST_BATCH), orig: tickersUS.slice(i,i+HIST_BATCH)});
+      }
+      Promise.all(histChunks.map(function(chunk){
+        var histUrl = PROXY_URL_RV+'/api/history?symbol='+encodeURIComponent(chunk.api.join(','));
+        return fetch(histUrl).then(function(r){ return r.json(); }).then(function(hd){
+          if(chunk.api.length===1&&hd.symbol){ var tmp={};tmp[hd.symbol]=hd;hd=tmp; }
+          chunk.orig.forEach(function(ticker){
+            var apiTicker = ticker==='BRK.B'?'BRK-B':ticker;
+            var h = hd[ticker]||hd[apiTicker]||hd[ticker.toUpperCase()]||hd[apiTicker.toUpperCase()];
+            if(h&&rvCotacoes[ticker]){
+              rvCotacoes[ticker].refSemana=h.refSemana||null;
+              rvCotacoes[ticker].ref30d=h.ref30d||null;
+              rvCotacoes[ticker].ref3m=h.ref3m||null;
+              rvCotacoes[ticker].ref6m=h.ref6m||null;
+              rvCotacoes[ticker].refYTD=h.refYTD||null;
+              rvCotacoes[ticker].ref5y=h.ref5y||null;
+            }
+          });
+        }).catch(function(){});
+      })).then(function(){
+        if(btn){ btn.textContent='↻ Cotações'; btn.disabled=false; }
+        var found = Object.keys(rvCotacoes).length;
+        rvSetCotStatus(found>0 ? '✅ '+found+' cotações · USD/BRL: R$ '+rvUsdBRL.toFixed(2) : '⚠️ Sem cotações');
+        renderRVPosicoes(); renderKPIs(); renderCharts();
       });
-    });
-
-    Promise.all(histPromises).then(function(){
+    } else {
       if(btn){ btn.textContent='↻ Cotações'; btn.disabled=false; }
       var found = Object.keys(rvCotacoes).length;
-      rvSetCotStatus(found>0 ? '✅ '+found+' cotações atualizadas · USD/BRL: R$ '+rvUsdBRL.toFixed(2) : '⚠️ Sem cotações');
-      renderRVPosicoes();
-      renderKPIs(); renderCharts();
-    });
+      rvSetCotStatus(found>0 ? '✅ '+found+' cotações · USD/BRL: R$ '+rvUsdBRL.toFixed(2) : '⚠️ Sem cotações');
+      renderRVPosicoes(); renderKPIs(); renderCharts();
+    }
   });
 }
 
