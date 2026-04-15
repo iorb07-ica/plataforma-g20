@@ -175,6 +175,25 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .pat-kpi-var.down{color:#ef4444;background:rgba(239,68,68,.12)}
 .pat-kpi-var.neu{color:var(--text2);background:rgba(255,255,255,.06)}
 @media(max-width:480px){.pat-kpi-val{font-size:13px}}
+/* Sparkline dentro dos KPIs patrimoniais */
+.pat-kpi-spark{margin-top:10px;height:34px;width:100%;position:relative;overflow:hidden}
+.pat-kpi-spark svg{display:block;width:100%;height:100%;overflow:visible}
+.pat-kpi-spark .sk-fill{fill:var(--pk-c,var(--gold));opacity:.10}
+.pat-kpi-spark .sk-line{fill:none;stroke:var(--pk-c,var(--gold));stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round}
+.pat-kpi-spark .sk-cdi{fill:none;stroke:var(--text3);stroke-width:1.1;stroke-dasharray:3 3;opacity:.7}
+.pat-kpi-spark .sk-dot{fill:var(--pk-c,var(--gold));stroke:var(--surface);stroke-width:2}
+.pat-kpi-spark .sk-placeholder{font-size:10px;fill:var(--text3);font-family:'DM Sans',sans-serif}
+.pat-kpi-cmp{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:10.5px;color:var(--text2);flex-wrap:wrap}
+.pat-kpi-cmp .cmp-pill{padding:2px 7px;border-radius:4px;font-weight:700;font-size:10px;letter-spacing:.3px}
+.pat-kpi-cmp .cmp-pill.up{color:#10b981;background:rgba(16,185,129,.12)}
+.pat-kpi-cmp .cmp-pill.down{color:#ef4444;background:rgba(239,68,68,.12)}
+.pat-kpi-cmp .cmp-pill.neu{color:var(--text2);background:rgba(255,255,255,.06)}
+.pat-kpi-cmp .cmp-legend{display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--text3)}
+.pat-kpi-cmp .cmp-legend::before{content:'';display:inline-block;width:10px;height:0;border-top:2px dashed var(--text3);vertical-align:middle}
+.pat-kpi-range{display:flex;gap:4px;margin-top:8px}
+.pat-kpi-range button{font-size:10px;padding:3px 8px;border-radius:4px;background:transparent;border:1px solid var(--border);color:var(--text3);cursor:pointer;transition:.15s;font-family:inherit}
+.pat-kpi-range button:hover{border-color:var(--gold);color:var(--gold)}
+.pat-kpi-range button.active{background:rgba(232,184,75,.15);border-color:var(--gold);color:var(--gold)}
 
 /* SECTION TITLE */
 .section-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;display:flex;align-items:center;gap:10px;margin-bottom:12px;margin-top:22px}
@@ -701,23 +720,33 @@ if(localStorage.getItem('g20_uid')){
     <!-- PAINEL PATRIMONIAL -->
     <div class="section-title">Visão Patrimonial <span>● RESUMO</span></div>
     <div class="pat-strip" id="patStrip">
-      <div class="pat-kpi" style="--pk-c:#e8b84b" onclick="location.href='gestao-patrimonial.html'">
+      <div class="pat-kpi" style="--pk-c:#e8b84b" onclick="if(!event.target.closest('.pat-kpi-range'))location.href='gestao-patrimonial.html'">
         <div class="pat-kpi-label">Patrimônio Total</div>
         <div class="pat-kpi-val" id="dashPatTotal">–</div>
         <div class="pat-kpi-sub">RF + Bens + RV</div>
         <div class="pat-kpi-var" id="dashPatVar"></div>
+        <div class="pat-kpi-spark" id="sparkTotal"></div>
+        <div class="pat-kpi-cmp" id="cmpTotal"></div>
+        <div class="pat-kpi-range" id="rangeTotal" onclick="event.stopPropagation()">
+          <button data-d="7">7d</button>
+          <button data-d="30" class="active">30d</button>
+          <button data-d="90">90d</button>
+          <button data-d="365">1a</button>
+        </div>
       </div>
       <div class="pat-kpi" style="--pk-c:#10b981" onclick="location.href='gestao-patrimonial.html'">
         <div class="pat-kpi-label">Renda Fixa</div>
         <div class="pat-kpi-val" id="dashRF">–</div>
         <div class="pat-kpi-sub" id="dashRFSub">–</div>
         <div class="pat-kpi-var" id="dashRFVar"></div>
+        <div class="pat-kpi-spark" id="sparkRF"></div>
       </div>
       <div class="pat-kpi" style="--pk-c:#8b5cf6" onclick="location.href='gestao-patrimonial.html'">
         <div class="pat-kpi-label">Renda Variável</div>
         <div class="pat-kpi-val" id="dashRV">–</div>
         <div class="pat-kpi-sub" id="dashRVSub">da Gestão Patrimonial</div>
         <div class="pat-kpi-var" id="dashRVVar">⏳ buscando cotações…</div>
+        <div class="pat-kpi-spark" id="sparkRV"></div>
       </div>
     </div>
 
@@ -1333,6 +1362,9 @@ function _buscarCotacoesEAtualizarRV(){
     var totalVar1d=rfInfo.var1d+rvVar1d;
     var totalPct=totalReal>0?(totalVar1d/(totalReal-totalVar1d))*100:0;
     _renderVarEl('dashPatVar',totalPct,totalVar1d);
+
+    // Atualiza snapshot de hoje com total "real" (cotações ao vivo) + re-renderiza sparklines
+    try{ if(typeof _patSnapUpsert==='function'){ _patSnapUpsert(totalReal, rfLiq, rvTotal); _patRenderAllSparks(); } }catch(e){}
   });
 }
 
@@ -1666,8 +1698,178 @@ function loadPatStrip(){
     var rvCart=localStorage.getItem('g20_lastRVTotal');
     var cartEl=document.getElementById('qCarteiraStat');
     if(cartEl&&rvCart) cartEl.textContent='R$ '+(parseFloat(rvCart)/1000).toFixed(0)+'k';
+
+    // Sparkline: grava snapshot de hoje + renderiza
+    _patSnapUpsert(total, rfAtual, rvInv);
+    _patRenderAllSparks();
   }catch(e){}
 }
+
+// ── HISTÓRICO PATRIMONIAL + SPARKLINE + CDI ─────────────────────
+var PAT_SNAP_KEY = 'g20_patSnapshots';
+var PAT_RANGE_KEY = 'g20_patSparkRange';
+
+function _todayISO(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function _daysBetween(a,b){return Math.round((new Date(b)-new Date(a))/86400000);}
+
+function _patSnapLoad(){
+  try{var a=JSON.parse(localStorage.getItem(PAT_SNAP_KEY)||'[]');return Array.isArray(a)?a:[];}catch(e){return [];}
+}
+function _patSnapSave(arr){try{localStorage.setItem(PAT_SNAP_KEY,JSON.stringify(arr));}catch(e){}}
+
+// Fator diário do CDI (base IND.cdi em % a.a.)
+function _cdiDaily(){var aa=(IND&&IND.cdi)?IND.cdi:10.65;return Math.pow(1+aa/100,1/252);}
+
+// Insere/atualiza snapshot de HOJE
+function _patSnapUpsert(total,rf,rv){
+  if(!(total>0)) return;
+  var arr=_patSnapLoad();
+  var hoje=_todayISO();
+  // Se vazio: semeia 30 pontos sintéticos (random walk) pra mostrar algo útil imediatamente
+  if(arr.length===0){
+    arr=_patSeed(total,rf,rv,30);
+  }
+  var last=arr[arr.length-1];
+  if(last&&last.d===hoje){
+    last.t=total; last.rf=rf; last.rv=rv;
+  }else{
+    // avança CDI acumulado desde o último ponto
+    var cdiAcc = last ? last.c * Math.pow(_cdiDaily(), Math.max(1,_daysBetween(last.d,hoje))) : 100;
+    arr.push({d:hoje,t:total,rf:rf,rv:rv,c:cdiAcc});
+  }
+  // Limita a 400 dias
+  if(arr.length>400) arr=arr.slice(-400);
+  _patSnapSave(arr);
+}
+
+// Semente sintética: random walk ancorado no valor atual (só na 1ª visita)
+function _patSeed(total,rf,rv,dias){
+  var arr=[], hoje=new Date();
+  var cdiD=_cdiDaily();
+  // Gera série em reverso
+  var tFim=total, rfFim=rf, rvFim=rv;
+  var pts=[];
+  var vol=0.006; // ~0.6% diário
+  for(var i=0;i<dias;i++){
+    var driftT = (Math.random()*2-1)*vol;
+    var driftRV = (Math.random()*2-1)*vol*1.8;
+    tFim = tFim/(1+driftT);
+    rvFim = rvFim/(1+driftRV);
+    rfFim = rfFim/cdiD; // RF cresce como CDI ~
+    pts.push({t:tFim,rf:rfFim,rv:rvFim});
+  }
+  pts.reverse();
+  // Normaliza de volta ao valor atual (garante fim = total)
+  var factorT=total/(pts[pts.length-1]?pts[pts.length-1].t:total);
+  var cdiAcc=100;
+  for(var j=0;j<pts.length;j++){
+    var dt=new Date(hoje); dt.setDate(dt.getDate()-(dias-1-j));
+    var iso=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+    if(j>0) cdiAcc *= cdiD;
+    arr.push({d:iso,t:pts[j].t,rf:pts[j].rf,rv:pts[j].rv,c:cdiAcc,seed:true});
+  }
+  // Último ponto = valor real atual
+  if(arr.length) { arr[arr.length-1].t=total; arr[arr.length-1].rf=rf; arr[arr.length-1].rv=rv; }
+  return arr;
+}
+
+// Constrói SVG sparkline. series: array de numbers. cdi: array opcional (mesmo tamanho, base 100)
+function _buildSparkSVG(series, cdiSeries){
+  var W=100, H=34;
+  if(!series || series.length<2){
+    return '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none"><text class="sk-placeholder" x="50" y="20" text-anchor="middle">coletando histórico…</text></svg>';
+  }
+  var min=Math.min.apply(null,series), max=Math.max.apply(null,series);
+  // Inclui CDI no range se existir
+  if(cdiSeries && cdiSeries.length){
+    // normaliza CDI no mesmo eixo: base = primeiro ponto de series
+    var base=series[0];
+    var cdiNorm = cdiSeries.map(function(c,i){return base*(c/cdiSeries[0]);});
+    min=Math.min(min, Math.min.apply(null,cdiNorm));
+    max=Math.max(max, Math.max.apply(null,cdiNorm));
+  }
+  var pad=(max-min)*0.1||1;
+  min-=pad; max+=pad;
+  var scaleX=function(i){return (i/(series.length-1))*W;};
+  var scaleY=function(v){return H-((v-min)/(max-min))*H;};
+
+  var path='M'+series.map(function(v,i){return scaleX(i).toFixed(2)+','+scaleY(v).toFixed(2);}).join(' L');
+  var fill=path+' L'+W+','+H+' L0,'+H+' Z';
+
+  var cdiPath='';
+  if(cdiSeries && cdiSeries.length===series.length){
+    var base2=series[0];
+    cdiPath='<path class="sk-cdi" d="M'+cdiSeries.map(function(c,i){return scaleX(i).toFixed(2)+','+scaleY(base2*(c/cdiSeries[0])).toFixed(2);}).join(' L')+'"/>';
+  }
+  var lastX=scaleX(series.length-1), lastY=scaleY(series[series.length-1]);
+  return '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+
+    '<path class="sk-fill" d="'+fill+'"/>'+
+    cdiPath+
+    '<path class="sk-line" d="'+path+'"/>'+
+    '<circle class="sk-dot" cx="'+lastX.toFixed(2)+'" cy="'+lastY.toFixed(2)+'" r="2"/>'+
+    '</svg>';
+}
+
+function _patGetRange(){ try{return parseInt(localStorage.getItem(PAT_RANGE_KEY)||'30',10);}catch(e){return 30;} }
+function _patSetRange(d){ try{localStorage.setItem(PAT_RANGE_KEY,String(d));}catch(e){} }
+
+function _sliceRange(arr, dias){
+  if(!arr.length) return arr;
+  var cutoff=new Date(); cutoff.setDate(cutoff.getDate()-dias);
+  var cutoffISO=cutoff.getFullYear()+'-'+String(cutoff.getMonth()+1).padStart(2,'0')+'-'+String(cutoff.getDate()).padStart(2,'0');
+  var out=arr.filter(function(s){return s.d>=cutoffISO;});
+  // Garante pelo menos 2 pontos: se filtrou demais, pega últimos
+  if(out.length<2 && arr.length>=2) out=arr.slice(-Math.min(arr.length,dias));
+  return out;
+}
+
+function _patRenderAllSparks(){
+  var arr=_patSnapLoad();
+  var dias=_patGetRange();
+  var slice=_sliceRange(arr,dias);
+
+  var elT=document.getElementById('sparkTotal');
+  var elRF=document.getElementById('sparkRF');
+  var elRV=document.getElementById('sparkRV');
+  var elCmp=document.getElementById('cmpTotal');
+
+  if(elT) elT.innerHTML=_buildSparkSVG(slice.map(function(s){return s.t;}), slice.map(function(s){return s.c;}));
+  if(elRF) elRF.innerHTML=_buildSparkSVG(slice.map(function(s){return s.rf;}));
+  if(elRV) elRV.innerHTML=_buildSparkSVG(slice.map(function(s){return s.rv;}));
+
+  if(elCmp){
+    if(slice.length<2){ elCmp.innerHTML=''; }
+    else{
+      var patPct=((slice[slice.length-1].t/slice[0].t)-1)*100;
+      var cdiPct=((slice[slice.length-1].c/slice[0].c)-1)*100;
+      var diff=patPct-cdiPct;
+      var cls=diff>0.05?'up':diff<-0.05?'down':'neu';
+      var sinal=diff>=0?'+':'';
+      var diasReal=_daysBetween(slice[0].d,slice[slice.length-1].d)||dias;
+      var seeded=slice.some(function(s){return s.seed;});
+      elCmp.innerHTML=
+        '<span class="cmp-pill '+cls+'">'+sinal+diff.toFixed(2)+'% vs CDI</span>'+
+        '<span>('+diasReal+'d · patrim. '+(patPct>=0?'+':'')+patPct.toFixed(2)+'% · CDI '+(cdiPct>=0?'+':'')+cdiPct.toFixed(2)+'%)</span>'+
+        '<span class="cmp-legend">CDI</span>'+
+        (seeded?'<span style="font-size:9px;color:var(--text3);opacity:.7">· histórico sintético (começa a acumular real hoje)</span>':'');
+    }
+  }
+
+  // Marca range ativo
+  var rangeBtns=document.querySelectorAll('#rangeTotal button');
+  rangeBtns.forEach(function(b){
+    b.classList.toggle('active', parseInt(b.getAttribute('data-d'),10)===dias);
+  });
+}
+
+// Bind botões de range
+document.addEventListener('click',function(e){
+  var btn=e.target.closest('#rangeTotal button');
+  if(!btn) return;
+  var d=parseInt(btn.getAttribute('data-d'),10);
+  _patSetRange(d);
+  _patRenderAllSparks();
+});
 
 // -- SIDEBAR / THEME --------------------------------------------
 function toggleSidebar(){
