@@ -729,13 +729,13 @@ if(localStorage.getItem('g20_uid')){
         <div class="pat-kpi-spark" id="sparkTotal"></div>
         <div class="pat-kpi-cmp" id="cmpTotal"></div>
         <div class="pat-kpi-range" id="rangeTotal" onclick="event.stopPropagation()">
-          <button data-d="7">7d</button>
-          <button data-d="30" class="active">30d</button>
-          <button data-d="90">3m</button>
-          <button data-d="180">6m</button>
+          <button data-d="1">1d</button>
+          <button data-d="5">5d</button>
+          <button data-d="30" class="active">1m</button>
+          <button data-d="ytd">YTD</button>
           <button data-d="365">1a</button>
-          <button data-d="730">2a</button>
           <button data-d="1825">5a</button>
+          <button data-d="max">Tudo</button>
         </div>
       </div>
       <div class="pat-kpi" style="--pk-c:#10b981" onclick="if(!event.target.closest('.pat-kpi-range'))location.href='gestao-patrimonial.html'">
@@ -745,13 +745,13 @@ if(localStorage.getItem('g20_uid')){
         <div class="pat-kpi-var" id="dashRFVar"></div>
         <div class="pat-kpi-spark" id="sparkRF"></div>
         <div class="pat-kpi-range" id="rangeRF" onclick="event.stopPropagation()">
-          <button data-d="7">7d</button>
-          <button data-d="30" class="active">30d</button>
-          <button data-d="90">3m</button>
-          <button data-d="180">6m</button>
+          <button data-d="1">1d</button>
+          <button data-d="5">5d</button>
+          <button data-d="30" class="active">1m</button>
+          <button data-d="ytd">YTD</button>
           <button data-d="365">1a</button>
-          <button data-d="730">2a</button>
           <button data-d="1825">5a</button>
+          <button data-d="max">Tudo</button>
         </div>
       </div>
       <div class="pat-kpi" style="--pk-c:#8b5cf6" onclick="if(!event.target.closest('.pat-kpi-range'))location.href='gestao-patrimonial.html'">
@@ -761,13 +761,13 @@ if(localStorage.getItem('g20_uid')){
         <div class="pat-kpi-var" id="dashRVVar">⏳ buscando cotações…</div>
         <div class="pat-kpi-spark" id="sparkRV"></div>
         <div class="pat-kpi-range" id="rangeRV" onclick="event.stopPropagation()">
-          <button data-d="7">7d</button>
-          <button data-d="30" class="active">30d</button>
-          <button data-d="90">3m</button>
-          <button data-d="180">6m</button>
+          <button data-d="1">1d</button>
+          <button data-d="5">5d</button>
+          <button data-d="30" class="active">1m</button>
+          <button data-d="ytd">YTD</button>
           <button data-d="365">1a</button>
-          <button data-d="730">2a</button>
           <button data-d="1825">5a</button>
+          <button data-d="max">Tudo</button>
         </div>
       </div>
     </div>
@@ -1846,23 +1846,31 @@ function _buildSparkSVG(series, cdiSeries){
     '</svg>';
 }
 
-function _patGetRange(){ try{return parseInt(localStorage.getItem(PAT_RANGE_KEY)||'30',10);}catch(e){return 30;} }
+function _patGetRange(){ try{return localStorage.getItem(PAT_RANGE_KEY)||'30';}catch(e){return '30';} }
 function _patSetRange(d){ try{localStorage.setItem(PAT_RANGE_KEY,String(d));}catch(e){} }
 
-function _sliceRange(arr, dias){
+// Aceita número (dias), "ytd" ou "max"
+function _sliceRange(arr, code){
   if(!arr.length) return arr;
-  var cutoff=new Date(); cutoff.setDate(cutoff.getDate()-dias);
-  var cutoffISO=cutoff.getFullYear()+'-'+String(cutoff.getMonth()+1).padStart(2,'0')+'-'+String(cutoff.getDate()).padStart(2,'0');
+  if(code==='max') return arr.slice();
+  var cutoffISO;
+  if(code==='ytd'){
+    var y=(new Date()).getFullYear();
+    cutoffISO=y+'-01-01';
+  } else {
+    var dias=parseInt(code,10)||30;
+    var cutoff=new Date(); cutoff.setDate(cutoff.getDate()-dias);
+    cutoffISO=cutoff.getFullYear()+'-'+String(cutoff.getMonth()+1).padStart(2,'0')+'-'+String(cutoff.getDate()).padStart(2,'0');
+  }
   var out=arr.filter(function(s){return s.d>=cutoffISO;});
-  // Garante pelo menos 2 pontos: se filtrou demais, pega últimos
-  if(out.length<2 && arr.length>=2) out=arr.slice(-Math.min(arr.length,dias));
+  if(out.length<2 && arr.length>=2) out=arr.slice(-Math.min(arr.length, 2));
   return out;
 }
 
 function _patRenderAllSparks(){
   var arr=_patSnapLoad();
-  var dias=_patGetRange();
-  var slice=_sliceRange(arr,dias);
+  var code=_patGetRange();
+  var slice=_sliceRange(arr,code);
 
   var elT=document.getElementById('sparkTotal');
   var elRF=document.getElementById('sparkRF');
@@ -1881,11 +1889,12 @@ function _patRenderAllSparks(){
       var diff=patPct-cdiPct;
       var cls=diff>0.05?'up':diff<-0.05?'down':'neu';
       var sinal=diff>=0?'+':'';
-      var diasReal=_daysBetween(slice[0].d,slice[slice.length-1].d)||dias;
+      var diasReal=_daysBetween(slice[0].d,slice[slice.length-1].d);
+      var labelPeriodo = code==='ytd' ? 'YTD' : code==='max' ? 'Tudo' : diasReal+'d';
       var seeded=slice.some(function(s){return s.seed;});
       elCmp.innerHTML=
         '<span class="cmp-pill '+cls+'">'+sinal+diff.toFixed(2)+'% vs CDI</span>'+
-        '<span>('+diasReal+'d · patrim. '+(patPct>=0?'+':'')+patPct.toFixed(2)+'% · CDI '+(cdiPct>=0?'+':'')+cdiPct.toFixed(2)+'%)</span>'+
+        '<span>('+labelPeriodo+' · patrim. '+(patPct>=0?'+':'')+patPct.toFixed(2)+'% · CDI '+(cdiPct>=0?'+':'')+cdiPct.toFixed(2)+'%)</span>'+
         '<span class="cmp-legend">CDI</span>'+
         (seeded?'<span style="font-size:9px;color:var(--text3);opacity:.7">· histórico sintético (começa a acumular real hoje)</span>':'');
     }
@@ -1894,7 +1903,7 @@ function _patRenderAllSparks(){
   // Marca range ativo em todos os 3 seletores (compartilham o mesmo período)
   var rangeBtns=document.querySelectorAll('#rangeTotal button, #rangeRF button, #rangeRV button');
   rangeBtns.forEach(function(b){
-    b.classList.toggle('active', parseInt(b.getAttribute('data-d'),10)===dias);
+    b.classList.toggle('active', b.getAttribute('data-d')===String(code));
   });
 }
 
@@ -1903,8 +1912,8 @@ document.addEventListener('click',function(e){
   var btn=e.target.closest('#rangeTotal button, #rangeRF button, #rangeRV button');
   if(!btn) return;
   e.stopPropagation();
-  var d=parseInt(btn.getAttribute('data-d'),10);
-  _patSetRange(d);
+  var code=btn.getAttribute('data-d');
+  _patSetRange(code);
   _patRenderAllSparks();
 }, true);
 
