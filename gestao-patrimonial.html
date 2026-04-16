@@ -659,11 +659,15 @@ body.pat-hidden .pat-kpi-sub .kpi-money::after{justify-content:flex-start;paddin
 .light #rvTable tbody tr{border-bottom:1px solid rgba(0,0,0,.05)}
 .light #rvTable tbody tr:hover td{background:var(--sur2)!important}
 .light .rv-table-wrap{background:#fff !important}
-/* Logo dos ativos */
-.asset-logo{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.06);overflow:hidden;vertical-align:middle;margin-right:8px;flex-shrink:0}
-.asset-logo img{width:100%;height:100%;object-fit:cover}
-.asset-logo-fb{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--gold),var(--goldd));color:#090b0f;font-size:9px;font-weight:800;letter-spacing:.3px;vertical-align:middle;margin-right:8px;flex-shrink:0}
-.ticker-cell{display:inline-flex;align-items:center}
+/* Logo dos ativos — replicado da Carteira G20 */
+.asset-logo{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;background:#ffffff;border:1px solid rgba(0,0,0,.09);overflow:hidden;flex-shrink:0;box-shadow:0 1px 6px rgba(0,0,0,.18);transition:transform .15s,box-shadow .15s;margin-right:10px}
+body:not(.light) .asset-logo{background:#ffffff;border-color:rgba(255,255,255,.12);box-shadow:0 1px 8px rgba(0,0,0,.4)}
+.light .asset-logo{background:#ffffff;border-color:rgba(0,0,0,.1)}
+.asset-logo:hover{transform:scale(1.12);box-shadow:0 3px 14px rgba(0,0,0,.35)}
+.asset-logo img{width:100%;height:100%;object-fit:contain;display:block;padding:3px;box-sizing:border-box}
+.asset-logo svg{width:100%;height:100%;display:block}
+.asset-logo .logo-fallback{font-size:9px;font-weight:800;letter-spacing:-.3px;color:#fff;line-height:1;text-align:center;width:100%;height:100%;display:flex;align-items:center;justify-content:center;border-radius:inherit}
+.ticker-cell{display:inline-flex;align-items:center;gap:0;font-weight:700;font-size:14px;color:var(--text);letter-spacing:.3px}
 #rvTable tbody tr{background:#0d0f17}
 
 /* ── MODAL IMPORTAR IA ── */
@@ -4779,20 +4783,137 @@ function renderRVPosicoes(){
   _rvBindBtns();
 }
 
-// Logo do ativo — TradingView svg com fallback para iniciais em dourado
-function gpLogoHtml(ticker, tipo){
-  var t = String(ticker||'').replace(/\.SA$/i,'').replace(/\.L$/i,'').toUpperCase();
-  if(!t) return '';
-  var slug = t.toLowerCase();
-  var initials = t.substring(0,Math.min(3,t.length));
-  // BR: tenta bovespa; US: tradingview symbol logo direto
-  var urlBR = 'https://s3-symbol-logo.tradingview.com/country/BR.svg';
-  var url = tipo==='Cripto'
-    ? 'https://s3-symbol-logo.tradingview.com/crypto/XTVC'+slug.replace(/-?USD$/,'').toUpperCase()+'--big.svg'
-    : 'https://s3-symbol-logo.tradingview.com/'+slug+'--big.svg';
-  var fb = '<span class="asset-logo-fb">'+initials+'</span>';
-  return '<span class="asset-logo"><img src="'+url+'" alt="" loading="lazy" onerror="this.parentNode.outerHTML=\''+fb.replace(/'/g,"\\'")+'\'"></span>';
+// ═══════════════ SISTEMA COMPLETO DE LOGOS (ported from Carteira G20) ═══
+var tokenLogoDev = (function(){try{return localStorage.getItem('g20_tokenLogoDev')||'';}catch(e){return '';}})();
+var _logoCache = {};
+var _logoQueue = {};
+var LOGO_VERSION = 'v5_'+(Date.now()+'').slice(-7);
+
+var BR_LOGO_DOMAINS = {
+  PETR4:'petrobras.com.br', VALE3:'vale.com', ITUB4:'itau.com.br', ITUB3:'itau.com.br',
+  BBDC4:'bradesco.com.br', ABEV3:'ambev.com.br', WEGE3:'weg.net',
+  MGLU3:'magazineluiza.com.br', RENT3:'localiza.com', BBAS3:'bb.com.br',
+  SUZB3:'suzano.com.br', RADL3:'drogasil.com.br', HAPV3:'hapvida.com.br',
+  LREN3:'lojasrenner.com.br', BRFS3:'brf-global.com', CSAN3:'cosan.com',
+  BPAC11:'btgpactual.com', ENEV3:'eneva.com.br', PRIO3:'prioil.com.br',
+  VULC3:'vulcabras.com.br', EMBR3:'embraer.com', SBSP3:'sabesp.com.br',
+  CPFE3:'cpfl.com.br', KLBN11:'klabin.com.br', VIVT3:'vivo.com.br',
+  CPLE6:'copel.com.br', MRFG3:'marfrig.com.br', EQTL3:'equatorial.com.br',
+  HYPE3:'hypera.com.br', TOTS3:'totvs.com', MOVI3:'movida.com.br',
+  GMAT3:'grupo-mateus.com.br', SMTO3:'saomartinho.com.br', SBFG3:'sbfgrupo.com',
+  MXRF11:'maxxparceiros.com.br', XPML11:'xpinvestimentos.com.br',
+  HGLG11:'cshg.com.br', KNRI11:'kinea.com.br'
+};
+var US_CLEARBIT = {
+  AAPL:'apple.com', MSFT:'microsoft.com', GOOGL:'google.com', GOOG:'google.com',
+  AMZN:'amazon.com', NVDA:'nvidia.com', META:'meta.com', TSLA:'tesla.com',
+  NFLX:'netflix.com', AMD:'amd.com', INTC:'intel.com', ORCL:'oracle.com',
+  CRM:'salesforce.com', ADBE:'adobe.com', PYPL:'paypal.com', SHOP:'shopify.com',
+  UBER:'uber.com', SNAP:'snap.com', ASML:'asml.com', NVO:'novonordisk.com',
+  SAP:'sap.com','BRK.B':'berkshirehathaway.com','BRK-B':'berkshirehathaway.com',
+  BRK:'berkshirehathaway.com', JPM:'jpmorganchase.com', BAC:'bankofamerica.com',
+  GS:'goldmansachs.com', WFC:'wellsfargo.com', MS:'morganstanley.com',
+  V:'visa.com', MA:'mastercard.com', AXP:'americanexpress.com',
+  JNJ:'jnj.com', PFE:'pfizer.com', MRK:'merck.com', ABBV:'abbvie.com',
+  LLY:'lilly.com', UNH:'unitedhealthgroup.com', XOM:'exxonmobil.com',
+  CVX:'chevron.com', DIS:'disney.com', WMT:'walmart.com', COST:'costco.com',
+  HD:'homedepot.com', MCD:'mcdonalds.com', NKE:'nike.com', BA:'boeing.com',
+  ROL:'rollins.com', INTR:'inter.com', MU:'micron.com',
+  SPY:'ssga.com', QQQ:'invesco.com', VTI:'vanguard.com', VOO:'vanguard.com',
+  SCHD:'schwab.com', JEPI:'jpmorganchase.com', ARKK:'ark-invest.com',
+  COIN:'coinbase.com', NET:'cloudflare.com', CRWD:'crowdstrike.com',
+  PLTR:'palantir.com', SNOW:'snowflake.com', DDOG:'datadoghq.com',
+  LEVI:'levi.com', DKS:'dickssportinggoods.com', CROX:'crocs.com',
+  LEU:'centrusenergy.com'
+};
+var LOGO_FALLBACK_COLORS = {
+  Acao:'linear-gradient(135deg,#1e3a5f,#2563eb)',
+  FII:'linear-gradient(135deg,#064e3b,#10b981)',
+  FIAGRO:'linear-gradient(135deg,#78350f,#f59e0b)',
+  Stock:'linear-gradient(135deg,#3b0764,#8b5cf6)',
+  REIT:'linear-gradient(135deg,#7f1d1d,#ef4444)',
+  ETF:'linear-gradient(135deg,#7c2d12,#f97316)',
+  Cripto:'linear-gradient(135deg,#78350f,#f7931a)',
+  UCITs:'linear-gradient(135deg,#003f5c,#00bcd4)'
+};
+
+function _isBRLogo(ticker, tipo){
+  if(['Stock','REIT','ETF','Cripto','UCITs'].indexOf(tipo)>=0) return false;
+  if(/\.SA$/i.test(ticker)) return true;
+  return /\d$/.test(ticker) || ['Acao','FII','FIAGRO'].indexOf(tipo)>=0;
 }
+
+function logoFallbackHtml(ticker, tipo){
+  var t  = ticker.replace(/\.SA$/i,'').toUpperCase();
+  var bg = LOGO_FALLBACK_COLORS[tipo] || 'linear-gradient(135deg,#1f2937,#374151)';
+  var txt = t.length<=3 ? t : t.substring(0,2);
+  return '<span class="asset-logo"><span class="logo-fallback" style="background:'+bg+';font-size:'+(txt.length>2?'8':'10')+'px">'+txt+'</span></span>';
+}
+
+function getLogoHtml(ticker, tipo){
+  var t = ticker.replace(/\.SA$/i,'').toUpperCase();
+  var cached = _logoCache[t];
+  if(cached === 'error' || cached === 'none') return logoFallbackHtml(ticker, tipo);
+  if(cached) return '<span class="asset-logo"><img src="'+cached+'" alt="'+t+'" onerror="logoError(this,\''+t+'\')" loading="lazy"></span>';
+  fetchLogo(t, tipo);
+  var fb = logoFallbackHtml(ticker, tipo);
+  return fb.replace('class="asset-logo"','class="asset-logo" id="logo-'+t+'"');
+}
+
+function fetchLogo(ticker, tipo){
+  if(_logoQueue[ticker]) return;
+  _logoQueue[ticker] = true;
+  tryLogoUrls(ticker, buildLogoUrls(ticker, tipo), 0);
+}
+
+function buildLogoUrls(ticker, tipo){
+  var t = ticker.replace(/\.SA$/i,'').toUpperCase();
+  var isBr = _isBRLogo(ticker, tipo||'Stock');
+  var urls = [];
+  if(!isBr){
+    if(tokenLogoDev) urls.push('https://img.logo.dev/ticker/'+t+'?token='+tokenLogoDev+'&size=64&format=png');
+    urls.push('https://query2.finance.yahoo.com/v1/finance/logobycompany?symbol='+t+'&lang=en-US');
+    urls.push('https://eodhd.com/img/logos/US/'+t+'.png');
+    var cb = US_CLEARBIT[t];
+    if(cb){ urls.push('https://logo.clearbit.com/'+cb); urls.push('https://cdn.brandfetch.io/'+cb+'/w/64/h/64/logo'); }
+    if(!cb) urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'--big.svg');
+  } else {
+    if(tokenLogoDev) urls.push('https://img.logo.dev/ticker/'+t+'.SA?token='+tokenLogoDev+'&size=64&format=png');
+    urls.push('https://raw.githubusercontent.com/thefintz/icones-b3/main/icones/'+t+'.png');
+    urls.push('https://query2.finance.yahoo.com/v1/finance/logobycompany?symbol='+t+'.SA&lang=pt-BR');
+    urls.push('https://eodhd.com/img/logos/BR/'+t+'.png');
+    var br = BR_LOGO_DOMAINS[t];
+    if(br){ urls.push('https://logo.clearbit.com/'+br); urls.push('https://cdn.brandfetch.io/'+br+'/w/64/h/64/logo'); }
+    urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'--big.svg');
+  }
+  return urls;
+}
+
+function tryLogoUrls(ticker, urls, idx){
+  if(idx >= urls.length){ _logoCache[ticker]='error'; _logoQueue[ticker]=false; return; }
+  var img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = function(){
+    if(img.naturalWidth<8 || img.naturalHeight<8){ tryLogoUrls(ticker,urls,idx+1); return; }
+    var ratio = img.naturalWidth/img.naturalHeight;
+    if(ratio>5 || ratio<0.2){ tryLogoUrls(ticker,urls,idx+1); return; }
+    _logoCache[ticker] = urls[idx];
+    _logoQueue[ticker] = false;
+    var el = document.getElementById('logo-'+ticker);
+    if(el) el.innerHTML = '<img src="'+urls[idx]+'" alt="'+ticker+'" onerror="logoError(this,\''+ticker+'\')" loading="lazy">';
+  };
+  img.onerror = function(){ tryLogoUrls(ticker,urls,idx+1); };
+  img.src = urls[idx];
+}
+
+function logoError(imgEl, ticker){
+  _logoCache[ticker]='error';
+  var el = imgEl ? imgEl.closest('.asset-logo') : document.getElementById('logo-'+ticker);
+  if(el) el.innerHTML = '<span class="logo-fallback">'+ticker.substring(0,3)+'</span>';
+}
+
+// Alias para ordem compatível (gpLogoHtml era o nome usado antes)
+function gpLogoHtml(ticker, tipo){ return getLogoHtml(ticker, tipo); }
 
 function rvRenderKpiStrip(rows){
   var el = document.getElementById('rvKpiStrip');
