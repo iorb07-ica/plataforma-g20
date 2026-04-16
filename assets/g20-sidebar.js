@@ -89,6 +89,12 @@
     injectCollapseBtn();
     setTooltips();
     atualizarLegendaBtn();
+    // Habilita transições apenas após o estado inicial ser aplicado (evita flash)
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){
+        document.body.classList.add('sidebar-ready');
+      });
+    });
   }
 
   if(document.readyState === 'loading'){
