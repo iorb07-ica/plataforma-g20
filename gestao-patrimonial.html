@@ -207,8 +207,14 @@ body.pat-hidden .pat-kpi-sub::after{justify-content:flex-start;padding-right:0}
 .gp-tab-badge{font-size:9px;font-weight:800;padding:1px 6px;border-radius:10px;background:var(--sur2);color:var(--text3);transition:all .2s}
 .gp-tab.active .gp-tab-badge{background:rgba(232,184,75,.18);color:var(--gold)}
 /* Painel de aba */
-.gp-panel{display:none}
-.gp-panel.active{display:block}
+.gp-panel{display:none;opacity:0;transform:translateY(4px)}
+.gp-panel.active{display:block;animation:gpPanelIn .32s var(--ease) forwards}
+@keyframes gpPanelIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+/* Sub-abas de gráficos: mesma transição ao alternar */
+.gst-content{animation:gpPanelIn .3s var(--ease) forwards}
+/* Canvas de cada gráfico aparece com fade+escala */
+.gp-panel canvas{animation:chartIn .45s var(--ease) both}
+@keyframes chartIn{0%{opacity:0;transform:scale(.96)}100%{opacity:1;transform:scale(1)}}
 /* ── ABAS PRINCIPAIS ── */
 .gp-tabs-bar{
   display:flex;gap:6px;
@@ -821,39 +827,6 @@ body.pat-hidden .pat-kpi-sub::after{justify-content:flex-start;padding-right:0}
     <!-- ── PAINEL: VISÃO GERAL ── -->
     <div class="gp-panel active" id="gpPanel-visao-geral">
 
-      <!-- GRÁFICOS -->
-      <div class="charts-row">
-        <div class="chart-card">
-          <div class="chart-card-title"><span></span>Composição do Patrimônio</div>
-          <div style="position:relative;height:180px"><canvas id="chartComposicao"></canvas></div>
-          <div class="leg-list" id="legComposicao"></div>
-        </div>
-        <div class="chart-card">
-          <div class="chart-card-title"><span></span>Distribuição por Classe de RF</div>
-          <div style="position:relative;height:180px"><canvas id="chartRFDist"></canvas></div>
-          <div class="leg-list" id="legRFDist"></div>
-        </div>
-        <div class="chart-card">
-          <div class="chart-card-title"><span></span>Composição da RV</div>
-          <div style="position:relative;height:180px"><canvas id="chartRVDist"></canvas></div>
-          <div class="leg-list" id="legRVDist"></div>
-        </div>
-        <div class="chart-card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-            <div class="chart-card-title" style="margin-bottom:0"><span></span>Evolução Patrimonial</div>
-            <div class="period-wrap">
-              <button class="filter-pill"        id="evoBtn6m"   onclick="setEvoRange(6,this)">6M</button>
-              <button class="filter-pill"        id="evoBtn1a"   onclick="setEvoRange(12,this)">1A</button>
-              <button class="filter-pill"        id="evoBtn2a"   onclick="setEvoRange(24,this)">2A</button>
-              <button class="filter-pill"        id="evoBtn5a"   onclick="setEvoRange(60,this)">5A</button>
-              <button class="filter-pill active" id="evoBtn10a"  onclick="setEvoRange(120,this)">10A</button>
-            </div>
-          </div>
-          <div id="evoLegendaClasses" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px"></div>
-          <div style="position:relative;height:260px"><canvas id="chartEvolucao"></canvas></div>
-        </div>
-      </div>
-
       <!-- RENDA FIXA -->
       <div class="rf-section">
         <!-- Header colapsável RF -->
@@ -1013,19 +986,57 @@ body.pat-hidden .pat-kpi-sub::after{justify-content:flex-start;padding-right:0}
     <div class="gp-panel" id="gpPanel-transacoes">
 
       <!-- Filtros -->
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <button class="filter-pill active" onclick="setTxFiltro('todos',this)">Todos</button>
           <button class="filter-pill" onclick="setTxFiltro('RF',this)">🏦 Renda Fixa</button>
           <button class="filter-pill" onclick="setTxFiltro('RV',this)">📈 Renda Variável</button>
           <button class="filter-pill" onclick="setTxFiltro('Bens',this)">🏛️ Bens</button>
         </div>
-        <div style="display:flex;gap:8px;align-items:center">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="filtroTxTipo" onchange="renderTransacoes()" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px;outline:none;cursor:pointer">
+            <option value="">Todos os tipos</option>
+            <option value="Acao">Ação</option>
+            <option value="FII">FII</option>
+            <option value="FIAGRO">FIAGRO</option>
+            <option value="Stock">Stock</option>
+            <option value="REIT">REIT</option>
+            <option value="ETF">ETF</option>
+            <option value="UCITs">UCITs</option>
+            <option value="Cripto">Cripto</option>
+            <option value="CDB">CDB</option>
+            <option value="LCI">LCI</option>
+            <option value="LCA">LCA</option>
+            <option value="TD">Tesouro Direto</option>
+            <option value="LIG">LIG</option>
+            <option value="DEB">Debênture</option>
+            <option value="CRI">CRI</option>
+            <option value="CRA">CRA</option>
+          </select>
+          <select id="filtroTxPeriodo" onchange="renderTransacoes()" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px;outline:none;cursor:pointer">
+            <option value="">Todo período</option>
+            <option value="7">Últimos 7 dias</option>
+            <option value="30">Últimos 30 dias</option>
+            <option value="90">Últimos 90 dias</option>
+            <option value="180">Últimos 6 meses</option>
+            <option value="365">Último ano</option>
+          </select>
+          <select id="filtroTxOp" onchange="renderTransacoes()" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px;outline:none;cursor:pointer">
+            <option value="">Todas operações</option>
+            <option value="Compra">Compra</option>
+            <option value="Venda">Venda</option>
+            <option value="Aplicação">Aplicação (RF)</option>
+            <option value="Resgate">Resgate (RF)</option>
+          </select>
+          <select id="filtroTxTicker" onchange="renderTransacoes()" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px;outline:none;cursor:pointer;min-width:130px">
+            <option value="">Todos os ativos</option>
+          </select>
           <input id="txSearch" placeholder="🔍 Buscar..." oninput="renderTransacoes()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:6px 12px;border-radius:8px;font-size:12px;font-family:inherit;min-width:160px">
-          <select id="txOrdem" onchange="renderTransacoes()" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px;outline:none">
+          <select id="txOrdem" onchange="renderTransacoes()" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:12px;outline:none;cursor:pointer">
             <option value="desc">Mais recentes</option>
             <option value="asc">Mais antigas</option>
           </select>
+          <button class="btn-sm btn-outline" onclick="limparFiltrosTx()" title="Limpar filtros" style="padding:6px 10px;font-size:11px">✕ Limpar</button>
         </div>
       </div>
 
@@ -1034,14 +1045,14 @@ body.pat-hidden .pat-kpi-sub::after{justify-content:flex-start;padding-right:0}
 
       <!-- Tabela -->
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:600px">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:600px" id="txTable">
           <thead>
             <tr style="border-bottom:1px solid var(--border)">
-              <th style="text-align:left;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 14px;white-space:nowrap">Data</th>
-              <th style="text-align:left;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Classe</th>
-              <th style="text-align:left;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Descrição</th>
-              <th style="text-align:left;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Tipo</th>
-              <th style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 14px;white-space:nowrap">Valor</th>
+              <th onclick="txThClick('data')" data-txcol="data" style="text-align:left;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 14px;white-space:nowrap;cursor:pointer;user-select:none">Data <span class="sort-arrow">↕</span></th>
+              <th onclick="txThClick('classe')" data-txcol="classe" style="text-align:left;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap;cursor:pointer;user-select:none">Classe <span class="sort-arrow">↕</span></th>
+              <th onclick="txThClick('descricao')" data-txcol="descricao" style="text-align:left;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap;cursor:pointer;user-select:none">Descrição <span class="sort-arrow">↕</span></th>
+              <th onclick="txThClick('op')" data-txcol="op" style="text-align:left;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap;cursor:pointer;user-select:none">Tipo <span class="sort-arrow">↕</span></th>
+              <th onclick="txThClick('valor')" data-txcol="valor" style="text-align:right;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 14px;white-space:nowrap;cursor:pointer;user-select:none">Valor <span class="sort-arrow">↕</span></th>
               <th style="text-align:left;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);padding:10px 12px;white-space:nowrap">Indexador / Detalhe</th>
             </tr>
           </thead>
@@ -6941,9 +6952,12 @@ function buscarProventosAuto(){
 
     lista.sort(function(a,b){ return b.data.localeCompare(a.data); });
     saveProventos(lista);
-    renderProventos();
-    renderProventosChart();
-    renderProvKpis();
+    // Só re-renderiza se houve novos proventos (evita 'pisca duplo' na abertura da aba)
+    if(novos>0){
+      renderProventos();
+      renderProventosChart();
+      renderProvKpis();
+    }
 
     if(status){
       status.textContent = novos>0
@@ -7219,15 +7233,73 @@ function _buildTxLista(){
   return lista;
 }
 
+var _txSortCol = null;
+var _txSortAsc = false;
+function txThClick(col){
+  if(_txSortCol === col){ _txSortAsc = !_txSortAsc; }
+  else { _txSortCol = col; _txSortAsc = col==='data'?false:true; }
+  renderTransacoes();
+}
+
+function limparFiltrosTx(){
+  var ids=['filtroTxTipo','filtroTxPeriodo','filtroTxOp','filtroTxTicker','txSearch','txOrdem'];
+  ids.forEach(function(id){ var el=document.getElementById(id); if(el){ el.value = id==='txOrdem'?'desc':''; }});
+  _txFiltro='todos';
+  document.querySelectorAll('#gpPanel-transacoes .filter-pill').forEach(function(b){ b.classList.remove('active'); });
+  var all=document.querySelector('#gpPanel-transacoes .filter-pill'); if(all) all.classList.add('active');
+  renderTransacoes();
+}
+
+function _populaTxTickerSelect(){
+  var sel=document.getElementById('filtroTxTicker'); if(!sel) return;
+  var curr=sel.value;
+  var aportes = loadRVAportes();
+  var tickers = Array.from(new Set(aportes.map(function(a){return a.ticker;}))).filter(Boolean).sort();
+  sel.innerHTML = '<option value="">Todos os ativos</option>' +
+    tickers.map(function(t){ return '<option value="'+t+'">'+t+'</option>'; }).join('');
+  sel.value = curr;
+}
+
 function renderTransacoes(){
+  _populaTxTickerSelect();
   var busca = (document.getElementById('txSearch') || {value:''}).value.toLowerCase();
   var ordem = (document.getElementById('txOrdem') || {value:'desc'}).value;
+  var fTipo = (document.getElementById('filtroTxTipo') || {value:''}).value;
+  var fPer  = (document.getElementById('filtroTxPeriodo') || {value:''}).value;
+  var fOp   = (document.getElementById('filtroTxOp') || {value:''}).value;
+  var fTk   = (document.getElementById('filtroTxTicker') || {value:''}).value;
 
   var lista = _buildTxLista();
 
   // Filtro classe
   if(_txFiltro !== 'todos'){
     lista = lista.filter(function(t){ return t.classe === _txFiltro; });
+  }
+
+  // Filtro tipo (subtipo)
+  if(fTipo){
+    lista = lista.filter(function(t){
+      return (t.subtipo||'').toLowerCase().indexOf(fTipo.toLowerCase())>=0 ||
+             (t.subtipo||'').toLowerCase() === fTipo.toLowerCase();
+    });
+  }
+
+  // Filtro período
+  if(fPer){
+    var dias = parseInt(fPer,10);
+    var limite = new Date(); limite.setDate(limite.getDate()-dias);
+    var limiteStr = limite.toISOString().split('T')[0];
+    lista = lista.filter(function(t){ return (t.data||'') >= limiteStr; });
+  }
+
+  // Filtro operação
+  if(fOp){
+    lista = lista.filter(function(t){ return t.op === fOp; });
+  }
+
+  // Filtro ticker
+  if(fTk){
+    lista = lista.filter(function(t){ return (t.descricao||'').toUpperCase().indexOf(fTk.toUpperCase())>=0; });
   }
 
   // Filtro busca
@@ -7240,11 +7312,21 @@ function renderTransacoes(){
     });
   }
 
-  // Ordenação
+  // Ordenação: por coluna escolhida (header click) ou padrão por data
+  var col = _txSortCol || 'data';
+  var asc = _txSortCol ? _txSortAsc : (ordem==='asc');
   lista.sort(function(a,b){
-    return ordem === 'desc'
-      ? b.data.localeCompare(a.data)
-      : a.data.localeCompare(b.data);
+    var va = a[col], vb = b[col];
+    if(col==='valor'){ va = +va||0; vb = +vb||0; return asc?va-vb:vb-va; }
+    va = String(va||''); vb = String(vb||'');
+    return asc ? va.localeCompare(vb) : vb.localeCompare(va);
+  });
+  // Atualiza indicadores de sort
+  document.querySelectorAll('#txTable th[data-txcol]').forEach(function(th){
+    var arr=th.querySelector('.sort-arrow');
+    if(!arr) return;
+    if(th.getAttribute('data-txcol')===col){ arr.textContent = asc?'▲':'▼'; arr.style.color='var(--gold)'; arr.style.opacity='1'; }
+    else{ arr.textContent='↕'; arr.style.color=''; arr.style.opacity='.35'; }
   });
 
   // Resumo rápido
@@ -7318,7 +7400,13 @@ function gpSubTab(subId, btn){
   document.querySelectorAll('.gp-subtab').forEach(function(b){ b.classList.remove('active'); });
   // Ativa o selecionado
   var panel = document.getElementById('gsp-'+subId);
-  if(panel){ panel.style.display='block'; panel.classList.add('active'); }
+  if(panel){
+    panel.style.display='block';
+    panel.classList.add('active');
+    // Força re-disparo da animação chartIn
+    panel.style.animation = 'none'; void panel.offsetWidth;
+    panel.style.animation = 'gpPanelIn .32s var(--ease) forwards';
+  }
   if(btn) btn.classList.add('active');
   // Salva sub-aba
   try{ localStorage.setItem('gp_subgraf', subId); }catch(e){}
