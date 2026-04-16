@@ -83,11 +83,12 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .pat-hide-btn{background:var(--sur2);border:1px solid var(--border);border-radius:8px;width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;color:var(--text2);transition:.15s;padding:0;line-height:1;flex-shrink:0}
 .pat-hide-btn:hover{border-color:var(--gold);color:var(--gold);background:rgba(232,184,75,.08)}
 .pat-hide-btn:active{transform:scale(.9)}
-/* Oculta APENAS valores monetários/quantidades — percentuais (vardia, varsem, var30d,
-   var3m, var6m, varano, var5y, rentPct, totalRet) permanecem visíveis */
+/* Oculta APENAS valores monetários/quantidades — descrições e percentuais
+   permanecem visíveis. Usa .kpi-money como marcador nos valores dos KPIs. */
 body.pat-hidden .pat-kpi-val,
-body.pat-hidden .pat-kpi-sub,
-body.pat-hidden #rvKpiStrip span:not(:first-child),
+body.pat-hidden .pat-kpi-val *,
+body.pat-hidden .pat-kpi-sub .kpi-money,
+body.pat-hidden #rvKpiStrip span:not(:first-child):not(:last-child),
 body.pat-hidden [data-rvcol="qtd"],
 body.pat-hidden [data-rvcol="pm"],
 body.pat-hidden [data-rvcol="cotacao"],
@@ -103,8 +104,8 @@ body.pat-hidden [data-rvcol="posicao"] *,
 body.pat-hidden [data-rvcol="result"] *,
 body.pat-hidden [data-rvcol="proventos"] *{position:relative;color:transparent !important;text-shadow:none !important;user-select:none;pointer-events:none;background:transparent !important}
 body.pat-hidden .pat-kpi-val::after,
-body.pat-hidden .pat-kpi-sub::after,
-body.pat-hidden #rvKpiStrip span:not(:first-child)::after,
+body.pat-hidden .pat-kpi-sub .kpi-money::after,
+body.pat-hidden #rvKpiStrip span:not(:first-child):not(:last-child)::after,
 body.pat-hidden [data-rvcol="qtd"]::after,
 body.pat-hidden [data-rvcol="pm"]::after,
 body.pat-hidden [data-rvcol="cotacao"]::after,
@@ -113,7 +114,7 @@ body.pat-hidden [data-rvcol="posicao"]::after,
 body.pat-hidden [data-rvcol="result"]::after,
 body.pat-hidden [data-rvcol="proventos"]::after{content:'••••';position:absolute;left:0;top:0;right:0;bottom:0;display:flex;align-items:center;justify-content:flex-end;color:#7a8599;letter-spacing:3px;font-size:inherit;font-weight:inherit;padding-right:12px}
 body.pat-hidden .pat-kpi-val::after{justify-content:flex-start;padding-right:0}
-body.pat-hidden .pat-kpi-sub::after{justify-content:flex-start;padding-right:0}
+body.pat-hidden .pat-kpi-sub .kpi-money::after{justify-content:flex-start;padding-right:0;align-items:baseline}
 @media(max-width:1200px){.pat-kpi-grid{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:600px){.pat-kpi-grid{grid-template-columns:1fr 1fr}}
 .pat-kpi{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;position:relative;overflow:hidden}
@@ -2825,13 +2826,15 @@ function renderKPIs(){
     ? (rvRentPct>=0?'+':'')+rvRentPct.toFixed(2)+'% · '+nAtivosRV+' ativos'
     : 'nenhum ativo cadastrado';
 
+  // Envolve R$ em .kpi-money para ocultar só os valores (preserva descrições e %)
+  var money = function(s){ return '<span class="kpi-money">'+s+'</span>'; };
   var kpis=[
-    {label:'Patrimônio Total',      val:fmtBRL(total),       sub:'renda fixa + bens + RV',          color:'#e8b84b'},
-    {label:'Renda Fixa (líquido)',    val:fmtBRL(rfLiq),       sub:'Rendendo: '+(rfRentPct>=0?'+':'')+rfRentPct.toFixed(2)+'% bruto · '+fmtBRL(rfRend)+' líq.', color:'#10b981'},
-    {label:'Bens Patrimoniais',      val:fmtBRL(bensVal),     sub:'Líquido: '+fmtBRL(bensLiq),       color:'#3b82f6'},
-    {label:'Financiamentos',         val:fmtBRL(bensDivida),  sub:'saldo devedor total',              color:'#ef4444'},
-    {label:'Renda Variável (RV)',    val:rvAtual>0?fmtBRL(rvAtual):'—', sub:rvSub,                   color:'#8b5cf6'},
-    {label:'Lucro Realizado (RF)',   val:(lucroRealizado>=0?'+':'')+fmtBRL(lucroRealizado), sub:'resgates concluídos', color:lucroRealizado>=0?'#2ecc71':'#e63946'}
+    {label:'Patrimônio Total',      val:money(fmtBRL(total)),       sub:'renda fixa + bens + RV',          color:'#e8b84b'},
+    {label:'Renda Fixa (líquido)',    val:money(fmtBRL(rfLiq)),       sub:'Rendendo: '+(rfRentPct>=0?'+':'')+rfRentPct.toFixed(2)+'% bruto · '+money(fmtBRL(rfRend))+' líq.', color:'#10b981'},
+    {label:'Bens Patrimoniais',      val:money(fmtBRL(bensVal)),     sub:'Líquido: '+money(fmtBRL(bensLiq)),       color:'#3b82f6'},
+    {label:'Financiamentos',         val:money(fmtBRL(bensDivida)),  sub:'saldo devedor total',              color:'#ef4444'},
+    {label:'Renda Variável (RV)',    val:rvAtual>0?money(fmtBRL(rvAtual)):'—', sub:rvSub,                   color:'#8b5cf6'},
+    {label:'Lucro Realizado (RF)',   val:money((lucroRealizado>=0?'+':'')+fmtBRL(lucroRealizado)), sub:'resgates concluídos', color:lucroRealizado>=0?'#2ecc71':'#e63946'}
   ];
 
   var grid=document.getElementById('patKpiGrid');
