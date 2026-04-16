@@ -4499,6 +4499,24 @@ function rvResetCols(){
   rvRenderColCheckList();
 }
 
+// ESC fecha: drawer RV → modais abertos → fab aberto (em cascata)
+document.addEventListener('keydown', function(e){
+  if(e.key!=='Escape') return;
+  var drawer = document.getElementById('rvDrawer');
+  if(drawer && drawer.classList.contains('open')){ e.preventDefault(); fecharDrawerRV(); return; }
+  // Procura modais abertos (.modal.show)
+  var modal = document.querySelector('.modal.show');
+  if(modal){
+    e.preventDefault();
+    if(typeof fecharModal==='function') fecharModal(modal.id);
+    else modal.classList.remove('show');
+    return;
+  }
+  // Fab menu aberto
+  var items = document.getElementById('gpFabItems');
+  if(items && items.classList.contains('open')){ e.preventDefault(); if(typeof gpCloseFab==='function') gpCloseFab(); return; }
+});
+
 // Listener delegado: captura cliques em TODOS os botões de ação da Renda Variável
 // (tabela + drawer). Robusto para qualquer ticker e nunca sofre de handler stale.
 (function _initRVDelegation(){
@@ -4653,8 +4671,8 @@ function renderRVPosicoes(){
       +'<td data-rvcol="proventos"style="padding:10px 12px;text-align:right">'+provStr+'</td>'
       +'<td data-rvcol="totalRet" style="padding:10px 12px;text-align:right">'+trStr+'</td>'
       +'<td data-rvcol="acoes" style="padding:10px 8px;white-space:nowrap">'
-        +'<button class="action-btn rv-btn-drawer" data-ticker="'+String(p.ticker).replace(/"/g,'&quot;')+'" title="Ver transações" style="margin-right:4px">📋</button>'
-        +'<button class="rv-btn-aporte" data-ticker="'+String(p.ticker).replace(/"/g,'&quot;')+'" style="background:rgba(232,184,75,.12);border:1.5px solid rgba(232,184,75,.45);color:#e8b84b;padding:3px 7px;border-radius:7px;font-size:14px;font-weight:800;cursor:pointer" title="Novo aporte">＋</button>'
+        +'<button class="action-btn rv-btn-drawer" data-ticker="'+String(p.ticker).replace(/"/g,'&quot;')+'" onclick="abrirDrawerRV(this.dataset.ticker)" title="Ver transações" style="margin-right:4px">📋</button>'
+        +'<button class="rv-btn-aporte" data-ticker="'+String(p.ticker).replace(/"/g,'&quot;')+'" onclick="abrirModalAporte(this.dataset.ticker)" style="background:rgba(232,184,75,.12);border:1.5px solid rgba(232,184,75,.45);color:#e8b84b;padding:3px 7px;border-radius:7px;font-size:14px;font-weight:800;cursor:pointer" title="Novo aporte">＋</button>'
       +'</td>'
       +'</tr>';
   }).join('');
@@ -4734,8 +4752,8 @@ function abrirDrawerRV(ticker){
         '<div style="font-size:15px;font-weight:700;color:'+(rent>=0?'var(--green)':'var(--red)')+'">'+(posVal>0?((rent>=0?'+':'')+rent.toFixed(2)+'%'):'—')+'</div></div>'+
     '</div>'+
     '<div style="display:flex;gap:8px;margin-bottom:14px">'+
-      '<button class="btn-sm btn-gold rv-dr-new" data-ticker="'+tkEsc+'" style="flex:1;font-size:12px;font-weight:700">＋ Nova transação</button>'+
-      '<button class="btn-sm btn-outline rv-dr-clear" data-ticker="'+tkEsc+'" style="border-color:rgba(230,57,70,.4);color:#e63946;font-size:12px" title="Excluir todas">🗑️ Limpar tudo</button>'+
+      '<button class="btn-sm btn-gold rv-dr-new" data-ticker="'+tkEsc+'" onclick="fecharDrawerRV();abrirModalAporte(this.dataset.ticker)" style="flex:1;font-size:12px;font-weight:700">＋ Nova transação</button>'+
+      '<button class="btn-sm btn-outline rv-dr-clear" data-ticker="'+tkEsc+'" onclick="excluirRVAtivo(this.dataset.ticker)" style="border-color:rgba(230,57,70,.4);color:#e63946;font-size:12px" title="Excluir todas">🗑️ Limpar tudo</button>'+
     '</div>'+
     '<div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:10px">Transações</div>'+
     aportes.slice().reverse().map(function(x){
@@ -4757,8 +4775,8 @@ function abrirDrawerRV(ticker){
             '</div>'+
           '</div>'+
           '<div style="display:flex;gap:6px">'+
-            '<button class="action-btn rv-tx-edit" data-idx="'+x.idx+'" title="Editar">✏️</button>'+
-            '<button class="action-btn rv-tx-del" data-idx="'+x.idx+'" style="border-color:rgba(230,57,70,.4);color:var(--red)" title="Excluir">🗑️</button>'+
+            '<button class="action-btn rv-tx-edit" data-idx="'+x.idx+'" onclick="editarTransacaoRV(+this.dataset.idx)" title="Editar">✏️</button>'+
+            '<button class="action-btn rv-tx-del" data-idx="'+x.idx+'" onclick="excluirTransacaoRV(+this.dataset.idx)" style="border-color:rgba(230,57,70,.4);color:var(--red)" title="Excluir">🗑️</button>'+
           '</div>'+
         '</div>'+
         '<div class="aporte-item-vals" style="grid-template-columns:1fr 1fr">'+
