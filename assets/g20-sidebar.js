@@ -24,7 +24,7 @@
         '.sidebar-footer-links{display:none !important}' +
         '.btn-logout{padding:10px 0 !important;justify-content:center !important;display:flex !important;align-items:center !important}' +
         '.btn-logout .logout-text{display:none !important}' +
-        '.btn-logout svg{display:block !important;width:20px !important;height:20px !important;flex-shrink:0 !important}' +
+        '.btn-logout .logout-ico{display:block !important;font-size:20px !important}' +
         '.logo-ball-wrap{padding:16px 8px 14px !important}' +
         '.logo-ball{width:44px !important;height:44px !important}' +
         '.sidebar-user{justify-content:center !important;padding:14px 0 !important}';
@@ -94,12 +94,26 @@
     }
   }
 
+  function bindClickBounce(){
+    document.querySelectorAll('.sidebar .nav-item').forEach(function(item){
+      if(item._bounceBound) return;
+      item._bounceBound = true;
+      item.addEventListener('click', function(){
+        var items = document.querySelectorAll('.sidebar .nav-item');
+        items.forEach(function(el){ el.classList.add('nav-click'); });
+        setTimeout(function(){
+          items.forEach(function(el){ el.classList.remove('nav-click'); });
+        }, 400);
+      });
+    });
+  }
+
   function init(){
     aplicarEstado();
     injectCollapseBtn();
     setTooltips();
+    bindClickBounce();
     atualizarLegendaBtn();
-    // Habilita transições somente após o estado estar aplicado
     requestAnimationFrame(function(){
       requestAnimationFrame(function(){
         document.body.classList.add('sidebar-ready');
