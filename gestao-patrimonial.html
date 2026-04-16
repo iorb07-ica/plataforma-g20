@@ -299,6 +299,20 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 
 /* ── DRAWER DE GRUPO ── */
 .grupo-drawer{position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto}
+/* Drawer lateral RV (mesmo padrão da Carteira G20) */
+.rv-drawer-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:300}
+.rv-drawer-overlay.show{display:block}
+.rv-drawer{position:fixed;top:0;right:0;height:100vh;width:480px;max-width:96vw;background:var(--bg2);border-left:1px solid var(--border);z-index:301;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);box-shadow:-8px 0 40px rgba(0,0,0,.4)}
+.rv-drawer.open{transform:translateX(0)}
+.rv-drawer-header{padding:18px 20px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-shrink:0}
+.rv-drawer-ticker{font-size:20px;font-weight:800;letter-spacing:.5px;color:var(--text)}
+.rv-drawer-sub{font-size:11px;color:var(--text3)}
+.rv-drawer-close{margin-left:auto;background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;padding:4px 8px;border-radius:6px;transition:all .2s}
+.rv-drawer-close:hover{color:var(--red);background:var(--sur2)}
+.rv-drawer-body{flex:1;overflow-y:auto;padding:16px 20px 20px}
+.rv-drawer-body::-webkit-scrollbar{width:4px}
+.rv-drawer-body::-webkit-scrollbar-track{background:transparent}
+.rv-drawer-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
 .grupo-drawer-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)}
 .grupo-drawer-box{position:relative;background:var(--bg2);border-radius:16px;width:100%;max-width:580px;max-height:85vh;overflow-y:auto;padding:28px;z-index:1;border:1px solid var(--border);box-shadow:0 24px 64px rgba(0,0,0,.6)}
 .grupo-drawer-handle{width:40px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 20px}
@@ -4681,7 +4695,7 @@ function excluirRVAtivo(ticker){
   showToast('🗑️ '+ticker+' removido');
 }
 
-// Drawer lateral listando todas as transações (aportes/resgates) do ticker
+// Drawer LATERAL direito (mesmo padrão da Carteira G20)
 function abrirDrawerRV(ticker){
   var todos = loadRVAportes();
   var aportes = todos.map(function(a,i){ return {idx:i, a:a}; }).filter(function(x){ return x.a.ticker===ticker; });
@@ -4690,7 +4704,10 @@ function abrirDrawerRV(ticker){
   var fmtBRLv = function(v){return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});};
   var fmtUSDv = function(v){return '$ '+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});};
 
-  // Calcula posição agregada
+  // Fecha drawer existente antes de abrir novo (ex: após excluir transação)
+  fecharDrawerRV(true);
+
+  // Posição agregada
   var qtd=0, totInv=0;
   aportes.forEach(function(x){
     var a=x.a;
@@ -4704,65 +4721,93 @@ function abrirDrawerRV(ticker){
   var posVal = qtd*precoAtual;
   var rent = totInv>0 ? ((posVal-totInv)/totInv*100) : 0;
 
-  var html = '<div class="grupo-drawer-backdrop" onclick="fecharDrawerRV()"></div>'+
-    '<div class="grupo-drawer-box">'+
-      '<div class="grupo-drawer-title">'+ticker+'</div>'+
-      '<div class="grupo-drawer-sub">'+aportes.length+' transaç'+(aportes.length===1?'ão':'ões')+' · '+aportes[0].a.tipo+'</div>'+
-      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:20px;background:var(--surface);border-radius:12px;padding:14px">'+
-        '<div><div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Qtd</div>'+
-          '<div style="font-size:15px;font-weight:700">'+qtd.toFixed(qtd%1===0?0:4)+'</div></div>'+
-        '<div><div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:4px">PM</div>'+
-          '<div style="font-size:15px;font-weight:700">'+fmtBRLv(pm)+'</div></div>'+
-        '<div><div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Posição</div>'+
-          '<div style="font-size:15px;font-weight:700">'+(posVal>0?fmtBRLv(posVal):'—')+'</div></div>'+
-        '<div><div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Rent.</div>'+
-          '<div style="font-size:15px;font-weight:700;color:'+(rent>=0?'var(--green)':'var(--red)')+'">'+(posVal>0?((rent>=0?'+':'')+rent.toFixed(2)+'%'):'—')+'</div></div>'+
-      '</div>'+
-      '<div style="display:flex;gap:8px;margin-bottom:12px">'+
-        '<button class="btn-sm btn-gold rv-dr-new" data-ticker="'+String(ticker).replace(/"/g,'&quot;')+'" style="flex:1;font-size:12px;font-weight:700">＋ Nova transação</button>'+
-        '<button class="btn-sm btn-outline rv-dr-clear" data-ticker="'+String(ticker).replace(/"/g,'&quot;')+'" style="border-color:rgba(230,57,70,.4);color:#e63946;font-size:12px" title="Excluir todas">🗑️ Limpar tudo</button>'+
-      '</div>'+
-      '<div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:10px">Transações</div>'+
-      aportes.slice().reverse().map(function(x){
-        var a=x.a;
-        var isC=a.op==='C'||!a.op;
-        var corOp=isC?'var(--green)':'var(--red)';
-        var bgOp=isC?'rgba(16,185,129,.12)':'rgba(239,68,68,.12)';
-        var labelOp=isC?'Compra':'Venda';
-        var dataFmt = a.data ? new Date(a.data+'T12:00:00').toLocaleDateString('pt-BR') : '—';
-        var pr = a.moeda==='USD' ? a.preco*(a.fxRate||rvUsdBRL) : a.preco;
-        var total = a.qtd*pr;
-        return '<div class="aporte-item">'+
-          '<div class="aporte-item-header">'+
-            '<div style="display:flex;align-items:center;gap:10px">'+
-              '<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:800;background:'+bgOp+';color:'+corOp+';border:1px solid '+corOp+'33">'+labelOp+'</span>'+
-              '<div>'+
-                '<div style="font-size:12px;font-weight:700;color:var(--text)">'+dataFmt+'</div>'+
-                '<div style="font-size:11px;color:var(--text3)">'+a.qtd.toFixed(a.qtd%1===0?0:4)+' × '+(a.moeda==='USD'?fmtUSDv(a.preco):fmtBRLv(a.preco))+(a.moeda==='USD'?' (US$)':'')+'</div>'+
-              '</div>'+
-            '</div>'+
-            '<div style="display:flex;gap:6px">'+
-              '<button class="action-btn rv-tx-edit" data-idx="'+x.idx+'" title="Editar">✏️</button>'+
-              '<button class="action-btn rv-tx-del" data-idx="'+x.idx+'" style="border-color:rgba(230,57,70,.4);color:var(--red)" title="Excluir">🗑️</button>'+
+  var tkEsc = String(ticker).replace(/"/g,'&quot;');
+  var bodyHtml =
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;background:var(--surface);border-radius:12px;padding:14px">'+
+      '<div><div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Qtd</div>'+
+        '<div style="font-size:15px;font-weight:700">'+qtd.toFixed(qtd%1===0?0:4)+'</div></div>'+
+      '<div><div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Preço Médio</div>'+
+        '<div style="font-size:15px;font-weight:700">'+fmtBRLv(pm)+'</div></div>'+
+      '<div><div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Posição</div>'+
+        '<div style="font-size:15px;font-weight:700">'+(posVal>0?fmtBRLv(posVal):'—')+'</div></div>'+
+      '<div><div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Rent.</div>'+
+        '<div style="font-size:15px;font-weight:700;color:'+(rent>=0?'var(--green)':'var(--red)')+'">'+(posVal>0?((rent>=0?'+':'')+rent.toFixed(2)+'%'):'—')+'</div></div>'+
+    '</div>'+
+    '<div style="display:flex;gap:8px;margin-bottom:14px">'+
+      '<button class="btn-sm btn-gold rv-dr-new" data-ticker="'+tkEsc+'" style="flex:1;font-size:12px;font-weight:700">＋ Nova transação</button>'+
+      '<button class="btn-sm btn-outline rv-dr-clear" data-ticker="'+tkEsc+'" style="border-color:rgba(230,57,70,.4);color:#e63946;font-size:12px" title="Excluir todas">🗑️ Limpar tudo</button>'+
+    '</div>'+
+    '<div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:10px">Transações</div>'+
+    aportes.slice().reverse().map(function(x){
+      var a=x.a;
+      var isC=a.op==='C'||!a.op;
+      var corOp=isC?'var(--green)':'var(--red)';
+      var bgOp=isC?'rgba(16,185,129,.12)':'rgba(239,68,68,.12)';
+      var labelOp=isC?'Compra':'Venda';
+      var dataFmt = a.data ? new Date(a.data+'T12:00:00').toLocaleDateString('pt-BR') : '—';
+      var pr = a.moeda==='USD' ? a.preco*(a.fxRate||rvUsdBRL) : a.preco;
+      var total = a.qtd*pr;
+      return '<div class="aporte-item">'+
+        '<div class="aporte-item-header">'+
+          '<div style="display:flex;align-items:center;gap:10px">'+
+            '<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:800;background:'+bgOp+';color:'+corOp+';border:1px solid '+corOp+'33">'+labelOp+'</span>'+
+            '<div>'+
+              '<div style="font-size:12px;font-weight:700;color:var(--text)">'+dataFmt+'</div>'+
+              '<div style="font-size:11px;color:var(--text3)">'+a.qtd.toFixed(a.qtd%1===0?0:4)+' × '+(a.moeda==='USD'?fmtUSDv(a.preco):fmtBRLv(a.preco))+(a.moeda==='USD'?' (US$)':'')+'</div>'+
             '</div>'+
           '</div>'+
-          '<div class="aporte-item-vals" style="grid-template-columns:1fr 1fr">'+
-            '<div class="aporte-val-box"><div class="aporte-val-label">Total</div><div class="aporte-val-num">'+fmtBRLv(total)+'</div></div>'+
-            (a.obs?'<div class="aporte-val-box"><div class="aporte-val-label">Obs</div><div class="aporte-val-num" style="font-size:12px;font-weight:500">'+a.obs+'</div></div>':'<div></div>')+
+          '<div style="display:flex;gap:6px">'+
+            '<button class="action-btn rv-tx-edit" data-idx="'+x.idx+'" title="Editar">✏️</button>'+
+            '<button class="action-btn rv-tx-del" data-idx="'+x.idx+'" style="border-color:rgba(230,57,70,.4);color:var(--red)" title="Excluir">🗑️</button>'+
           '</div>'+
-        '</div>';
-      }).join('')+
-      '<button onclick="fecharDrawerRV()" style="width:100%;padding:12px;background:var(--surface);border:1px solid var(--border);color:var(--text2);border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;margin-top:4px">Fechar</button>'+
-    '</div>';
+        '</div>'+
+        '<div class="aporte-item-vals" style="grid-template-columns:1fr 1fr">'+
+          '<div class="aporte-val-box"><div class="aporte-val-label">Total</div><div class="aporte-val-num">'+fmtBRLv(total)+'</div></div>'+
+          (a.obs?'<div class="aporte-val-box"><div class="aporte-val-label">Obs</div><div class="aporte-val-num" style="font-size:12px;font-weight:500">'+a.obs+'</div></div>':'<div></div>')+
+        '</div>'+
+      '</div>';
+    }).join('');
 
-  var d = document.createElement('div');
-  d.className = 'grupo-drawer'; d.id = 'drawerRV';
-  d.innerHTML = html;
-  document.body.appendChild(d);
+  // Overlay + drawer lateral
+  var ov = document.createElement('div');
+  ov.className = 'rv-drawer-overlay';
+  ov.id = 'rvDrawerOverlay';
+  ov.onclick = function(){ fecharDrawerRV(); };
+  var dr = document.createElement('div');
+  dr.className = 'rv-drawer';
+  dr.id = 'rvDrawer';
+  dr.innerHTML =
+    '<div class="rv-drawer-header">'+
+      '<div>'+
+        '<div class="rv-drawer-ticker">'+ticker+'</div>'+
+        '<div class="rv-drawer-sub">'+aportes.length+' transaç'+(aportes.length===1?'ão':'ões')+' · '+aportes[0].a.tipo+'</div>'+
+      '</div>'+
+      '<button class="rv-drawer-close" aria-label="Fechar">✕</button>'+
+    '</div>'+
+    '<div class="rv-drawer-body">'+bodyHtml+'</div>';
+
+  document.body.appendChild(ov);
+  document.body.appendChild(dr);
+  // Close button
+  var btnClose = dr.querySelector('.rv-drawer-close');
+  if(btnClose) btnClose.onclick = function(){ fecharDrawerRV(); };
+  // Força reflow pra animação ocorrer
+  void dr.offsetWidth;
+  ov.classList.add('show');
+  dr.classList.add('open');
+  document.body.style.overflow = 'hidden';
 }
-function fecharDrawerRV(){
-  var d = document.getElementById('drawerRV');
-  if(d) d.remove();
+function fecharDrawerRV(silent){
+  var dr = document.getElementById('rvDrawer');
+  var ov = document.getElementById('rvDrawerOverlay');
+  if(dr){ dr.classList.remove('open'); }
+  if(ov){ ov.classList.remove('show'); }
+  document.body.style.overflow = '';
+  // Remove do DOM depois da animação
+  setTimeout(function(){
+    if(dr && dr.parentNode) dr.parentNode.removeChild(dr);
+    if(ov && ov.parentNode) ov.parentNode.removeChild(ov);
+  }, silent?0:320);
 }
 // Abre o modal em modo edição com a transação específica (equivalente ao editarAporte da Carteira G20)
 function editarTransacaoRV(idx){
