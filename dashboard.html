@@ -734,19 +734,31 @@ if(localStorage.getItem('g20_uid')){
           <button data-d="365">1a</button>
         </div>
       </div>
-      <div class="pat-kpi" style="--pk-c:#10b981" onclick="location.href='gestao-patrimonial.html'">
+      <div class="pat-kpi" style="--pk-c:#10b981" onclick="if(!event.target.closest('.pat-kpi-range'))location.href='gestao-patrimonial.html'">
         <div class="pat-kpi-label">Renda Fixa</div>
         <div class="pat-kpi-val" id="dashRF">–</div>
         <div class="pat-kpi-sub" id="dashRFSub">–</div>
         <div class="pat-kpi-var" id="dashRFVar"></div>
         <div class="pat-kpi-spark" id="sparkRF"></div>
+        <div class="pat-kpi-range" id="rangeRF" onclick="event.stopPropagation()">
+          <button data-d="7">7d</button>
+          <button data-d="30" class="active">30d</button>
+          <button data-d="90">90d</button>
+          <button data-d="365">1a</button>
+        </div>
       </div>
-      <div class="pat-kpi" style="--pk-c:#8b5cf6" onclick="location.href='gestao-patrimonial.html'">
+      <div class="pat-kpi" style="--pk-c:#8b5cf6" onclick="if(!event.target.closest('.pat-kpi-range'))location.href='gestao-patrimonial.html'">
         <div class="pat-kpi-label">Renda Variável</div>
         <div class="pat-kpi-val" id="dashRV">–</div>
         <div class="pat-kpi-sub" id="dashRVSub">da Gestão Patrimonial</div>
         <div class="pat-kpi-var" id="dashRVVar">⏳ buscando cotações…</div>
         <div class="pat-kpi-spark" id="sparkRV"></div>
+        <div class="pat-kpi-range" id="rangeRV" onclick="event.stopPropagation()">
+          <button data-d="7">7d</button>
+          <button data-d="30" class="active">30d</button>
+          <button data-d="90">90d</button>
+          <button data-d="365">1a</button>
+        </div>
       </div>
     </div>
 
@@ -1725,21 +1737,20 @@ function _patSnapUpsert(total,rf,rv){
   if(!(total>0)) return;
   var arr=_patSnapLoad();
   var hoje=_todayISO();
-  // Migração: se TODOS os pontos são seed antigo (sem seedV:2), regenera
-  var allOldSeed = arr.length>0 && arr.every(function(s){return s.seed && s.seedV!==2;});
-  if(arr.length===0 || allOldSeed){
-    arr=_patSeed(total,rf,rv,30);
+  // Migração: regenera se seed desatualizado OU se tem menos dias que o esperado
+  var allOldSeed = arr.length>0 && arr.every(function(s){return s.seed && s.seedV!==SEED_VERSION;});
+  var shortSeed = arr.length>0 && arr.every(function(s){return s.seed;}) && arr.length<SEED_DAYS;
+  if(arr.length===0 || allOldSeed || shortSeed){
+    arr=_patSeed(total,rf,rv,SEED_DAYS);
   } else {
-    // Se o histórico ainda é só seed e o novo valor diverge muito (>3%) do último,
-    // significa que o seed foi gerado com base de custo e agora veio o valor de mercado.
-    // Regenera o seed ancorado no valor correto.
+    // Se histórico ainda é só seed e o novo valor diverge >3%, re-ancora
     var allSeed = arr.every(function(s){return s.seed;});
     var last0 = arr[arr.length-1];
     if(allSeed && last0 && last0.t>0){
       var divergTotal = Math.abs(total-last0.t)/last0.t;
       var divergRV = last0.rv>0 ? Math.abs(rv-last0.rv)/last0.rv : 0;
       if(divergTotal>0.03 || divergRV>0.03){
-        arr=_patSeed(total,rf,rv,30);
+        arr=_patSeed(total,rf,rv,SEED_DAYS);
       }
     }
   }
@@ -1754,7 +1765,9 @@ function _patSnapUpsert(total,rf,rv){
   _patSnapSave(arr);
 }
 
-// Semente sintética: random walk ancorado HOJE, caminhando pra trás (v2)
+// Semente sintética: random walk ancorado HOJE, caminhando pra trás (v3)
+var SEED_VERSION = 3;
+var SEED_DAYS = 365;
 function _patSeed(total,rf,rv,dias){
   var arr=[], hoje=new Date();
   var cdiD=_cdiDaily();
@@ -1781,7 +1794,7 @@ function _patSeed(total,rf,rv,dias){
     var dt=new Date(hoje); dt.setDate(dt.getDate()-(dias-1-j));
     var iso=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
     if(j>0) cdiAcc *= cdiD;
-    arr.push({d:iso,t:tSer[j],rf:rfSer[j],rv:rvSer[j],c:cdiAcc,seed:true,seedV:2});
+    arr.push({d:iso,t:tSer[j],rf:rfSer[j],rv:rvSer[j],c:cdiAcc,seed:true,seedV:SEED_VERSION});
   }
   return arr;
 }
@@ -1868,8 +1881,8 @@ function _patRenderAllSparks(){
     }
   }
 
-  // Marca range ativo
-  var rangeBtns=document.querySelectorAll('#rangeTotal button');
+  // Marca range ativo em todos os 3 seletores (compartilham o mesmo período)
+  var rangeBtns=document.querySelectorAll('#rangeTotal button, #rangeRF button, #rangeRV button');
   rangeBtns.forEach(function(b){
     b.classList.toggle('active', parseInt(b.getAttribute('data-d'),10)===dias);
   });
@@ -1877,7 +1890,7 @@ function _patRenderAllSparks(){
 
 // Bind botões de range (fase de captura, pra não ser bloqueado por stopPropagation do container)
 document.addEventListener('click',function(e){
-  var btn=e.target.closest('#rangeTotal button');
+  var btn=e.target.closest('#rangeTotal button, #rangeRF button, #rangeRV button');
   if(!btn) return;
   e.stopPropagation();
   var d=parseInt(btn.getAttribute('data-d'),10);
