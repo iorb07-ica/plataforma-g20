@@ -1430,8 +1430,9 @@ function _buscarCotacoesEAtualizarRV(){
     var totalPct=totalReal>0?(totalVar1d/(totalReal-totalVar1d))*100:0;
     _renderVarEl('dashPatVar',totalPct,totalVar1d);
 
-    // Atualiza snapshot de hoje com total "real" (cotações ao vivo) + re-renderiza sparklines
+    // Atualiza snapshot de hoje com total "real" (cotações ao vivo) + re-renderiza sparklines + notificações
     try{ if(typeof _patSnapUpsert==='function'){ _patSnapUpsert(totalReal, rfLiq, rvTotal); _patRenderAllSparks(); } }catch(e){}
+    try{ if(typeof renderNotifBadge==='function'){ renderNotifBadge(); renderNotifList(); } }catch(e){}
   });
 }
 
@@ -2011,7 +2012,7 @@ function toggleTheme(){
 // -- SISTEMA DE NOTIFICA--ES -----------------------------------
 var NOTIFS_KEY = 'g20_notifications';
 var NOTIFS_READ_KEY = 'g20_notifs_read';
-var NOTIFS_MAX = 6;
+var NOTIFS_MAX = 8;
 var FLIX_CURRENT_EP = 80; // episódio mais recente no ar (manter em sincronia com o card)
 var FLIX_CURRENT_TITLE = '#80 – Aporte da Carteira G20 – Março/2026';
 
@@ -2128,7 +2129,97 @@ function gerarNotifsDinamicas(){
     }
   }
 
-  // 6) Semana em revisão (segundas ou depois de >=7 dias do último review)
+  // 6a) Status patrimônio vs CDI em 30d (sempre informa, não só no cruzamento)
+  if(arr.length >= 2 && typeof _sliceRange==='function'){
+    var s30 = _sliceRange(arr,'30');
+    if(s30.length>=2){
+      var pPct = ((s30[s30.length-1].t/s30[0].t)-1)*100;
+      var cPct = ((s30[s30.length-1].c/s30[0].c)-1)*100;
+      var diff30 = pPct-cPct;
+      var bat = diff30>=0;
+      notifs.push({
+        id:'dyn-vscdi-'+hoje,
+        ico: bat?'📈':'📉',
+        bg: bat?'rgba(46,204,113,.14)':'rgba(239,68,68,.14)',
+        titulo:'Patrimônio vs CDI · 30d · '+(diff30>=0?'+':'')+diff30.toFixed(2)+'%',
+        desc: bat
+          ? 'Você está batendo o CDI em 30d (patrim. '+(pPct>=0?'+':'')+pPct.toFixed(2)+'% · CDI '+cPct.toFixed(2)+'%).'
+          : 'Patrimônio abaixo do CDI em 30d (patrim. '+(pPct>=0?'+':'')+pPct.toFixed(2)+'% · CDI '+cPct.toFixed(2)+'%).',
+        ts:Date.now(), link:'gestao-patrimonial.html'
+      });
+    }
+  }
+
+  // 6b) Alocação atual (RF vs RV+Bens)
+  if(arr.length >= 1){
+    var t0 = arr[arr.length-1];
+    if(t0.t>0 && (t0.rf>0 || t0.rv>0)){
+      var pctRF = (t0.rf/t0.t)*100;
+      var pctRV = (t0.rv/t0.t)*100;
+      var pctOutros = Math.max(0, 100-pctRF-pctRV);
+      notifs.push({
+        id:'dyn-aloc-'+hoje,
+        ico:'🧭', bg:'rgba(139,92,246,.15)',
+        titulo:'Sua alocação hoje',
+        desc:'RF '+pctRF.toFixed(0)+'% · RV '+pctRV.toFixed(0)+'%'+(pctOutros>1?' · Outros '+pctOutros.toFixed(0)+'%':''),
+        ts:Date.now(), link:'gestao-patrimonial.html'
+      });
+    }
+  }
+
+  // 6c) Melhor e pior ativo do dia (das cotações em memória)
+  try{
+    if(window._dashRVCot){
+      var tickers = Object.keys(window._dashRVCot)
+        .map(function(t){return {ticker:t, pct:window._dashRVCot[t].varPct};})
+        .filter(function(x){return typeof x.pct==='number' && !isNaN(x.pct);});
+      if(tickers.length>=2){
+        tickers.sort(function(a,b){return b.pct-a.pct;});
+        var best=tickers[0], worst=tickers[tickers.length-1];
+        notifs.push({
+          id:'dyn-destaques-'+hoje,
+          ico:'⭐', bg:'rgba(232,184,75,.15)',
+          titulo:'Destaques do dia',
+          desc:'🔝 '+best.ticker+' '+(best.pct>=0?'+':'')+best.pct.toFixed(1)+'% · 🔻 '+worst.ticker+' '+(worst.pct>=0?'+':'')+worst.pct.toFixed(1)+'%',
+          ts:Date.now(), link:'carteira.html'
+        });
+      }
+    }
+  }catch(e){}
+
+  // 6d) Streak curto de alta (3+ dias consecutivos)
+  if(arr.length>=4){
+    var streak=0;
+    for(var k=arr.length-1;k>0;k--){
+      if(arr[k].t>arr[k-1].t) streak++;
+      else break;
+    }
+    if(streak>=3){
+      notifs.push({
+        id:'dyn-streak-'+streak+'-'+hoje,
+        ico: streak>=7?'🔥': streak>=5?'✨':'📈',
+        bg:'rgba(249,115,22,.14)',
+        titulo:streak+' dias de alta consecutiva',
+        desc:'Seu patrimônio sobe há '+streak+' dias seguidos.',
+        ts:Date.now(), link:'gestao-patrimonial.html'
+      });
+    }
+  }
+
+  // 6e) Macro do dia (Selic/CDI/IPCA)
+  try{
+    if(typeof IND==='object' && IND.selic){
+      notifs.push({
+        id:'dyn-macro-'+hoje,
+        ico:'🏦', bg:'rgba(59,130,246,.14)',
+        titulo:'Panorama macro',
+        desc:'Selic '+IND.selic.toFixed(2)+'% · CDI '+(IND.cdi||0).toFixed(2)+'% · IPCA '+(IND.ipca||0).toFixed(2)+'%',
+        ts:Date.now(), link:'gestao-patrimonial.html'
+      });
+    }
+  }catch(e){}
+
+  // 7) Semana em revisão (segundas ou depois de >=7 dias do último review)
   try{
     var dow = new Date().getDay(); // 1=segunda
     var lastReview = localStorage.getItem('g20_lastWeekReview')||'';
