@@ -4485,15 +4485,26 @@ function rvResetCols(){
   rvRenderColCheckList();
 }
 
-// Listener delegado: captura cliques nos botões 📋 e ＋ da tabela RV
-// (mais robusto que onclick inline — funciona com tickers que tenham qualquer caractere)
+// Listener delegado: captura cliques em TODOS os botões de ação da Renda Variável
+// (tabela + drawer). Robusto para qualquer ticker e nunca sofre de handler stale.
 (function _initRVDelegation(){
   if(window._rvDelegInited) return; window._rvDelegInited = true;
   document.addEventListener('click', function(e){
+    // Tabela principal
     var btnD = e.target.closest('.rv-btn-drawer');
-    if(btnD){ e.preventDefault(); e.stopPropagation(); abrirDrawerRV(btnD.getAttribute('data-ticker')); return; }
+    if(btnD){ e.preventDefault(); try{ abrirDrawerRV(btnD.getAttribute('data-ticker')); }catch(err){ console.error('[abrirDrawerRV]',err); showToast('Erro ao abrir transações: '+err.message,'#e63946'); } return; }
     var btnA = e.target.closest('.rv-btn-aporte');
-    if(btnA){ e.preventDefault(); e.stopPropagation(); abrirModalAporte(btnA.getAttribute('data-ticker')); return; }
+    if(btnA){ e.preventDefault(); try{ abrirModalAporte(btnA.getAttribute('data-ticker')); }catch(err){ console.error('[abrirModalAporte]',err); showToast('Erro: '+err.message,'#e63946'); } return; }
+    // Drawer — rodapé
+    var btnNew = e.target.closest('.rv-dr-new');
+    if(btnNew){ e.preventDefault(); var tkN=btnNew.getAttribute('data-ticker'); try{ fecharDrawerRV(); abrirModalAporte(tkN); }catch(err){ console.error('[rv-dr-new]',err); showToast('Erro: '+err.message,'#e63946'); } return; }
+    var btnCl = e.target.closest('.rv-dr-clear');
+    if(btnCl){ e.preventDefault(); try{ excluirRVAtivo(btnCl.getAttribute('data-ticker')); }catch(err){ console.error('[excluirRVAtivo]',err); } return; }
+    // Drawer — por transação
+    var btnEd = e.target.closest('.rv-tx-edit');
+    if(btnEd){ e.preventDefault(); var idxE=parseInt(btnEd.getAttribute('data-idx'),10); try{ editarTransacaoRV(idxE); }catch(err){ console.error('[editarTransacaoRV]',err); showToast('Erro ao editar: '+err.message,'#e63946'); } return; }
+    var btnDl = e.target.closest('.rv-tx-del');
+    if(btnDl){ e.preventDefault(); var idxD=parseInt(btnDl.getAttribute('data-idx'),10); try{ excluirTransacaoRV(idxD); }catch(err){ console.error('[excluirTransacaoRV]',err); } return; }
   });
 })();
 
@@ -4708,8 +4719,8 @@ function abrirDrawerRV(ticker){
           '<div style="font-size:15px;font-weight:700;color:'+(rent>=0?'var(--green)':'var(--red)')+'">'+(posVal>0?((rent>=0?'+':'')+rent.toFixed(2)+'%'):'—')+'</div></div>'+
       '</div>'+
       '<div style="display:flex;gap:8px;margin-bottom:12px">'+
-        '<button class="btn-sm btn-gold" onclick="fecharDrawerRV();abrirModalAporte(\''+ticker+'\')" style="flex:1;font-size:12px;font-weight:700">＋ Nova transação</button>'+
-        '<button class="btn-sm btn-outline" onclick="excluirRVAtivo(\''+ticker+'\')" style="border-color:rgba(230,57,70,.4);color:#e63946;font-size:12px" title="Excluir todas">🗑️ Limpar tudo</button>'+
+        '<button class="btn-sm btn-gold rv-dr-new" data-ticker="'+String(ticker).replace(/"/g,'&quot;')+'" style="flex:1;font-size:12px;font-weight:700">＋ Nova transação</button>'+
+        '<button class="btn-sm btn-outline rv-dr-clear" data-ticker="'+String(ticker).replace(/"/g,'&quot;')+'" style="border-color:rgba(230,57,70,.4);color:#e63946;font-size:12px" title="Excluir todas">🗑️ Limpar tudo</button>'+
       '</div>'+
       '<div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:10px">Transações</div>'+
       aportes.slice().reverse().map(function(x){
@@ -4731,8 +4742,8 @@ function abrirDrawerRV(ticker){
               '</div>'+
             '</div>'+
             '<div style="display:flex;gap:6px">'+
-              '<button class="action-btn" onclick="editarTransacaoRV('+x.idx+')" title="Editar">✏️</button>'+
-              '<button class="action-btn" onclick="excluirTransacaoRV('+x.idx+')" style="border-color:rgba(230,57,70,.4);color:var(--red)" title="Excluir">🗑️</button>'+
+              '<button class="action-btn rv-tx-edit" data-idx="'+x.idx+'" title="Editar">✏️</button>'+
+              '<button class="action-btn rv-tx-del" data-idx="'+x.idx+'" style="border-color:rgba(230,57,70,.4);color:var(--red)" title="Excluir">🗑️</button>'+
             '</div>'+
           '</div>'+
           '<div class="aporte-item-vals" style="grid-template-columns:1fr 1fr">'+
@@ -4756,39 +4767,45 @@ function fecharDrawerRV(){
 // Abre o modal em modo edição com a transação específica (equivalente ao editarAporte da Carteira G20)
 function editarTransacaoRV(idx){
   var aportes = loadRVAportes();
-  var a = aportes[idx]; if(!a) return;
+  var a = aportes[idx]; if(!a){ showToast('Transação não encontrada','#e63946'); return; }
   fecharDrawerRV();
+  var modal = document.getElementById('modalAporte');
+  if(!modal){ showToast('Modal não encontrado','#e63946'); return; }
   // Garante um id para casar com o registro ao salvar
   if(!a.id){
     a.id = Date.now().toString()+Math.random().toString(36).substr(2,4);
     aportes[idx] = a;
     saveRVAportes(aportes);
   }
-  document.getElementById('aporte_editId').value = a.id;
-  // Reset linhas extras (edição é sempre linha única)
-  document.getElementById('aplExtras').innerHTML = '';
-  _aplRows = []; _aplRowCount = 1;
-  if(typeof aplUpdCount==='function') aplUpdCount();
-  document.getElementById('aplSumPanel').style.display = 'none';
-  // Preenche a linha 0
-  var op0 = document.getElementById('apl_op0');
-  op0.value = a.op || 'C';
-  op0.className = 'apl-sel ' + (a.op==='V'?'apl-op-v':'apl-op-c');
-  document.getElementById('apl_data0').value = a.data || '';
-  document.getElementById('aporte_ticker').value = a.ticker || '';
-  document.getElementById('aporte_tipo').value = a.tipo || 'Acao';
-  document.getElementById('apl_qtd0').value = a.qtd || '';
-  var precoStr = (a.preco||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:4});
-  document.getElementById('apl_preco0').value = precoStr;
-  // Respeita tipo (mostra/esconde moeda) e recalcula
-  if(typeof aplTipoChange0==='function') aplTipoChange0(a.tipo || 'Acao');
-  var m0 = document.getElementById('apl_moeda0');
-  if(m0 && a.moeda) m0.value = a.moeda;
-  // Marca preço como editado para não sobrescrever via autocomplete de cotação
-  if(typeof _aplPrecoSource!=='undefined') _aplPrecoSource['0'] = 'edited';
-  if(typeof aplAtualizarBadge==='function') aplAtualizarBadge('0');
-  if(typeof aplCalc==='function') aplCalc();
-  document.getElementById('modalAporte').classList.add('show');
+  // ABRE primeiro — qualquer erro depois não impede o modal de aparecer
+  modal.classList.add('show');
+  try{
+    var ed = document.getElementById('aporte_editId'); if(ed) ed.value = a.id;
+    // Reset linhas extras (edição é sempre linha única)
+    var ex = document.getElementById('aplExtras'); if(ex) ex.innerHTML = '';
+    if(typeof _aplRows !== 'undefined'){ _aplRows = []; }
+    if(typeof _aplRowCount !== 'undefined'){ _aplRowCount = 1; }
+    if(typeof aplUpdCount==='function') aplUpdCount();
+    var sp = document.getElementById('aplSumPanel'); if(sp) sp.style.display = 'none';
+    // Preenche linha 0
+    var op0 = document.getElementById('apl_op0');
+    if(op0){ op0.value = a.op || 'C'; op0.className = 'apl-sel ' + (a.op==='V'?'apl-op-v':'apl-op-c'); }
+    var dt = document.getElementById('apl_data0'); if(dt) dt.value = a.data || '';
+    var tk = document.getElementById('aporte_ticker'); if(tk) tk.value = a.ticker || '';
+    var tp = document.getElementById('aporte_tipo'); if(tp) tp.value = a.tipo || 'Acao';
+    var qt = document.getElementById('apl_qtd0'); if(qt) qt.value = a.qtd || '';
+    var pr = document.getElementById('apl_preco0');
+    if(pr) pr.value = (a.preco||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:4});
+    if(typeof aplTipoChange0==='function') aplTipoChange0(a.tipo || 'Acao');
+    var m0 = document.getElementById('apl_moeda0');
+    if(m0 && a.moeda) m0.value = a.moeda;
+    if(typeof _aplPrecoSource!=='undefined') _aplPrecoSource['0'] = 'edited';
+    if(typeof aplAtualizarBadge==='function') aplAtualizarBadge('0');
+    if(typeof aplCalc==='function') aplCalc();
+  }catch(err){
+    console.error('[editarTransacaoRV fill]', err);
+    showToast('Modal aberto, mas houve erro ao preencher campos: '+err.message,'#e63946');
+  }
 }
 function excluirTransacaoRV(idx){
   if(!confirm('Excluir esta transação?')) return;
