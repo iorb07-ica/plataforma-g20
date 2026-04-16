@@ -209,9 +209,10 @@ body.sidebar-collapsed .sidebar-collapse-btn .collapse-icon{transform:rotate(180
 .daily-brief .neu{color:var(--text2)}
 .daily-brief .sep{opacity:.35;margin:0 4px}
 .daily-brief .personal{color:var(--gold);font-weight:700}
-.daily-brief .db-destaques{border-top:1px dashed rgba(232,184,75,.18);padding-top:6px;margin-top:2px;gap:14px}
-.daily-brief .db-col{display:flex;align-items:center;gap:8px;flex:1 1 260px;min-width:0}
-.daily-brief .db-label{font-size:11px;font-weight:700;letter-spacing:.5px;color:#c2cbdd;white-space:nowrap;flex-shrink:0}
+.daily-brief .db-destaques{border-top:1px dashed rgba(232,184,75,.18);padding-top:6px;margin-top:2px;gap:12px;flex-wrap:nowrap}
+@media(max-width:720px){.daily-brief .db-destaques{flex-wrap:wrap;gap:4px}}
+.daily-brief .db-col{display:flex;align-items:center;gap:7px;flex:1 1 0;min-width:0}
+.daily-brief .db-label{font-size:11px;font-weight:700;letter-spacing:.3px;color:#c2cbdd;white-space:nowrap;flex-shrink:0}
 .daily-brief .db-tickers{font-size:12px;color:var(--text);opacity:.95;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .daily-brief .db-tickers .tk{font-weight:600}
 .daily-brief .db-tickers .sep{opacity:.3;margin:0 5px}
@@ -1537,17 +1538,26 @@ function renderDailyBrief(){
   function chg(pct){ var s=pct>=0?'+':''; var c=pct>0?'up':pct<0?'down':'neu'; return '<strong class="'+c+'">'+s+pct.toFixed(2)+'%</strong>'; }
   function fmtBRL(v){ return 'R$ '+Math.round(v).toLocaleString('pt-BR'); }
 
-  // 1) Patrimônio hoje (variação desde ontem) + valor
+  // 1) Dia na carteira: quantos ativos sobem / caem / estáveis
   try{
-    if(typeof _patSnapLoad==='function'){
-      var arr=_patSnapLoad();
-      if(arr.length>=2){
-        var hoje=arr[arr.length-1], ontem=arr[arr.length-2];
-        if(hoje.t>0 && ontem.t>0){
-          var pct=((hoje.t/ontem.t)-1)*100;
-          var ico=pct>=0.3?'🚀':pct<=-0.3?'⚠️':'💼';
-          parts.push(ico+' Patrim. <strong>'+fmtBRL(hoje.t)+'</strong> · hoje '+chg(pct));
-        }
+    if(window._dashRVCot){
+      var up=0, down=0, flat=0;
+      var aportes = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
+      if(!Array.isArray(aportes)) aportes=[];
+      var posRV={};
+      aportes.sort(function(a,b){return (a.data||'').localeCompare(b.data||'');}).forEach(function(a){
+        if(!a||!a.ticker) return;
+        if(!posRV[a.ticker]) posRV[a.ticker]={qtd:0};
+        posRV[a.ticker].qtd += (a.op==='C'?1:-1)*(a.qtd||0);
+      });
+      Object.keys(window._dashRVCot).forEach(function(t){
+        if(!posRV[t] || posRV[t].qtd<=0.001) return;
+        var p=window._dashRVCot[t].varPct;
+        if(typeof p!=='number'||isNaN(p)) return;
+        if(p>0.05) up++; else if(p<-0.05) down++; else flat++;
+      });
+      if(up+down+flat>0){
+        parts.push('📊 Dia: <strong class="up">'+up+' em alta</strong> · <strong class="down">'+down+' em queda</strong>'+(flat>0?' · <strong class="neu">'+flat+' estáveis</strong>':''));
       }
     }
   }catch(e){}
@@ -1569,15 +1579,29 @@ function renderDailyBrief(){
     }
   }catch(e){}
 
-  // 3) Alocação atual
+  // 3) Streak de alta OU % de dias positivos em 30d
   try{
     if(typeof _patSnapLoad==='function'){
       var arr3=_patSnapLoad();
-      if(arr3.length>=1){
-        var h=arr3[arr3.length-1];
-        if(h.t>0 && (h.rf>0 || h.rv>0)){
-          var pctRF=(h.rf/h.t)*100, pctRV=(h.rv/h.t)*100, pctOut=Math.max(0,100-pctRF-pctRV);
-          parts.push('🧭 RF <strong>'+pctRF.toFixed(0)+'%</strong> · RV <strong>'+pctRV.toFixed(0)+'%</strong>'+(pctOut>1?' · Bens <strong>'+pctOut.toFixed(0)+'%</strong>':''));
+      if(arr3.length>=5){
+        // Streak
+        var streak=0;
+        for(var i=arr3.length-1;i>0;i--){
+          if(arr3[i].t>arr3[i-1].t) streak++;
+          else break;
+        }
+        if(streak>=3){
+          var ico=streak>=7?'🔥':streak>=5?'✨':'📈';
+          parts.push(ico+' <strong>'+streak+' dias</strong> em alta consecutiva');
+        } else {
+          // Fallback: % de dias positivos em 30d
+          var n30 = Math.min(arr3.length-1, 30);
+          var positivos=0;
+          for(var j=arr3.length-n30;j<arr3.length;j++){
+            if(arr3[j].t > arr3[j-1].t) positivos++;
+          }
+          var pctPos=(positivos/n30)*100;
+          parts.push('📈 <strong>'+pctPos.toFixed(0)+'%</strong> dias positivos (30d)');
         }
       }
     }
