@@ -2291,8 +2291,19 @@ function gsearchRender(q){
   var idx=_gsearchFullIndex();
   var scored = idx.map(function(it){return {it:it, sc:_gsScore(q,it)};}).filter(function(x){return !q || x.sc>0;});
   if(!q){
-    // sem busca: mostra só Páginas + Ações (limitado)
-    scored = idx.filter(function(it){return it.g==='Páginas' || it.g==='Ações';}).slice(0,10).map(function(it){return {it:it, sc:1};});
+    // Sem busca: mostra recentes (localStorage) + páginas + sugestões
+    var recent = [];
+    try {
+      var rk = JSON.parse(localStorage.getItem('g20_gsearch_recent') || '[]');
+      recent = rk.map(function(title){ return idx.find(function(it){ return it.t === title; }); }).filter(Boolean);
+    } catch(e){}
+    var paginas = idx.filter(function(it){ return it.g==='Páginas'; });
+    var sugestoes = idx.filter(function(it){ return it.g==='G20Flix' || it.g==='Cursos'; }).slice(0,5);
+    var combined = [];
+    if(recent.length) recent.forEach(function(it){ combined.push({it:{g:'Recentes',ico:'🕐',t:it.t,s:it.s,link:it.link}, sc:100}); });
+    paginas.forEach(function(it){ combined.push({it:it, sc:50}); });
+    sugestoes.forEach(function(it){ combined.push({it:it, sc:10}); });
+    scored = combined;
   }
   scored.sort(function(a,b){return b.sc-a.sc;});
   scored = scored.slice(0, 25);
@@ -2323,6 +2334,13 @@ function gsearchRender(q){
 function gsearchIr(i){
   var it=_gsResults[i!==undefined ? i : _gsActive];
   if(!it) return;
+  try {
+    var rk = JSON.parse(localStorage.getItem('g20_gsearch_recent') || '[]');
+    rk = rk.filter(function(t){ return t !== it.t; });
+    rk.unshift(it.t);
+    if(rk.length > 5) rk = rk.slice(0, 5);
+    localStorage.setItem('g20_gsearch_recent', JSON.stringify(rk));
+  } catch(e){}
   gsearchFechar();
   if(it.link) setTimeout(function(){ location.href=it.link; }, 80);
 }
