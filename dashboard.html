@@ -1761,7 +1761,7 @@ function loadPatStrip(){
 
 // ── HISTÓRICO PATRIMONIAL + SPARKLINE + CDI ─────────────────────
 var PAT_SNAP_KEY = 'g20_patSnapshots';
-var PAT_RANGE_KEY = 'g20_patSparkRange';
+var PAT_RANGE_KEYS = {total:'g20_patSparkRange_total', rf:'g20_patSparkRange_rf', rv:'g20_patSparkRange_rv'};
 
 function _todayISO(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function _daysBetween(a,b){return Math.round((new Date(b)-new Date(a))/86400000);}
@@ -1878,8 +1878,20 @@ function _buildSparkSVG(series, cdiSeries){
     '</svg>';
 }
 
-function _patGetRange(){ try{return localStorage.getItem(PAT_RANGE_KEY)||'30';}catch(e){return '30';} }
-function _patSetRange(d){ try{localStorage.setItem(PAT_RANGE_KEY,String(d));}catch(e){} }
+function _patGetRange(card){
+  var key = PAT_RANGE_KEYS[card] || PAT_RANGE_KEYS.total;
+  try{
+    var v = localStorage.getItem(key);
+    if(v) return v;
+    // migração do range global antigo (compatibilidade)
+    var old = localStorage.getItem('g20_patSparkRange');
+    return old || '30';
+  }catch(e){return '30';}
+}
+function _patSetRange(card,d){
+  var key = PAT_RANGE_KEYS[card] || PAT_RANGE_KEYS.total;
+  try{localStorage.setItem(key,String(d));}catch(e){}
+}
 
 // Aceita número (dias), "ytd" ou "max"
 function _sliceRange(arr, code){
@@ -1920,28 +1932,28 @@ function _renderCmp(elId, slice, campo, code, labelAtivo){
     (seeded?'<span style="font-size:9px;color:var(--text3);opacity:.7">· histórico sintético</span>':'');
 }
 
-function _patRenderAllSparks(){
+function _patRenderCard(card){
   var arr=_patSnapLoad();
-  var code=_patGetRange();
+  var code=_patGetRange(card);
   var slice=_sliceRange(arr,code);
-
-  var elT=document.getElementById('sparkTotal');
-  var elRF=document.getElementById('sparkRF');
-  var elRV=document.getElementById('sparkRV');
-
-  if(elT) elT.innerHTML=_buildSparkSVG(slice.map(function(s){return s.t;}), slice.map(function(s){return s.c;}));
-  if(elRF) elRF.innerHTML=_buildSparkSVG(slice.map(function(s){return s.rf;}), slice.map(function(s){return s.c;}));
-  if(elRV) elRV.innerHTML=_buildSparkSVG(slice.map(function(s){return s.rv;}), slice.map(function(s){return s.c;}));
-
-  _renderCmp('cmpTotal', slice, 't',  code, 'patrim.');
-  _renderCmp('cmpRF',    slice, 'rf', code, 'RF');
-  _renderCmp('cmpRV',    slice, 'rv', code, 'RV');
-
-  // Marca range ativo em todos os 3 seletores (compartilham o mesmo período)
-  var rangeBtns=document.querySelectorAll('#rangeTotal button, #rangeRF button, #rangeRV button');
-  rangeBtns.forEach(function(b){
+  var cfg = {
+    total: {spark:'sparkTotal', cmp:'cmpTotal', range:'rangeTotal', campo:'t',  lbl:'patrim.'},
+    rf:    {spark:'sparkRF',    cmp:'cmpRF',    range:'rangeRF',    campo:'rf', lbl:'RF'},
+    rv:    {spark:'sparkRV',    cmp:'cmpRV',    range:'rangeRV',    campo:'rv', lbl:'RV'}
+  }[card];
+  if(!cfg) return;
+  var el=document.getElementById(cfg.spark);
+  if(el) el.innerHTML=_buildSparkSVG(slice.map(function(s){return s[cfg.campo];}), slice.map(function(s){return s.c;}));
+  _renderCmp(cfg.cmp, slice, cfg.campo, code, cfg.lbl);
+  document.querySelectorAll('#'+cfg.range+' button').forEach(function(b){
     b.classList.toggle('active', b.getAttribute('data-d')===String(code));
   });
+}
+
+function _patRenderAllSparks(){
+  _patRenderCard('total');
+  _patRenderCard('rf');
+  _patRenderCard('rv');
 }
 
 // Bind botões de range (fase de captura, pra não ser bloqueado por stopPropagation do container)
@@ -1949,9 +1961,12 @@ document.addEventListener('click',function(e){
   var btn=e.target.closest('#rangeTotal button, #rangeRF button, #rangeRV button');
   if(!btn) return;
   e.stopPropagation();
+  var container=btn.closest('.pat-kpi-range');
+  var card = container && container.id==='rangeRF' ? 'rf'
+           : container && container.id==='rangeRV' ? 'rv' : 'total';
   var code=btn.getAttribute('data-d');
-  _patSetRange(code);
-  _patRenderAllSparks();
+  _patSetRange(card,code);
+  _patRenderCard(card);
 }, true);
 
 // -- SIDEBAR / THEME --------------------------------------------
