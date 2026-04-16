@@ -744,6 +744,7 @@ if(localStorage.getItem('g20_uid')){
         <div class="pat-kpi-sub" id="dashRFSub">–</div>
         <div class="pat-kpi-var" id="dashRFVar"></div>
         <div class="pat-kpi-spark" id="sparkRF"></div>
+        <div class="pat-kpi-cmp" id="cmpRF"></div>
         <div class="pat-kpi-range" id="rangeRF" onclick="event.stopPropagation()">
           <button data-d="1">1d</button>
           <button data-d="5">5d</button>
@@ -760,6 +761,7 @@ if(localStorage.getItem('g20_uid')){
         <div class="pat-kpi-sub" id="dashRVSub">da Gestão Patrimonial</div>
         <div class="pat-kpi-var" id="dashRVVar">⏳ buscando cotações…</div>
         <div class="pat-kpi-spark" id="sparkRV"></div>
+        <div class="pat-kpi-cmp" id="cmpRV"></div>
         <div class="pat-kpi-range" id="rangeRV" onclick="event.stopPropagation()">
           <button data-d="1">1d</button>
           <button data-d="5">5d</button>
@@ -1867,6 +1869,27 @@ function _sliceRange(arr, code){
   return out;
 }
 
+function _renderCmp(elId, slice, campo, code, labelAtivo){
+  var el=document.getElementById(elId);
+  if(!el) return;
+  if(slice.length<2){ el.innerHTML=''; return; }
+  var first=slice[0][campo], last=slice[slice.length-1][campo];
+  if(!(first>0) || !(last>0)){ el.innerHTML=''; return; }
+  var ativoPct=((last/first)-1)*100;
+  var cdiPct=((slice[slice.length-1].c/slice[0].c)-1)*100;
+  var diff=ativoPct-cdiPct;
+  var cls=diff>0.05?'up':diff<-0.05?'down':'neu';
+  var sinal=diff>=0?'+':'';
+  var diasReal=_daysBetween(slice[0].d,slice[slice.length-1].d);
+  var labelPeriodo = code==='ytd' ? 'YTD' : code==='max' ? 'Tudo' : diasReal+'d';
+  var seeded=slice.some(function(s){return s.seed;});
+  el.innerHTML=
+    '<span class="cmp-pill '+cls+'">'+sinal+diff.toFixed(2)+'% vs CDI</span>'+
+    '<span>('+labelPeriodo+' · '+labelAtivo+' '+(ativoPct>=0?'+':'')+ativoPct.toFixed(2)+'% · CDI '+(cdiPct>=0?'+':'')+cdiPct.toFixed(2)+'%)</span>'+
+    '<span class="cmp-legend">CDI</span>'+
+    (seeded?'<span style="font-size:9px;color:var(--text3);opacity:.7">· histórico sintético</span>':'');
+}
+
 function _patRenderAllSparks(){
   var arr=_patSnapLoad();
   var code=_patGetRange();
@@ -1875,30 +1898,14 @@ function _patRenderAllSparks(){
   var elT=document.getElementById('sparkTotal');
   var elRF=document.getElementById('sparkRF');
   var elRV=document.getElementById('sparkRV');
-  var elCmp=document.getElementById('cmpTotal');
 
   if(elT) elT.innerHTML=_buildSparkSVG(slice.map(function(s){return s.t;}), slice.map(function(s){return s.c;}));
-  if(elRF) elRF.innerHTML=_buildSparkSVG(slice.map(function(s){return s.rf;}));
-  if(elRV) elRV.innerHTML=_buildSparkSVG(slice.map(function(s){return s.rv;}));
+  if(elRF) elRF.innerHTML=_buildSparkSVG(slice.map(function(s){return s.rf;}), slice.map(function(s){return s.c;}));
+  if(elRV) elRV.innerHTML=_buildSparkSVG(slice.map(function(s){return s.rv;}), slice.map(function(s){return s.c;}));
 
-  if(elCmp){
-    if(slice.length<2){ elCmp.innerHTML=''; }
-    else{
-      var patPct=((slice[slice.length-1].t/slice[0].t)-1)*100;
-      var cdiPct=((slice[slice.length-1].c/slice[0].c)-1)*100;
-      var diff=patPct-cdiPct;
-      var cls=diff>0.05?'up':diff<-0.05?'down':'neu';
-      var sinal=diff>=0?'+':'';
-      var diasReal=_daysBetween(slice[0].d,slice[slice.length-1].d);
-      var labelPeriodo = code==='ytd' ? 'YTD' : code==='max' ? 'Tudo' : diasReal+'d';
-      var seeded=slice.some(function(s){return s.seed;});
-      elCmp.innerHTML=
-        '<span class="cmp-pill '+cls+'">'+sinal+diff.toFixed(2)+'% vs CDI</span>'+
-        '<span>('+labelPeriodo+' · patrim. '+(patPct>=0?'+':'')+patPct.toFixed(2)+'% · CDI '+(cdiPct>=0?'+':'')+cdiPct.toFixed(2)+'%)</span>'+
-        '<span class="cmp-legend">CDI</span>'+
-        (seeded?'<span style="font-size:9px;color:var(--text3);opacity:.7">· histórico sintético (começa a acumular real hoje)</span>':'');
-    }
-  }
+  _renderCmp('cmpTotal', slice, 't',  code, 'patrim.');
+  _renderCmp('cmpRF',    slice, 'rf', code, 'RF');
+  _renderCmp('cmpRV',    slice, 'rv', code, 'RV');
 
   // Marca range ativo em todos os 3 seletores (compartilham o mesmo período)
   var rangeBtns=document.querySelectorAll('#rangeTotal button, #rangeRF button, #rangeRV button');
