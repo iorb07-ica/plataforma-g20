@@ -4626,6 +4626,18 @@ function renderRVPosicoes(){
   });
 
   var cor = RV_TIPO_CORES;
+  // BIND imediato após cada render do tbody (defensivo contra qualquer erro pós-render)
+  function _rvBindBtns(){
+    var tb=document.getElementById('rvTbody'); if(!tb) return;
+    tb.querySelectorAll('.rv-btn-drawer').forEach(function(btn){
+      if(btn._rvBound) return; btn._rvBound=true;
+      btn.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); try{ abrirDrawerRV(this.dataset.ticker); }catch(err){ console.error('[drawer]',err); } });
+    });
+    tb.querySelectorAll('.rv-btn-aporte').forEach(function(btn){
+      if(btn._rvBound) return; btn._rvBound=true;
+      btn.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); try{ abrirModalAporte(this.dataset.ticker); }catch(err){ console.error('[aporte]',err); } });
+    });
+  }
   tbody.innerHTML = rows.map(function(r){
     var p=r.p, cot=r.cot;
     var badgeCor = cor[p.tipo]||'#888';
@@ -4681,25 +4693,13 @@ function renderRVPosicoes(){
       +'</tr>';
   }).join('');
 
-  rvRenderKpiStrip(rows);
-  // Aplica ordem de colunas salva
+  // BIND IMEDIATAMENTE após innerHTML (antes de qualquer código que possa quebrar)
+  _rvBindBtns();
+  // Continua com render auxiliar
+  try{ rvRenderKpiStrip(rows); }catch(e){ console.error('[rvRenderKpiStrip]', e); }
   setTimeout(rvAplicarOrdemColunas, 0);
-  // Bind DIRETO em cada botão da tabela (máxima garantia)
-  var tb=document.getElementById('rvTbody');
-  if(tb){
-    tb.querySelectorAll('.rv-btn-drawer').forEach(function(btn){
-      btn.addEventListener('click', function(ev){
-        ev.preventDefault(); ev.stopPropagation();
-        try{ abrirDrawerRV(this.dataset.ticker); }catch(err){ console.error('[rv-btn-drawer direct]', err); }
-      });
-    });
-    tb.querySelectorAll('.rv-btn-aporte').forEach(function(btn){
-      btn.addEventListener('click', function(ev){
-        ev.preventDefault(); ev.stopPropagation();
-        try{ abrirModalAporte(this.dataset.ticker); }catch(err){ console.error('[rv-btn-aporte direct]', err); }
-      });
-    });
-  }
+  // Re-bind depois (idempotente graças à flag _rvBound)
+  _rvBindBtns();
 }
 
 function rvRenderKpiStrip(rows){
