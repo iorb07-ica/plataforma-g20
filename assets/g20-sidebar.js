@@ -9,17 +9,29 @@
 
   var COLLAPSED_KEY = 'g20_sidebar_collapsed';
 
-  // 1) Sidebar colapsada por padrão (desktop). Só expande se o usuário clicou "Expandir".
-  //    Valor '0' = usuário expandiu explicitamente. Qualquer outro valor = colapsada.
+  // 1) Marca no <html> o mais cedo possível (antes do body existir)
+  //    Valor '0' = usuário expandiu explicitamente. Qualquer outro = colapsada.
   try{
     if(window.innerWidth>768){
       var saved = localStorage.getItem(COLLAPSED_KEY);
       if(saved !== '0'){
-        document.body && document.body.classList.add('sidebar-collapsed');
+        document.documentElement.classList.add('sidebar-collapsed');
         localStorage.setItem(COLLAPSED_KEY, '1');
       }
     }
   }catch(e){}
+
+  function aplicarEstado(){
+    if(window.innerWidth<=768) return;
+    var saved = localStorage.getItem(COLLAPSED_KEY);
+    if(saved !== '0'){
+      document.body.classList.add('sidebar-collapsed');
+      document.documentElement.classList.add('sidebar-collapsed');
+    } else {
+      document.body.classList.remove('sidebar-collapsed');
+      document.documentElement.classList.remove('sidebar-collapsed');
+    }
+  }
 
   function atualizarLegendaBtn(){
     var btn = document.querySelector('.sidebar-collapse-btn');
@@ -31,9 +43,16 @@
   }
 
   window.toggleSidebarCollapse = function(){
-    if(window.innerWidth<=768) return; // mobile: sidebar é overlay
-    var collapsed = document.body.classList.toggle('sidebar-collapsed');
+    if(window.innerWidth<=768) return;
+    var collapsed = !document.body.classList.contains('sidebar-collapsed');
     try{ localStorage.setItem(COLLAPSED_KEY, collapsed?'1':'0'); }catch(e){}
+    if(collapsed){
+      document.body.classList.add('sidebar-collapsed');
+      document.documentElement.classList.add('sidebar-collapsed');
+    } else {
+      document.body.classList.remove('sidebar-collapsed');
+      document.documentElement.classList.remove('sidebar-collapsed');
+    }
     atualizarLegendaBtn();
   };
 
@@ -49,20 +68,24 @@
     sidebar.appendChild(btn);
   }
 
-  // Auto-atribui data-tooltip em cada nav-item baseado no seu texto (após remover .ico e badges)
   function setTooltips(){
     document.querySelectorAll('.sidebar .nav-item').forEach(function(item){
       if(item.hasAttribute('data-tooltip')) return;
       var clone = item.cloneNode(true);
       clone.querySelectorAll('.ico, .badge-infinity').forEach(function(c){c.remove();});
-      // Remove spans com style inline de badge (ex: contador 80 no G20Flix)
       clone.querySelectorAll('span[style*="margin-left:auto"], span[style*="background:var(--gold)"]').forEach(function(c){c.remove();});
       var text = (clone.textContent || '').trim();
       if(text) item.setAttribute('data-tooltip', text);
     });
+    // Tooltip no botão de logout
+    var logout = document.querySelector('.sidebar .btn-logout');
+    if(logout && !logout.hasAttribute('data-tooltip')){
+      logout.setAttribute('data-tooltip', 'Sair');
+    }
   }
 
   function init(){
+    aplicarEstado();
     injectCollapseBtn();
     setTooltips();
     atualizarLegendaBtn();
