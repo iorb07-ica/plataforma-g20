@@ -143,7 +143,13 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .notif-item:hover{background:var(--sur2)}
 .notif-item.unread{background:rgba(232,184,75,.05)}
 .notif-item.unread::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--gold)}
-.notif-item.unread::after{content:'';position:absolute;right:18px;top:50%;transform:translateY(-50%);width:10px;height:10px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 3px rgba(232,184,75,.22);animation:dotPulse 2s ease-in-out infinite}
+/* Botão de alternar lida/não lida */
+.notif-toggle{position:absolute;right:14px;top:50%;transform:translateY(-50%);width:22px;height:22px;border-radius:50%;background:transparent;border:1.5px solid rgba(255,255,255,.15);cursor:pointer;transition:border-color .15s,background .15s,transform .15s;padding:0;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.notif-toggle:hover{border-color:var(--gold);background:rgba(232,184,75,.1);transform:translateY(-50%) scale(1.1)}
+.notif-toggle-dot{width:8px;height:8px;border-radius:50%;background:transparent;transition:background .15s,box-shadow .15s}
+.notif-item.unread .notif-toggle{border-color:var(--gold)}
+.notif-item.unread .notif-toggle-dot{background:var(--gold);box-shadow:0 0 0 3px rgba(232,184,75,.22);animation:dotPulse 2s ease-in-out infinite}
+.light .notif-toggle{border-color:rgba(0,0,0,.2)}
 .notif-ico{width:42px;height:42px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0}
 .notif-body{flex:1;min-width:0}
 .notif-body-title{font-size:14px;font-weight:600;color:#f2f4f9;line-height:1.35;margin-bottom:3px}
@@ -2428,15 +2434,31 @@ function renderNotifList(){
 
   list.innerHTML=notifs.map(function(n){
     var unread=!readIds.includes(n.id);
-    return '<div class="notif-item'+(unread?' unread':'')+'" onclick="clicouNotif(\''+n.id+'\',\''+(n.link||'')+'\')" >'+
+    var idEsc = String(n.id).replace(/'/g,"\\'");
+    var linkEsc = String(n.link||'').replace(/'/g,"\\'");
+    return '<div class="notif-item'+(unread?' unread':'')+'" onclick="clicouNotif(\''+idEsc+'\',\''+linkEsc+'\')">'+
       '<div class="notif-ico" style="background:'+n.bg+'">'+n.ico+'</div>'+
       '<div class="notif-body">'+
         '<div class="notif-body-title">'+n.titulo+'</div>'+
         '<div class="notif-body-desc">'+n.desc+'</div>'+
         '<div class="notif-body-time">'+fmtTimeAgo(n.ts)+'</div>'+
       '</div>'+
+      '<button class="notif-toggle" onclick="toggleLidaNotif(event,\''+idEsc+'\')" title="'+(unread?'Marcar como lida':'Marcar como não lida')+'" aria-label="'+(unread?'Marcar como lida':'Marcar como não lida')+'"><span class="notif-toggle-dot"></span></button>'+
     '</div>';
   }).join('');
+}
+
+function toggleLidaNotif(ev, id){
+  if(ev){ ev.stopPropagation(); ev.preventDefault(); }
+  var readIds = getReadIds();
+  if(readIds.indexOf(id)>=0){
+    readIds = readIds.filter(function(x){return x!==id;});
+  } else {
+    readIds.push(id);
+  }
+  try{localStorage.setItem(NOTIFS_READ_KEY, JSON.stringify(readIds));}catch(e){}
+  renderNotifBadge();
+  renderNotifList();
 }
 
 function toggleHistoricoNotifs(e){
