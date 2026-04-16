@@ -29,6 +29,35 @@
     };
   }
 
+  // Fallback para _patSnapLoad (dashboard o define; outras páginas leem direto do storage)
+  if(typeof window._patSnapLoad !== 'function'){
+    window._patSnapLoad = function(){
+      try{
+        var a = JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]');
+        return Array.isArray(a) ? a : [];
+      }catch(e){ return []; }
+    };
+  }
+
+  // Fallback para _sliceRange (aceita número em dias, 'ytd' ou 'max')
+  if(typeof window._sliceRange !== 'function'){
+    window._sliceRange = function(arr, code){
+      if(!arr || !arr.length) return arr||[];
+      if(code==='max') return arr.slice();
+      var cutoffISO;
+      if(code==='ytd'){
+        cutoffISO = (new Date()).getFullYear()+'-01-01';
+      } else {
+        var dias = parseInt(code,10) || 30;
+        var cutoff = new Date(); cutoff.setDate(cutoff.getDate()-dias);
+        cutoffISO = cutoff.getFullYear()+'-'+String(cutoff.getMonth()+1).padStart(2,'0')+'-'+String(cutoff.getDate()).padStart(2,'0');
+      }
+      var out = arr.filter(function(s){return s.d>=cutoffISO;});
+      if(out.length<2 && arr.length>=2) out = arr.slice(-Math.min(arr.length, 2));
+      return out;
+    };
+  }
+
   function _fmtBRLshort(v){ return 'R$ '+Math.round(v).toLocaleString('pt-BR'); }
 
   // Lê indicadores BCB do cache quando IND global não existir
