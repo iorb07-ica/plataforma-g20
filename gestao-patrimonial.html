@@ -642,9 +642,17 @@ body.pat-hidden .pat-kpi-sub::after{justify-content:flex-start;padding-right:0}
 #rvTable .th-resizer::before{content:'';display:block;width:3px;height:60%;border-radius:2px;background:rgba(255,255,255,0.08);transition:background .15s}
 #rvTable .th-resizer:hover::before,#rvTable .th-resizer.dragging::before{background:var(--gold);height:80%;box-shadow:0 0 6px rgba(232,184,75,.5)}
 #rvTable tbody tr{border-bottom:1px solid rgba(255,255,255,.04);transition:background .12s}
+#rvTable tbody tr:nth-child(even) td{background:rgba(255,255,255,.025)}
 #rvTable tbody tr:hover td{background:var(--sur2)!important}
-#rvTable{background:#0d0f17}
-#rvTable thead tr{background:#0d0f17}
+#rvTable{background:var(--bg2)}
+#rvTable thead tr{background:var(--bg2)}
+/* Light mode: inverte cores */
+.light #rvTable{background:#fff}
+.light #rvTable thead tr{background:#f6f7fb}
+.light #rvTable tbody tr:nth-child(even) td{background:rgba(0,0,0,.025)}
+.light #rvTable tbody tr{border-bottom:1px solid rgba(0,0,0,.05)}
+.light #rvTable tbody tr:hover td{background:var(--sur2)!important}
+.light .rv-table-wrap{background:#fff !important}
 #rvTable tbody tr{background:#0d0f17}
 
 /* ── MODAL IMPORTAR IA ── */
@@ -954,7 +962,7 @@ body.pat-hidden .pat-kpi-sub::after{justify-content:flex-start;padding-right:0}
           <!-- Status cotações -->
           <div id="rvCotStatus" style="font-size:12px;color:var(--text2);margin-bottom:10px;min-height:14px"></div>
           <!-- Tabela de posições -->
-          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:4px" id="rvTableWrap">
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:4px;transition:background .2s" id="rvTableWrap" class="rv-table-wrap">
             <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px" id="rvTable">
               <thead>
                 <tr id="rvTheadRow" style="border-bottom:1px solid var(--border)">
@@ -1726,30 +1734,34 @@ function buscarIndicadores(){
     });
   }
 
-  // Mercado via proxy — símbolos em batch (cache 15min)
+  // Mercado via proxy — cache 15min, mas SEMPRE refaz o fetch em paralelo
+  // (cache vazio / falhas anteriores não deixam o ticker 'preso' em --)
   var mktCache = loadData('indMkt_cache', null);
-  if(mktCache && (Date.now()-mktCache.ts) < 15*60*1000){
+  var cacheValido = mktCache && (Date.now()-mktCache.ts) < 15*60*1000 && mktCache.data && Object.keys(mktCache.data).length>0;
+  if(cacheValido){
     IND_MKT = mktCache.data;
     renderTape();
-    return;
   }
 
   var symbols = TT_ITEMS.filter(function(i){ return i.tipo==='mkt'; }).map(function(i){ return i.symbol; });
   fetch(PROXY_URL_RV+'/api/quote?symbol='+encodeURIComponent(symbols.join(',')))
     .then(function(r){ return r.json(); })
     .then(function(d){
-      // Resposta pode ser objeto único ou mapa
       if(d && d.symbol && d.price !== undefined){ var tmp={}; tmp[d.symbol]=d; d=tmp; }
+      var novoMkt = {};
       symbols.forEach(function(sym){
         var item = d[sym] || d[sym.replace('=X','')] || d[sym.replace('^','')];
-        if(item && item.price){ IND_MKT[sym]={preco:item.price, chg:parseFloat(item.changePercent||0), nome:item.name||sym}; }
+        if(item && item.price){ novoMkt[sym]={preco:item.price, chg:parseFloat(item.changePercent||0), nome:item.name||sym}; }
       });
-      saveData('indMkt_cache',{ts:Date.now(),data:IND_MKT});
-      renderTape();
+      if(Object.keys(novoMkt).length>0){
+        IND_MKT = novoMkt;
+        saveData('indMkt_cache',{ts:Date.now(),data:IND_MKT});
+        renderTape();
+      }
     })
-    .catch(function(){ renderTape(); });
+    .catch(function(e){ console.warn('[buscarIndicadores] falha mkt:', e); renderTape(); });
 
-  renderTape(); // render imediato com o que tiver
+  if(!cacheValido) renderTape(); // render imediato com '--' quando ainda sem cache
 }
 
 function getCDI(){ return IND.cdi || 10.65; }
@@ -4765,12 +4777,14 @@ function rvRenderKpiStrip(rows){
   var totalPos = rows.filter(function(r){ return r.cot; }).reduce(function(s,r){ return s+r.posVal; },0);
   var result = totalPos-totalInv;
   var rentPct = totalInv>0?(result/totalInv*100):0;
-  var nAtivos = calcRVPosicoes().length;
-  if(!nAtivos){ el.innerHTML='<span style="color:var(--text3)">'+nAtivos+' ativos</span>'; return; }
+  // Usa o tamanho da lista FILTRADA (reflete filtros por tipo/busca)
+  var nAtivos = rows.length;
+  if(!nAtivos){ el.innerHTML='<span style="color:var(--text3);font-size:12px">0 ativos</span>'; return; }
+  var valor = totalPos>0 ? fmtV(totalPos) : fmtV(totalInv);
   el.innerHTML =
-    '<span style="color:var(--text3)">'+nAtivos+' ativos</span>'+
-    (totalPos>0?'<span style="color:var(--text2)">'+fmtV(totalPos)+'</span>':'<span style="color:var(--text2)">'+fmtV(totalInv)+'</span>')+
-    (totalPos>0?'<span style="color:'+(rentPct>=0?'var(--green)':'var(--red)')+'">'+
+    '<span style="color:var(--text3);font-size:12px;font-weight:600">'+nAtivos+' ativos</span>'+
+    '<span style="color:var(--text);font-size:18px;font-weight:800;letter-spacing:-.3px">'+valor+'</span>'+
+    (totalPos>0?'<span style="color:'+(rentPct>=0?'var(--green)':'var(--red)')+';font-size:13px;font-weight:700">'+
       (rentPct>=0?'+':'')+rentPct.toFixed(2)+'%</span>':'');
 }
 
