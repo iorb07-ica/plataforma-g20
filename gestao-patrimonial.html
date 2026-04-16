@@ -4753,24 +4753,42 @@ function fecharDrawerRV(){
   var d = document.getElementById('drawerRV');
   if(d) d.remove();
 }
+// Abre o modal em modo edição com a transação específica (equivalente ao editarAporte da Carteira G20)
 function editarTransacaoRV(idx){
   var aportes = loadRVAportes();
   var a = aportes[idx]; if(!a) return;
   fecharDrawerRV();
-  // Abre o modal e preenche linha 0 com os dados, em modo edit (id do aporte)
-  abrirModalAporte(a.ticker);
-  setTimeout(function(){
-    var ed=document.getElementById('aporte_editId'); if(ed) ed.value = a.id || '';
-    var op=document.getElementById('apl_op0'); if(op){ op.value=a.op||'C'; if(typeof aplOpColor==='function') aplOpColor(op); }
-    var dt=document.getElementById('apl_data0'); if(dt) dt.value=a.data||'';
-    var tk=document.getElementById('aporte_ticker'); if(tk) tk.value=a.ticker||'';
-    var tp=document.getElementById('aporte_tipo'); if(tp) tp.value=a.tipo||'Acao';
-    var qt=document.getElementById('apl_qtd0'); if(qt) qt.value=a.qtd||'';
-    var pr=document.getElementById('apl_preco0');
-    if(pr){ pr.value=(a.preco||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:4}); }
-    var mo=document.getElementById('apl_moeda0'); if(mo) mo.value=a.moeda||'BRL';
-    if(typeof aplCalc==='function') aplCalc();
-  }, 100);
+  // Garante um id para casar com o registro ao salvar
+  if(!a.id){
+    a.id = Date.now().toString()+Math.random().toString(36).substr(2,4);
+    aportes[idx] = a;
+    saveRVAportes(aportes);
+  }
+  document.getElementById('aporte_editId').value = a.id;
+  // Reset linhas extras (edição é sempre linha única)
+  document.getElementById('aplExtras').innerHTML = '';
+  _aplRows = []; _aplRowCount = 1;
+  if(typeof aplUpdCount==='function') aplUpdCount();
+  document.getElementById('aplSumPanel').style.display = 'none';
+  // Preenche a linha 0
+  var op0 = document.getElementById('apl_op0');
+  op0.value = a.op || 'C';
+  op0.className = 'apl-sel ' + (a.op==='V'?'apl-op-v':'apl-op-c');
+  document.getElementById('apl_data0').value = a.data || '';
+  document.getElementById('aporte_ticker').value = a.ticker || '';
+  document.getElementById('aporte_tipo').value = a.tipo || 'Acao';
+  document.getElementById('apl_qtd0').value = a.qtd || '';
+  var precoStr = (a.preco||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:4});
+  document.getElementById('apl_preco0').value = precoStr;
+  // Respeita tipo (mostra/esconde moeda) e recalcula
+  if(typeof aplTipoChange0==='function') aplTipoChange0(a.tipo || 'Acao');
+  var m0 = document.getElementById('apl_moeda0');
+  if(m0 && a.moeda) m0.value = a.moeda;
+  // Marca preço como editado para não sobrescrever via autocomplete de cotação
+  if(typeof _aplPrecoSource!=='undefined') _aplPrecoSource['0'] = 'edited';
+  if(typeof aplAtualizarBadge==='function') aplAtualizarBadge('0');
+  if(typeof aplCalc==='function') aplCalc();
+  document.getElementById('modalAporte').classList.add('show');
 }
 function excluirTransacaoRV(idx){
   if(!confirm('Excluir esta transação?')) return;
