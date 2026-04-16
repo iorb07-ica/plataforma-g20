@@ -5844,40 +5844,44 @@ function navegarAutocomplete(e){
 
 // ── ABRIR / SALVAR ────────────────────────────────────────────
 function abrirModalAporte(ticker){
-  var today=new Date().toISOString().split('T')[0];
-  document.getElementById('aporte_editId').value='';
-  // Reset linha 0
-  document.getElementById('apl_op0').value='C';
-  document.getElementById('apl_op0').className='apl-sel apl-op-c';
-  document.getElementById('apl_data0').value=today;
-  document.getElementById('aporte_ticker').value='';
-  document.getElementById('aporte_tipo').value='Acao';
-  document.getElementById('apl_qtd0').value='';
-  document.getElementById('apl_preco0').value='';
-  document.getElementById('apl_tot0').className='apl-total-val';
-  document.getElementById('apl_tot0').textContent='--';
-  document.getElementById('apl_moeda0').style.display='none';
-  document.getElementById('apl_moeda0').value='BRL';
-  var h=document.getElementById('aplHint0'); if(h){h.textContent='';h.style.color='';}
-  // Reset estado de preço
-  _aplPrecoSource['0'] = 'empty';
-  _aplPrecoLive['0'] = null;
-  aplAtualizarBadge('0');
-  // Limpa linhas extras
-  document.getElementById('aplExtras').innerHTML='';
-  _aplRows=[];_aplRowCount=1;
-  aplUpdCount();
-  document.getElementById('aplSumPanel').style.display='none';
+  var modal = document.getElementById('modalAporte');
+  if(!modal){ showToast('Modal não encontrado no HTML','#e63946'); return; }
+  // Abre o modal PRIMEIRO — qualquer erro depois não impede a aparição
+  modal.classList.add('show');
+  try{
+    var today=new Date().toISOString().split('T')[0];
+    var set = function(id,v){ var el=document.getElementById(id); if(el) el.value=v; return el; };
+    set('aporte_editId','');
+    var op0=document.getElementById('apl_op0'); if(op0){ op0.value='C'; op0.className='apl-sel apl-op-c'; }
+    set('apl_data0', today);
+    set('aporte_ticker','');
+    set('aporte_tipo','Acao');
+    set('apl_qtd0','');
+    set('apl_preco0','');
+    var tot0=document.getElementById('apl_tot0'); if(tot0){ tot0.className='apl-total-val'; tot0.textContent='--'; }
+    var m0=document.getElementById('apl_moeda0'); if(m0){ m0.style.display='none'; m0.value='BRL'; }
+    var h=document.getElementById('aplHint0'); if(h){ h.textContent=''; h.style.color=''; }
+    if(typeof _aplPrecoSource!=='undefined') _aplPrecoSource['0'] = 'empty';
+    if(typeof _aplPrecoLive!=='undefined')   _aplPrecoLive['0']   = null;
+    if(typeof aplAtualizarBadge==='function') aplAtualizarBadge('0');
+    var ex=document.getElementById('aplExtras'); if(ex) ex.innerHTML='';
+    if(typeof _aplRows!=='undefined')  _aplRows=[];
+    if(typeof _aplRowCount!=='undefined') _aplRowCount=1;
+    if(typeof aplUpdCount==='function') aplUpdCount();
+    var sp=document.getElementById('aplSumPanel'); if(sp) sp.style.display='none';
 
-  if(ticker && typeof ticker==='string' && !ticker.match(/^\d+$/)){
-    document.getElementById('aporte_ticker').value=ticker;
-    autoDetectTipo(ticker);
+    if(ticker && typeof ticker==='string' && !ticker.match(/^\d+$/)){
+      set('aporte_ticker', ticker);
+      if(typeof autoDetectTipo==='function') autoDetectTipo(ticker);
+    }
+    setTimeout(function(){
+      var inp=document.getElementById('aporte_ticker');
+      if(inp && !ticker) inp.focus();
+    },80);
+  }catch(err){
+    console.error('[abrirModalAporte fill]', err);
+    showToast('Modal aberto (erro ao preencher): '+err.message,'#e63946');
   }
-  document.getElementById('modalAporte').classList.add('show');
-  setTimeout(function(){
-    var inp=document.getElementById('aporte_ticker');
-    if(inp&&!ticker) inp.focus();
-  },80);
 }
 
 function aplSalvar(){
@@ -7365,6 +7369,12 @@ async function iaAnalisar(){
   } catch(e){ iaSetStatus('❌ Erro: '+e.message,'erro'); }
   btn.disabled=false; btn.textContent='🤖 Analisar com IA';
 }
+function _iaRemoveTx(i){
+  _iaTransacoes.splice(i,1);
+  iaRenderPreview(_iaTransacoes);
+  var el=document.getElementById('iaCountLabel');
+  if(el) el.textContent=_iaTransacoes.length;
+}
 function iaRenderPreview(txs){
   if(!txs.length){ document.getElementById('iaPreview').innerHTML=''; return; }
   var html='<div style="overflow-x:auto;margin-top:8px"><table class="ia-preview-table"><thead><tr><th>Ticker</th><th>Data</th><th>Op</th><th>Qtd</th><th>Preço</th><th>Moeda</th><th>Tipo</th><th></th></tr></thead><tbody>';
@@ -7379,7 +7389,7 @@ function iaRenderPreview(txs){
     html+='<td><select onchange="_iaTransacoes['+i+'].tipo=this.value">';
     ['Acao','FII','FIAGRO','Stock','REIT','ETF','Cripto','UCITs','RF'].forEach(function(t){ html+='<option value="'+t+'"'+(tx.tipo===t?' selected':'')+'>'+t+'</option>'; });
     html+='</select></td>';
-    html+='<td><button class="ia-row-remove" onclick="_iaTransacoes.splice('+i+',1);iaRenderPreview(_iaTransacoes);document.getElementById('iaCountLabel').textContent=_iaTransacoes.length">🗑</button></td>';
+    html+='<td><button class="ia-row-remove" onclick="_iaRemoveTx('+i+')">🗑</button></td>';
     html+='</tr>';
   });
   html+='</tbody></table></div>';
