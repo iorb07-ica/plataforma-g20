@@ -5080,6 +5080,14 @@ function bindValorInput(id){
 #modalAporte .modal-box{background:#0a0c14!important;border:1px solid rgba(255,255,255,.1)!important;max-width:980px!important;width:95vw;max-height:90vh;overflow:hidden;display:flex;flex-direction:column}
 #modalAporte .modal-box>*{flex-shrink:0}
 /* Grid: Op | Data | Ticker | Tipo | Qtd | Preço | Total | Del */
+.apl-rows-wrap{display:flex;flex-direction:column;overflow-y:auto;max-height:calc(90vh - 280px);min-height:80px;padding:2px 2px}
+.apl-rows-wrap::-webkit-scrollbar{width:6px}
+.apl-rows-wrap::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
+.apl-pagination{display:flex;align-items:center;justify-content:center;gap:12px;padding:8px 0;margin:4px 0}
+.apl-pg-btn{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.75);padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;transition:.15s;font-family:inherit}
+.apl-pg-btn:hover:not(:disabled){border-color:var(--gold);color:var(--gold)}
+.apl-pg-btn:disabled{opacity:.35;cursor:not-allowed}
+.apl-pg-info{font-size:12px;font-weight:700;color:rgba(255,255,255,.7);letter-spacing:.3px}
 .apl-hdr{display:grid;grid-template-columns:100px 128px 100px 84px 70px 1fr 140px 36px;gap:8px;padding:12px 14px 8px;border-bottom:1px solid rgba(255,255,255,.06);margin-top:4px}
 .apl-hdr-col{font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,.3)}
 .apl-row{display:grid;grid-template-columns:100px 128px 100px 84px 70px 1fr 140px 36px;gap:8px;align-items:center;padding:8px 14px;border-radius:10px;margin-bottom:4px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);transition:border-color .15s}
@@ -5189,8 +5197,9 @@ input[type="text"].apl-inp-preco{text-align:right}
       <div class="apl-hdr-col" style="text-align:right">Total</div>
       <div></div>
     </div>
+    <div class="apl-rows-wrap" id="aplRowsWrap">
     <!-- Linha 0 — IDs fixos para autocomplete -->
-    <div id="aplRow0" class="apl-row">
+    <div id="aplRow0" class="apl-row" data-apl-page="1">
       <select id="apl_op0" class="apl-sel apl-op-c" onchange="aplOpColor(this);aplCalc()">
         <option value="C">Compra</option><option value="V">Venda</option>
       </select>
@@ -5228,6 +5237,13 @@ input[type="text"].apl-inp-preco{text-align:right}
     </div>
     <!-- Linhas extras -->
     <div id="aplExtras"></div>
+    </div><!-- /apl-rows-wrap -->
+    <!-- Paginação (aparece só se tiver >10 linhas) -->
+    <div id="aplPagination" class="apl-pagination" style="display:none">
+      <button class="apl-pg-btn" onclick="aplPageGo(-1)">‹ Anterior</button>
+      <span id="aplPgInfo" class="apl-pg-info">Página 1 de 1</span>
+      <button class="apl-pg-btn" onclick="aplPageGo(1)">Próxima ›</button>
+    </div>
     <!-- Adicionar linha -->
     <button class="apl-add-btn" onclick="aplAddLinha()">＋ Adicionar outro lançamento</button>
     <!-- Total geral -->
@@ -5258,6 +5274,42 @@ var _autocompleteIdx = -1;
 function aplUpdCount(){
   var el=document.getElementById('aplLinhaCount');
   if(el) el.textContent=_aplRowCount+' linha'+(_aplRowCount>1?'s':'');
+  aplApplyPaging();
+}
+
+// ── PAGINAÇÃO DAS LINHAS (10 por página) ───────────────────────
+var _aplPage = 1;
+var APL_PER_PAGE = 10;
+function aplApplyPaging(){
+  var wrap=document.getElementById('aplRowsWrap'); if(!wrap) return;
+  var rows = Array.prototype.slice.call(wrap.querySelectorAll('.apl-row'));
+  var total = rows.length;
+  var pages = Math.max(1, Math.ceil(total / APL_PER_PAGE));
+  if(_aplPage > pages) _aplPage = pages;
+  if(_aplPage < 1) _aplPage = 1;
+  var pagi = document.getElementById('aplPagination');
+  var info = document.getElementById('aplPgInfo');
+  if(total > APL_PER_PAGE){
+    pagi.style.display = 'flex';
+    info.textContent = 'Página '+_aplPage+' de '+pages+' · '+total+' linhas';
+    pagi.querySelectorAll('.apl-pg-btn')[0].disabled = _aplPage<=1;
+    pagi.querySelectorAll('.apl-pg-btn')[1].disabled = _aplPage>=pages;
+  } else {
+    pagi.style.display = 'none';
+  }
+  // Mostra só as linhas da página atual
+  var start = (_aplPage-1)*APL_PER_PAGE;
+  var end = start + APL_PER_PAGE;
+  rows.forEach(function(row, i){
+    row.style.display = (i>=start && i<end) ? '' : 'none';
+  });
+}
+function aplPageGo(delta){
+  _aplPage += delta;
+  aplApplyPaging();
+  // Scroll ao topo das linhas
+  var wrap=document.getElementById('aplRowsWrap');
+  if(wrap) wrap.scrollTop = 0;
 }
 
 function aplOpColor(sel){
@@ -5352,7 +5404,10 @@ function aplAddLinha(){
   var today=new Date().toISOString().split('T')[0];
   var r='x'+Date.now();
   _aplRows.push(r);
-  _aplRowCount++; aplUpdCount();
+  _aplRowCount++;
+  // Navega pra última página (onde a linha nova vai aparecer)
+  _aplPage = Math.ceil(_aplRowCount / APL_PER_PAGE);
+  aplUpdCount();
 
   var div=document.createElement('div');
   div.id='aplRow'+r; div.className='apl-row';
@@ -5928,6 +5983,7 @@ function abrirModalAporte(ticker){
     var ex=document.getElementById('aplExtras'); if(ex) ex.innerHTML='';
     if(typeof _aplRows!=='undefined')  _aplRows=[];
     if(typeof _aplRowCount!=='undefined') _aplRowCount=1;
+    if(typeof _aplPage!=='undefined') _aplPage=1;
     if(typeof aplUpdCount==='function') aplUpdCount();
     var sp=document.getElementById('aplSumPanel'); if(sp) sp.style.display='none';
 
