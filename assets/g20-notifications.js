@@ -1,0 +1,480 @@
+/* G20 — Sistema compartilhado de notificações + tema (dark/light)
+ * Expõe helpers globais (mostrarNotificacoes, toggleTheme, etc.) e um
+ * G20Topbar.init() que injeta o painel de notificações no body se ainda
+ * não existir e aplica o tema salvo.
+ *
+ * Dependências opcionais (se existirem na página, são usadas):
+ *   _patSnapLoad(), _sliceRange(), window._dashRVCot, window.IND
+ * Caso não existam, as notificações associadas simplesmente não disparam.
+ */
+(function(){
+  'use strict';
+
+  // ═══════════════ CONSTANTES ═══════════════
+  window.NOTIFS_KEY = 'g20_notifications';
+  window.NOTIFS_READ_KEY = 'g20_notifs_read';
+  window.NOTIFS_LOG_KEY = 'g20_notifs_log';
+  window.NOTIFS_MAX = 8;
+  window.NOTIFS_LOG_MAX = 100;
+  window._notifsHistoryMode = false;
+  // Último episódio do G20Flix (mantém sincronia com o card do dashboard)
+  if(typeof window.FLIX_CURRENT_EP === 'undefined') window.FLIX_CURRENT_EP = 80;
+  if(typeof window.FLIX_CURRENT_TITLE === 'undefined') window.FLIX_CURRENT_TITLE = '#80 – Aporte da Carteira G20 – Março/2026';
+
+  // ═══════════════ UTIL ═══════════════
+  if(typeof window._todayISO !== 'function'){
+    window._todayISO = function(){
+      var d=new Date();
+      return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    };
+  }
+
+  function _fmtBRLshort(v){ return 'R$ '+Math.round(v).toLocaleString('pt-BR'); }
+
+  // Lê indicadores BCB do cache quando IND global não existir
+  function _getIND(){
+    if(typeof window.IND === 'object' && window.IND && window.IND.selic) return window.IND;
+    try{
+      var c=JSON.parse(localStorage.getItem('g20_indBCB_cache')||'null');
+      if(c && c.data) return c.data;
+    }catch(e){}
+    return null;
+  }
+
+  // ═══════════════ GERADOR DINÂMICO ═══════════════
+  window.gerarNotifsDinamicas = function(){
+    var notifs = [];
+    var hoje = _todayISO();
+    var arr = (typeof _patSnapLoad==='function') ? _patSnapLoad() : [];
+
+    // 1) Novo topo de patrimônio em 60d
+    if(arr.length >= 5){
+      var last = arr[arr.length-1];
+      var prev60 = arr.slice(Math.max(0, arr.length-61), arr.length-1);
+      if(prev60.length){
+        var maxPrev = prev60.reduce(function(m,s){return s.t>m?s.t:m;},0);
+        if(last.t > maxPrev){
+          notifs.push({id:'dyn-topo-'+hoje, ico:'🏆', bg:'rgba(232,184,75,.20)', titulo:'Novo topo de patrimônio!', desc:_fmtBRLshort(last.t)+' — maior valor em 60 dias.', ts: Date.now(), link:'gestao-patrimonial.html'});
+        }
+      }
+    }
+
+    // 2) Bateu CDI em 30d (cruzou hoje)
+    if(arr.length >= 2 && typeof _sliceRange==='function'){
+      var slice30 = _sliceRange(arr, '30');
+      var slice30Ontem = arr.slice(0,-1);
+      var slice30On = slice30Ontem.length>=2 ? _sliceRange(slice30Ontem, '30') : [];
+      if(slice30.length>=2 && slice30On.length>=2){
+        var pNow = (slice30[slice30.length-1].t/slice30[0].t)-1;
+        var cNow = (slice30[slice30.length-1].c/slice30[0].c)-1;
+        var pYes = (slice30On[slice30On.length-1].t/slice30On[0].t)-1;
+        var cYes = (slice30On[slice30On.length-1].c/slice30On[0].c)-1;
+        if(pNow > cNow && pYes <= cYes){
+          notifs.push({id:'dyn-cdi30-'+hoje, ico:'🎯', bg:'rgba(46,204,113,.20)', titulo:'Você bateu o CDI!', desc:'Patrimônio supera o CDI em 30 dias pela 1ª vez.', ts: Date.now(), link:'gestao-patrimonial.html'});
+        }
+      }
+    }
+
+    // 3) Ativos em queda forte hoje (agrupados)
+    try{
+      if(window._dashRVCot){
+        var quedas=[];
+        Object.keys(window._dashRVCot).forEach(function(t){
+          var c=window._dashRVCot[t];
+          if(c && typeof c.varPct==='number' && c.varPct < -5) quedas.push({ticker:t, pct:c.varPct});
+        });
+        if(quedas.length){
+          quedas.sort(function(a,b){return a.pct-b.pct;});
+          var top=quedas.slice(0,3);
+          var desc = quedas.length===1
+            ? top[0].ticker+' caiu '+top[0].pct.toFixed(1)+'% hoje.'
+            : quedas.length+' ativos em queda forte: '+top.map(function(q){return q.ticker+' ('+q.pct.toFixed(1)+'%)';}).join(', ')+(quedas.length>3?'…':'.');
+          notifs.push({id:'dyn-quedas-'+hoje, ico:'🔻', bg:'rgba(239,68,68,.18)', titulo:'Ativos em queda forte', desc:desc, ts:Date.now(), link:'carteira.html'});
+        }
+      }
+    }catch(e){}
+
+    // 4) Novidades no G20Flix desde última visita
+    try{
+      var lastSeen = parseInt(localStorage.getItem('g20_lastSeenFlix')||'0',10);
+      if(!lastSeen){
+        localStorage.setItem('g20_lastSeenFlix', String(window.FLIX_CURRENT_EP));
+      } else if(window.FLIX_CURRENT_EP > lastSeen){
+        var diff = window.FLIX_CURRENT_EP - lastSeen;
+        notifs.push({id:'dyn-flix-'+window.FLIX_CURRENT_EP, ico:'🎬', bg:'rgba(230,57,70,.18)', titulo:(diff===1?'1 episódio novo':diff+' episódios novos')+' no G20Flix', desc:'Último: '+window.FLIX_CURRENT_TITLE, ts:Date.now(), link:'g20flix.html'});
+      }
+    }catch(e){}
+
+    // 5) Pulso diário do patrimônio
+    if(arr.length >= 2){
+      var today = arr[arr.length-1];
+      var yday  = arr[arr.length-2];
+      if(today.t>0 && yday.t>0){
+        var deltaPct = ((today.t/yday.t)-1)*100;
+        var deltaBRL = today.t - yday.t;
+        var seta = deltaPct>=0 ? '▲' : '▼';
+        var ico  = deltaPct>=0.5 ? '🚀' : deltaPct<=-0.5 ? '⚠️' : '📊';
+        var bg   = deltaPct>=0.3 ? 'rgba(46,204,113,.15)' : deltaPct<=-0.3 ? 'rgba(239,68,68,.15)' : 'rgba(139,92,246,.12)';
+        notifs.push({id:'dyn-pulso-'+hoje, ico:ico, bg:bg, titulo:'Pulso de hoje · '+seta+' '+(deltaPct>=0?'+':'')+deltaPct.toFixed(2)+'%', desc:'Patrimônio '+(deltaBRL>=0?'ganhou ':'recuou ')+_fmtBRLshort(Math.abs(deltaBRL))+' desde ontem.', ts:Date.now(), link:'gestao-patrimonial.html'});
+      }
+    }
+
+    // 6a) Status patrimônio vs CDI em 30d
+    if(arr.length >= 2 && typeof _sliceRange==='function'){
+      var s30 = _sliceRange(arr,'30');
+      if(s30.length>=2){
+        var pPct = ((s30[s30.length-1].t/s30[0].t)-1)*100;
+        var cPct = ((s30[s30.length-1].c/s30[0].c)-1)*100;
+        var diff30 = pPct-cPct;
+        var bat = diff30>=0;
+        notifs.push({id:'dyn-vscdi-'+hoje, ico:bat?'📈':'📉', bg:bat?'rgba(46,204,113,.14)':'rgba(239,68,68,.14)', titulo:'Patrimônio vs CDI · 30d · '+(diff30>=0?'+':'')+diff30.toFixed(2)+'%', desc: bat ? 'Você está batendo o CDI em 30d (patrim. '+(pPct>=0?'+':'')+pPct.toFixed(2)+'% · CDI '+cPct.toFixed(2)+'%).' : 'Patrimônio abaixo do CDI em 30d (patrim. '+(pPct>=0?'+':'')+pPct.toFixed(2)+'% · CDI '+cPct.toFixed(2)+'%).', ts:Date.now(), link:'gestao-patrimonial.html'});
+      }
+    }
+
+    // 6b) Alocação atual
+    if(arr.length >= 1){
+      var t0 = arr[arr.length-1];
+      if(t0.t>0 && (t0.rf>0 || t0.rv>0)){
+        var pctRF = (t0.rf/t0.t)*100;
+        var pctRV = (t0.rv/t0.t)*100;
+        var pctOutros = Math.max(0, 100-pctRF-pctRV);
+        notifs.push({id:'dyn-aloc-'+hoje, ico:'🧭', bg:'rgba(139,92,246,.15)', titulo:'Sua alocação hoje', desc:'RF '+pctRF.toFixed(0)+'% · RV '+pctRV.toFixed(0)+'%'+(pctOutros>1?' · Outros '+pctOutros.toFixed(0)+'%':''), ts:Date.now(), link:'gestao-patrimonial.html'});
+      }
+    }
+
+    // 6c) Melhor e pior ativo do dia
+    try{
+      if(window._dashRVCot){
+        var tickers = Object.keys(window._dashRVCot).map(function(t){return {ticker:t, pct:window._dashRVCot[t].varPct};}).filter(function(x){return typeof x.pct==='number' && !isNaN(x.pct);});
+        if(tickers.length>=2){
+          tickers.sort(function(a,b){return b.pct-a.pct;});
+          var best=tickers[0], worst=tickers[tickers.length-1];
+          notifs.push({id:'dyn-destaques-'+hoje, ico:'⭐', bg:'rgba(232,184,75,.15)', titulo:'Destaques do dia', desc:'🔝 '+best.ticker+' '+(best.pct>=0?'+':'')+best.pct.toFixed(1)+'% · 🔻 '+worst.ticker+' '+(worst.pct>=0?'+':'')+worst.pct.toFixed(1)+'%', ts:Date.now(), link:'carteira.html'});
+        }
+      }
+    }catch(e){}
+
+    // 6d) Streak de alta (3+ dias)
+    if(arr.length>=4){
+      var streak=0;
+      for(var k=arr.length-1;k>0;k--){
+        if(arr[k].t>arr[k-1].t) streak++;
+        else break;
+      }
+      if(streak>=3){
+        notifs.push({id:'dyn-streak-'+streak+'-'+hoje, ico: streak>=7?'🔥': streak>=5?'✨':'📈', bg:'rgba(249,115,22,.14)', titulo:streak+' dias de alta consecutiva', desc:'Seu patrimônio sobe há '+streak+' dias seguidos.', ts:Date.now(), link:'gestao-patrimonial.html'});
+      }
+    }
+
+    // 6e) Panorama macro
+    try{
+      var ind = _getIND();
+      if(ind && ind.selic){
+        notifs.push({id:'dyn-macro-'+hoje, ico:'🏦', bg:'rgba(59,130,246,.14)', titulo:'Panorama macro', desc:'Selic '+ind.selic.toFixed(2)+'% · CDI '+(ind.cdi||0).toFixed(2)+'% · IPCA '+(ind.ipca||0).toFixed(2)+'%', ts:Date.now(), link:'gestao-patrimonial.html'});
+      }
+    }catch(e){}
+
+    // 7) Semana em revisão (segundas)
+    try{
+      var dow = new Date().getDay();
+      var lastReview = localStorage.getItem('g20_lastWeekReview')||'';
+      if(dow===1 && lastReview!==hoje && arr.length>=8){
+        var todayW = arr[arr.length-1];
+        var weekAgoIdx = Math.max(0, arr.length-8);
+        var weekAgo = arr[weekAgoIdx];
+        if(todayW.t>0 && weekAgo.t>0){
+          var wPct = ((todayW.t/weekAgo.t)-1)*100;
+          notifs.push({id:'dyn-semana-'+hoje, ico:'📅', bg:'rgba(59,130,246,.15)', titulo:'Semana em revisão · '+(wPct>=0?'+':'')+wPct.toFixed(2)+'%', desc:'Seu patrimônio nos últimos 7 dias.', ts:Date.now(), link:'gestao-patrimonial.html'});
+          localStorage.setItem('g20_lastWeekReview', hoje);
+        }
+      }
+    }catch(e){}
+
+    return notifs;
+  };
+
+  // Fallback quando nada dinâmico dispara
+  window.NOTIFS_FALLBACK = [{id:'fb-calm-'+_todayISO(), ico:'✨', bg:'rgba(139,92,246,.12)', titulo:'Tudo tranquilo por aqui', desc:'Nenhum evento relevante hoje. Continue sua jornada.', ts: Date.now(), link:'dashboard.html'}];
+
+  // ═══════════════ STORAGE / LEITURA ═══════════════
+  window._appendNotifLog = function(novos){
+    try{
+      var log = JSON.parse(localStorage.getItem(NOTIFS_LOG_KEY)||'[]');
+      var map = {};
+      log.forEach(function(n){map[n.id]=n;});
+      novos.forEach(function(n){ if(!map[n.id]) map[n.id]=n; });
+      var arr = Object.keys(map).map(function(k){return map[k];});
+      arr.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+      if(arr.length>NOTIFS_LOG_MAX) arr=arr.slice(0,NOTIFS_LOG_MAX);
+      localStorage.setItem(NOTIFS_LOG_KEY, JSON.stringify(arr));
+    }catch(e){}
+  };
+
+  window.getNotifs = function(){
+    var saved=[];
+    try{
+      var raw=localStorage.getItem(NOTIFS_KEY);
+      if(raw) saved=JSON.parse(raw);
+    }catch(e){}
+    var dynamicas = gerarNotifsDinamicas();
+    _appendNotifLog(dynamicas);
+    var map={};
+    saved.forEach(function(n){map[n.id]=n;});
+    dynamicas.forEach(function(n){map[n.id]=n;});
+    var merged = Object.keys(map).map(function(k){return map[k];});
+    if(!merged.length) merged = NOTIFS_FALLBACK;
+    merged.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+    return merged.slice(0, NOTIFS_MAX);
+  };
+
+  window.getNotifsHistorico = function(){
+    var map={};
+    try{
+      var log=JSON.parse(localStorage.getItem(NOTIFS_LOG_KEY)||'[]');
+      log.forEach(function(n){map[n.id]=n;});
+    }catch(e){}
+    try{
+      var raw=localStorage.getItem(NOTIFS_KEY);
+      if(raw) JSON.parse(raw).forEach(function(n){ if(!map[n.id]) map[n.id]=n; });
+    }catch(e){}
+    gerarNotifsDinamicas().forEach(function(n){ if(!map[n.id]) map[n.id]=n; });
+    var arr = Object.keys(map).map(function(k){return map[k];});
+    arr.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+    return arr;
+  };
+
+  window.getReadIds = function(){
+    try{
+      var saved=localStorage.getItem(NOTIFS_READ_KEY);
+      return saved?JSON.parse(saved):[];
+    }catch(e){ return []; }
+  };
+
+  window.marcarLida = function(id){
+    var readIds=getReadIds();
+    if(!readIds.includes(id)) readIds.push(id);
+    try{localStorage.setItem(NOTIFS_READ_KEY,JSON.stringify(readIds));}catch(e){}
+  };
+
+  window.marcarTodasLidas = function(){
+    var notifs=getNotifs();
+    var ids=notifs.map(function(n){return n.id;});
+    try{localStorage.setItem(NOTIFS_READ_KEY,JSON.stringify(ids));}catch(e){}
+    renderNotifBadge();
+    renderNotifList();
+  };
+
+  window.fmtTimeAgo = function(ts){
+    var diff=Date.now()-ts;
+    var min=Math.floor(diff/60000);
+    var h=Math.floor(diff/3600000);
+    var d=Math.floor(diff/86400000);
+    if(min<1) return 'agora';
+    if(min<60) return min+'min atras';
+    if(h<24) return h+'h atras';
+    return d+'d atras';
+  };
+
+  // ═══════════════ RENDER ═══════════════
+  window.renderNotifBadge = function(){
+    var notifs=getNotifs();
+    var readIds=getReadIds();
+    var unread=notifs.filter(function(n){return !readIds.includes(n.id);}).length;
+    var btn=document.querySelector('[onclick*="mostrarNotificacoes"]');
+    if(btn){
+      btn.innerHTML = '🔔<span class="notif-dot' + (unread>0?' show':'') + '" id="notifDot"></span>';
+    }
+  };
+
+  window.renderNotifList = function(){
+    var notifs = _notifsHistoryMode ? getNotifsHistorico() : getNotifs();
+    var readIds=getReadIds();
+    var list=document.getElementById('notifList');
+    if(!list) return;
+
+    var titleEl = document.querySelector('.notif-title');
+    if(titleEl){
+      titleEl.innerHTML = _notifsHistoryMode
+        ? '🗂️ Histórico <span class="notif-history-badge">'+notifs.length+'</span>'
+        : '🔔 Notificações';
+    }
+    var footerLink = document.querySelector('.notif-footer a');
+    if(footerLink){
+      footerLink.textContent = _notifsHistoryMode ? '← Voltar para recentes' : 'Ver histórico completo';
+    }
+
+    if(!notifs.length){
+      list.innerHTML='<div class="notif-empty"><div class="notif-empty-ico">'+(_notifsHistoryMode?'🗂️':'🔔')+'</div>'+(_notifsHistoryMode?'Nenhum histórico ainda.':'Nenhuma notificação')+'</div>';
+      return;
+    }
+
+    list.innerHTML=notifs.map(function(n){
+      var unread=!readIds.includes(n.id);
+      var idEsc = String(n.id).replace(/'/g,"\\'");
+      var linkEsc = String(n.link||'').replace(/'/g,"\\'");
+      return '<div class="notif-item'+(unread?' unread':'')+'" onclick="clicouNotif(\''+idEsc+'\',\''+linkEsc+'\')">'+
+        '<div class="notif-ico" style="background:'+n.bg+'">'+n.ico+'</div>'+
+        '<div class="notif-body">'+
+          '<div class="notif-body-title">'+n.titulo+'</div>'+
+          '<div class="notif-body-desc">'+n.desc+'</div>'+
+          '<div class="notif-body-time">'+fmtTimeAgo(n.ts)+'</div>'+
+        '</div>'+
+        '<button class="notif-toggle" onclick="toggleLidaNotif(event,\''+idEsc+'\')" title="'+(unread?'Marcar como lida':'Marcar como não lida')+'" aria-label="'+(unread?'Marcar como lida':'Marcar como não lida')+'"><span class="notif-toggle-dot"></span></button>'+
+      '</div>';
+    }).join('');
+  };
+
+  window.toggleLidaNotif = function(ev, id){
+    if(ev){ ev.stopPropagation(); ev.preventDefault(); }
+    var readIds = getReadIds();
+    if(readIds.indexOf(id)>=0){
+      readIds = readIds.filter(function(x){return x!==id;});
+    } else {
+      readIds.push(id);
+    }
+    try{localStorage.setItem(NOTIFS_READ_KEY, JSON.stringify(readIds));}catch(e){}
+    renderNotifBadge();
+    renderNotifList();
+  };
+
+  window.toggleHistoricoNotifs = function(e){
+    if(e){ e.preventDefault(); e.stopPropagation(); }
+    window._notifsHistoryMode = !window._notifsHistoryMode;
+    renderNotifList();
+    var list=document.getElementById('notifList');
+    if(list) list.scrollTop=0;
+  };
+
+  window.clicouNotif = function(id, link){
+    marcarLida(id);
+    if(id && id.indexOf('dyn-flix-')===0){
+      try{localStorage.setItem('g20_lastSeenFlix', String(window.FLIX_CURRENT_EP));}catch(e){}
+    }
+    renderNotifBadge();
+    fecharNotif();
+    if(link) setTimeout(function(){ location.href=link; },100);
+  };
+
+  window.mostrarNotificacoes = function(){
+    var panel=document.getElementById('notifPanel');
+    if(!panel) return;
+    var isOpen=panel.classList.contains('show');
+    if(isOpen){ fecharNotif(); return; }
+    window._notifsHistoryMode = false;
+    renderNotifList();
+    panel.classList.add('show');
+    setTimeout(function(){
+      document.addEventListener('click', fecharNotifOutside);
+    },50);
+  };
+
+  window.fecharNotif = function(){
+    var panel=document.getElementById('notifPanel');
+    if(panel) panel.classList.remove('show');
+    document.removeEventListener('click', fecharNotifOutside);
+  };
+
+  window.fecharNotifOutside = function(e){
+    var panel=document.getElementById('notifPanel');
+    var btn=document.querySelector('[onclick*="mostrarNotificacoes"]');
+    if(panel&&!panel.contains(e.target)&&(!btn||!btn.contains(e.target))){
+      fecharNotif();
+    }
+  };
+
+  // ═══════════════ TEMA DARK/LIGHT ═══════════════
+  window.toggleTheme = function(){
+    var l=document.body.classList.toggle('light');
+    var btnEl=document.getElementById('themeBtn');
+    var iconEl=document.getElementById('themeIcon');
+    var lblEl=document.getElementById('themeLabel');
+    if(btnEl) btnEl.textContent = l ? '☀️' : '🌙';
+    if(iconEl) iconEl.textContent = l ? '☀️' : '🌙';
+    if(lblEl) lblEl.textContent = l ? 'Modo Claro' : 'Modo Escuro';
+    try{localStorage.setItem('g20-theme',l?'light':'dark');}catch(e){}
+  };
+
+  function applySavedTheme(){
+    try{
+      if(localStorage.getItem('g20-theme')==='light'){
+        document.body.classList.add('light');
+        var btnEl=document.getElementById('themeBtn');
+        var iconEl=document.getElementById('themeIcon');
+        var lblEl=document.getElementById('themeLabel');
+        if(btnEl) btnEl.textContent='☀️';
+        if(iconEl) iconEl.textContent='☀️';
+        if(lblEl) lblEl.textContent='Modo Claro';
+      }
+    }catch(e){}
+  }
+
+  // ═══════════════ PAINEL HTML (auto-inject) ═══════════════
+  var PANEL_HTML =
+    '<div class="notif-panel" id="notifPanel">'+
+      '<div class="notif-header">'+
+        '<span class="notif-title">🔔 Notificações</span>'+
+        '<div class="notif-actions">'+
+          '<button class="notif-mark-all" onclick="marcarTodasLidas()">Marcar todas como lidas</button>'+
+          '<button class="notif-close" onclick="fecharNotif()">✕</button>'+
+        '</div>'+
+      '</div>'+
+      '<div class="notif-list" id="notifList"></div>'+
+      '<div class="notif-footer"><a onclick="toggleHistoricoNotifs(event)">Ver histórico completo</a></div>'+
+    '</div>';
+
+  function injectPanelIfMissing(){
+    if(!document.getElementById('notifPanel')){
+      var d=document.createElement('div');
+      d.innerHTML=PANEL_HTML;
+      document.body.appendChild(d.firstChild);
+    }
+  }
+
+  // Botões bell + tema (HTML usado pelo G20Topbar.injectButtons)
+  window.G20Topbar = {
+    bellButtonHTML: '<button class="btn-icon" title="Notificações" onclick="mostrarNotificacoes()" aria-label="Notificações">🔔<span class="notif-dot" id="notifDot"></span></button>',
+    themeButtonHTML: '<button class="btn-icon" id="themeBtn" onclick="toggleTheme()" aria-label="Alternar tema">🌙</button>',
+
+    // Injeta os botões em um container (seletor CSS ou elemento)
+    injectButtons: function(target){
+      var el = (typeof target==='string') ? document.querySelector(target) : target;
+      if(!el) return;
+      // Evita duplicar se já existirem
+      if(!el.querySelector('[onclick*="mostrarNotificacoes"]')){
+        el.insertAdjacentHTML('beforeend', this.bellButtonHTML);
+      }
+      if(!el.querySelector('#themeBtn')){
+        el.insertAdjacentHTML('beforeend', this.themeButtonHTML);
+      }
+    },
+
+    _inited: false,
+    // Init completo: injeta painel, aplica tema, binda pulse, renderiza badge
+    init: function(opts){
+      if(this._inited) return;
+      this._inited = true;
+      opts = opts || {};
+      injectPanelIfMissing();
+      if(opts.buttonsInto) this.injectButtons(opts.buttonsInto);
+      applySavedTheme();
+      // Animação pulse ao clicar em qualquer btn-icon da topbar
+      document.addEventListener('click', function(e){
+        var btn = e.target.closest('.topbar .btn-icon');
+        if(!btn) return;
+        btn.classList.remove('pressed');
+        void btn.offsetWidth;
+        btn.classList.add('pressed');
+        setTimeout(function(){ btn.classList.remove('pressed'); }, 520);
+      });
+      // Primeiro render do badge
+      if(typeof renderNotifBadge==='function') try{ renderNotifBadge(); }catch(e){}
+    }
+  };
+
+  // Auto-init quando o DOM estiver pronto (para páginas que não chamam init manualmente)
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', function(){ window.G20Topbar.init(); });
+  } else {
+    window.G20Topbar.init();
+  }
+})();
