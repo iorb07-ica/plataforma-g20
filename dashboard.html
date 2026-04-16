@@ -1629,39 +1629,41 @@ function renderDailyBrief(){
 
   el.innerHTML = parts.length ? parts.join('<span class="sep">·</span>') : 'Coletando dados…';
 
-  // 5 top / 5 flop dos ativos da Gestão Patrimonial (rvAportes → _dashRVCot)
+  // Top 5 altas + Top 5 quedas dos ativos da Gestão Patrimonial (só posições abertas em rvAportes)
   var destRow = document.getElementById('dbDestaques');
   var topEl = document.getElementById('dbTopTickers');
   var flopEl = document.getElementById('dbFlopTickers');
   try{
     if(window._dashRVCot){
-      // Filtra apenas tickers que o usuário TEM na gestão patrimonial (posições ativas)
       var posRV = {};
       var aportes = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
       if(!Array.isArray(aportes)) aportes=[];
       aportes.sort(function(a,b){return (a.data||'').localeCompare(b.data||'');}).forEach(function(a){
         if(!a||!a.ticker) return;
         if(!posRV[a.ticker]) posRV[a.ticker]={qtd:0};
-        if(a.op==='C') posRV[a.ticker].qtd += (a.qtd||0);
-        else posRV[a.ticker].qtd -= (a.qtd||0);
+        posRV[a.ticker].qtd += (a.op==='C'?1:-1)*(a.qtd||0);
       });
       var tickers = Object.keys(window._dashRVCot)
         .filter(function(t){ return posRV[t] && posRV[t].qtd>0.001; })
         .map(function(t){return {t:t, p:window._dashRVCot[t].varPct};})
         .filter(function(x){return typeof x.p==='number' && !isNaN(x.p);});
-      if(tickers.length>=2){
-        tickers.sort(function(a,b){return b.p-a.p;});
-        var tops = tickers.slice(0, 5);
-        var flops = tickers.slice(-5).reverse();
-        function fmtList(arr){
-          return arr.map(function(x){
-            var s=x.p>=0?'+':'';
-            var cls=x.p>0?'up':x.p<0?'down':'neu';
-            return '<span class="tk">'+x.t+'</span> <span class="'+cls+'">'+s+x.p.toFixed(1)+'%</span>';
-          }).join('<span class="sep">·</span>');
-        }
-        topEl.innerHTML = fmtList(tops);
-        flopEl.innerHTML = fmtList(flops);
+
+      // Separar por sinal: positivos = altas, negativos = quedas, zero fica de fora
+      var altas = tickers.filter(function(x){return x.p>0;}).sort(function(a,b){return b.p-a.p;}).slice(0,5);
+      var quedas = tickers.filter(function(x){return x.p<0;}).sort(function(a,b){return a.p-b.p;}).slice(0,5);
+
+      function fmtList(arr){
+        if(!arr.length) return '<span style="opacity:.5">–</span>';
+        return arr.map(function(x){
+          var s=x.p>=0?'+':'';
+          var cls=x.p>0?'up':x.p<0?'down':'neu';
+          return '<span class="tk">'+x.t+'</span> <span class="'+cls+'">'+s+x.p.toFixed(1)+'%</span>';
+        }).join('<span class="sep">·</span>');
+      }
+
+      if(altas.length || quedas.length){
+        topEl.innerHTML = fmtList(altas);
+        flopEl.innerHTML = fmtList(quedas);
         destRow.style.display = 'flex';
       } else {
         destRow.style.display = 'none';
