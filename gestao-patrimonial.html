@@ -917,7 +917,7 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
                 </div>
               </div>
               <button class="btn-sm btn-outline" onclick="buscarCotacoesRV()" id="rvBtnAtualizar" style="font-size:12px">↻ Cotações</button>
-              <button class="btn-sm btn-gold" onclick="abrirModalRVAporte(null)" style="font-size:13px;font-weight:800">＋ Novo Aporte</button>
+              <button class="btn-sm btn-gold" onclick="abrirModalAporte(null)" style="font-size:13px;font-weight:800">＋ Novo Aporte</button>
             </div>
           </div>
           <!-- Status cotações -->
@@ -1209,7 +1209,7 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 <div class="gp-fab-overlay" id="gpFabOverlay" onclick="gpCloseFab()"></div>
 <div class="gp-fab-wrap" id="gpFabWrap">
   <div class="gp-fab-items" id="gpFabItems">
-    <div class="gp-fab-item" onclick="gpCloseFab();abrirModalRVAporte(null)">
+    <div class="gp-fab-item" onclick="gpCloseFab();abrirModalAporte(null)">
       <div class="gp-fab-label">Aporte RV</div>
       <button class="gp-fab-btn" style="background:#8b5cf6;color:#fff" title="Novo aporte RV">📈</button>
     </div>
@@ -1584,18 +1584,13 @@ function fecharModal(id){
 // ESC fecha qualquer modal aberto
 document.addEventListener('keydown', function(e){
   if(e.key !== 'Escape') return;
-  ['modalRF','modalPat','modalResgate','modalRVAporte'].forEach(function(id){
+  ['modalRF','modalPat','modalResgate','modalAporte'].forEach(function(id){
     var el = document.getElementById(id);
     if(el && (el.style.display === 'block' || el.classList.contains('show'))) fecharModal(id);
   });
   // Fecha drawer de grupo se estiver aberto
   var drawer = document.getElementById('grupoDrawer');
   if(drawer && drawer.style.display !== 'none') fecharDrawerGrupo && fecharDrawerGrupo();
-  // Fecha modal RV
-  if(typeof fecharModalRVAporte === 'function'){
-    var rv = document.getElementById('modalRVAporte');
-    if(rv && rv.style.display !== 'none') fecharModalRVAporte();
-  }
 });
 
 var _toastTimer=null;
@@ -4621,7 +4616,7 @@ function renderRVPosicoes(){
       +'<td data-rvcol="proventos"style="padding:10px 12px;text-align:right">'+provStr+'</td>'
       +'<td data-rvcol="totalRet" style="padding:10px 12px;text-align:right">'+trStr+'</td>'
       +'<td data-rvcol="acoes" style="padding:10px 8px;white-space:nowrap">'
-        +'<button onclick="abrirModalRVAporte(\''+p.ticker+'\')" style="background:rgba(232,184,75,.12);border:1.5px solid rgba(232,184,75,.45);color:#e8b84b;padding:3px 7px;border-radius:7px;font-size:14px;font-weight:800;cursor:pointer;margin-right:4px" title="Novo aporte">＋</button>'
+        +'<button onclick="abrirModalAporte(\''+p.ticker+'\')" style="background:rgba(232,184,75,.12);border:1.5px solid rgba(232,184,75,.45);color:#e8b84b;padding:3px 7px;border-radius:7px;font-size:14px;font-weight:800;cursor:pointer;margin-right:4px" title="Novo aporte">＋</button>'
         +'<button onclick="excluirRVAtivo(\''+p.ticker+'\')" style="background:none;border:1px solid rgba(230,57,70,.4);color:#e63946;padding:3px 7px;border-radius:6px;font-size:11px;cursor:pointer" title="Excluir ativo">🗑️</button>'
       +'</td>'
       +'</tr>';
@@ -4662,365 +4657,9 @@ function excluirRVAtivo(ticker){
   showToast('🗑️ '+ticker+' removido');
 }
 
-// ── MODAL APORTE RV ─────────────────────────────────────────
-function abrirModalRVAporte(ticker){
-  var today=new Date().toISOString().split('T')[0];
-  document.getElementById('rv_editId').value='';
-  var op=document.getElementById('rv_op'); op.value='C'; op.className='apl-sel apl-op-c';
-  document.getElementById('rv_data').value=today;
-  document.getElementById('rv_ticker').value='';
-  document.getElementById('rv_tipo').value='Acao';
-  document.getElementById('rv_qtd').value='';
-  document.getElementById('rv_preco').value='';
-  document.getElementById('rv_tot0').className='apl-total-val';
-  document.getElementById('rv_tot0').textContent='--';
-  document.getElementById('rv_moeda').style.display='none';
-  document.getElementById('rv_moeda').value='BRL';
-  var h=document.getElementById('rvTickerHint'); if(h){h.textContent='';h.style.color='';}
-  document.getElementById('rvExtras').innerHTML='';
-  _rvRows=[]; _rvRowCount=1; rvUpdCount();
-  document.getElementById('rvSumPanel').style.display='none';
-  if(ticker&&typeof ticker==='string'&&!/^\d+$/.test(ticker)){
-    document.getElementById('rv_ticker').value=ticker;
-    rvAutoDetectTipo(ticker);
-  }
-  var modal=document.getElementById('modalRVAporte');
-  modal.style.display='flex';
-}
-
-function fecharModalRVAporte(){
-  document.getElementById('modalRVAporte').style.display='none';
-  rvFecharAutocomplete();
-}
-
-function salvarRVAporte(){ salvarRVAporteLote(); } // alias
-
-function salvarRVAporteLote(){
-  var novos=[], erros=[];
-  var rate = (typeof rvUsdBRL!=='undefined'&&rvUsdBRL>0)?rvUsdBRL:5.0;
-
-  // Linha 0
-  var t0=document.getElementById('rv_ticker').value.trim().toUpperCase();
-  var op0=document.getElementById('rv_op').value;
-  var d0=document.getElementById('rv_data').value;
-  var tp0=document.getElementById('rv_tipo').value;
-  var q0=parseFloat(document.getElementById('rv_qtd').value)||0;
-  var p0=aplParsePreco(document.getElementById('rv_preco').value);
-  var m0=document.getElementById('rv_moeda').value||'BRL';
-  if(!t0||!d0||q0<=0||p0<=0){ erros.push('Linha 1: preencha Ticker, Data, Qtd e Preço'); }
-  else{
-    var isUS0=RV_US_TYPES.includes(tp0);
-    novos.push({id:Date.now().toString()+Math.random().toString(36).substr(2,4),ticker:t0,tipo:tp0,op:op0,data:d0,qtd:q0,preco:p0,moeda:isUS0?m0:'BRL',fxRate:isUS0&&m0==='USD'?rate:1});
-  }
-
-  // Linhas extras
-  _rvRows.forEach(function(r,i){
-    var t=(document.getElementById('rvTk'+r)||{value:''}).value.trim().toUpperCase();
-    var op=(document.getElementById('rvOp'+r)||{value:'C'}).value;
-    var d=(document.getElementById('rvDt'+r)||{value:''}).value;
-    var tp=(document.getElementById('rvTp'+r)||{value:'Acao'}).value;
-    var q=parseFloat((document.getElementById('rvQ'+r)||{value:0}).value)||0;
-    var p=aplParsePreco((document.getElementById('rvP'+r)||{value:''}).value);
-    var m=(document.getElementById('rvM'+r)||{value:'BRL'}).value||'BRL';
-    if(!t||!d||q<=0||p<=0){ erros.push('Linha '+(i+2)+': preencha todos os campos'); return; }
-    var isUS=RV_US_TYPES.includes(tp);
-    novos.push({id:Date.now().toString()+Math.random().toString(36).substr(2,4),ticker:t,tipo:tp,op:op,data:d,qtd:q,preco:p,moeda:isUS?m:'BRL',fxRate:isUS&&m==='USD'?rate:1});
-  });
-
-  if(erros.length){ showToast('⚠️ '+erros[0],'#e63946'); return; }
-  if(!novos.length){ showToast('⚠️ Nenhuma transação válida'); return; }
-
-  var editId=document.getElementById('rv_editId').value;
-  var aportes=loadRVAportes();
-  if(editId&&novos.length===1){
-    novos[0].id=editId;
-    var idx=aportes.findIndex(function(a){return a.id===editId;});
-    if(idx>=0) aportes[idx]=novos[0]; else aportes.push(novos[0]);
-  } else {
-    novos.forEach(function(n){ aportes.push(n); });
-  }
-
-  _db_cache['rvAportes']=aportes;
-  try{localStorage.setItem('g20_rvAportes',JSON.stringify(aportes));}catch(e){}
-  if(_db_ref){ _db_ref.doc('rvAportes').set({value:aportes,updatedAt:firebase.firestore.FieldValue.serverTimestamp()}).catch(function(e){console.warn(e);}); }
-
-  fecharModalRVAporte();
-  renderRVPosicoes(); renderKPIs(); renderCharts();
-  showToast('✅ '+novos.length+' transaç'+(novos.length===1?'ão':'ões')+' salva'+(novos.length===1?'':'s')+'!');
-}
-
-function rvOpColor(sel){ sel.className='apl-sel '+(sel.value==='C'?'apl-op-c':'apl-op-v'); }
-
-function rvTipoChange0(tipo){
-  var isUS=RV_US_TYPES.includes(tipo);
-  var m=document.getElementById('rv_moeda');
-  if(m){ m.style.display=isUS?'block':'none'; if(isUS&&m.value==='BRL') m.value='USD'; if(!isUS) m.value='BRL'; m.className='apl-moeda'+(isUS?' usd':''); }
-}
-
-// alias para código antigo
-function rvOnTipoChange(tipo){ rvTipoChange0(tipo); }
-function rvAtualizarLabelMoeda(){}
-function rvAtualizarTotal(){ rvCalc(); }
-
-function rvCalc(){
-  var q0=parseFloat(document.getElementById('rv_qtd').value)||0;
-  var p0=aplParsePreco(document.getElementById('rv_preco').value);
-  var m0=(document.getElementById('rv_moeda')||{value:'BRL'}).value;
-  var te0=document.getElementById('rv_tot0');
-  if(te0){
-    if(q0>0&&p0>0){te0.className='apl-total-val on';te0.textContent=rvFmt(q0*p0,m0);}
-    else{te0.className='apl-total-val';te0.textContent='--';}
-  }
-  _rvRows.forEach(function(r){
-    var q=parseFloat((document.getElementById('rvQ'+r)||{value:0}).value)||0;
-    var p=aplParsePreco((document.getElementById('rvP'+r)||{value:''}).value);
-    var m=(document.getElementById('rvM'+r)||{value:'BRL'}).value;
-    var te=document.getElementById('rvTot'+r);
-    if(te){
-      if(q>0&&p>0){te.className='apl-total-val on';te.textContent=rvFmt(q*p,m);}
-      else{te.className='apl-total-val';te.textContent='--';}
-    }
-  });
-  rvCalcSum();
-}
-
-function rvFmt(v,moeda){
-  if(moeda==='USD') return 'US$ '+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
-}
-
-function rvCalcSum(){
-  var items=[],total=0;
-  var rate=(typeof rvUsdBRL!=='undefined'&&rvUsdBRL>0)?rvUsdBRL:5.0;
-  var t0=document.getElementById('rv_ticker').value.toUpperCase();
-  var q0=parseFloat(document.getElementById('rv_qtd').value)||0;
-  var p0=aplParsePreco(document.getElementById('rv_preco').value);
-  var op0=document.getElementById('rv_op').value;
-  var m0=(document.getElementById('rv_moeda')||{value:'BRL'}).value;
-  if(t0&&q0>0&&p0>0){var v=q0*p0;total+=m0==='USD'?v*rate:v;items.push({ticker:t0,op:op0,val:v,moeda:m0});}
-  _rvRows.forEach(function(r){
-    var t=(document.getElementById('rvTk'+r)||{value:''}).value.toUpperCase();
-    var q=parseFloat((document.getElementById('rvQ'+r)||{value:0}).value)||0;
-    var p=aplParsePreco((document.getElementById('rvP'+r)||{value:''}).value);
-    var op=(document.getElementById('rvOp'+r)||{value:'C'}).value;
-    var m=(document.getElementById('rvM'+r)||{value:'BRL'}).value;
-    if(t&&q>0&&p>0){var v=q*p;total+=m==='USD'?v*rate:v;items.push({ticker:t,op:op,val:v,moeda:m});}
-  });
-  var panel=document.getElementById('rvSumPanel');
-  var totEl=document.getElementById('rvSumVal');
-  var tags=document.getElementById('rvSumTags');
-  if(items.length>0){
-    panel.style.display='block';
-    totEl.textContent='R$ '+total.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
-    tags.innerHTML=items.map(function(it){
-      var c=it.op==='C'?'#10b981':'#e63946';
-      return '<span class="apl-sum-tag"><b style="color:'+c+'">'+(it.op==='C'?'Compra':'Venda')+'</b> <b style="color:#f4f6fa">'+it.ticker+'</b> <span style="color:#e8b84b">'+rvFmt(it.val,it.moeda)+'</span></span>';
-    }).join('');
-  } else { panel.style.display='none'; }
-}
-
-function rvUpdCount(){
-  var el=document.getElementById('rvLinhaCount');
-  if(el) el.textContent=_rvRowCount+' linha'+(_rvRowCount>1?'s':'');
-}
-
-var _rvRows=[], _rvRowCount=1;
-
-function rvDel(r){
-  if(r===0){
-    document.getElementById('rv_ticker').value='';
-    document.getElementById('rv_qtd').value='';
-    document.getElementById('rv_preco').value='';
-    document.getElementById('rv_tot0').className='apl-total-val';
-    document.getElementById('rv_tot0').textContent='--';
-    var h=document.getElementById('rvTickerHint');if(h){h.textContent='';h.style.color='';}
-    rvCalc(); return;
-  }
-  var el=document.getElementById('rvRow'+r);
-  if(!el) return;
-  el.style.transition='opacity .15s,transform .15s';
-  el.style.opacity='0'; el.style.transform='translateX(16px)';
-  setTimeout(function(){el.remove();},160);
-  _rvRows=_rvRows.filter(function(x){return x!==r;});
-  _rvRowCount--; rvUpdCount();
-  setTimeout(rvCalc,170);
-}
-
-function rvAddLinha(){
-  var today=new Date().toISOString().split('T')[0];
-  var r='v'+Date.now();
-  _rvRows.push(r); _rvRowCount++; rvUpdCount();
-
-  var div=document.createElement('div');
-  div.id='rvRow'+r; div.className='apl-row';
-
-  function mk(tag,attrs){
-    var el=document.createElement(tag);
-    Object.keys(attrs).forEach(function(k){
-      if(k==='style') el.style.cssText=attrs[k];
-      else if(k==='innerHTML') el.innerHTML=attrs[k];
-      else el[k]=attrs[k];
-    });
-    return el;
-  }
-
-  // Op
-  var opSel=mk('select',{id:'rvOp'+r,className:'apl-sel apl-op-c',innerHTML:'<option value="C">Compra</option><option value="V">Venda</option>'});
-  opSel.addEventListener('change',function(){this.className='apl-sel '+(this.value==='C'?'apl-op-c':'apl-op-v');rvCalc();});
-  div.appendChild(opSel);
-
-  // Data
-  var dt=mk('input',{type:'date',id:'rvDt'+r,className:'apl-inp',value:today});
-  dt.addEventListener('click',function(){try{this.showPicker();}catch(e){}});
-  dt.addEventListener('change',rvCalc);
-  div.appendChild(dt);
-
-  // Ticker + autocomplete
-  var tkWrap=mk('div',{className:'apl-tk-wrap'});
-  var acId='rvAC'+r;
-  var tk=mk('input',{type:'text',id:'rvTk'+r,className:'apl-inp',placeholder:'PETR4, AAPL...',autocomplete:'off',style:'font-weight:700;font-size:14px'});
-  tk.addEventListener('input',function(){
-    this.value=this.value.toUpperCase();
-    rvDetectTipoExtra(r,this.value);
-    rvBuscarExtra(r,this.value,acId);
-    rvCalc();
-  });
-  tk.addEventListener('keydown',function(e){ rvNavExtra(e,acId,r); });
-  tk.addEventListener('blur',function(){ setTimeout(function(){var b=document.getElementById(acId);if(b)b.style.display='none';},200); });
-  var acBox=mk('div',{id:acId,className:'ticker-autocomplete',style:'display:none'});
-  var hint=mk('div',{id:'rvH'+r,className:'apl-tk-hint'});
-  tkWrap.appendChild(tk); tkWrap.appendChild(acBox); tkWrap.appendChild(hint);
-  div.appendChild(tkWrap);
-
-  // Tipo
-  var tp=mk('select',{id:'rvTp'+r,className:'apl-sel',innerHTML:['Acao','FII','FIAGRO','Stock','REIT','ETF','UCITs','Cripto'].map(function(t){return '<option value="'+t+'">'+t+'</option>';}).join('')});
-  tp.addEventListener('change',function(){rvTipoExtra(r,this.value);rvCalc();});
-  div.appendChild(tp);
-
-  // Qtd
-  var q=mk('input',{type:'number',id:'rvQ'+r,className:'apl-inp',placeholder:'0',min:'0',step:'any',style:'text-align:right;-moz-appearance:textfield;appearance:textfield'});
-  q.addEventListener('input',rvCalc);
-  div.appendChild(q);
-
-  // Preço + moeda
-  var pw=mk('div',{className:'apl-preco-row'});
-  var p=mk('input',{type:'text',id:'rvP'+r,className:'apl-inp apl-inp-preco',placeholder:'0,00'});
-  p.setAttribute('inputmode','decimal');
-  p.addEventListener('input',function(){aplParsePreco&&aplFmtPreco(this);rvCalc();});
-  var ms=mk('select',{id:'rvM'+r,className:'apl-moeda',style:'display:none',innerHTML:'<option value="BRL">R$</option><option value="USD">US$</option>'});
-  ms.addEventListener('change',function(){this.className='apl-moeda'+(this.value==='USD'?' usd':'');rvCalc();});
-  pw.appendChild(p); pw.appendChild(ms);
-  div.appendChild(pw);
-
-  // Total
-  var tot=mk('div',{id:'rvTot'+r,className:'apl-total-val',innerHTML:'--'});
-  div.appendChild(tot);
-
-  // Del
-  var del=mk('button',{className:'apl-del-btn',title:'Remover',innerHTML:'🗑'});
-  del.addEventListener('click',function(){rvDel(r);});
-  div.appendChild(del);
-
-  document.getElementById('rvExtras').appendChild(div);
-  div.style.opacity='0'; div.style.transform='translateY(-4px)';
-  requestAnimationFrame(function(){div.style.transition='opacity .2s,transform .2s';div.style.opacity='1';div.style.transform='none';});
-  tk.focus();
-}
-
-function rvDetectTipoExtra(r, ticker){
-  var hint=document.getElementById('rvH'+r);
-  var sel=document.getElementById('rvTp'+r);
-  if(!ticker||ticker.length<2){if(hint)hint.textContent='';return;}
-  var t=ticker.toUpperCase().replace(/\.SA$/i,'');
-  var isFII=/^[A-Z]{4}11$/.test(t);
-  var isBR=/^[A-Z]{3,6}\d{1,2}[A-Z]?$/.test(t);
-  var isCripto=/^(BTC|ETH|SOL|BNB|XRP|ADA|DOGE)/.test(t);
-  var tipo=isCripto?'Cripto':isFII?'FII':isBR?'Acao':RV_ETFS_CONHECIDOS.includes(t)?'ETF':RV_REITS_CONHECIDOS.includes(t)?'REIT':'Stock';
-  if(sel) sel.value=tipo;
-  rvTipoExtra(r,tipo);
-  if(hint){ hint.textContent=isBR?'🇧🇷 '+(isFII?'FII':'Ação')+' (B3)':isCripto?'₿ Cripto':'🇺🇸 '+tipo+' (US)'; hint.style.color=isBR?'#2ecc71':isCripto?'#f7931a':'#64b4ff'; }
-}
-
-function rvTipoExtra(r, tipo){
-  var isUS=RV_US_TYPES.includes(tipo);
-  var m=document.getElementById('rvM'+r);
-  if(m){m.style.display=isUS?'block':'none';if(isUS&&m.value==='BRL')m.value='USD';if(!isUS)m.value='BRL';m.className='apl-moeda'+(isUS?' usd':'');}
-}
-
-function rvBuscarExtra(r, q, acId){
-  var box=document.getElementById(acId);
-  if(!box||!q||q.length<2){if(box)box.style.display='none';return;}
-  clearTimeout(window['_rvAcT'+r]);
-  window['_rvAcT'+r]=setTimeout(function(){
-    var PROXY_URL_RV='https://g20-proxy.vercel.app';
-    var tk=document.getElementById('rvTk'+r);
-    if(tk){var rect=tk.getBoundingClientRect();box.style.top=(rect.bottom+6)+'px';box.style.left=rect.left+'px';}
-    box.innerHTML='<div class="tac-loading">Buscando...</div>';
-    box.style.display='block';
-    fetch(PROXY_URL_RV+'/api/search?q='+encodeURIComponent(q)+'&limit=20')
-      .then(function(res){return res.json();})
-      .then(function(d){
-        var results=d.results||[];
-        if(!results.length){box.innerHTML='<div class="tac-loading">Sem resultados</div>';return;}
-        var TMETA={Acao:{color:'#3b82f6',icon:'🇧🇷'},FII:{color:'#10b981',icon:'🏢'},Stock:{color:'#a855f7',icon:'🇺🇸'},REIT:{color:'#ef4444',icon:'🏬'},ETF:{color:'#f97316',icon:'📦'},UCITs:{color:'#06b6d4',icon:'🇪🇺'},Cripto:{color:'#f7931a',icon:'₿'}};
-        box.innerHTML=results.map(function(item){
-          var tip=item.g20tipo||'Stock';
-          var m=TMETA[tip]||{color:'#888',icon:''};
-          return '<div class="ticker-autocomplete-item" data-symbol="'+item.symbol+'" data-tipo="'+tip+'" style="border-left:3px solid '+m.color+'22"><span class="tac-symbol" style="color:'+m.color+'">'+item.symbol+'</span><span class="tac-name">'+item.name+'</span><span class="tac-badge" style="background:'+m.color+'22;color:'+m.color+'">'+m.icon+' '+tip+'</span></div>';
-        }).join('');
-        box.querySelectorAll('.ticker-autocomplete-item').forEach(function(el){
-          el.addEventListener('mousedown',function(){
-            var sym=this.dataset.symbol,tip=this.dataset.tipo;
-            var isBR=['Acao','FII','FIAGRO'].includes(tip);
-            var ticker=isBR?sym.replace(/\.SA$/i,'').toUpperCase():sym.toUpperCase();
-            var tkEl=document.getElementById('rvTk'+r);
-            var tpEl=document.getElementById('rvTp'+r);
-            if(tkEl) tkEl.value=ticker;
-            if(tpEl){tpEl.value=tip;rvTipoExtra(r,tip);}
-            var h=document.getElementById('rvH'+r);
-            if(h){h.textContent=isBR?'🇧🇷 '+tip+' (B3)':'🇺🇸 '+tip+' (US)';h.style.color=isBR?'#2ecc71':'#64b4ff';}
-            box.style.display='none';
-            rvCalc();
-          });
-        });
-      }).catch(function(){box.style.display='none';});
-  },280);
-}
-
-function rvNavExtra(e, acId, r){
-  var box=document.getElementById(acId);
-  if(!box||box.style.display==='none') return;
-  var items=box.querySelectorAll('.ticker-autocomplete-item');
-  var act=box.querySelector('.ticker-autocomplete-item.active');
-  var idx=act?Array.from(items).indexOf(act):-1;
-  if(e.key==='ArrowDown'){e.preventDefault();idx=Math.min(idx+1,items.length-1);}
-  else if(e.key==='ArrowUp'){e.preventDefault();idx=Math.max(idx-1,0);}
-  else if(e.key==='Enter'&&act){e.preventDefault();act.dispatchEvent(new MouseEvent('mousedown'));return;}
-  else if(e.key==='Escape'){box.style.display='none';return;}
-  else return;
-  items.forEach(function(el){el.classList.remove('active');});
-  if(items[idx]){items[idx].classList.add('active');items[idx].scrollIntoView({block:'nearest'});}
-}
-
-// Função auxiliar para parsear preço (se não existir por não ter sido carregada da Carteira)
-function aplFmtPreco(el){
-  var raw=el.value.replace(/[^0-9,]/g,'');
-  var parts=raw.split(',');
-  if(parts.length>2) raw=parts.slice(0,-1).join('')+','+parts[parts.length-1];
-  var commaIdx=raw.indexOf(',');
-  var intPart,decPart='';
-  if(commaIdx>=0){ intPart=raw.substring(0,commaIdx); decPart=raw.substring(commaIdx+1,commaIdx+7); }
-  else { intPart=raw; }
-  intPart=intPart.replace(/\B(?=(\d{3})+(?!\d))/g,'.');
-  el.value=intPart+(commaIdx>=0?','+decPart:'');
-}
-
-function aplParsePreco(str){
-  if(typeof str!=='string') return parseFloat(str)||0;
-  return parseFloat(str.replace(/\./g,'').replace(',','.'))||0;
-}
-
-// ── AUTO-DETECÇÃO DE TIPO ────────────────────────────────────
+// ── CONSTANTES COMPARTILHADAS DE DETECÇÃO DE TIPO ────────────
+// (o modal de aporte vive na parte inferior do arquivo — estas listas/helpers
+//  continuam aqui porque são usadas fora do modal também.)
 var RV_REITS_CONHECIDOS=['O','SPG','VNQ','NNN','STAG','WPC','VICI','MPW','AMT','PLD','PSA'];
 var RV_ETFS_CONHECIDOS=['SPY','QQQ','IWM','DIA','GLD','SLV','TLT','VOO','VTI','SCHD','JEPI','JEPQ'];
 // Lista ampla de UCITs conhecidos + detecção por sufixo de bolsa europeia
@@ -5054,127 +4693,6 @@ function rvIsUCITs(ticker){
     if(ticker.toUpperCase().endsWith(RV_UCITS_SUFIXOS[i].toUpperCase())) return true;
   }
   return false;
-}
-
-function rvAutoDetectTipo(ticker){
-  if(!ticker||ticker.length<1){ return; }
-  var t = ticker.replace(/\.SA$/i,'').toUpperCase();
-  var tBase = t.split('.')[0]; // Remove sufixo de bolsa para checar lista
-  var hint = document.getElementById('rvTickerHint');
-  var lbl  = document.getElementById('rvTipoLabel');
-  var sel  = document.getElementById('rv_tipo');
-  var detected = null, msg = '';
-
-  // Ordem de prioridade: BR primeiro, depois UCITs, depois US
-  if(/^[A-Z]{4}11$/.test(t)){
-    detected='FII'; msg='🇧🇷 FII (B3)';
-  } else if(/\.SA$/i.test(ticker)){
-    detected='Acao'; msg='🇧🇷 Ação (B3)';
-  } else if(/^[A-Z]{4}[1-9]$/.test(t)){
-    detected='Acao'; msg='🇧🇷 Ação (B3)';
-  } else if(/^[A-Z]{3,6}\d{1,2}$/.test(t) && !RV_ETFS_CONHECIDOS.includes(t)){
-    detected='Acao'; msg='🇧🇷 Ação/FII (B3)';
-  } else if(rvIsUCITs(ticker)){
-    detected='UCITs'; msg='🇪🇺 UCITs (Europa — LSE/Euronext/Xetra)';
-  } else if(RV_ETFS_CONHECIDOS.includes(tBase)){
-    detected='ETF'; msg='🇺🇸 ETF (US)';
-  } else if(RV_REITS_CONHECIDOS.includes(tBase)){
-    detected='REIT'; msg='🇺🇸 REIT (US)';
-  } else if(/^[A-Z]{1,5}$/.test(t)){
-    detected='Stock'; msg='🇺🇸 Stock (US)';
-  }
-
-  if(detected){
-    var editId = document.getElementById('rv_editId').value;
-    if(!editId){ sel.value=detected; rvTipoChange0(detected); }
-    if(hint){
-      hint.textContent=msg;
-      hint.style.color=['Acao','FII','FIAGRO'].includes(detected)?'#2ecc71':detected==='UCITs'?'#00bcd4':'#64b4ff';
-    }
-  }
-}
-
-// ── AUTOCOMPLETE DE TICKER ─────────────────────────────────
-function rvBuscarSugestoes(q){
-  var box = document.getElementById('rvTickerAC');
-  if(!box||!q||q.length<2){ rvFecharAutocomplete(); return; }
-  clearTimeout(_rvACTimer);
-  _rvACTimer = setTimeout(function(){
-    // Fixed positioning abaixo do input
-    var inp=document.getElementById('rv_ticker');
-    if(inp){ var rect=inp.getBoundingClientRect(); box.style.top=(rect.bottom+6)+'px'; box.style.left=rect.left+'px'; }
-    box.innerHTML='<div class="tac-loading">Buscando...</div>';
-    box.style.display='block'; _rvACIdx=-1;
-    fetch(PROXY_URL_RV+'/api/search?q='+encodeURIComponent(q)+'&limit=20')
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        var results=d.results||[];
-        if(!results.length){ box.innerHTML='<div class="tac-loading">Sem resultados</div>'; return; }
-        var TIPO_META={Acao:{color:'#3b82f6',icon:'🇧🇷'},FII:{color:'#10b981',icon:'🏢'},FIAGRO:{color:'#f59e0b',icon:'🌾'},Stock:{color:'#a855f7',icon:'🇺🇸'},REIT:{color:'#ef4444',icon:'🏬'},ETF:{color:'#f97316',icon:'📦'},UCITs:{color:'#06b6d4',icon:'🇪🇺'},Cripto:{color:'#f7931a',icon:'₿'}};
-        box.innerHTML=results.map(function(item,i){
-          var sym=item.symbol;
-          var tip=item.g20tipo||'Stock';
-          var t=sym.replace(/\.SA$/i,'').toUpperCase();
-          if(/^[A-Z]{4}11$/.test(t)) tip='FII';
-          else if(/^[A-Z]{4}[1-9]$/.test(t)||/\.SA$/i.test(sym)) tip='Acao';
-          else if(rvIsUCITs(sym)) tip='UCITs';
-          else if(RV_ETFS_CONHECIDOS.includes(t)) tip='ETF';
-          else if(RV_REITS_CONHECIDOS.includes(t)) tip='REIT';
-          var meta=TIPO_META[tip]||{color:'#888',icon:''};
-          var c=meta.color;
-          return '<div class="ticker-autocomplete-item" data-symbol="'+sym+'" data-tipo="'+tip+'" data-idx="'+i+'" style="border-left:3px solid '+c+'22">'+
-            '<span class="tac-symbol" style="color:'+c+'">'+sym.replace(/\.SA$/i,'')+'</span>'+
-            '<span class="tac-name">'+item.name+'</span>'+
-            '<span class="tac-badge" style="background:'+c+'22;color:'+c+';border:1px solid '+c+'44">'+meta.icon+' '+tip+'</span>'+
-          '</div>';
-        }).join('');
-        box.querySelectorAll('.ticker-autocomplete-item').forEach(function(el){
-          el.addEventListener('mousedown',function(){
-            rvSelecionarSugestao(this.dataset.symbol, this.dataset.tipo);
-          });
-        });
-      }).catch(function(){ rvFecharAutocomplete(); });
-  },300);
-}
-
-function rvSelecionarSugestao(symbol, tipo){
-  var isBR=['Acao','FII','FIAGRO'].includes(tipo);
-  var isUCITs=tipo==='UCITs';
-  var tickerFinal=isBR?symbol.replace(/\.SA$/i,'').toUpperCase()
-    :isUCITs?symbol.replace(/\.(L|AS|PA|DE|MI|SW|VI|MC|AM|BE|CO|ST|HE|OL|LS)$/i,'').toUpperCase()
-    :symbol.toUpperCase();
-  document.getElementById('rv_ticker').value=tickerFinal;
-  document.getElementById('rv_tipo').value=tipo;
-  rvTipoChange0(tipo);
-  var hint=document.getElementById('rvTickerHint');
-  if(hint){
-    if(isBR){hint.textContent='🇧🇷 '+tipo+' (B3)';hint.style.color='#2ecc71';}
-    else if(isUCITs){hint.textContent='🇪🇺 UCITs (Europa)';hint.style.color='#00bcd4';}
-    else{hint.textContent='🇺🇸 '+tipo+' (US)';hint.style.color='#64b4ff';}
-  }
-  rvFecharAutocomplete();
-  rvCalc();
-}
-
-function rvFecharAutocomplete(){
-  var box=document.getElementById('rvTickerAC');
-  if(box) box.style.display='none';
-  _rvACIdx=-1;
-}
-
-function rvNavAutocomplete(e){
-  var box=document.getElementById('rvTickerAC');
-  if(!box||box.style.display==='none') return;
-  var items=box.querySelectorAll('.rv-ac-item');
-  if(!items.length) return;
-  if(e.key==='ArrowDown'){ e.preventDefault(); _rvACIdx=Math.min(_rvACIdx+1,items.length-1); }
-  else if(e.key==='ArrowUp'){ e.preventDefault(); _rvACIdx=Math.max(_rvACIdx-1,-1); }
-  else if(e.key==='Enter'&&_rvACIdx>=0){ e.preventDefault(); items[_rvACIdx].dispatchEvent(new MouseEvent('mousedown')); return; }
-  else if(e.key==='Escape'){ rvFecharAutocomplete(); return; }
-  items.forEach(function(el,i){
-    el.style.background=i===_rvACIdx?'rgba(232,184,75,.08)':'';
-    if(i===_rvACIdx) el.scrollIntoView({block:'nearest'});
-  });
 }
 
 // ── RENDER ALL ────────────────────────────────────────────────
@@ -5287,26 +4805,111 @@ function bindValorInput(id){
 })();
 </script>
 
-<!-- MODAL APORTE RV — layout horizontal idêntico ao Carteira G20 -->
+<!-- MODAL APORTE PREMIUM — portado da Carteira G20 -->
 <style>
-#modalRVAporte{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:none;align-items:center;justify-content:center;padding:16px}
-#modalRVAporte.show{display:flex}
-#modalRVAporte .rv-box{background:#0a0c14;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:24px;width:100%;max-width:980px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;font-family:DM Sans,sans-serif;box-shadow:0 24px 80px rgba(0,0,0,.7)}
-#modalRVAporte .rv-box>*{flex-shrink:0}
-/* Reutiliza classes apl-* da Carteira G20 */
+#modalAporte .modal-box{background:#0a0c14!important;border:1px solid rgba(255,255,255,.1)!important;max-width:980px!important;width:95vw;max-height:90vh;overflow:hidden;display:flex;flex-direction:column}
+#modalAporte .modal-box>*{flex-shrink:0}
+/* Grid: Op | Data | Ticker | Tipo | Qtd | Preço | Total | Del */
+.apl-hdr{display:grid;grid-template-columns:100px 128px 1fr 84px 80px 116px minmax(110px,auto) 36px;gap:8px;padding:12px 14px 8px;border-bottom:1px solid rgba(255,255,255,.06);margin-top:4px}
+.apl-hdr-col{font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,.3)}
+.apl-row{display:grid;grid-template-columns:100px 128px 1fr 84px 80px 116px minmax(110px,auto) 36px;gap:8px;align-items:center;padding:8px 14px;border-radius:10px;margin-bottom:4px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);transition:border-color .15s}
+.apl-row:focus-within{border-color:rgba(232,184,75,.3);background:rgba(232,184,75,.02)}
+.apl-inp{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);color:#f4f6fa;padding:8px 10px;border-radius:8px;font-size:13px;font-family:inherit;width:100%;box-sizing:border-box;transition:border .15s;outline:none}
+.apl-inp:focus{border-color:rgba(232,184,75,.7);background:rgba(232,184,75,.05)}
+input[type="date"].apl-inp{padding:7px 8px;font-size:12px;color-scheme:dark;cursor:pointer}
+input[type="number"].apl-inp{-moz-appearance:textfield;appearance:textfield;text-align:right}
+input[type="number"].apl-inp::-webkit-outer-spin-button,
+input[type="number"].apl-inp::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+input[type="text"].apl-inp-preco{text-align:right}
+.apl-sel{background:#1a1d28;border:1px solid rgba(255,255,255,.15);color:#f4f6fa;padding:8px 6px;border-radius:8px;font-size:12px;font-weight:700;font-family:inherit;width:100%;box-sizing:border-box;cursor:pointer;outline:none;transition:border .15s;-webkit-appearance:auto;appearance:auto}
+.apl-sel:focus{border-color:rgba(232,184,75,.7)}
+.apl-op-c{color:#10b981!important;border-color:rgba(16,185,129,.35)!important;background:rgba(16,185,129,.08)!important}
+.apl-op-v{color:#e63946!important;border-color:rgba(230,57,70,.35)!important;background:rgba(230,57,70,.08)!important}
+.apl-sel option{background:#1a1d28;color:#f4f6fa}
+.apl-tk-wrap{position:relative;min-width:0}
+.apl-tk-hint{position:absolute;top:calc(100% + 2px);left:4px;font-size:9px;font-weight:700;white-space:nowrap;pointer-events:none;z-index:2}
+.ticker-autocomplete{
+  position:fixed!important;
+  z-index:9999;
+  background:var(--bg2);
+  border:1px solid rgba(255,255,255,.15);
+  border-radius:12px;
+  box-shadow:0 16px 48px rgba(0,0,0,.7);
+  max-height:60vh;
+  overflow-y:auto;
+  min-width:420px;
+  max-width:560px;
+  top:auto;left:auto;
+}
+.apl-tk-ac{
+  position:fixed!important;
+  z-index:9999;
+  background:var(--bg2);
+  border:1px solid rgba(255,255,255,.15);
+  border-radius:12px;
+  box-shadow:0 16px 48px rgba(0,0,0,.7);
+  max-height:60vh;
+  overflow-y:auto;
+  min-width:420px;
+  max-width:560px;
+}
+.ticker-autocomplete-item{
+  display:flex;align-items:center;gap:12px;padding:11px 16px;cursor:pointer;
+  transition:background .12s;border-bottom:1px solid rgba(255,255,255,.04);
+}
+.ticker-autocomplete-item:last-child{border-bottom:none}
+.ticker-autocomplete-item:hover,.ticker-autocomplete-item.active{background:rgba(232,184,75,.1)}
+.tac-symbol{font-family:monospace;font-weight:800;font-size:14px;color:var(--gold);min-width:80px}
+.tac-name{font-size:13px;color:var(--text2);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.tac-badge{font-size:10px;padding:2px 8px;border-radius:4px;font-weight:700;white-space:nowrap}
+.tac-loading{padding:14px 16px;font-size:12px;color:var(--text3);text-align:center}
+.apl-preco-row{display:flex;gap:5px;align-items:center}
+.apl-preco-row .apl-inp{flex:1;min-width:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.apl-preco-wrap{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.apl-preco-badge{
+  display:none;font-size:9px;font-weight:700;letter-spacing:.4px;
+  padding:1px 5px;border-radius:4px;white-space:nowrap;cursor:default;
+  width:fit-content;transition:all .2s;
+}
+.apl-preco-badge.live{display:inline-flex;align-items:center;gap:3px;background:rgba(16,185,129,.15);color:#10b981;border:1px solid rgba(16,185,129,.3)}
+.apl-preco-badge.loading{display:inline-flex;align-items:center;gap:3px;background:rgba(232,184,75,.1);color:rgba(232,184,75,.7);border:1px solid rgba(232,184,75,.2)}
+.apl-preco-badge.edited{display:inline-flex;align-items:center;gap:3px;background:rgba(100,180,255,.1);color:#64b4ff;border:1px solid rgba(100,180,255,.2)}
+.apl-preco-badge.historical{display:inline-flex;align-items:center;gap:3px;background:rgba(167,139,250,.12);color:#a78bfa;border:1px solid rgba(167,139,250,.25)}
+.apl-preco-badge.error{display:inline-flex;align-items:center;gap:3px;background:rgba(230,57,70,.1);color:#e63946;border:1px solid rgba(230,57,70,.2)}
+.apl-preco-reset{
+  display:none;background:none;border:none;cursor:pointer;
+  color:rgba(255,255,255,.3);font-size:11px;padding:0 2px;
+  transition:color .15s;flex-shrink:0;line-height:1;
+}
+.apl-preco-reset:hover{color:#e8b84b}
+.apl-preco-reset.visible{display:block}
+.apl-moeda{background:#1a1d28;border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.6);padding:8px 5px;border-radius:8px;font-size:10px;font-weight:800;cursor:pointer;outline:none;width:48px;flex-shrink:0;font-family:inherit;transition:all .15s}
+.apl-moeda option{background:#1a1d28;color:#f4f6fa}
+.apl-moeda.usd{color:#64b4ff!important;border-color:rgba(100,180,255,.35)!important;background:rgba(100,180,255,.08)!important}
+.apl-total-val{font-size:12px;font-weight:800;color:rgba(255,255,255,.2);white-space:nowrap;text-align:right;transition:color .2s;min-width:80px}
+.apl-total-val.on{color:var(--gold)}
+.apl-del-btn{background:rgba(230,57,70,.15);border:1px solid rgba(230,57,70,.4);color:#e63946;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:14px;flex-shrink:0;transition:all .15s;display:flex;align-items:center;justify-content:center}
+.apl-del-btn:hover{background:rgba(230,57,70,.3);transform:scale(1.05)}
+.apl-add-btn{width:100%;background:rgba(232,184,75,.04);border:1px dashed rgba(232,184,75,.25);color:rgba(232,184,75,.7);padding:11px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px;transition:all .2s}
+.apl-add-btn:hover{background:rgba(232,184,75,.12);border-color:var(--gold);color:var(--gold)}
+.apl-sum-panel{margin-top:12px;padding:13px 18px;background:linear-gradient(135deg,rgba(232,184,75,.1),rgba(232,184,75,.03));border:1px solid rgba(232,184,75,.22);border-radius:12px}
+.apl-sum-total{font-size:22px;font-weight:900;color:var(--gold)}
+.apl-sum-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.apl-sum-tag{font-size:11px;padding:4px 10px;border-radius:20px;background:rgba(255,255,255,.07);color:rgba(255,255,255,.6)}
+#tickerAutocomplete{z-index:1200}
 </style>
-<div id="modalRVAporte">
-  <div class="rv-box">
-    <input type="hidden" id="rv_editId">
-    <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-      <div style="display:flex;align-items:center;gap:10px">
-        <span style="font-size:18px;font-weight:800;color:#f4f6fa">📋 Registrar Transações</span>
-        <span id="rvLinhaCount" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:rgba(232,184,75,.15);color:#e8b84b;border:1px solid rgba(232,184,75,.3)">1 linha</span>
-      </div>
-      <button onclick="fecharModalRVAporte()" style="background:none;border:none;color:rgba(255,255,255,.35);font-size:22px;cursor:pointer;line-height:1" onmouseenter="this.style.color='#f4f6fa'" onmouseleave="this.style.color='rgba(255,255,255,.35)'">✕</button>
+<div class="modal" id="modalAporte">
+  <div class="modal-box">
+    <input type="hidden" id="aporte_editId">
+    <div class="modal-title">
+      <span style="display:flex;align-items:center;gap:10px">
+        📋 Registrar Transações
+        <span id="aplLinhaCount" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:rgba(232,184,75,.15);color:var(--gold);border:1px solid rgba(232,184,75,.3)">1 linha</span>
+      </span>
+      <button class="close-btn" onclick="fecharModal('modalAporte')">✕</button>
     </div>
-    <!-- Cabeçalhos -->
+    <!-- Headers -->
     <div class="apl-hdr">
       <div class="apl-hdr-col">Operação</div>
       <div class="apl-hdr-col">Data</div>
@@ -5317,56 +4920,828 @@ function bindValorInput(id){
       <div class="apl-hdr-col" style="text-align:right">Total</div>
       <div></div>
     </div>
-    <!-- Linha 0 -->
-    <div id="rvRow0" class="apl-row">
-      <select id="rv_op" class="apl-sel apl-op-c" onchange="rvOpColor(this);rvCalc()">
+    <!-- Linha 0 — IDs fixos para autocomplete -->
+    <div id="aplRow0" class="apl-row">
+      <select id="apl_op0" class="apl-sel apl-op-c" onchange="aplOpColor(this);aplCalc()">
         <option value="C">Compra</option><option value="V">Venda</option>
       </select>
-      <input type="date" id="rv_data" class="apl-inp"
-        onclick="try{this.showPicker();}catch(e){}" onchange="rvCalc()">
+      <input type="date" id="apl_data0" class="apl-inp"
+        onclick="try{this.showPicker();}catch(e){}" onchange="aplCalc();aplOnDataChange('0')">
       <div class="apl-tk-wrap">
-        <input id="rv_ticker" class="apl-inp" placeholder="PETR4, AAPL..."
+        <input id="aporte_ticker" class="apl-inp" placeholder="PETR4, AAPL..."
           autocomplete="off" style="font-weight:700;font-size:14px"
-          oninput="this.value=this.value.toUpperCase();rvAutoDetectTipo(this.value);rvBuscarSugestoes(this.value);rvCalc()"
-          onkeydown="rvNavAutocomplete(event)"
-          onblur="setTimeout(rvFecharAutocomplete,200)">
-        <div id="rvTickerAC" style="display:none" class="ticker-autocomplete"></div>
-        <div id="rvTickerHint" class="apl-tk-hint"></div>
+          oninput="this.value=this.value.toUpperCase();autoDetectTipo(this.value);buscarSugestoesTicker(this.value);aplCalc();if(_aplPrecoSource['0']!=='edited'){_aplPrecoSource['0']='empty';aplAtualizarBadge('0');var p0=document.getElementById('apl_preco0');if(p0)p0.value='';}"
+          onkeydown="navegarAutocomplete(event)"
+          onblur="setTimeout(function(){fecharAutocomplete();var tk=document.getElementById('aporte_ticker');var tp=document.getElementById('aporte_tipo');var dt=document.getElementById('apl_data0');if(tk&&tk.value&&_aplPrecoSource['0']!=='edited'&&_aplPrecoSource['0']!=='live'&&_aplPrecoSource['0']!=='historical')aplTriggerCotacao('0',tk.value,tp?tp.value:'Acao',dt?dt.value:'');},200)">
+        <div id="tickerAutocomplete" class="ticker-autocomplete" style="display:none"></div>
+        <div id="aplHint0" class="apl-tk-hint"></div>
       </div>
-      <select id="rv_tipo" class="apl-sel" onchange="rvTipoChange0(this.value);rvCalc()">
+      <select id="aporte_tipo" class="apl-sel" onchange="aplTipoChange0(this.value);aplCalc()">
         <option>Acao</option><option>FII</option><option>FIAGRO</option>
         <option>Stock</option><option>REIT</option><option>ETF</option><option>UCITs</option><option>Cripto</option>
       </select>
-      <input type="number" id="rv_qtd" class="apl-inp" placeholder="0" min="0" step="any"
-        oninput="rvCalc()" style="text-align:right;-moz-appearance:textfield;appearance:textfield">
+      <input type="number" id="apl_qtd0" class="apl-inp" placeholder="0" min="0" step="any" oninput="aplCalc()">
       <div class="apl-preco-row">
-        <input type="text" inputmode="decimal" id="rv_preco" class="apl-inp apl-inp-preco"
-          placeholder="0,00" oninput="aplFmtPreco(this);rvCalc()">
-        <select id="rv_moeda" class="apl-moeda" style="display:none" onchange="rvCalc()">
+        <div class="apl-preco-wrap">
+          <input type="text" inputmode="decimal" id="apl_preco0" class="apl-inp apl-inp-preco"
+            placeholder="0,00"
+            oninput="aplFmtPreco(this);aplSetPrecoEdited('0');aplCalc()"
+            onfocus="aplOnPrecoFocus('0')">
+          <span id="aplPrecoBadge0" class="apl-preco-badge"></span>
+        </div>
+        <button id="aplPrecoReset0" class="apl-preco-reset" title="Voltar cotação ao vivo" onclick="aplResetPreco('0')">↺</button>
+        <select id="apl_moeda0" class="apl-moeda" style="display:none" onchange="aplCalc()">
           <option value="BRL">R$</option><option value="USD">US$</option>
         </select>
       </div>
-      <div id="rv_tot0" class="apl-total-val">--</div>
-      <button class="apl-del-btn" onclick="rvDel(0)" title="Remover">🗑</button>
+      <div id="apl_tot0" class="apl-total-val">--</div>
+      <button class="apl-del-btn" onclick="aplDel(0)" title="Remover">🗑</button>
     </div>
     <!-- Linhas extras -->
-    <div id="rvExtras"></div>
+    <div id="aplExtras"></div>
     <!-- Adicionar linha -->
-    <button class="apl-add-btn" onclick="rvAddLinha()">＋ Adicionar outro lançamento</button>
+    <button class="apl-add-btn" onclick="aplAddLinha()">＋ Adicionar outro lançamento</button>
     <!-- Total geral -->
-    <div id="rvSumPanel" style="display:none" class="apl-sum-panel">
+    <div id="aplSumPanel" style="display:none" class="apl-sum-panel">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <span style="font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,.35)">Total do Lote</span>
-        <span id="rvSumVal" class="apl-sum-total">--</span>
+        <span id="aplSumVal" class="apl-sum-total">--</span>
       </div>
-      <div id="rvSumTags" class="apl-sum-tags"></div>
+      <div id="aplSumTags" class="apl-sum-tags"></div>
     </div>
-    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.07)">
-      <button onclick="fecharModalRVAporte()" class="apl-btn-cancel" style="background:none;border:1px solid rgba(255,255,255,.14);color:rgba(255,255,255,.45);padding:10px 20px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer">Cancelar</button>
-      <button onclick="salvarRVAporteLote()" style="background:#e8b84b;color:#000;border:none;padding:10px 28px;border-radius:9px;font-size:13px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:8px;box-shadow:0 4px 16px rgba(232,184,75,.25)">💾 Salvar Tudo</button>
+    <div class="modal-footer">
+      <button class="btn-sm btn-outline" onclick="fecharModal('modalAporte')">Cancelar</button>
+      <button class="btn-sm btn-gold" onclick="aplSalvar()">💾 Salvar Tudo</button>
     </div>
   </div>
 </div>
+<script>
+// ═══════════════════════════════════════════════════════════════
+// MODAL APORTE — portado da Carteira G20, adaptado para Gestão Patrimonial
+// Salva em g20_rvAportes (via _db_cache['rvAportes']) e chama renderAll().
+// ═══════════════════════════════════════════════════════════════
+
+var _aplRows = [];
+var _aplRowCount = 1;
+var _autocompleteTimer = null;
+var _autocompleteIdx = -1;
+
+function aplUpdCount(){
+  var el=document.getElementById('aplLinhaCount');
+  if(el) el.textContent=_aplRowCount+' linha'+(_aplRowCount>1?'s':'');
+}
+
+function aplOpColor(sel){
+  sel.className='apl-sel '+(sel.value==='C'?'apl-op-c':'apl-op-v');
+}
+
+function aplFmt(v, moeda){
+  if(moeda==='USD') return 'US$ '+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+
+function aplCalc(){
+  // Linha 0
+  var q0=parseFloat(document.getElementById('apl_qtd0').value)||0;
+  var p0=aplParsePreco((document.getElementById('apl_preco0')||{value:''}).value);
+  var m0=(document.getElementById('apl_moeda0')||{value:'BRL'}).value;
+  var te0=document.getElementById('apl_tot0');
+  if(te0){
+    if(q0>0&&p0>0){te0.className='apl-total-val on';te0.textContent=aplFmt(q0*p0,m0);}
+    else{te0.className='apl-total-val';te0.textContent='--';}
+  }
+  // Linhas extras
+  _aplRows.forEach(function(r){
+    var q=parseFloat((document.getElementById('aplQ'+r)||{value:0}).value)||0;
+    var p=aplParsePreco((document.getElementById('aplP'+r)||{value:''}).value);
+    var m=(document.getElementById('aplM'+r)||{value:'BRL'}).value;
+    var te=document.getElementById('aplTot'+r);
+    if(te){
+      if(q>0&&p>0){te.className='apl-total-val on';te.textContent=aplFmt(q*p,m);}
+      else{te.className='apl-total-val';te.textContent='--';}
+    }
+  });
+  aplCalcSum();
+}
+
+function aplCalcSum(){
+  var items=[],total=0;
+  var rate=(typeof rvUsdBRL!=='undefined'&&rvUsdBRL>0)?rvUsdBRL:5.0;
+  // linha 0
+  var t0=(document.getElementById('aporte_ticker')||{value:''}).value.toUpperCase();
+  var q0=parseFloat((document.getElementById('apl_qtd0')||{value:0}).value)||0;
+  var p0=aplParsePreco((document.getElementById('apl_preco0')||{value:''}).value);
+  var op0=(document.getElementById('apl_op0')||{value:'C'}).value;
+  var m0=(document.getElementById('apl_moeda0')||{value:'BRL'}).value;
+  if(t0&&q0>0&&p0>0){var v=q0*p0;total+=m0==='USD'?v*rate:v;items.push({ticker:t0,op:op0,val:v,moeda:m0});}
+  // extras
+  _aplRows.forEach(function(r){
+    var t=(document.getElementById('aplTk'+r)||{value:''}).value.toUpperCase();
+    var q=parseFloat((document.getElementById('aplQ'+r)||{value:0}).value)||0;
+    var p=aplParsePreco((document.getElementById('aplP'+r)||{value:''}).value);
+    var op=(document.getElementById('aplOp'+r)||{value:'C'}).value;
+    var m=(document.getElementById('aplM'+r)||{value:'BRL'}).value;
+    if(t&&q>0&&p>0){var v=q*p;total+=m==='USD'?v*rate:v;items.push({ticker:t,op:op,val:v,moeda:m});}
+  });
+  var panel=document.getElementById('aplSumPanel');
+  var totEl=document.getElementById('aplSumVal');
+  var tags=document.getElementById('aplSumTags');
+  if(items.length>0){
+    panel.style.display='block';
+    totEl.textContent='R$ '+total.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+    tags.innerHTML=items.map(function(it){
+      var c=it.op==='C'?'#10b981':'#e63946';
+      return '<span class="apl-sum-tag"><b style="color:'+c+'">'+(it.op==='C'?'Compra':'Venda')+'</b> <b style="color:#f4f6fa">'+it.ticker+'</b> <span style="color:var(--gold)">'+aplFmt(it.val,it.moeda)+'</span></span>';
+    }).join('');
+  } else {
+    panel.style.display='none';
+  }
+}
+
+function aplDel(r){
+  if(r===0){
+    document.getElementById('aporte_ticker').value='';
+    document.getElementById('apl_qtd0').value='';
+    document.getElementById('apl_preco0').value='';
+    document.getElementById('apl_tot0').className='apl-total-val';
+    document.getElementById('apl_tot0').textContent='--';
+    var h=document.getElementById('aplHint0');if(h){h.textContent='';h.style.color='';}
+    aplCalc(); return;
+  }
+  var el=document.getElementById('aplRow'+r);
+  if(!el) return;
+  el.style.transition='opacity .15s,transform .15s';
+  el.style.opacity='0'; el.style.transform='translateX(16px)';
+  setTimeout(function(){el.remove();},160);
+  _aplRows=_aplRows.filter(function(x){return x!==r;});
+  _aplRowCount--; aplUpdCount();
+  delete _aplPrecoSource[r]; delete _aplPrecoLive[r];
+  setTimeout(aplCalc,170);
+}
+
+function aplAddLinha(){
+  var today=new Date().toISOString().split('T')[0];
+  var r='x'+Date.now();
+  _aplRows.push(r);
+  _aplRowCount++; aplUpdCount();
+
+  var div=document.createElement('div');
+  div.id='aplRow'+r; div.className='apl-row';
+
+  function mk(tag,attrs){
+    var el=document.createElement(tag);
+    Object.keys(attrs).forEach(function(k){
+      if(k==='style') el.style.cssText=attrs[k];
+      else if(k==='innerHTML') el.innerHTML=attrs[k];
+      else el[k]=attrs[k];
+    });
+    return el;
+  }
+
+  // Op
+  var opSel=mk('select',{id:'aplOp'+r,className:'apl-sel apl-op-c',innerHTML:'<option value="C">Compra</option><option value="V">Venda</option>'});
+  opSel.addEventListener('change',function(){this.className='apl-sel '+(this.value==='C'?'apl-op-c':'apl-op-v');aplCalc();});
+  div.appendChild(opSel);
+
+  // Data
+  var dt=mk('input',{type:'date',id:'aplDt'+r,className:'apl-inp',value:today});
+  dt.addEventListener('click',function(){try{this.showPicker();}catch(e){}});
+  dt.addEventListener('change',function(){aplCalc();aplOnDataChange(r);});
+  div.appendChild(dt);
+
+  // Ticker wrap
+  var tkWrap=mk('div',{className:'apl-tk-wrap'});
+  var acId='aplAC'+r;
+  var tk=mk('input',{type:'text',id:'aplTk'+r,className:'apl-inp',placeholder:'PETR4, AAPL...',autocomplete:'off',style:'font-weight:700;font-size:14px'});
+  tk.addEventListener('input',function(){
+    this.value=this.value.toUpperCase();
+    aplDetectTipo(r,this.value);
+    aplBuscarAC(r,this.value,acId);
+    aplCalc();
+    // Reset preço se ticker mudou e não foi editado manualmente
+    if(_aplPrecoSource[r]!=='edited'){
+      _aplPrecoSource[r]='empty';
+      aplAtualizarBadge(r);
+      var precoEl=document.getElementById('aplP'+r);
+      if(precoEl) precoEl.value='';
+    }
+  });
+  tk.addEventListener('keydown',function(e){aplNavAC(e,acId,r);});
+  tk.addEventListener('blur',function(){setTimeout(function(){
+    var b=document.getElementById(acId);if(b)b.style.display='none';
+    var tkVal=document.getElementById('aplTk'+r);
+    var tpVal=document.getElementById('aplTp'+r);
+    var dtVal=document.getElementById('aplDt'+r);
+    if(tkVal&&tkVal.value&&_aplPrecoSource[r]!=='edited'&&_aplPrecoSource[r]!=='live'&&_aplPrecoSource[r]!=='historical'){
+      aplTriggerCotacao(r,tkVal.value,tpVal?tpVal.value:'Acao',dtVal?dtVal.value:'');
+    }
+  },200);});
+  var acBox=mk('div',{id:acId,className:'ticker-autocomplete apl-tk-ac'});
+  var hint=mk('div',{id:'aplH'+r,className:'apl-tk-hint'});
+  tkWrap.appendChild(tk); tkWrap.appendChild(acBox); tkWrap.appendChild(hint);
+  div.appendChild(tkWrap);
+
+  // Tipo
+  var tp=mk('select',{id:'aplTp'+r,className:'apl-sel',innerHTML:['Acao','FII','FIAGRO','Stock','REIT','ETF','UCITs','Cripto'].map(function(t){return '<option value="'+t+'">'+t+'</option>';}).join('')});
+  tp.addEventListener('change',function(){aplTipoExtra(r,this.value);aplCalc();});
+  div.appendChild(tp);
+
+  // Qtd
+  var q=mk('input',{type:'number',id:'aplQ'+r,className:'apl-inp',placeholder:'0',min:'0',step:'any',style:'text-align:right'});
+  q.addEventListener('input',aplCalc);
+  div.appendChild(q);
+
+  // Preço + moeda + badge cotação
+  var pw=mk('div',{className:'apl-preco-row'});
+  var pWrap=mk('div',{className:'apl-preco-wrap'});
+  var p=mk('input',{type:'text',inputMode:'decimal',id:'aplP'+r,className:'apl-inp apl-inp-preco',placeholder:'0,00'});
+  p.addEventListener('input',function(){aplFmtPreco(this);aplSetPrecoEdited(r);aplCalc();});
+  var badge=mk('span',{id:'aplPrecoBadge'+r,className:'apl-preco-badge'});
+  pWrap.appendChild(p); pWrap.appendChild(badge);
+  var resetBtn=mk('button',{id:'aplPrecoReset'+r,className:'apl-preco-reset',title:'Voltar cotação ao vivo',innerHTML:'↺'});
+  resetBtn.addEventListener('click',function(){aplResetPreco(r);});
+  var ms=mk('select',{id:'aplM'+r,className:'apl-moeda',style:'display:none',innerHTML:'<option value="BRL">R$</option><option value="USD">US$</option>'});
+  ms.addEventListener('change',function(){this.className='apl-moeda'+(this.value==='USD'?' usd':'');aplCalc();});
+  pw.appendChild(pWrap); pw.appendChild(resetBtn); pw.appendChild(ms);
+  div.appendChild(pw);
+
+  // Total
+  var tot=mk('div',{id:'aplTot'+r,className:'apl-total-val',innerHTML:'--'});
+  div.appendChild(tot);
+
+  // Del
+  var del=mk('button',{className:'apl-del-btn',title:'Remover',innerHTML:'🗑'});
+  del.addEventListener('click',function(){aplDel(r);});
+  div.appendChild(del);
+
+  document.getElementById('aplExtras').appendChild(div);
+  div.style.opacity='0';div.style.transform='translateY(-4px)';
+  requestAnimationFrame(function(){div.style.transition='opacity .2s,transform .2s';div.style.opacity='1';div.style.transform='none';});
+  tk.focus();
+}
+
+function aplDetectTipo(r, ticker){
+  var hint=document.getElementById('aplH'+r);
+  var sel=document.getElementById('aplTp'+r);
+  if(!ticker||ticker.length<2){if(hint)hint.textContent='';return;}
+  var t=ticker.toUpperCase().replace(/\.SA$/i,'');
+  var isFII=/^[A-Z]{4}11$/.test(t);
+  var isBR=/^[A-Z]{3,6}\d{1,2}[A-Z]?$/.test(t)&&!RV_ETFS_CONHECIDOS.includes(t)&&!RV_REITS_CONHECIDOS.includes(t);
+  var isCripto=/^(BTC|ETH|SOL|BNB|XRP|ADA|DOGE|AVAX|DOT|MATIC)/.test(t);
+  var tipo=isCripto?'Cripto':isFII?'FII':isBR?'Acao':RV_REITS_CONHECIDOS.includes(t)?'REIT':RV_ETFS_CONHECIDOS.includes(t)?'ETF':typeof rvIsUCITs==='function'&&rvIsUCITs(ticker)?'UCITs':'Stock';
+  if(sel) sel.value=tipo;
+  aplTipoExtra(r,tipo);
+  if(hint){
+    hint.textContent=isBR?'🇧🇷 '+(isFII?'FII':'Ação')+' (B3)':isCripto?'₿ Cripto':tipo==='UCITs'?'🇪🇺 UCITs':'🇺🇸 '+tipo+' (US)';
+    hint.style.color=isBR?'#2ecc71':isCripto?'#f7931a':tipo==='UCITs'?'#00bcd4':'#64b4ff';
+  }
+}
+
+function aplTipoExtra(r, tipo){
+  var isUS=['Stock','REIT','ETF','Cripto','UCITs'].indexOf(tipo)>=0;
+  var m=document.getElementById('aplM'+r);
+  if(m){m.style.display=isUS?'block':'none';if(isUS&&m.value==='BRL')m.value='USD';if(!isUS)m.value='BRL';m.className='apl-moeda'+(isUS?' usd':'');}
+}
+
+function aplBuscarAC(r, q, acId){
+  var box=document.getElementById(acId);
+  if(!box||!q||q.length<2){if(box)box.style.display='none';return;}
+  clearTimeout(window['_acT'+r]);
+  window['_acT'+r]=setTimeout(function(){
+    if(!PROXY_URL_RV){box.style.display='none';return;}
+    // Posiciona fixed abaixo do input
+    var tk=document.getElementById('aplTk'+r);
+    if(tk){
+      var rect=tk.getBoundingClientRect();
+      box.style.top=(rect.bottom+6)+'px';
+      box.style.left=rect.left+'px';
+    }
+    box.innerHTML='<div class="tac-loading">Buscando...</div>';
+    box.style.display='block';
+    fetch(PROXY_URL_RV+'/api/search?q='+encodeURIComponent(q)+'&limit=20')
+      .then(function(res){return res.json();})
+      .then(function(d){
+        var results=d.results||[];
+        if(!results.length){box.innerHTML='<div class="tac-loading">Sem resultados</div>';return;}
+        var TMETA={Acao:{color:'#3b82f6',icon:'🇧🇷'},FII:{color:'#10b981',icon:'🏢'},FIAGRO:{color:'#f59e0b',icon:'🌾'},Stock:{color:'#a855f7',icon:'🇺🇸'},REIT:{color:'#ef4444',icon:'🏬'},ETF:{color:'#f97316',icon:'📦'},UCITs:{color:'#06b6d4',icon:'🇪🇺'},Cripto:{color:'#f7931a',icon:'₿'}};
+        box.innerHTML=results.map(function(item,i){
+          var tip=aplCorrigirTipo(item.symbol,item.g20tipo);
+          var m=TMETA[tip]||{color:'#888',icon:''};
+          return '<div class="ticker-autocomplete-item" data-symbol="'+item.symbol+'" data-tipo="'+tip+'" data-idx="'+i+'" style="border-left:3px solid '+m.color+'22">'+
+            '<span class="tac-symbol" style="color:'+m.color+'">'+item.symbol+'</span>'+
+            '<span class="tac-name">'+item.name+'</span>'+
+            '<span class="tac-badge" style="background:'+m.color+'22;color:'+m.color+'">'+m.icon+' '+tip+'</span></div>';
+        }).join('');
+        box.querySelectorAll('.ticker-autocomplete-item').forEach(function(el){
+          el.addEventListener('mousedown',function(){aplSelAC(r,this.dataset.symbol,this.dataset.tipo,acId);});
+        });
+      }).catch(function(){box.style.display='none';});
+  },280);
+}
+
+function aplSelAC(r, symbol, tipo, acId){
+  var tipoFinal=aplCorrigirTipo(symbol,tipo);
+  var flagBR=['Acao','FII','FIAGRO'].includes(tipoFinal);
+  var ticker=flagBR?symbol.replace(/\.SA$/i,'').toUpperCase():symbol.toUpperCase();
+  var tk=document.getElementById('aplTk'+r);
+  var tp=document.getElementById('aplTp'+r);
+  var hint=document.getElementById('aplH'+r);
+  if(tk) tk.value=ticker;
+  if(tp){tp.value=tipoFinal;aplTipoExtra(r,tipoFinal);}
+  if(hint){
+    if(flagBR){hint.textContent='🇧🇷 '+tipoFinal+' (B3)';hint.style.color='#2ecc71';}
+    else if(tipoFinal==='Cripto'){hint.textContent='₿ Cripto';hint.style.color='#f7931a';}
+    else if(tipoFinal==='UCITs'){hint.textContent='🇪🇺 UCITs';hint.style.color='#00bcd4';}
+    else{hint.textContent='🇺🇸 '+tipoFinal+' (US)';hint.style.color='#64b4ff';}
+  }
+  var box=document.getElementById(acId);if(box)box.style.display='none';
+  // Reset estado de preço e busca cotação
+  if(_aplPrecoSource[r]!=='edited'){
+    _aplPrecoSource[r]='empty';
+    var precoEl=document.getElementById('aplP'+r);
+    if(precoEl) precoEl.value='';
+    var dtEl=document.getElementById('aplDt'+r);
+    aplTriggerCotacao(r, ticker, tipoFinal, dtEl?dtEl.value:'');
+  }
+  aplCalc();
+}
+
+function aplNavAC(e, acId, r){
+  var box=document.getElementById(acId);
+  if(!box||box.style.display==='none') return;
+  var items=box.querySelectorAll('.ticker-autocomplete-item');
+  var act=box.querySelector('.ticker-autocomplete-item.active');
+  var idx=act?Array.from(items).indexOf(act):-1;
+  if(e.key==='ArrowDown'){e.preventDefault();idx=Math.min(idx+1,items.length-1);}
+  else if(e.key==='ArrowUp'){e.preventDefault();idx=Math.max(idx-1,0);}
+  else if(e.key==='Enter'&&act){e.preventDefault();aplSelAC(r,act.dataset.symbol,act.dataset.tipo,acId);return;}
+  else if(e.key==='Escape'){box.style.display='none';return;}
+  else return;
+  items.forEach(function(el){el.classList.remove('active');});
+  if(items[idx]){items[idx].classList.add('active');items[idx].scrollIntoView({block:'nearest'});}
+}
+
+// ── FORMATAÇÃO PREÇO pt-BR ────────────────────────────────────
+function aplFmtPreco(el){
+  var raw = el.value.replace(/[^0-9,]/g,'');
+  var parts = raw.split(',');
+  if(parts.length > 2) raw = parts.slice(0,-1).join('')+','+parts[parts.length-1];
+  var intPart, decPart = '';
+  var commaIdx = raw.indexOf(',');
+  if(commaIdx >= 0){
+    intPart = raw.substring(0, commaIdx);
+    decPart = raw.substring(commaIdx+1, commaIdx+7);
+  } else {
+    intPart = raw;
+  }
+  intPart = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  el.value = intPart + (commaIdx >= 0 ? ','+decPart : '');
+}
+
+function aplParsePreco(str){
+  if(!str) return 0;
+  if(typeof str !== 'string') return parseFloat(str) || 0;
+  return parseFloat(str.replace(/\./g,'').replace(',','.')) || 0;
+}
+
+// ── COTAÇÃO AO VIVO NO MODAL ──────────────────────────────────
+// priceSource: 'empty' | 'loading' | 'live' | 'historical' | 'edited'
+var _aplPrecoSource = {};
+var _aplPrecoLive   = {};
+var _aplPrecoTimer  = {};
+
+function aplSetPrecoEdited(rowId){
+  if(_aplPrecoSource[rowId] === 'loading') return;
+  _aplPrecoSource[rowId] = 'edited';
+  aplAtualizarBadge(rowId);
+}
+
+function aplOnPrecoFocus(rowId){
+  // sem efeito
+}
+
+function aplResetPreco(rowId){
+  _aplPrecoSource[rowId] = 'empty';
+  var ticker = rowId==='0'
+    ? (document.getElementById('aporte_ticker')||{value:''}).value.trim().toUpperCase()
+    : (document.getElementById('aplTk'+rowId)||{value:''}).value.trim().toUpperCase();
+  var data = rowId==='0'
+    ? (document.getElementById('apl_data0')||{value:''}).value
+    : (document.getElementById('aplDt'+rowId)||{value:''}).value;
+  var tipo = rowId==='0'
+    ? (document.getElementById('aporte_tipo')||{value:'Acao'}).value
+    : (document.getElementById('aplTp'+rowId)||{value:'Acao'}).value;
+  if(ticker) aplBuscarCotacaoModal(rowId, ticker, tipo, data);
+}
+
+function aplAtualizarBadge(rowId, msg){
+  var badge = document.getElementById('aplPrecoBadge'+rowId);
+  var reset = document.getElementById('aplPrecoReset'+rowId);
+  var source = _aplPrecoSource[rowId] || 'empty';
+  if(badge){
+    badge.className = 'apl-preco-badge';
+    badge.textContent = '';
+    if(source==='loading'){
+      badge.classList.add('loading');
+      badge.innerHTML = '<span style="animation:spin .8s linear infinite;display:inline-block">⏳</span> buscando...';
+    } else if(source==='live'){
+      badge.classList.add('live');
+      badge.innerHTML = '🟢 ' + (msg||'cotação ao vivo');
+    } else if(source==='historical'){
+      badge.classList.add('historical');
+      badge.innerHTML = '📅 ' + (msg||'preço histórico');
+    } else if(source==='edited'){
+      badge.classList.add('edited');
+      badge.innerHTML = '✏️ editado manualmente';
+    } else if(source==='error'){
+      badge.classList.add('error');
+      badge.innerHTML = '⚠️ ' + (msg||'cotação indisponível');
+    }
+  }
+  if(reset){
+    reset.className = 'apl-preco-reset' + (source==='edited'?' visible':'');
+  }
+}
+
+function aplPreencherPreco(rowId, price, moeda, label){
+  if(_aplPrecoSource[rowId]==='edited') return;
+  var precoEl = rowId==='0'
+    ? document.getElementById('apl_preco0')
+    : document.getElementById('aplP'+rowId);
+  var moedaEl = rowId==='0'
+    ? document.getElementById('apl_moeda0')
+    : document.getElementById('aplM'+rowId);
+  if(!precoEl) return;
+  var formatted = price.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:6});
+  if(formatted.includes(',')) formatted = formatted.replace(/,?0+$/, function(m){ return m[0]===','?'':m.replace(/0+$/,''); });
+  precoEl.value = formatted;
+  if(moedaEl && moeda && moedaEl.style.display!=='none'){
+    moedaEl.value = moeda==='USD'?'USD':'BRL';
+    moedaEl.className = 'apl-moeda'+(moeda==='USD'?' usd':'');
+  }
+  aplCalc();
+}
+
+function aplBuscarCotacaoModal(rowId, ticker, tipo, data){
+  if(!ticker || !PROXY_URL_RV) return;
+  var today = new Date().toISOString().split('T')[0];
+  var isToday = !data || data >= today;
+  var isUS = ['Stock','REIT','ETF','Cripto','UCITs'].indexOf(tipo) >= 0;
+  var isBRt = ['Acao','FII','FIAGRO'].indexOf(tipo) >= 0;
+
+  _aplPrecoSource[rowId] = 'loading';
+  aplAtualizarBadge(rowId);
+
+  if(isToday){
+    var sym = isBRt ? ticker+'.SA' : tipo==='Cripto' ? (ticker.includes('-')?ticker:ticker+'-USD') : tipo==='UCITs'&&!ticker.includes('.')?ticker+'.L':ticker;
+    fetch(PROXY_URL_RV+'/api/quote?symbol='+encodeURIComponent(sym))
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(_aplPrecoSource[rowId]==='edited') return;
+        var price = d && (d.price || d.regularMarketPrice);
+        if(!price || price<=0) throw new Error('no price');
+        var moeda = isUS ? 'USD' : 'BRL';
+        _aplPrecoSource[rowId] = 'live';
+        _aplPrecoLive[rowId] = {price:price, moeda:moeda};
+        aplAtualizarBadge(rowId, (isUS?'US$ ':'R$ ')+price.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}));
+        aplPreencherPreco(rowId, price, moeda, null);
+      })
+      .catch(function(){
+        if(_aplPrecoSource[rowId]==='edited') return;
+        _aplPrecoSource[rowId] = 'error';
+        aplAtualizarBadge(rowId, 'não encontrado');
+      });
+  } else {
+    var sym2 = isBRt ? ticker+'.SA' : tipo==='Cripto'?(ticker.includes('-')?ticker:ticker+'-USD'):tipo==='UCITs'&&!ticker.includes('.')?ticker+'.L':ticker;
+    fetch(PROXY_URL_RV+'/api/history-date?symbol='+encodeURIComponent(sym2)+'&date='+data)
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(_aplPrecoSource[rowId]==='edited') return;
+        var price = d && (d.close || d.price || d.adjClose);
+        if(!price || price<=0) throw new Error('no price');
+        var moeda = isUS ? 'USD' : 'BRL';
+        _aplPrecoSource[rowId] = 'historical';
+        _aplPrecoLive[rowId] = {price:price, moeda:moeda};
+        aplAtualizarBadge(rowId, data);
+        aplPreencherPreco(rowId, price, moeda, null);
+      })
+      .catch(function(){
+        if(_aplPrecoSource[rowId]==='edited') return;
+        _aplPrecoSource[rowId] = 'error';
+        aplAtualizarBadge(rowId, 'histórico indisponível');
+      });
+  }
+}
+
+function aplTriggerCotacao(rowId, ticker, tipo, data){
+  if(!ticker || ticker.length < 2) return;
+  clearTimeout(_aplPrecoTimer[rowId]);
+  if(_aplPrecoSource[rowId]==='edited') return;
+  _aplPrecoTimer[rowId] = setTimeout(function(){
+    aplBuscarCotacaoModal(rowId, ticker, tipo, data);
+  }, 600);
+}
+
+function aplOnDataChange(rowId){
+  if(_aplPrecoSource[rowId]==='edited') return;
+  var ticker = rowId==='0'
+    ? (document.getElementById('aporte_ticker')||{value:''}).value.trim().toUpperCase()
+    : (document.getElementById('aplTk'+rowId)||{value:''}).value.trim().toUpperCase();
+  var tipo = rowId==='0'
+    ? (document.getElementById('aporte_tipo')||{value:'Acao'}).value
+    : (document.getElementById('aplTp'+rowId)||{value:'Acao'}).value;
+  var data = rowId==='0'
+    ? (document.getElementById('apl_data0')||{value:''}).value
+    : (document.getElementById('aplDt'+rowId)||{value:''}).value;
+  if(ticker){
+    _aplPrecoSource[rowId] = 'empty';
+    aplTriggerCotacao(rowId, ticker, tipo, data);
+  }
+}
+
+// ── MOEDA LINHA 0 ─────────────────────────────────────────────
+function aplTipoChange0(tipo){
+  var isUS=['Stock','REIT','ETF','Cripto','UCITs'].indexOf(tipo)>=0;
+  var m=document.getElementById('apl_moeda0');
+  if(m){ m.style.display=isUS?'block':'none'; if(isUS&&m.value==='BRL') m.value='USD'; if(!isUS) m.value='BRL'; m.className='apl-moeda'+(isUS?' usd':''); }
+}
+
+// ── AUTODETECÇÃO TIPO (linha 0) ──────────────────────────────
+function autoDetectTipo(ticker){
+  if(!ticker || ticker.length < 1){
+    var h=document.getElementById('aplHint0'); if(h){h.textContent='';h.style.color='';}
+    return;
+  }
+  var t = ticker.replace(/\.SA$/i, '').toUpperCase();
+  var hint = document.getElementById('aplHint0');
+  var sel  = document.getElementById('aporte_tipo');
+  var detected = null, msg = '';
+
+  if(/^[A-Z]{4}11$/.test(t)){          detected='FII';   msg='🇧🇷 Detectado: FII (B3)'; }
+  else if(/\.SA$/i.test(ticker)){       detected='Acao';  msg='🇧🇷 Detectado: Ação (B3)'; }
+  else if(/^[A-Z]{4}[1-9]$/.test(t)){  detected='Acao';  msg='🇧🇷 Detectado: Ação (B3)'; }
+  else if(/^[A-Z]{4}3[AB]$/.test(t)){  detected='Acao';  msg='🇧🇷 Detectado: Ação (B3)'; }
+  else if(/^[A-Z]{3,6}\d{1,2}$/.test(t)&&!RV_ETFS_CONHECIDOS.includes(t)&&!RV_REITS_CONHECIDOS.includes(t)){
+    detected='Acao'; msg='🇧🇷 Detectado: Ação/FII (B3)';
+  }
+  else if(typeof rvIsUCITs==='function' && rvIsUCITs(ticker)){ detected='UCITs'; msg='🇪🇺 Detectado: UCITs (Europa)'; }
+  else if(RV_ETFS_CONHECIDOS.includes(t)){ detected='ETF';   msg='🇺🇸 Detectado: ETF (US)'; }
+  else if(RV_REITS_CONHECIDOS.includes(t)){   detected='REIT';  msg='🇺🇸 Detectado: REIT (US)'; }
+  else if(/^[A-Z]{1,5}$/.test(t)){         detected='Stock'; msg='🇺🇸 Detectado: Stock (US)'; }
+
+  if(detected){
+    var editId=document.getElementById('aporte_editId');
+    if(!editId||!editId.value){ if(sel){sel.value=detected;} aplTipoChange0(detected); }
+    if(hint){ hint.textContent=msg; hint.style.color=['Acao','FII','FIAGRO'].includes(detected)?'#2ecc71':detected==='UCITs'?'#00bcd4':'#64b4ff'; }
+  } else {
+    if(hint) hint.textContent='';
+  }
+}
+
+// ── CORREÇÃO DE TIPO VINDO DO PROXY (heurística local) ───────
+function aplCorrigirTipo(symbol, tipoProxy){
+  var sym = (symbol||'').toUpperCase();
+  var t = sym.replace(/\.SA$/i,'');
+  if(/^[A-Z]{4}11$/.test(t)) return 'FII';
+  if(/^[A-Z]{4}[1-9]$/.test(t)||/\.SA$/i.test(sym)) return 'Acao';
+  if(typeof rvIsUCITs==='function' && rvIsUCITs(sym)) return 'UCITs';
+  if(RV_ETFS_CONHECIDOS.includes(t)) return 'ETF';
+  if(RV_REITS_CONHECIDOS.includes(t)) return 'REIT';
+  return tipoProxy || 'Stock';
+}
+
+// ── AUTOCOMPLETE LINHA 0 ─────────────────────────────────────
+function buscarSugestoesTicker(q){
+  var box = document.getElementById('tickerAutocomplete');
+  if(!box) return;
+  if(!q || q.length < 2){ fecharAutocomplete(); return; }
+
+  clearTimeout(_autocompleteTimer);
+  _autocompleteTimer = setTimeout(function(){
+    if(!PROXY_URL_RV){ fecharAutocomplete(); return; }
+    var inp = document.getElementById('aporte_ticker');
+    if(inp && box){
+      var rect = inp.getBoundingClientRect();
+      box.style.top  = (rect.bottom + 6) + 'px';
+      box.style.left = rect.left + 'px';
+    }
+    box.innerHTML = '<div class="tac-loading">Buscando...</div>';
+    box.style.display = 'block';
+    _autocompleteIdx = -1;
+
+    fetch(PROXY_URL_RV+'/api/search?q='+encodeURIComponent(q)+'&limit=20')
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var results = d.results || [];
+        if(!results.length){
+          box.innerHTML = '<div class="tac-loading">Nenhum resultado</div>';
+          return;
+        }
+        box.innerHTML = results.map(function(item, i){
+          var sym = item.symbol;
+          var tip = aplCorrigirTipo(sym, item.g20tipo);
+          var TIPO_META = {
+            Acao:   {color:'#3b82f6', icon:'🇧🇷', label:'Ação'},
+            FII:    {color:'#10b981', icon:'🏢', label:'FII'},
+            FIAGRO: {color:'#f59e0b', icon:'🌾', label:'FIAGRO'},
+            Stock:  {color:'#a855f7', icon:'🇺🇸', label:'Stock'},
+            REIT:   {color:'#ef4444', icon:'🏬', label:'REIT'},
+            ETF:    {color:'#f97316', icon:'📦', label:'ETF'},
+            UCITs:  {color:'#06b6d4', icon:'🇪🇺', label:'UCITs'},
+            Cripto: {color:'#f7931a', icon:'₿',  label:'Cripto'}
+          };
+          var meta = TIPO_META[tip] || {color:'#888', icon:'', label:tip};
+          var c = meta.color;
+          return '<div class="ticker-autocomplete-item" data-symbol="'+sym+'" data-tipo="'+tip+'" data-idx="'+i+'"'+
+            ' style="border-left:3px solid '+c+'22">'+
+            '<span class="tac-symbol" style="color:'+c+'">'+sym+'</span>'+
+            '<span class="tac-name">'+item.name+'</span>'+
+            '<span class="tac-badge" style="background:'+c+'22;color:'+c+';border:1px solid '+c+'55;min-width:52px;text-align:center">'+
+              meta.icon+' '+meta.label+
+            '</span>'+
+          '</div>';
+        }).join('');
+        box.querySelectorAll('.ticker-autocomplete-item').forEach(function(el){
+          el.addEventListener('mousedown', function(){
+            selecionarSugestao(this.getAttribute('data-symbol'), this.getAttribute('data-tipo'));
+          });
+        });
+      })
+      .catch(function(){ fecharAutocomplete(); });
+  }, 300);
+}
+
+function selecionarSugestao(symbol, tipo){
+  var input = document.getElementById('aporte_ticker');
+  var tipoFinal = aplCorrigirTipo(symbol, tipo);
+  var flagBR    = ['Acao','FII','FIAGRO'].includes(tipoFinal);
+  var tickerFinal = flagBR ? symbol.replace(/\.SA$/i,'').toUpperCase() : symbol.toUpperCase();
+  if(input) input.value = tickerFinal;
+  var sel = document.getElementById('aporte_tipo');
+  if(sel) sel.value = tipoFinal;
+  aplTipoChange0(tipoFinal);
+  var hint = document.getElementById('aplHint0');
+  if(hint){
+    if(flagBR){ hint.textContent='🇧🇷 '+tipoFinal+' (B3)'; hint.style.color='#2ecc71'; }
+    else if(tipoFinal==='UCITs'){ hint.textContent='🇪🇺 UCITs'; hint.style.color='#00bcd4'; }
+    else if(tipoFinal==='Cripto'){ hint.textContent='₿ Cripto'; hint.style.color='#f7931a'; }
+    else { hint.textContent='🇺🇸 '+tipoFinal+' (US)'; hint.style.color='#64b4ff'; }
+  }
+  aplCalc();
+  var data0 = (document.getElementById('apl_data0')||{value:''}).value;
+  if(_aplPrecoSource['0'] !== 'edited'){
+    _aplPrecoSource['0'] = 'empty';
+    var precoEl0 = document.getElementById('apl_preco0');
+    if(precoEl0) precoEl0.value = '';
+    aplAtualizarBadge('0');
+    aplTriggerCotacao('0', tickerFinal, tipoFinal, data0);
+  }
+  fecharAutocomplete();
+}
+
+function fecharAutocomplete(){
+  var box = document.getElementById('tickerAutocomplete');
+  if(box) box.style.display = 'none';
+  _autocompleteIdx = -1;
+}
+
+function navegarAutocomplete(e){
+  var box = document.getElementById('tickerAutocomplete');
+  if(!box || box.style.display === 'none') return;
+  var items = box.querySelectorAll('.ticker-autocomplete-item');
+  if(!items.length) return;
+
+  if(e.key === 'ArrowDown'){
+    e.preventDefault();
+    _autocompleteIdx = Math.min(_autocompleteIdx+1, items.length-1);
+  } else if(e.key === 'ArrowUp'){
+    e.preventDefault();
+    _autocompleteIdx = Math.max(_autocompleteIdx-1, -1);
+  } else if(e.key === 'Enter' && _autocompleteIdx >= 0){
+    e.preventDefault();
+    items[_autocompleteIdx].dispatchEvent(new MouseEvent('mousedown'));
+    return;
+  } else if(e.key === 'Escape'){
+    fecharAutocomplete();
+    return;
+  }
+
+  items.forEach(function(el, i){
+    el.classList.toggle('active', i === _autocompleteIdx);
+    if(i === _autocompleteIdx) el.scrollIntoView({block:'nearest'});
+  });
+}
+
+// ── ABRIR / SALVAR ────────────────────────────────────────────
+function abrirModalAporte(ticker){
+  var today=new Date().toISOString().split('T')[0];
+  document.getElementById('aporte_editId').value='';
+  // Reset linha 0
+  document.getElementById('apl_op0').value='C';
+  document.getElementById('apl_op0').className='apl-sel apl-op-c';
+  document.getElementById('apl_data0').value=today;
+  document.getElementById('aporte_ticker').value='';
+  document.getElementById('aporte_tipo').value='Acao';
+  document.getElementById('apl_qtd0').value='';
+  document.getElementById('apl_preco0').value='';
+  document.getElementById('apl_tot0').className='apl-total-val';
+  document.getElementById('apl_tot0').textContent='--';
+  document.getElementById('apl_moeda0').style.display='none';
+  document.getElementById('apl_moeda0').value='BRL';
+  var h=document.getElementById('aplHint0'); if(h){h.textContent='';h.style.color='';}
+  // Reset estado de preço
+  _aplPrecoSource['0'] = 'empty';
+  _aplPrecoLive['0'] = null;
+  aplAtualizarBadge('0');
+  // Limpa linhas extras
+  document.getElementById('aplExtras').innerHTML='';
+  _aplRows=[];_aplRowCount=1;
+  aplUpdCount();
+  document.getElementById('aplSumPanel').style.display='none';
+
+  if(ticker && typeof ticker==='string' && !ticker.match(/^\d+$/)){
+    document.getElementById('aporte_ticker').value=ticker;
+    autoDetectTipo(ticker);
+  }
+  document.getElementById('modalAporte').classList.add('show');
+  setTimeout(function(){
+    var inp=document.getElementById('aporte_ticker');
+    if(inp&&!ticker) inp.focus();
+  },80);
+}
+
+function aplSalvar(){
+  var aportes = loadData('rvAportes', []);
+  var novos=[], erros=[];
+  var rate = (typeof rvUsdBRL!=='undefined'&&rvUsdBRL>0)?rvUsdBRL:5.0;
+
+  // Linha 0
+  var t0=(document.getElementById('aporte_ticker')||{value:''}).value.trim().toUpperCase();
+  var op0=(document.getElementById('apl_op0')||{value:'C'}).value;
+  var d0=(document.getElementById('apl_data0')||{value:''}).value;
+  var tp0=(document.getElementById('aporte_tipo')||{value:'Acao'}).value;
+  var q0=parseFloat((document.getElementById('apl_qtd0')||{value:0}).value)||0;
+  var p0=aplParsePreco((document.getElementById('apl_preco0')||{value:''}).value);
+  var m0=(document.getElementById('apl_moeda0')||{value:'BRL'}).value;
+  if(!t0||!d0||q0<=0||p0<=0){ erros.push('Linha 1: preencha Ticker, Data, Qtd e Preço'); }
+  else {
+    var isUS0 = (typeof RV_US_TYPES!=='undefined' && RV_US_TYPES.includes(tp0));
+    novos.push({
+      id:Date.now().toString()+Math.random().toString(36).substr(2,4),
+      ticker:t0, tipo:tp0, op:op0, data:d0, qtd:q0, preco:p0,
+      moeda: isUS0?m0:'BRL',
+      fxRate: isUS0 && m0==='USD' ? rate : 1,
+      obs:''
+    });
+  }
+
+  // Linhas extras
+  _aplRows.forEach(function(r,i){
+    var t=(document.getElementById('aplTk'+r)||{value:''}).value.trim().toUpperCase();
+    var op=(document.getElementById('aplOp'+r)||{value:'C'}).value;
+    var d=(document.getElementById('aplDt'+r)||{value:''}).value;
+    var tp=(document.getElementById('aplTp'+r)||{value:'Acao'}).value;
+    var q=parseFloat((document.getElementById('aplQ'+r)||{value:0}).value)||0;
+    var p=aplParsePreco((document.getElementById('aplP'+r)||{value:''}).value);
+    var m=(document.getElementById('aplM'+r)||{value:'BRL'}).value||'BRL';
+    if(!t||!d||q<=0||p<=0){ erros.push('Linha '+(i+2)+': preencha todos os campos'); return; }
+    var isUS = (typeof RV_US_TYPES!=='undefined' && RV_US_TYPES.includes(tp));
+    novos.push({
+      id:Date.now().toString()+Math.random().toString(36).substr(2,4),
+      ticker:t, tipo:tp, op:op, data:d, qtd:q, preco:p,
+      moeda: isUS?m:'BRL',
+      fxRate: isUS && m==='USD' ? rate : 1,
+      obs:''
+    });
+  });
+
+  if(erros.length){ showToast('⚠️ '+erros[0],'#e63946'); return; }
+  if(!novos.length){ showToast('⚠️ Nenhuma transação válida'); return; }
+
+  // Edit mode: single row
+  var editId=document.getElementById('aporte_editId').value;
+  if(editId&&novos.length===1){
+    novos[0].id=editId;
+    var idx=aportes.findIndex(function(a){return a.id===editId;});
+    if(idx>=0) aportes[idx]=novos[0]; else aportes.push(novos[0]);
+  } else {
+    novos.forEach(function(n){ aportes.push(n); });
+  }
+
+  _db_cache['rvAportes']=aportes;
+  try{localStorage.setItem('g20_rvAportes',JSON.stringify(aportes));}catch(e){}
+  if(typeof _db_ref!=='undefined' && _db_ref){
+    _db_ref.doc('rvAportes').set({
+      value:aportes,
+      updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+    }).catch(function(e){console.warn(e);});
+  }
+
+  fecharModal('modalAporte');
+  if(typeof renderAll === 'function') renderAll();
+  showToast('✅ '+novos.length+' transaç'+(novos.length===1?'ão':'ões')+' salva'+(novos.length===1?'':'s')+'!');
+}
+</script>
 
 <!-- MODAL RESGATE -->
 <div id="modalResgate" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:9999;overflow-y:auto;">
