@@ -9,9 +9,10 @@
 
   var COLLAPSED_KEY = 'g20_sidebar_collapsed';
 
-  // 1) Aplica estado salvo o mais cedo possível (antes da primeira pintura)
+  // 1) Sidebar colapsada por padrão (desktop). Só expande se o usuário explicitamente expandiu.
   try{
-    if(localStorage.getItem(COLLAPSED_KEY)==='1' && window.innerWidth>768){
+    var saved = localStorage.getItem(COLLAPSED_KEY);
+    if(window.innerWidth>768 && saved !== '0'){
       document.body && document.body.classList.add('sidebar-collapsed');
     }
   }catch(e){}
