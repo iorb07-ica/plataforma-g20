@@ -5151,6 +5151,7 @@ function rvNavAutocomplete(e){
 
 // ── RENDER ALL ────────────────────────────────────────────────
 var _renderAllTimer = null;
+var _skipChartsOnce = false; // na 1ª carga evitamos desenhar charts antes das cotações (evita pisca)
 function renderAll(){
   // Debounce — evita renders duplicados em rajada (ex: save + indicadores)
   clearTimeout(_renderAllTimer);
@@ -5158,7 +5159,7 @@ function renderAll(){
 }
 function _renderAllNow(){
   renderKPIs();
-  renderCharts();
+  if(_skipChartsOnce){ _skipChartsOnce = false; } else { renderCharts(); }
   renderRF();
   renderBens();
   if(_rvOpen) renderRVPosicoes();
@@ -5243,8 +5244,16 @@ function bindValorInput(id){
   // Aguarda Firestore antes de renderizar dados
   _dbOnReady(function(){
     _firstRenderDone = true;
+    // Verifica se tem aportes RV; se tiver, adia o renderCharts pra quando as cotações chegarem
+    // (evita "flash": chart de custo → chart de mercado)
+    var hasRV = (function(){
+      try{ var a=loadData('rvAportes',[]); return Array.isArray(a) && a.length>0; }catch(e){ return false; }
+    })();
+    _skipChartsOnce = hasRV;
     renderAll();
-    buscarCotacoesRV(); // busca cotações automaticamente ao abrir
+    if(hasRV){
+      buscarCotacoesRV(); // ao final chama renderCharts com valores de mercado
+    }
     setInterval(buscarCotacoesRV, 15 * 60 * 1000); // atualiza a cada 15 minutos
   });
 })();
