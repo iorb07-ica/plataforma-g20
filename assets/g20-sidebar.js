@@ -9,11 +9,15 @@
 
   var COLLAPSED_KEY = 'g20_sidebar_collapsed';
 
-  // 1) Sidebar colapsada por padrão (desktop). Só expande se o usuário explicitamente expandiu.
+  // 1) Sidebar colapsada por padrão (desktop). Só expande se o usuário clicou "Expandir".
+  //    Valor '0' = usuário expandiu explicitamente. Qualquer outro valor = colapsada.
   try{
-    var saved = localStorage.getItem(COLLAPSED_KEY);
-    if(window.innerWidth>768 && saved !== '0'){
-      document.body && document.body.classList.add('sidebar-collapsed');
+    if(window.innerWidth>768){
+      var saved = localStorage.getItem(COLLAPSED_KEY);
+      if(saved !== '0'){
+        document.body && document.body.classList.add('sidebar-collapsed');
+        localStorage.setItem(COLLAPSED_KEY, '1');
+      }
     }
   }catch(e){}
 
