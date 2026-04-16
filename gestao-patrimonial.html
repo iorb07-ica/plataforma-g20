@@ -642,17 +642,27 @@ body.pat-hidden .pat-kpi-sub::after{justify-content:flex-start;padding-right:0}
 #rvTable .th-resizer::before{content:'';display:block;width:3px;height:60%;border-radius:2px;background:rgba(255,255,255,0.08);transition:background .15s}
 #rvTable .th-resizer:hover::before,#rvTable .th-resizer.dragging::before{background:var(--gold);height:80%;box-shadow:0 0 6px rgba(232,184,75,.5)}
 #rvTable tbody tr{border-bottom:1px solid rgba(255,255,255,.04);transition:background .12s}
-#rvTable tbody tr:nth-child(even) td{background:rgba(255,255,255,.025)}
+#rvTable tbody tr:nth-child(even) td{background:rgba(255,255,255,.05)}
 #rvTable tbody tr:hover td{background:var(--sur2)!important}
-#rvTable{background:var(--bg2)}
+#rvTable{background:var(--bg2);font-size:14px}
 #rvTable thead tr{background:var(--bg2)}
+#rvTable td{font-size:14px}
+#rvTable td[data-rvcol="ticker"] span{font-size:14px !important}
+#rvTable td[data-rvcol="nome"]{font-size:13px !important;color:var(--text) !important}
+/* PM em branco como na Carteira G20 */
+#rvTable td[data-rvcol="pm"]{color:var(--text) !important}
 /* Light mode: inverte cores */
 .light #rvTable{background:#fff}
 .light #rvTable thead tr{background:#f6f7fb}
-.light #rvTable tbody tr:nth-child(even) td{background:rgba(0,0,0,.025)}
+.light #rvTable tbody tr:nth-child(even) td{background:rgba(0,0,0,.04)}
 .light #rvTable tbody tr{border-bottom:1px solid rgba(0,0,0,.05)}
 .light #rvTable tbody tr:hover td{background:var(--sur2)!important}
 .light .rv-table-wrap{background:#fff !important}
+/* Logo dos ativos */
+.asset-logo{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.06);overflow:hidden;vertical-align:middle;margin-right:8px;flex-shrink:0}
+.asset-logo img{width:100%;height:100%;object-fit:cover}
+.asset-logo-fb{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--gold),var(--goldd));color:#090b0f;font-size:9px;font-weight:800;letter-spacing:.3px;vertical-align:middle;margin-right:8px;flex-shrink:0}
+.ticker-cell{display:inline-flex;align-items:center}
 #rvTable tbody tr{background:#0d0f17}
 
 /* ── MODAL IMPORTAR IA ── */
@@ -4730,7 +4740,7 @@ function renderRVPosicoes(){
     var precoBase = cot ? cot.preco : 0;
 
     return '<tr style="border-bottom:1px solid rgba(255,255,255,.03)" onmouseenter="this.style.background=\'var(--sur2)\'" onmouseleave="this.style.background=\'\'">'
-      +'<td data-rvcol="ticker" style="padding:10px 12px"><span style="font-weight:700;font-size:13px;letter-spacing:.3px">'+p.ticker+'</span></td>'
+      +'<td data-rvcol="ticker" style="padding:10px 12px"><div class="ticker-cell">'+gpLogoHtml(p.ticker,p.tipo)+'<span style="font-weight:700;font-size:14px;letter-spacing:.3px">'+p.ticker+'</span></div></td>'
       +'<td data-rvcol="nome"   style="padding:10px 12px;color:var(--text2);font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+nomeStr+'</td>'
       +'<td data-rvcol="tipo"   style="padding:10px 12px"><span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;background:'+badgeCor+'22;color:'+badgeCor+'">'+p.tipo+'</span></td>'
       +'<td data-rvcol="mkt"    style="padding:10px 8px">'+mktBadge+'</td>'
@@ -4766,6 +4776,21 @@ function renderRVPosicoes(){
   _rvBindBtns();
 }
 
+// Logo do ativo — TradingView svg com fallback para iniciais em dourado
+function gpLogoHtml(ticker, tipo){
+  var t = String(ticker||'').replace(/\.SA$/i,'').replace(/\.L$/i,'').toUpperCase();
+  if(!t) return '';
+  var slug = t.toLowerCase();
+  var initials = t.substring(0,Math.min(3,t.length));
+  // BR: tenta bovespa; US: tradingview symbol logo direto
+  var urlBR = 'https://s3-symbol-logo.tradingview.com/country/BR.svg';
+  var url = tipo==='Cripto'
+    ? 'https://s3-symbol-logo.tradingview.com/crypto/XTVC'+slug.replace(/-?USD$/,'').toUpperCase()+'--big.svg'
+    : 'https://s3-symbol-logo.tradingview.com/'+slug+'--big.svg';
+  var fb = '<span class="asset-logo-fb">'+initials+'</span>';
+  return '<span class="asset-logo"><img src="'+url+'" alt="" loading="lazy" onerror="this.parentNode.outerHTML=\''+fb.replace(/'/g,"\\'")+'\'"></span>';
+}
+
 function rvRenderKpiStrip(rows){
   var el = document.getElementById('rvKpiStrip');
   if(!el) return;
@@ -4779,12 +4804,13 @@ function rvRenderKpiStrip(rows){
   var rentPct = totalInv>0?(result/totalInv*100):0;
   // Usa o tamanho da lista FILTRADA (reflete filtros por tipo/busca)
   var nAtivos = rows.length;
-  if(!nAtivos){ el.innerHTML='<span style="color:var(--text3);font-size:12px">0 ativos</span>'; return; }
+  var labelAtivo = nAtivos===1 ? 'ativo' : 'ativos';
+  if(!nAtivos){ el.innerHTML='<span style="color:#c2cbdd;font-size:13px;font-weight:600">0 ativos</span>'; return; }
   var valor = totalPos>0 ? fmtV(totalPos) : fmtV(totalInv);
   el.innerHTML =
-    '<span style="color:var(--text3);font-size:12px;font-weight:600">'+nAtivos+' ativos</span>'+
-    '<span style="color:var(--text);font-size:18px;font-weight:800;letter-spacing:-.3px">'+valor+'</span>'+
-    (totalPos>0?'<span style="color:'+(rentPct>=0?'var(--green)':'var(--red)')+';font-size:13px;font-weight:700">'+
+    '<span style="color:#c2cbdd;font-size:13px;font-weight:600">'+nAtivos+' '+labelAtivo+'</span>'+
+    '<span style="color:var(--text);font-size:20px;font-weight:800;letter-spacing:-.3px">'+valor+'</span>'+
+    (totalPos>0?'<span style="color:'+(rentPct>=0?'var(--green)':'var(--red)')+';font-size:17px;font-weight:800">'+
       (rentPct>=0?'+':'')+rentPct.toFixed(2)+'%</span>':'');
 }
 
