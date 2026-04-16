@@ -2011,21 +2011,128 @@ function toggleTheme(){
 // -- SISTEMA DE NOTIFICA--ES -----------------------------------
 var NOTIFS_KEY = 'g20_notifications';
 var NOTIFS_READ_KEY = 'g20_notifs_read';
+var NOTIFS_MAX = 6;
+var FLIX_CURRENT_EP = 80; // episódio mais recente no ar (manter em sincronia com o card)
+var FLIX_CURRENT_TITLE = '#80 – Aporte da Carteira G20 – Março/2026';
 
-// Notifica--es padr-o da plataforma (podem ser enriquecidas)
-var NOTIFS_DEFAULT = [
-  {id:'n1', tipo:'episodio', ico:'🎬', bg:'rgba(230,57,70,.12)', titulo:'Novo episódio disponível', desc:'#80 – Aporte da Carteira G20 – Março/2026 já está no G20Flix.', ts: Date.now()-1*3600*1000, link:'g20flix.html'},
-  {id:'n2', tipo:'dividendo', ico:'💰', bg:'rgba(46,204,113,.12)', titulo:'Próximo dividendo', desc:'Você tem proventos a receber registrados na Gestão Patrimonial.', ts: Date.now()-3*3600*1000, link:'gestao-patrimonial.html'},
-  {id:'n3', tipo:'mercado', ico:'📈', bg:'rgba(59,130,246,.12)', titulo:'Mercado abriu', desc:'Ibovespa, S&P 500 e Nasdaq estão operando. Veja sua carteira.', ts: Date.now()-5*3600*1000, link:'carteira.html'},
-  {id:'n4', tipo:'podcast', ico:'🎧', bg:'rgba(232,184,75,.12)', titulo:'G20Cast de hoje', desc:'Novo episódio do G20Cast disponível. Análise do mercado do dia.', ts: Date.now()-8*3600*1000, link:'g20cast.html'},
-  {id:'n5', tipo:'indicador', ico:'🏦', bg:'rgba(139,92,246,.12)', titulo:'IPCA divulgado', desc:'IPCA 12m: 3,81% — abaixo da meta. Veja o impacto na sua RF.', ts: Date.now()-24*3600*1000, link:'gestao-patrimonial.html'},
+function _fmtBRLshort(v){ return 'R$ '+Math.round(v).toLocaleString('pt-BR'); }
+
+// Gera notificações baseadas em dados reais (snapshots, cotações, conteúdo)
+function gerarNotifsDinamicas(){
+  var notifs = [];
+  var hoje = _todayISO();
+  var arr = (typeof _patSnapLoad==='function') ? _patSnapLoad() : [];
+
+  // 1) Novo topo de patrimônio em 60d
+  if(arr.length >= 5){
+    var last = arr[arr.length-1];
+    var prev60 = arr.slice(Math.max(0, arr.length-61), arr.length-1);
+    if(prev60.length){
+      var maxPrev = prev60.reduce(function(m,s){return s.t>m?s.t:m;},0);
+      if(last.t > maxPrev){
+        notifs.push({
+          id:'dyn-topo-'+hoje,
+          ico:'🏆', bg:'rgba(232,184,75,.20)',
+          titulo:'Novo topo de patrimônio!',
+          desc:_fmtBRLshort(last.t)+' — maior valor em 60 dias.',
+          ts: Date.now(), link:'gestao-patrimonial.html'
+        });
+      }
+    }
+  }
+
+  // 2) Bateu CDI em 30d (cruzou hoje)
+  if(arr.length >= 2 && typeof _sliceRange==='function'){
+    var slice30 = _sliceRange(arr, '30');
+    var slice30Ontem = arr.slice(0,-1);
+    var slice30On = slice30Ontem.length>=2 ? _sliceRange(slice30Ontem, '30') : [];
+    if(slice30.length>=2 && slice30On.length>=2){
+      var pNow = (slice30[slice30.length-1].t/slice30[0].t)-1;
+      var cNow = (slice30[slice30.length-1].c/slice30[0].c)-1;
+      var pYes = (slice30On[slice30On.length-1].t/slice30On[0].t)-1;
+      var cYes = (slice30On[slice30On.length-1].c/slice30On[0].c)-1;
+      if(pNow > cNow && pYes <= cYes){
+        notifs.push({
+          id:'dyn-cdi30-'+hoje,
+          ico:'🎯', bg:'rgba(46,204,113,.20)',
+          titulo:'Você bateu o CDI!',
+          desc:'Patrimônio supera o CDI em 30 dias pela 1ª vez.',
+          ts: Date.now(), link:'gestao-patrimonial.html'
+        });
+      }
+    }
+  }
+
+  // 3) Ativos em queda forte hoje (agrupados)
+  try{
+    if(window._dashRVCot){
+      var quedas=[];
+      Object.keys(window._dashRVCot).forEach(function(t){
+        var c=window._dashRVCot[t];
+        if(c && typeof c.varPct==='number' && c.varPct < -5) quedas.push({ticker:t, pct:c.varPct});
+      });
+      if(quedas.length){
+        quedas.sort(function(a,b){return a.pct-b.pct;});
+        var top=quedas.slice(0,3);
+        var desc = quedas.length===1
+          ? top[0].ticker+' caiu '+top[0].pct.toFixed(1)+'% hoje.'
+          : quedas.length+' ativos em queda forte: '+top.map(function(q){return q.ticker+' ('+q.pct.toFixed(1)+'%)';}).join(', ')+(quedas.length>3?'…':'.');
+        notifs.push({
+          id:'dyn-quedas-'+hoje,
+          ico:'🔻', bg:'rgba(239,68,68,.18)',
+          titulo:'Ativos em queda forte',
+          desc:desc,
+          ts:Date.now(), link:'carteira.html'
+        });
+      }
+    }
+  }catch(e){}
+
+  // 4) Novidades no G20Flix desde última visita
+  try{
+    var lastSeen = parseInt(localStorage.getItem('g20_lastSeenFlix')||'0',10);
+    if(!lastSeen){
+      // primeira vez: registra a referência sem notificar
+      localStorage.setItem('g20_lastSeenFlix', String(FLIX_CURRENT_EP));
+    } else if(FLIX_CURRENT_EP > lastSeen){
+      var diff = FLIX_CURRENT_EP - lastSeen;
+      notifs.push({
+        id:'dyn-flix-'+FLIX_CURRENT_EP,
+        ico:'🎬', bg:'rgba(230,57,70,.18)',
+        titulo:(diff===1?'1 episódio novo':diff+' episódios novos')+' no G20Flix',
+        desc:'Último: '+FLIX_CURRENT_TITLE,
+        ts:Date.now(), link:'g20flix.html'
+      });
+    }
+  }catch(e){}
+
+  return notifs;
+}
+
+// Fallback mínimo: quando não há eventos dinâmicos, mostra 1 item "estado sereno"
+var NOTIFS_FALLBACK = [
+  {id:'fb-calm-'+_todayISO(), ico:'✨', bg:'rgba(139,92,246,.12)',
+   titulo:'Tudo tranquilo por aqui', desc:'Nenhum evento relevante hoje. Continue sua jornada.',
+   ts: Date.now(), link:'dashboard.html'}
 ];
 
 function getNotifs(){
+  // Lista saved (manual/admin) + dinâmicas geradas no momento
+  var saved=[];
   try{
-    var saved=localStorage.getItem(NOTIFS_KEY);
-    return saved?JSON.parse(saved):NOTIFS_DEFAULT;
-  }catch(e){ return NOTIFS_DEFAULT; }
+    var raw=localStorage.getItem(NOTIFS_KEY);
+    if(raw) saved=JSON.parse(raw);
+  }catch(e){}
+  var dynamicas = gerarNotifsDinamicas();
+  // Dinâmicas sobrescrevem saved com mesmo id
+  var map={};
+  saved.forEach(function(n){map[n.id]=n;});
+  dynamicas.forEach(function(n){map[n.id]=n;});
+  var merged = Object.keys(map).map(function(k){return map[k];});
+  if(!merged.length) merged = NOTIFS_FALLBACK;
+  // Mais recente primeiro, limitado
+  merged.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+  return merged.slice(0, NOTIFS_MAX);
 }
 
 function getReadIds(){
@@ -2099,6 +2206,10 @@ function renderNotifList(){
 
 function clicouNotif(id, link){
   marcarLida(id);
+  // Atualiza lastSeen do G20Flix quando o usuário clica na notificação correspondente
+  if(id && id.indexOf('dyn-flix-')===0){
+    try{localStorage.setItem('g20_lastSeenFlix', String(FLIX_CURRENT_EP));}catch(e){}
+  }
   renderNotifBadge();
   fecharNotif();
   if(link) setTimeout(function(){ location.href=link; },100);
