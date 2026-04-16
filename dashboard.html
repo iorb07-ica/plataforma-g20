@@ -2106,6 +2106,51 @@ function gerarNotifsDinamicas(){
     }
   }catch(e){}
 
+  // 5) Pulso diário do patrimônio (sempre gera, se há histórico)
+  if(arr.length >= 2){
+    var today = arr[arr.length-1];
+    var yday  = arr[arr.length-2];
+    if(today.t>0 && yday.t>0){
+      var deltaPct = ((today.t/yday.t)-1)*100;
+      var deltaBRL = today.t - yday.t;
+      var seta = deltaPct>=0 ? '▲' : '▼';
+      var ico  = deltaPct>=0.5 ? '🚀' : deltaPct<=-0.5 ? '⚠️' : '📊';
+      var bg   = deltaPct>=0.3 ? 'rgba(46,204,113,.15)'
+               : deltaPct<=-0.3 ? 'rgba(239,68,68,.15)'
+               : 'rgba(139,92,246,.12)';
+      notifs.push({
+        id:'dyn-pulso-'+hoje,
+        ico:ico, bg:bg,
+        titulo:'Pulso de hoje · '+seta+' '+(deltaPct>=0?'+':'')+deltaPct.toFixed(2)+'%',
+        desc:'Patrimônio '+(deltaBRL>=0?'ganhou ':'recuou ')+_fmtBRLshort(Math.abs(deltaBRL))+' desde ontem.',
+        ts:Date.now(), link:'gestao-patrimonial.html'
+      });
+    }
+  }
+
+  // 6) Semana em revisão (segundas ou depois de >=7 dias do último review)
+  try{
+    var dow = new Date().getDay(); // 1=segunda
+    var lastReview = localStorage.getItem('g20_lastWeekReview')||'';
+    if(dow===1 && lastReview!==hoje && arr.length>=8){
+      var todayW = arr[arr.length-1];
+      // Pega o ponto ~7 dias atrás
+      var weekAgoIdx = Math.max(0, arr.length-8);
+      var weekAgo = arr[weekAgoIdx];
+      if(todayW.t>0 && weekAgo.t>0){
+        var wPct = ((todayW.t/weekAgo.t)-1)*100;
+        notifs.push({
+          id:'dyn-semana-'+hoje,
+          ico:'📅', bg:'rgba(59,130,246,.15)',
+          titulo:'Semana em revisão · '+(wPct>=0?'+':'')+wPct.toFixed(2)+'%',
+          desc:'Seu patrimônio nos últimos 7 dias.',
+          ts:Date.now(), link:'gestao-patrimonial.html'
+        });
+        localStorage.setItem('g20_lastWeekReview', hoje);
+      }
+    }
+  }catch(e){}
+
   return notifs;
 }
 
