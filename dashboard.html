@@ -1471,6 +1471,7 @@ function _buscarCotacoesEAtualizarRV(){
     // Atualiza snapshot de hoje com total "real" (cotações ao vivo) + re-renderiza sparklines + notificações
     try{ if(typeof _patSnapUpsert==='function'){ _patSnapUpsert(totalReal, rfLiq, rvTotal); _patRenderAllSparks(); } }catch(e){}
     try{ if(typeof renderNotifBadge==='function'){ renderNotifBadge(); renderNotifList(); } }catch(e){}
+    try{ if(typeof renderDailyBrief==='function') renderDailyBrief(); }catch(e){}
   });
 }
 
@@ -1514,53 +1515,73 @@ function buscarTape(){
     }).catch(function(){});
 }
 
-// ── FRASE DO DIA / FATO DO MERCADO ─────────────────────────
+// ── FRASE DO DIA: sinais PESSOAIS (sem duplicar o ticker) ──
 function renderDailyBrief(){
   var el = document.getElementById('dailyBriefText');
   if(!el) return;
   var parts = [];
-  var mkt = window._mktLast || {};
+  function chg(pct){ var s=pct>=0?'+':''; var c=pct>0?'up':pct<0?'down':'neu'; return '<strong class="'+c+'">'+s+pct.toFixed(2)+'%</strong>'; }
 
-  function chgPart(label, symKey){
-    var item = mkt[symKey];
-    if(!item || item.changePercent===undefined) return null;
-    var p = parseFloat(item.changePercent);
-    if(isNaN(p)) return null;
-    var cls = p>0?'up':p<0?'down':'neu';
-    var sinal = p>=0?'+':'';
-    return label+' <strong class="'+cls+'">'+sinal+p.toFixed(2)+'%</strong>';
-  }
-
-  var ibov = chgPart('Ibov', '^BVSP');
-  var sp   = chgPart('S&P', '^GSPC');
-  var btc  = chgPart('BTC', 'BTC-USD');
-  var usd  = chgPart('USD/BRL', 'BRL=X');
-  if(ibov) parts.push(ibov);
-  if(sp)   parts.push(sp);
-  if(btc)  parts.push(btc);
-  if(usd && parts.length<3) parts.push(usd);
-
-  // Parte pessoal: você bate o CDI em 30d?
+  // 1) Patrimônio hoje (variação desde ontem)
   try{
-    if(typeof _patSnapLoad==='function' && typeof _sliceRange==='function'){
+    if(typeof _patSnapLoad==='function'){
       var arr=_patSnapLoad();
       if(arr.length>=2){
-        var s30=_sliceRange(arr,'30');
-        if(s30.length>=2){
-          var pPct=((s30[s30.length-1].t/s30[0].t)-1)*100;
-          var cPct=((s30[s30.length-1].c/s30[0].c)-1)*100;
-          var diff=pPct-cPct;
-          var sinal=diff>=0?'+':'';
-          var bat=diff>=0 ? 'bate' : 'abaixo do';
-          var cls=diff>=0 ? 'up' : 'down';
-          parts.push('você <strong class="personal">'+bat+' CDI</strong> em <strong class="'+cls+'">'+sinal+diff.toFixed(2)+'%</strong> (30d)');
+        var hoje=arr[arr.length-1], ontem=arr[arr.length-2];
+        if(hoje.t>0 && ontem.t>0){
+          var pct=((hoje.t/ontem.t)-1)*100;
+          var ico=pct>=0.3?'🚀':pct<=-0.3?'⚠️':'💼';
+          parts.push(ico+' Patrim. hoje '+chg(pct));
         }
       }
     }
   }catch(e){}
 
+  // 2) Top e Bottom ativo do dia (se cotações disponíveis)
+  try{
+    if(window._dashRVCot){
+      var tickers=Object.keys(window._dashRVCot)
+        .map(function(t){return {t:t, p:window._dashRVCot[t].varPct};})
+        .filter(function(x){return typeof x.p==='number' && !isNaN(x.p);});
+      if(tickers.length>=2){
+        tickers.sort(function(a,b){return b.p-a.p;});
+        var best=tickers[0], worst=tickers[tickers.length-1];
+        parts.push('🏆 '+best.t+' '+chg(best.p));
+        if(worst.p<0) parts.push('🔻 '+worst.t+' '+chg(worst.p));
+      }
+    }
+  }catch(e){}
+
+  // 3) Você bate o CDI em 30d?
+  try{
+    if(typeof _patSnapLoad==='function' && typeof _sliceRange==='function'){
+      var arr2=_patSnapLoad();
+      if(arr2.length>=2){
+        var s30=_sliceRange(arr2,'30');
+        if(s30.length>=2){
+          var pPct=((s30[s30.length-1].t/s30[0].t)-1)*100;
+          var cPct=((s30[s30.length-1].c/s30[0].c)-1)*100;
+          var diff=pPct-cPct;
+          var bat=diff>=0 ? 'bate' : 'abaixo do';
+          parts.push('🎯 <span class="personal">'+bat+' CDI</span> '+chg(diff)+' (30d)');
+        }
+      }
+    }
+  }catch(e){}
+
+  // Fallback: mostra macro se não houver dados pessoais
   if(!parts.length){
-    el.innerHTML = 'Carregando mercado…';
+    try{
+      if(typeof IND==='object' && IND.selic){
+        parts.push('🏦 Selic <strong>'+IND.selic.toFixed(2)+'%</strong> a.a.');
+        parts.push('CDI <strong>'+(IND.cdi||0).toFixed(2)+'%</strong>');
+        parts.push('IPCA <strong>'+(IND.ipca||0).toFixed(2)+'%</strong> 12m');
+      }
+    }catch(e){}
+  }
+
+  if(!parts.length){
+    el.innerHTML = 'Coletando dados…';
     return;
   }
   el.innerHTML = parts.join('<span class="sep">·</span>');
