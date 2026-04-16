@@ -22,8 +22,8 @@
         '.nav-item span:not(.ico){display:none !important}' +
         '.nav-item .ico{font-size:20px !important}' +
         '.sidebar-footer-links{display:none !important}' +
-        '.btn-logout{font-size:0 !important;padding:10px 0 !important;justify-content:center !important}' +
-        '.btn-logout::before{content:"🚪" !important;font-size:16px !important}' +
+        '.btn-logout{padding:10px 0 !important;justify-content:center !important}' +
+        '.btn-logout .logout-text{display:none !important}' +
         '.logo-ball-wrap{padding:16px 8px 14px !important}' +
         '.logo-ball{width:44px !important;height:44px !important}' +
         '.sidebar-user{justify-content:center !important;padding:14px 0 !important}';
