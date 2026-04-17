@@ -6337,59 +6337,15 @@ function importarProventosBR(ticker){
   var dataCompra = dataPrimeiraCompra(ticker);
   if(!dataCompra) return Promise.resolve(0);
 
-  // 1ª tentativa: Yahoo Finance via proxy (histórico + próximo declarado)
-  var tickerSA = ticker+'.SA';
-  var from = Math.floor(new Date(dataCompra).getTime()/1000);
-  var urlDiv = PROXY_URL+'/api/dividends-br?symbol='+encodeURIComponent(tickerSA)+'&from='+from+(tokenBrapi?'&token='+encodeURIComponent(tokenBrapi):'');
+  // Busca direto na B3 via proxy (com fallback Yahoo)
+  var urlDiv = PROXY_URL+'/api/dividends-br?symbol='+encodeURIComponent(ticker)+'&from='+encodeURIComponent(dataCompra);
 
-  // Busca também o próximo dividendo declarado via quote
-  var urlQuote = PROXY_URL+'/api/quote?symbol='+encodeURIComponent(tickerSA);
-
-  return Promise.all([
-    fetch(urlDiv).then(function(r){ return r.ok ? r.json() : []; }).catch(function(){ return []; }),
-    fetch(urlQuote).then(function(r){ return r.ok ? r.json() : {}; }).catch(function(){ return {}; })
-  ]).then(function(results){
-    var divs = Array.isArray(results[0]) ? results[0] : (results[0].dividends || []);
-    var quote = results[1] || {};
-
-    // Se o Yahoo retornou próximo dividendo no quote, adiciona como futuro
-    if(quote.dividendDate && quote.trailingAnnualDividendRate > 0){
-      var nextDate = new Date(quote.dividendDate * 1000).toISOString().split('T')[0];
-      var hoje = new Date().toISOString().split('T')[0];
-      if(nextDate >= hoje){
-        // Estima valor por cota como último dividendo / 4 (trimestral) ou / 12 (mensal)
-        var freq = quote.dividendRate ? Math.round(quote.trailingAnnualDividendRate / quote.dividendRate) : 4;
-        var valor = quote.trailingAnnualDividendRate / Math.max(freq, 1);
-        divs.push({ payment_date: nextDate, ex_date: nextDate, value: valor, type: 'Dividendo' });
-      }
-    }
-
-    return salvarProventosBR(ticker, divs, dataCompra, 'Yahoo');
-  })
-    .catch(function(){
-      // 2ª tentativa: DadosMercado (gratuito quando disponível)
-      return fetch('https://api.dadosdemercado.com.br/v1/companies/'+ticker+'/dividends')
-        .then(function(r){
-          if(!r.ok) throw new Error('HTTP '+r.status);
-          return r.json();
-        })
-        .then(function(d){
-          var divs = Array.isArray(d) ? d : (d.data || d.dividends || []);
-          return salvarProventosBR(ticker, divs, dataCompra, 'DadosMercado');
-        })
-        .catch(function(){
-          // 3ª tentativa: Brapi (requer token)
-          if(!tokenBrapi) return 0;
-          return fetch(BRAPI_URL+'/quote/'+ticker+'?dividends=true&token='+tokenBrapi)
-            .then(function(r){ return r.json(); })
-            .then(function(d){
-              if(!d.results || !d.results[0]) return 0;
-              var res = d.results[0];
-              var divs = res.dividendsData && res.dividendsData.cashDividends || [];
-              return salvarProventosBR(ticker, divs, dataCompra, 'Brapi');
-            })
-            .catch(function(){ return 0; });
-        });
+  return fetch(urlDiv)
+    .then(function(r){ return r.ok ? r.json() : []; })
+    .catch(function(){ return []; })
+    .then(function(divs){
+      divs = Array.isArray(divs) ? divs : [];
+      return salvarProventosBR(ticker, divs, dataCompra, divs.length && divs[0].source ? divs[0].source : 'B3');
     });
 }
 
