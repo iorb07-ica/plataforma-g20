@@ -94,7 +94,9 @@ function _importarProventosGestaoBackground(onEmpty){
         if(qtd<=0) return;
 
         var dup=lista.some(function(p){
-          return p.ticker===r.ticker&&(p.data||'').substring(0,10)===dataStr&&Math.abs((p.valorCota||0)-valorCota)<0.00001;
+          return p.ticker===r.ticker
+            && (p.data||'').substring(0,10)===dataStr
+            && Math.abs((p.valorCota||0)-valorCota)<0.00001;
         });
         if(dup) return;
 
@@ -110,6 +112,18 @@ function _importarProventosGestaoBackground(onEmpty){
           valorCota:valorCota, qtd:qtd,
           total:valorCota*qtd, obs:'', fonte:'auto'
         });
+        // Entrada extra para semana do ex-date
+        if(dataExStr && dataExStr!==dataStr){
+          var dupEx=lista.some(function(p){
+            return p.ticker===r.ticker&&(p.data||'').substring(0,10)===dataExStr&&Math.abs((p.valorCota||0)-valorCota)<0.00001;
+          });
+          if(!dupEx) lista.push({
+            ticker:r.ticker, tipo:tipoDiv,
+            data:dataExStr, datex:dataExStr,
+            valorCota:valorCota, qtd:qtd,
+            total:valorCota*qtd, obs:'', fonte:'auto', isExDate:true
+          });
+        }
         novos++;
       });
     });
@@ -174,10 +188,17 @@ function _importarTodosProventosBackground(onDone){
 
   // ── Busca dividendos de todos em paralelo ──
   var fetches = tarefas.map(function(p){
-    var isBR = p.origem==='g20'
-      ? !/^[A-Z]{1,5}$/.test(p.ticker.replace(/\.SA$/i,'')) || /\d$/.test(p.ticker)
-      : (p.tipo==='Acao'||p.tipo==='FII'||p.tipo==='FIAGRO'||/\d$/.test(p.ticker));
-    var sym = isBR ? p.ticker.replace(/\.SA$/i,'').toUpperCase()+'.SA' : p.ticker.toUpperCase();
+    // Tipos US da gestão patrimonial
+    var US_TIPOS = ['Stock','REIT','ETF','Cripto','UCITs','ETF US'];
+    var isBR;
+    if(p.origem==='gestao'){
+      // Gestão: usa o campo tipo para distinguir BR de US
+      isBR = !US_TIPOS.includes(p.tipo);
+    } else {
+      // G20: ticker com dígito no final = BR, senão US
+      isBR = /\d$/.test(p.ticker) || p.ticker.endsWith('.SA');
+    }
+    var sym = isBR ? p.ticker.replace(/\.SA$/i,'').toUpperCase()+'.SA' : p.ticker.replace(/\.SA$/i,'').toUpperCase();
     var ep  = isBR ? '/api/dividends-br' : '/api/dividends';
     return fetch(PROXY+ep+'?symbol='+encodeURIComponent(sym)+'&from='+fromStr)
       .then(function(r){ return r.ok?r.json():{}; })
@@ -186,11 +207,12 @@ function _importarTodosProventosBackground(onDone){
   });
 
   Promise.all(fetches).then(function(results){
-    // Carrega dividendos existentes — mantém os manuais
+    // Carrega dividendos existentes — mantém apenas os manuais (sem fonte automática)
+    // Remove todos os auto-importados para reimportar frescos sem duplicatas
     var lista = JSON.parse(localStorage.getItem('g20_dividendos')||'[]')
       .filter(function(d){
-        // Remove apenas os auto-importados (serão reimportados frescos)
-        return d.fonte!=='auto' && !(d.fonte&&d.fonte.indexOf('Auto-')===0);
+        var f=d.fonte||'';
+        return f!=='auto' && f.indexOf('Auto-')!==0;
       });
 
     results.forEach(function(r){
@@ -245,8 +267,11 @@ function _importarTodosProventosBackground(onDone){
             qtdG20=Math.max(0,qtdG20);
           }catch(e){}
           if(qtdG20<=0) return;
+          // Dedup simples: mesmo ticker + mesmo payment_date + mesmo valor
           var dupG20=lista.some(function(p){
-            return p.ticker===r.ticker&&(p.data||'').substring(0,10)===dataPag&&Math.abs((p.valor||0)-valor)<0.001;
+            return p.ticker===r.ticker
+              && (p.data||'').substring(0,10)===dataPag
+              && Math.abs((p.valor||0)-valor)<0.001;
           });
           if(dupG20) return;
           lista.push({
@@ -254,8 +279,24 @@ function _importarTodosProventosBackground(onDone){
             ticker:r.ticker, tipo:tipoFinal,
             data:dataPag, datex:dataEx||dataPag,
             valor:valor, qtdEx:qtdG20,
-            fonte:'Auto-'+div.source, moeda:div.moeda||'BRL'
+            fonte:'Auto-'+(div.source||'B3'), moeda:div.moeda||'BRL'
           });
+          // Se ex_date diferente do payment_date, cria entrada extra para semana do ex-date
+          if(dataEx && dataEx!==dataPag){
+            var dupEx=lista.some(function(p){
+              return p.ticker===r.ticker&&(p.data||'').substring(0,10)===dataEx&&Math.abs((p.valor||0)-valor)<0.001;
+            });
+            if(!dupEx){
+              lista.push({
+                id:Date.now().toString()+Math.random()+'ex',
+                ticker:r.ticker, tipo:tipoFinal,
+                data:dataEx, datex:dataEx,
+                valor:valor, qtdEx:qtdG20,
+                fonte:'Auto-'+(div.source||'B3'), moeda:div.moeda||'BRL',
+                isExDate:true
+              });
+            }
+          }
         }
       });
     });
