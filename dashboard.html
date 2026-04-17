@@ -697,6 +697,23 @@ body.pat-hidden .pat-kpi-var .var-brl::after{content:'(••••)';position:a
 .tut-counter{font-size:11px;color:rgba(244,246,250,.3);letter-spacing:1px}
 .tut-btn{background:linear-gradient(135deg,#f5d07a,#e8b84b);color:#090b0f;font-weight:700;font-size:13px;padding:8px 20px;border-radius:20px;border:none;cursor:pointer;transition:all .2s}
 .tut-btn:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(232,184,75,.4)}
+
+/* ── FILTRO PATRIMONIAL ── */
+.pat-strip{grid-template-columns:1fr !important}
+.pat-filter-wrap{position:absolute;top:10px;right:10px;z-index:10}
+.pat-filter-btn{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#c2cbdd;font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;cursor:pointer;white-space:nowrap;transition:.2s}
+.pat-filter-btn:hover{background:rgba(232,184,75,.15);border-color:rgba(232,184,75,.4);color:#e8b84b}
+.pat-filter-dropdown{display:none;position:absolute;top:calc(100% + 4px);right:0;background:#1a2236;border:1px solid rgba(255,255,255,.12);border-radius:8px;min-width:160px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.pat-filter-dropdown.open{display:block}
+.pat-filter-opt{padding:9px 14px;font-size:12px;font-weight:600;color:#c2cbdd;cursor:pointer;transition:.15s}
+.pat-filter-opt:hover{background:rgba(232,184,75,.1);color:#e8b84b}
+.pat-filter-opt.active{color:#e8b84b;background:rgba(232,184,75,.08)}
+/* Grid "Todos" */
+.pat-all-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px}
+.pat-all-item{background:rgba(255,255,255,.04);border-radius:8px;padding:10px 12px}
+.pat-all-label{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px}
+.pat-all-val{font-size:17px;font-weight:800;color:#fff;font-variant-numeric:tabular-nums}
+.pat-all-sub{font-size:11px;color:#7a8599;margin-top:2px}
 </style>
 
 <!-- Firebase Auth -->
@@ -884,56 +901,76 @@ if(localStorage.getItem('g20_uid')){
     </div>
     <div class="pat-cal-wrap">
     <div class="pat-strip" id="patStrip">
-      <div class="pat-kpi" style="--pk-c:#e8b84b" onclick="if(!event.target.closest('.pat-kpi-range'))location.href='gestao-patrimonial.html'">
-        <div class="pat-kpi-label">Patrimônio Total</div>
-        <div class="pat-kpi-val" id="dashPatTotal">–</div>
-        <div class="pat-kpi-sub">RF + Bens + RV</div>
-        <div class="pat-kpi-var" id="dashPatVar"></div>
-        <div class="pat-kpi-spark" id="sparkTotal"></div>
-        <div class="pat-kpi-cmp" id="cmpTotal"></div>
-        <div class="pat-kpi-range" id="rangeTotal" onclick="event.stopPropagation()">
-          <button data-d="1">1d</button>
-          <button data-d="5">5d</button>
-          <button data-d="30" class="active">1m</button>
-          <button data-d="ytd">YTD</button>
-          <button data-d="365">1a</button>
-          <button data-d="1825">5a</button>
-          <button data-d="max">Tudo</button>
+      <div class="pat-kpi" id="patKpiMain" style="--pk-c:#e8b84b;grid-column:1/-1" onclick="if(!event.target.closest('.pat-kpi-range')&&!event.target.closest('.pat-filter-btn')&&!event.target.closest('.pat-filter-dropdown'))location.href='gestao-patrimonial.html'">
+        <!-- Botão filtro -->
+        <div class="pat-filter-wrap" onclick="event.stopPropagation()">
+          <button class="pat-filter-btn" id="patFilterBtn" onclick="togglePatFilter(event)" title="Filtrar visão">
+            <span id="patFilterLabel">Patrimônio Total</span> ▾
+          </button>
+          <div class="pat-filter-dropdown" id="patFilterDropdown">
+            <div class="pat-filter-opt active" data-view="total" onclick="setPatView('total',this)">Patrimônio Total</div>
+            <div class="pat-filter-opt" data-view="rf" onclick="setPatView('rf',this)">Renda Fixa</div>
+            <div class="pat-filter-opt" data-view="rv" onclick="setPatView('rv',this)">Renda Variável</div>
+            <div class="pat-filter-opt" data-view="bens" onclick="setPatView('bens',this)">Bens e Patrimônio</div>
+            <div class="pat-filter-opt" data-view="all" onclick="setPatView('all',this)">Todos</div>
+          </div>
         </div>
-      </div>
-      <div class="pat-kpi" style="--pk-c:#10b981" onclick="if(!event.target.closest('.pat-kpi-range'))location.href='gestao-patrimonial.html'">
-        <div class="pat-kpi-label">Renda Fixa</div>
-        <div class="pat-kpi-val" id="dashRF">–</div>
-        <div class="pat-kpi-sub" id="dashRFSub">–</div>
-        <div class="pat-kpi-var" id="dashRFVar"></div>
-        <div class="pat-kpi-spark" id="sparkRF"></div>
-        <div class="pat-kpi-cmp" id="cmpRF"></div>
-        <div class="pat-kpi-range" id="rangeRF" onclick="event.stopPropagation()">
-          <button data-d="1">1d</button>
-          <button data-d="5">5d</button>
-          <button data-d="30" class="active">1m</button>
-          <button data-d="ytd">YTD</button>
-          <button data-d="365">1a</button>
-          <button data-d="1825">5a</button>
-          <button data-d="max">Tudo</button>
+        <!-- Visão única (default: total) -->
+        <div id="patViewSingle">
+          <div class="pat-kpi-label" id="patViewLabel">Patrimônio Total</div>
+          <div class="pat-kpi-val" id="dashPatTotal">–</div>
+          <div class="pat-kpi-sub" id="patViewSub">RF + Bens + RV</div>
+          <div class="pat-kpi-var" id="dashPatVar"></div>
+          <div class="pat-kpi-spark" id="sparkTotal"></div>
+          <div class="pat-kpi-cmp" id="cmpTotal"></div>
+          <div class="pat-kpi-range" id="rangeTotal" onclick="event.stopPropagation()">
+            <button data-d="1">1d</button>
+            <button data-d="5">5d</button>
+            <button data-d="30" class="active">1m</button>
+            <button data-d="ytd">YTD</button>
+            <button data-d="365">1a</button>
+            <button data-d="1825">5a</button>
+            <button data-d="max">Tudo</button>
+          </div>
         </div>
-      </div>
-      <div class="pat-kpi" style="--pk-c:#8b5cf6" onclick="if(!event.target.closest('.pat-kpi-range'))location.href='gestao-patrimonial.html'">
-        <div class="pat-kpi-label">Renda Variável</div>
-        <div class="pat-kpi-val" id="dashRV">–</div>
-        <div class="pat-kpi-sub" id="dashRVSub">da Gestão Patrimonial</div>
-        <div class="pat-kpi-var" id="dashRVVar">⏳ buscando cotações…</div>
-        <div class="pat-kpi-spark" id="sparkRV"></div>
-        <div class="pat-kpi-cmp" id="cmpRV"></div>
-        <div class="pat-kpi-range" id="rangeRV" onclick="event.stopPropagation()">
-          <button data-d="1">1d</button>
-          <button data-d="5">5d</button>
-          <button data-d="30" class="active">1m</button>
-          <button data-d="ytd">YTD</button>
-          <button data-d="365">1a</button>
-          <button data-d="1825">5a</button>
-          <button data-d="max">Tudo</button>
+        <!-- Visão "Todos" (grid 2x2) -->
+        <div id="patViewAll" style="display:none">
+          <div class="pat-all-grid">
+            <div class="pat-all-item">
+              <div class="pat-all-label" style="color:#e8b84b">Total</div>
+              <div class="pat-all-val" id="dashPatTotalAll">–</div>
+              <div class="pat-all-sub" id="dashPatVarAll"></div>
+            </div>
+            <div class="pat-all-item">
+              <div class="pat-all-label" style="color:#10b981">Renda Fixa</div>
+              <div class="pat-all-val" id="dashRFAll">–</div>
+              <div class="pat-all-sub" id="dashRFSubAll">–</div>
+            </div>
+            <div class="pat-all-item">
+              <div class="pat-all-label" style="color:#8b5cf6">Renda Variável</div>
+              <div class="pat-all-val" id="dashRVAll">–</div>
+              <div class="pat-all-sub" id="dashRVSubAll">–</div>
+            </div>
+            <div class="pat-all-item">
+              <div class="pat-all-label" style="color:#f59e0b">Bens</div>
+              <div class="pat-all-val" id="dashBensAll">–</div>
+              <div class="pat-all-sub" id="dashBensSubAll">–</div>
+            </div>
+          </div>
         </div>
+        <!-- IDs ocultos mantidos para compatibilidade com JS existente -->
+        <span id="dashRF" style="display:none">–</span>
+        <span id="dashRFSub" style="display:none">–</span>
+        <span id="dashRFVar" style="display:none"></span>
+        <span id="sparkRF" style="display:none"></span>
+        <span id="cmpRF" style="display:none"></span>
+        <span id="rangeRF" style="display:none"></span>
+        <span id="dashRV" style="display:none">–</span>
+        <span id="dashRVSub" style="display:none">da Gestão Patrimonial</span>
+        <span id="dashRVVar" style="display:none"></span>
+        <span id="sparkRV" style="display:none"></span>
+        <span id="cmpRV" style="display:none"></span>
+        <span id="rangeRV" style="display:none"></span>
       </div>
     </div>
     <!-- CALENDÁRIO -->
@@ -2023,6 +2060,17 @@ function loadPatStrip(){
     if(rvEl) rvEl.textContent=rvInv>0?fmtBRL(rvInv):'–';
     if(rvSubEl&&nAtivos>0) rvSubEl.textContent=nAtivos+' ativos registrados';
     if(qGestaoEl) qGestaoEl.textContent=total>0?fmtBRL(total):'–';
+    // Atualiza _patData para o filtro de visão
+    if(typeof _patData !== 'undefined'){
+      _patData.total = total;
+      _patData.rf    = rfAtual;
+      _patData.rv    = rvInv;
+      _patData.bens  = bensLiq || 0;
+      _patData.rfSub = rfInv>0?(rfRentPct>=0?'+':'')+rfRentPct.toFixed(2)+'% rendimento':'–';
+      _patData.nAtivos = nAtivos;
+      if(typeof _patRenderSingle === 'function') _patRenderSingle();
+      if(typeof _patRenderAll === 'function' && _patView === 'all') _patRenderAll();
+    }
 
     // Atualiza metaAtivos com total de ativos na carteira RV
     var metaAtivosEl=document.getElementById('metaAtivos');
@@ -3269,6 +3317,90 @@ document.addEventListener('keydown', function(e){
     if (e.key==='ArrowRight'||e.key==='Enter') tutNext();
   }
 });
+
+/* ── CONTROLE FILTRO PATRIMONIAL ── */
+var _patView = 'total';
+var _patData = {total:0, rf:0, rv:0, bens:0, rfSub:'', rvSub:'', rfRentPct:0, nAtivos:0};
+
+function togglePatFilter(e){
+  e.stopPropagation();
+  var dd = document.getElementById('patFilterDropdown');
+  dd.classList.toggle('open');
+  document.addEventListener('click', function closeDD(ev){
+    if(!ev.target.closest('.pat-filter-wrap')){
+      dd.classList.remove('open');
+      document.removeEventListener('click', closeDD);
+    }
+  });
+}
+
+function setPatView(view, el){
+  _patView = view;
+  document.getElementById('patFilterDropdown').classList.remove('open');
+
+  // Marca ativo
+  document.querySelectorAll('.pat-filter-opt').forEach(function(o){ o.classList.remove('active'); });
+  el.classList.add('active');
+
+  // Labels do botão
+  var labels = {total:'Patrimônio Total', rf:'Renda Fixa', rv:'Renda Variável', bens:'Bens e Patrimônio', all:'Todos'};
+  document.getElementById('patFilterLabel').textContent = labels[view] || 'Patrimônio Total';
+
+  // Alterna visão
+  var single = document.getElementById('patViewSingle');
+  var allView = document.getElementById('patViewAll');
+
+  if(view === 'all'){
+    single.style.display = 'none';
+    allView.style.display = 'block';
+    _patRenderAll();
+    return;
+  }
+
+  single.style.display = 'block';
+  allView.style.display = 'none';
+
+  // Cores por visão
+  var cores = {total:'#e8b84b', rf:'#10b981', rv:'#8b5cf6', bens:'#f59e0b'};
+  var kpi = document.getElementById('patKpiMain');
+  if(kpi) kpi.style.setProperty('--pk-c', cores[view] || '#e8b84b');
+
+  _patRenderSingle();
+}
+
+function _patRenderSingle(){
+  var d = _patData;
+  var labels = {total:'Patrimônio Total', rf:'Renda Fixa', rv:'Renda Variável', bens:'Bens e Patrimônio'};
+  var subs = {
+    total: 'RF + Bens + RV',
+    rf: d.rfSub || '–',
+    rv: d.nAtivos > 0 ? d.nAtivos + ' ativos registrados' : 'da Gestão Patrimonial',
+    bens: 'Bens patrimoniais'
+  };
+  var vals = {total: d.total, rf: d.rf, rv: d.rv, bens: d.bens};
+
+  var labelEl = document.getElementById('patViewLabel');
+  var valEl   = document.getElementById('dashPatTotal');
+  var subEl   = document.getElementById('patViewSub');
+
+  if(labelEl) labelEl.textContent = labels[_patView] || 'Patrimônio Total';
+  if(valEl)   valEl.textContent   = vals[_patView] > 0 ? fmtBRL(vals[_patView]) : '–';
+  if(subEl)   subEl.textContent   = subs[_patView] || '';
+}
+
+function _patRenderAll(){
+  var d = _patData;
+  var fmtV = function(v){ return v > 0 ? fmtBRL(v) : '–'; };
+  var el = function(id){ return document.getElementById(id); };
+  if(el('dashPatTotalAll')) el('dashPatTotalAll').textContent = fmtV(d.total);
+  if(el('dashRFAll'))       el('dashRFAll').textContent       = fmtV(d.rf);
+  if(el('dashRFSubAll'))    el('dashRFSubAll').textContent    = d.rfSub || '–';
+  if(el('dashRVAll'))       el('dashRVAll').textContent       = fmtV(d.rv);
+  if(el('dashRVSubAll'))    el('dashRVSubAll').textContent    = d.nAtivos > 0 ? d.nAtivos + ' ativos' : '–';
+  if(el('dashBensAll'))     el('dashBensAll').textContent     = fmtV(d.bens);
+  if(el('dashBensSubAll'))  el('dashBensSubAll').textContent  = 'patrimoniais';
+}
+
 </script>
 
 </body>
