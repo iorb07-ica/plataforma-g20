@@ -6403,77 +6403,56 @@ function importarProventosUS(ticker){
   if(!dataCompra) return Promise.resolve(0);
 
   var apiSymbol = ticker === 'BRK.B' ? 'BRK-B' : (isBR(ticker,'') ? ticker+'.SA' : ticker);
-  var urlDiv   = PROXY_URL+'/api/dividends?symbol='+encodeURIComponent(apiSymbol)+'&from='+dataCompra;
-  var urlQuote = PROXY_URL+'/api/quote?symbol='+encodeURIComponent(apiSymbol);
+  var urlDiv = PROXY_URL+'/api/dividends?symbol='+encodeURIComponent(apiSymbol)+'&from='+dataCompra;
 
-  return Promise.all([
-    fetch(urlDiv).then(function(r){ return r.json(); }).catch(function(){ return {}; }),
-    fetch(urlQuote).then(function(r){ return r.json(); }).catch(function(){ return {}; })
-  ]).then(function(results){
-    var d     = results[0] || {};
-    var quote = results[1] || {};
-    var stored = loadData('dividendos',[]);
-    var hoje   = new Date().toISOString().split('T')[0];
-    var novos  = 0;
+  return fetch(urlDiv)
+    .then(function(r){ return r.ok ? r.json() : {}; })
+    .catch(function(){ return {}; })
+    .then(function(d){
+      var stored = loadData('dividendos',[]);
+      var novos  = 0;
 
-    // Histórico de dividendos
-    var divList = d.dividends || [];
-    divList.forEach(function(dv){
-      var dataPag = dv.date || '';
-      if(!dataPag) return;
-      var qtd = qtdNaData(ticker, dataPag);
-      if(qtd <= 0) return;
-      var existe = stored.find(function(x){
-        return x.ticker===ticker && x.data===dataPag && Math.abs(x.valor-dv.amount)<0.001;
-      });
-      if(existe){
-        // Atualiza qtdEx se estiver errado
-        if(Math.abs((existe.qtdEx||0) - qtd) > 0.001){
-          existe.qtdEx = qtd;
-          novos++;
-        }
-        return;
-      }
-      stored.push({
-        id: Date.now().toString()+Math.random(),
-        ticker: ticker, tipo: 'Dividendo',
-        data: dataPag, datex: dataPag,
-        valor: parseFloat(dv.amount||0),
-        qtdEx: qtd, fonte: 'Auto-Proxy', moeda: 'USD'
-      });
-      novos++;
-    });
+      var divList = d.dividends || [];
+      divList.forEach(function(dv){
+        // Polygon retorna ex_date como data principal, payment_date separado
+        var dataPag = (dv.payment_date || dv.date || '').substring(0,10);
+        var dataEx  = (dv.ex_date || dv.date || dataPag).substring(0,10);
+        var amount  = parseFloat(dv.amount || dv.value || 0);
+        if(!dataPag || !amount) return;
 
-    // Próximo dividendo declarado via quote
-    if(quote.dividendDate){
-      var nextDate = new Date(quote.dividendDate * 1000).toISOString().split('T')[0];
-      if(nextDate >= hoje){
-        var valor = parseFloat(quote.dividendRate || 0) / 4; // assume trimestral
-        if(valor > 0){
-          var jaExiste = stored.find(function(x){
-            return x.ticker===ticker && x.data===nextDate;
-          });
-          if(!jaExiste){
-            var qtd = qtdNaData(ticker, nextDate);
-            if(qtd > 0){
-              stored.push({
-                id: Date.now().toString()+Math.random(),
-                ticker: ticker, tipo: 'Dividendo',
-                data: nextDate, datex: nextDate,
-                valor: valor, qtdEx: qtd,
-                fonte: 'Auto-Yahoo-Next', moeda: 'USD'
-              });
-              novos++;
-            }
+        var qtd = qtdNaData(ticker, dataEx || dataPag);
+        if(qtd <= 0) return;
+
+        var existe = stored.find(function(x){
+          return x.ticker===ticker && x.data===dataPag && Math.abs(x.valor-amount)<0.001;
+        });
+        if(existe){
+          if(Math.abs((existe.qtdEx||0)-qtd)>0.001){ existe.qtdEx=qtd; novos++; }
+          // Atualiza datex se separado
+          if(dataEx && dataEx!==dataPag && (!existe.datex || existe.datex===existe.data)){
+            existe.datex=dataEx; novos++;
           }
+          return;
         }
-      }
-    }
 
-    if(novos > 0) saveData('dividendos', stored);
-    return novos;
-  })
-  .catch(function(){ return 0; });
+        stored.push({
+          id:     Date.now().toString()+Math.random(),
+          ticker: ticker,
+          tipo:   dv.type || 'Dividendo',
+          data:   dataPag,
+          datex:  dataEx || dataPag,
+          valor:  amount,
+          qtdEx:  qtd,
+          fonte:  'Auto-Polygon',
+          moeda:  'USD'
+        });
+        novos++;
+      });
+
+      if(novos > 0) saveData('dividendos', stored);
+      return novos;
+    })
+    .catch(function(){ return 0; });
 }
 
 function importarTodosProventos(callback){
