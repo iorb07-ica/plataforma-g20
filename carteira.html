@@ -3781,6 +3781,9 @@ function renderPosicoes(){
 
   atualizarStats(totalInvGlobal, totalPosGlobal, totalPosGlobal-totalInvGlobal, divRec, totalProvGlobal);
   atualizarVarDia(varDiaBRL, totalPosGlobal);
+
+  // Reordena colunas conforme preferência salva do usuário (th + td do tbody)
+  if(typeof aplicarOrdemColunas === 'function') aplicarOrdemColunas();
 }
 
 function atualizarVarDia(varBRL, totalPos){
@@ -7819,37 +7822,38 @@ function thDrop(e, targetTh){
   if(!_dragSrcTh || targetTh === _dragSrcTh) return;
   if(targetTh.dataset.col === 'acoes') return;
 
-  var row   = document.getElementById('theadRow');
-  var ths   = Array.from(row.children);
-  var srcIdx= ths.indexOf(_dragSrcTh);
-  var tgtIdx= ths.indexOf(targetTh);
-
-  // Decide inserção antes ou depois
+  // Decide inserção antes ou depois com base na posição do cursor
   var rect  = targetTh.getBoundingClientRect();
   var after = e.clientX > rect.left + rect.width / 2;
 
   targetTh.classList.remove('th-drag-over-left','th-drag-over-right');
+
+  // 1) Move o <th> no cabeçalho
   if(after){
     targetTh.parentNode.insertBefore(_dragSrcTh, targetTh.nextSibling);
   } else {
     targetTh.parentNode.insertBefore(_dragSrcTh, targetTh);
   }
 
-  // Reordena os tds de cada linha para acompanhar
-  var tbody = document.getElementById('tbodyPosicoes');
-  Array.from(tbody.rows).forEach(function(tr){
-    var tds = Array.from(tr.cells);
-    if(tds.length < ths.length) return;
-    var movedTd = tds[srcIdx];
-    if(!movedTd) return;
-    if(after){
-      tr.insertBefore(movedTd, tds[tgtIdx] ? tds[tgtIdx].nextSibling : null);
-    } else {
-      tr.insertBefore(movedTd, tds[tgtIdx]||null);
-    }
-  });
+  // 2) Move os <td> correspondentes em cada linha do tbody
+  // Usa data-col (mais robusto que índice — os tds têm data-col na geração)
+  var srcCol = _dragSrcTh.dataset.col;
+  var tgtCol = targetTh.dataset.col;
+  var tbody  = document.getElementById('tbodyPosicoes');
+  if(tbody && srcCol && tgtCol){
+    Array.from(tbody.rows).forEach(function(tr){
+      var srcTd = tr.querySelector('td[data-col="'+srcCol+'"]');
+      var tgtTd = tr.querySelector('td[data-col="'+tgtCol+'"]');
+      if(!srcTd || !tgtTd) return;
+      if(after){
+        tr.insertBefore(srcTd, tgtTd.nextSibling);
+      } else {
+        tr.insertBefore(srcTd, tgtTd);
+      }
+    });
+  }
 
-  // Salva nova ordem de colunas
+  // 3) Salva nova ordem de colunas
   salvarOrdemColunas();
 }
 
@@ -7870,15 +7874,31 @@ function salvarOrdemColunas(){
 function aplicarOrdemColunas(){
   var ordem = loadData('colOrdem', null);
   if(!ordem || !ordem.length) return;
+
+  // 1) Reordena os <th> do cabeçalho
   var row = document.getElementById('theadRow');
-  if(!row) return;
-  ordem.forEach(function(col){
-    var th = row.querySelector('[data-col="'+col+'"]');
-    if(th) row.appendChild(th); // move para o fim em sequência
-  });
-  // Garante que "acoes" fique sempre no fim
-  var acoesTh = row.querySelector('[data-col="acoes"]');
-  if(acoesTh) row.appendChild(acoesTh);
+  if(row){
+    ordem.forEach(function(col){
+      var th = row.querySelector('[data-col="'+col+'"]');
+      if(th) row.appendChild(th); // move para o fim em sequência
+    });
+    // Garante que "acoes" fique sempre no fim
+    var acoesTh = row.querySelector('[data-col="acoes"]');
+    if(acoesTh) row.appendChild(acoesTh);
+  }
+
+  // 2) Reordena os <td> de cada linha do tbody seguindo a mesma ordem
+  var tbody = document.getElementById('tbodyPosicoes');
+  if(tbody){
+    Array.from(tbody.rows).forEach(function(tr){
+      ordem.forEach(function(col){
+        var td = tr.querySelector('td[data-col="'+col+'"]');
+        if(td) tr.appendChild(td);
+      });
+      var acoesTd = tr.querySelector('td[data-col="acoes"]');
+      if(acoesTd) tr.appendChild(acoesTd);
+    });
+  }
 }
 
 // ============================================================
