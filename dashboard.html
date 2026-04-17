@@ -17,8 +17,10 @@
 <link rel="stylesheet" href="assets/g20-topbar.css?v=10">
 <link rel="stylesheet" href="assets/g20-sidebar.css?v=10">
 <link rel="stylesheet" href="assets/g20-scrollbar.css?v=10">
-<script src="assets/g20-notifications.js?v=10">
-/* ── IMPORTAÇÃO AUTOMÁTICA PROVENTOS GESTÃO PATRIMONIAL ── */
+<script src="assets/g20-notifications.js?v=10"></script>
+<script>
+
+/* IMPORTACAO AUTOMATICA PROVENTOS GESTAO PATRIMONIAL */
 var _gestaoImportRunning = false;
 var _gestaoImportDone    = false;
 
@@ -32,9 +34,7 @@ function _getQtdNaDataGestao(ticker, dataRef){
       .forEach(function(a){
         if(!a.data||a.data>dataRef) return;
         var q=parseFloat(a.qtd)||0;
-        // op='C' ou sem op = compra; op='V' = venda
-        if(a.op==='V') qtd-=q;
-        else qtd+=q;
+        if(a.op==='V') qtd-=q; else qtd+=q;
       });
     return Math.max(0,qtd);
   }catch(e){ return 0; }
@@ -43,26 +43,19 @@ function _getQtdNaDataGestao(ticker, dataRef){
 function _importarProventosGestaoBackground(onEmpty){
   if(_gestaoImportRunning) return;
   _gestaoImportRunning = true;
-
   var PROXY = 'https://g20-proxy.vercel.app';
   var hoje  = new Date().toISOString().split('T')[0];
   var from  = new Date(); from.setFullYear(from.getFullYear()-2);
   var fromStr = from.toISOString().split('T')[0];
-
-  // Pega aportes da gestão patrimonial
   var aportes = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
   if(!aportes.length){ _gestaoImportRunning=false; if(onEmpty) onEmpty(); return; }
-
-  // Monta lista de ativos únicos com posição ativa
   var posMap={};
   aportes.forEach(function(a){ posMap[a.ticker]={ticker:a.ticker,tipo:a.tipo||'Acao'}; });
-  var ativos = Object.values(posMap).filter(function(p){
-    return _getQtdNaDataGestao(p.ticker, hoje) > 0;
-  });
+  var ativos = Object.values(posMap);
   if(!ativos.length){ _gestaoImportRunning=false; if(onEmpty) onEmpty(); return; }
-
   var fetches = ativos.map(function(p){
-    var isBR = (p.tipo==='Acao'||p.tipo==='FII'||p.tipo==='FIAGRO'||/\d$/.test(p.ticker));
+    var US_TIPOS = ['Stock','REIT','ETF','Cripto','UCITs','ETF US'];
+    var isBR = !US_TIPOS.includes(p.tipo);
     var sym  = isBR ? p.ticker.toUpperCase()+'.SA' : p.ticker.toUpperCase();
     var ep   = isBR ? '/api/dividends-br' : '/api/dividends';
     return fetch(PROXY+ep+'?symbol='+encodeURIComponent(sym)+'&from='+fromStr)
@@ -70,154 +63,83 @@ function _importarProventosGestaoBackground(onEmpty){
       .then(function(d){ return {ticker:p.ticker,tipo:p.tipo,raw:d}; })
       .catch(function(){ return {ticker:p.ticker,tipo:p.tipo,raw:{}}; });
   });
-
   Promise.all(fetches).then(function(results){
     var lista = JSON.parse(localStorage.getItem('g20_dividendos')||'[]')
       .filter(function(p){ return p.fonte!=='auto'||(p.valorCota>0&&p.qtd>0); });
     var novos=0;
-
     results.forEach(function(r){
       var divList=[];
       if(Array.isArray(r.raw)) divList=r.raw;
       else if(Array.isArray(r.raw.dividends)) divList=r.raw.dividends;
-
       divList.forEach(function(div){
-        var dataRaw=div.payment_date||div.paymentDate||div.date||'';
-        var dataEx =div.ex_date||div.lastDatePrior||dataRaw||'';
-        var dataStr=(typeof dataRaw==='string')?dataRaw.substring(0,10):'';
-        var dataExStr=(typeof dataEx==='string')?dataEx.substring(0,10):dataStr;
-        if(!dataStr||dataStr<fromStr) return;
-
+        var dataPag=(div.payment_date||div.paymentDate||div.date||'').substring(0,10);
+        var dataEx =(div.ex_date||div.lastDatePrior||div.datex||dataPag||'').substring(0,10);
         var valorCota=parseFloat(div.value||div.amount||div.rate||0);
-        if(!valorCota) return;
-
-        var qtd=_getQtdNaDataGestao(r.ticker,dataExStr||dataStr);
-        if(qtd<=0){var dp=new Date(dataExStr||dataStr);dp.setDate(dp.getDate()+7);qtd=_getQtdNaDataGestao(r.ticker,dp.toISOString().split('T')[0]);}
+        if(!dataPag||!valorCota||dataPag<fromStr) return;
+        var qtd=_getQtdNaDataGestao(r.ticker,dataEx||dataPag);
+        if(qtd<=0){ var dp=new Date(dataEx||dataPag); dp.setDate(dp.getDate()+7); qtd=_getQtdNaDataGestao(r.ticker,dp.toISOString().split('T')[0]); }
         if(qtd<=0) qtd=_getQtdNaDataGestao(r.ticker,hoje);
         if(qtd<=0) return;
-        var dup=lista.some(function(p){
-          return p.ticker===r.ticker
-            && (p.data||'').substring(0,10)===dataStr
-            && Math.abs((p.valorCota||0)-valorCota)<0.00001;
-        });
+        var dup=lista.some(function(p){ return p.ticker===r.ticker&&(p.data||'').substring(0,10)===dataPag&&Math.abs((p.valorCota||0)-valorCota)<0.00001; });
         if(dup) return;
-
         var tipoDiv='Dividendo';
         if(r.tipo==='FII'||r.tipo==='FIAGRO') tipoDiv='Rendimento';
         var typeStr=(div.type||div.label||'').toUpperCase();
-        if(typeStr.includes('JCP')||typeStr.includes('JUROS')) tipoDiv='JCP';
+        if(typeStr.includes('JCP')) tipoDiv='JCP';
         else if(typeStr.includes('REND')) tipoDiv='Rendimento';
-
-        lista.push({
-          ticker:r.ticker, tipo:tipoDiv,
-          data:dataStr, datex:dataExStr||dataStr,
-          valorCota:valorCota, qtd:qtd,
-          total:valorCota*qtd, obs:'', fonte:'auto'
-        });
-        // Entrada extra para semana do ex-date
-        if(dataExStr && dataExStr!==dataStr){
-          var dupEx=lista.some(function(p){
-            return p.ticker===r.ticker&&(p.data||'').substring(0,10)===dataExStr&&Math.abs((p.valorCota||0)-valorCota)<0.00001;
-          });
-          if(!dupEx) lista.push({
-            ticker:r.ticker, tipo:tipoDiv,
-            data:dataExStr, datex:dataExStr,
-            valorCota:valorCota, qtd:qtd,
-            total:valorCota*qtd, obs:'', fonte:'auto', isExDate:true
-          });
+        lista.push({ ticker:r.ticker, tipo:tipoDiv, data:dataPag, datex:dataEx||dataPag, valorCota:valorCota, qtd:qtd, total:valorCota*qtd, obs:'', fonte:'auto' });
+        if(dataEx&&dataEx!==dataPag){
+          var dupEx=lista.some(function(p){ return p.ticker===r.ticker&&(p.data||'').substring(0,10)===dataEx&&Math.abs((p.valorCota||0)-valorCota)<0.00001; });
+          if(!dupEx) lista.push({ ticker:r.ticker, tipo:tipoDiv, data:dataEx, datex:dataEx, valorCota:valorCota, qtd:qtd, total:valorCota*qtd, obs:'', fonte:'auto', isExDate:true });
         }
         novos++;
       });
     });
-
-    if(novos>0){
-      localStorage.setItem('g20_dividendos', JSON.stringify(lista));
-    }
+    if(novos>0){ localStorage.setItem('g20_dividendos', JSON.stringify(lista)); }
     _gestaoImportRunning=false;
     _gestaoImportDone=true;
-    // Re-renderiza após importar
     renderProvAgenda();
-  }).catch(function(){
-    _gestaoImportRunning=false;
-    if(onEmpty) onEmpty();
-  });
+  }).catch(function(){ _gestaoImportRunning=false; if(onEmpty) onEmpty(); });
 }
 
-
-/* ── IMPORTAÇÃO PARALELA: G20 + GESTÃO PATRIMONIAL ── */
+/* IMPORTACAO PARALELA: G20 + GESTAO PATRIMONIAL */
 function _importarTodosProventosBackground(onDone){
   var PROXY = 'https://g20-proxy.vercel.app';
   var hoje  = new Date().toISOString().split('T')[0];
   var from  = new Date(); from.setFullYear(from.getFullYear()-2);
   var fromStr = from.toISOString().split('T')[0];
+  var US_TIPOS = ['Stock','REIT','ETF','Cripto','UCITs','ETF US'];
 
-  // ── Coleta ativos de AMBAS as fontes ──
-  // Carteira G20: aportes com campo 'moeda' ou sem tipo específico
   var aportesG20  = JSON.parse(localStorage.getItem('g20_aportes')||'[]');
-  // Gestão Patrimonial: rvAportes
   var aportesGest = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
 
-  // Monta lista unificada com flag de origem
   var tarefas = [];
-
-  // G20 - tickers únicos com posição ativa
   var g20Map={};
-  aportesG20.forEach(function(a){
-    if(!a.ticker) return;
-    if(!g20Map[a.ticker]) g20Map[a.ticker]={ticker:a.ticker,origem:'g20'};
-  });
+  aportesG20.forEach(function(a){ if(a.ticker&&!g20Map[a.ticker]) g20Map[a.ticker]={ticker:a.ticker,origem:'g20'}; });
   Object.values(g20Map).forEach(function(p){ tarefas.push(p); });
 
-  // Gestão - tickers únicos com posição ativa
   var gestMap={};
-  aportesGest.forEach(function(a){
-    if(!a.ticker) return;
-    if(!gestMap[a.ticker]) gestMap[a.ticker]={ticker:a.ticker,tipo:a.tipo||'Acao',origem:'gestao'};
-  });
-  // Inclui ativos com posição atual OU que já tiveram posição (para histórico)
-  Object.values(gestMap).forEach(function(p){
-    var qtdHoje = _getQtdNaDataGestao(p.ticker, hoje);
-    // Se qtd=0 hoje mas tem aportes, inclui mesmo assim (pode ter posição na data do dividendo)
-    if(qtdHoje > 0 || gestMap[p.ticker]) tarefas.push(p);
-  });
+  aportesGest.forEach(function(a){ if(a.ticker&&!gestMap[a.ticker]) gestMap[a.ticker]={ticker:a.ticker,tipo:a.tipo||'Acao',origem:'gestao'}; });
+  Object.values(gestMap).forEach(function(p){ tarefas.push(p); });
 
   if(!tarefas.length){ if(onDone) onDone(); return; }
 
-  // Remove duplicatas (mesmo ticker em ambas)
   var vistos={};
-  tarefas = tarefas.filter(function(t){
-    if(vistos[t.ticker]) return false;
-    vistos[t.ticker]=true; return true;
-  });
+  tarefas = tarefas.filter(function(t){ if(vistos[t.ticker]) return false; vistos[t.ticker]=true; return true; });
 
-  // ── Busca dividendos de todos em paralelo ──
   var fetches = tarefas.map(function(p){
-    // Tipos US da gestão patrimonial
-    var US_TIPOS = ['Stock','REIT','ETF','Cripto','UCITs','ETF US'];
-    var isBR;
-    if(p.origem==='gestao'){
-      // Gestão: usa o campo tipo para distinguir BR de US
-      isBR = !US_TIPOS.includes(p.tipo);
-    } else {
-      // G20: ticker com dígito no final = BR, senão US
-      isBR = /\d$/.test(p.ticker) || p.ticker.endsWith('.SA');
-    }
-    var sym = isBR ? p.ticker.replace(/\.SA$/i,'').toUpperCase()+'.SA' : p.ticker.replace(/\.SA$/i,'').toUpperCase();
-    var ep  = isBR ? '/api/dividends-br' : '/api/dividends';
+    var isBR = p.origem==='gestao' ? !US_TIPOS.includes(p.tipo) : (/\d$/.test(p.ticker)||p.ticker.endsWith('.SA'));
+    var sym  = isBR ? p.ticker.replace(/\.SA$/i,'').toUpperCase()+'.SA' : p.ticker.replace(/\.SA$/i,'').toUpperCase();
+    var ep   = isBR ? '/api/dividends-br' : '/api/dividends';
     return fetch(PROXY+ep+'?symbol='+encodeURIComponent(sym)+'&from='+fromStr)
       .then(function(r){ return r.ok?r.json():{}; })
-      .then(function(d){ return {ticker:p.ticker,tipo:p.tipo,origem:p.origem,raw:d}; })
-      .catch(function(){ return {ticker:p.ticker,tipo:p.tipo,origem:p.origem,raw:{}}; });
+      .then(function(d){ return {ticker:p.ticker,tipo:p.tipo||'',origem:p.origem,raw:d}; })
+      .catch(function(){ return {ticker:p.ticker,tipo:p.tipo||'',origem:p.origem,raw:{}}; });
   });
 
   Promise.all(fetches).then(function(results){
-    // Carrega dividendos existentes — mantém apenas os manuais (sem fonte automática)
-    // Remove todos os auto-importados para reimportar frescos sem duplicatas
     var lista = JSON.parse(localStorage.getItem('g20_dividendos')||'[]')
-      .filter(function(d){
-        var f=d.fonte||'';
-        return f!=='auto' && f.indexOf('Auto-')!==0;
-      });
+      .filter(function(d){ var f=d.fonte||''; return f!=='auto'&&f.indexOf('Auto-')!==0; });
 
     results.forEach(function(r){
       var divList=[];
@@ -225,81 +147,45 @@ function _importarTodosProventosBackground(onDone){
       else if(Array.isArray(r.raw.dividends)) divList=r.raw.dividends;
 
       divList.forEach(function(div){
-        // Campos do retorno
         var dataPag=(div.payment_date||div.paymentDate||div.date||'').substring(0,10);
         var dataEx =(div.ex_date||div.lastDatePrior||div.datex||dataPag||'').substring(0,10);
         var valor  =parseFloat(div.value||div.amount||div.rate||div.cash_amount||0);
-        var tipo   =div.type||div.label||div.tipo||'';
-        var tipoStr=tipo.toUpperCase();
+        var tipoStr=(div.type||div.label||div.tipo||'').toUpperCase();
+        if(!dataPag||!valor||dataPag<fromStr) return;
 
-        if(!dataPag||!valor) return;
-        if(dataPag<fromStr) return;
-
-        // Tipo normalizado
         var tipoFinal='Dividendo';
-        if(tipoStr.includes('JCP')||tipoStr.includes('JUROS')) tipoFinal='JCP';
+        if(tipoStr.includes('JCP')) tipoFinal='JCP';
         else if(tipoStr.includes('REND')) tipoFinal='Rendimento';
-        else if(tipoStr.includes('BONIF')) tipoFinal='Bonificação';
+        else if(tipoStr.includes('BONIF')) tipoFinal='Bonificacao';
 
         if(r.origem==='gestao'){
-          // Formato da Gestão Patrimonial
           var qtd=_getQtdNaDataGestao(r.ticker,dataEx||dataPag);
-          if(qtd<=0){var dp2=new Date(dataEx||dataPag);dp2.setDate(dp2.getDate()+7);qtd=_getQtdNaDataGestao(r.ticker,dp2.toISOString().split('T')[0]);}
+          if(qtd<=0){ var dp2=new Date(dataEx||dataPag); dp2.setDate(dp2.getDate()+7); qtd=_getQtdNaDataGestao(r.ticker,dp2.toISOString().split('T')[0]); }
           if(qtd<=0) qtd=_getQtdNaDataGestao(r.ticker,hoje);
           if(qtd<=0) return;
-            return p.ticker===r.ticker&&(p.data||'').substring(0,10)===dataPag&&Math.abs((p.valorCota||0)-valor)<0.00001;
-          });
-          if(dup) return;
-          lista.push({
-            ticker:r.ticker, tipo:tipoFinal,
-            data:dataPag, datex:dataEx||dataPag,
-            valorCota:valor, qtd:qtd,
-            total:valor*qtd, obs:'', fonte:'auto'
-          });
+          var dupG=lista.some(function(p){ return p.ticker===r.ticker&&(p.data||'').substring(0,10)===dataPag&&Math.abs((p.valorCota||0)-valor)<0.00001; });
+          if(dupG) return;
+          lista.push({ ticker:r.ticker, tipo:tipoFinal, data:dataPag, datex:dataEx||dataPag, valorCota:valor, qtd:qtd, total:valor*qtd, obs:'', fonte:'auto' });
+          if(dataEx&&dataEx!==dataPag){
+            var dupGex=lista.some(function(p){ return p.ticker===r.ticker&&(p.data||'').substring(0,10)===dataEx&&Math.abs((p.valorCota||0)-valor)<0.00001; });
+            if(!dupGex) lista.push({ ticker:r.ticker, tipo:tipoFinal, data:dataEx, datex:dataEx, valorCota:valor, qtd:qtd, total:valor*qtd, obs:'', fonte:'auto', isExDate:true });
+          }
         } else {
-          // Formato da Carteira G20
-          // Qtd via aportes G20
           var qtdG20=0;
           try{
             var ap=JSON.parse(localStorage.getItem('g20_aportes')||'[]')
-              .filter(function(a){return a.ticker===r.ticker&&a.data<=(dataEx||dataPag);})
-              .sort(function(a,b){return a.data.localeCompare(b.data);});
-            ap.forEach(function(a){
-              if(a.op==='C') qtdG20+=parseFloat(a.qtd||0);
-              else qtdG20-=parseFloat(a.qtd||0);
-            });
+              .filter(function(a){ return a.ticker===r.ticker&&a.data<=(dataEx||dataPag); })
+              .sort(function(a,b){ return a.data.localeCompare(b.data); });
+            ap.forEach(function(a){ if(a.op==='C') qtdG20+=parseFloat(a.qtd||0); else qtdG20-=parseFloat(a.qtd||0); });
             qtdG20=Math.max(0,qtdG20);
           }catch(e){}
           if(qtdG20<=0) return;
-          // Dedup simples: mesmo ticker + mesmo payment_date + mesmo valor
-          var dupG20=lista.some(function(p){
-            return p.ticker===r.ticker
-              && (p.data||'').substring(0,10)===dataPag
-              && Math.abs((p.valor||0)-valor)<0.001;
-          });
+          var dupG20=lista.some(function(p){ return p.ticker===r.ticker&&(p.data||'').substring(0,10)===dataPag&&Math.abs((p.valor||0)-valor)<0.001; });
           if(dupG20) return;
-          lista.push({
-            id:Date.now().toString()+Math.random(),
-            ticker:r.ticker, tipo:tipoFinal,
-            data:dataPag, datex:dataEx||dataPag,
-            valor:valor, qtdEx:qtdG20,
-            fonte:'Auto-'+(div.source||'B3'), moeda:div.moeda||'BRL'
-          });
-          // Se ex_date diferente do payment_date, cria entrada extra para semana do ex-date
-          if(dataEx && dataEx!==dataPag){
-            var dupEx=lista.some(function(p){
-              return p.ticker===r.ticker&&(p.data||'').substring(0,10)===dataEx&&Math.abs((p.valor||0)-valor)<0.001;
-            });
-            if(!dupEx){
-              lista.push({
-                id:Date.now().toString()+Math.random()+'ex',
-                ticker:r.ticker, tipo:tipoFinal,
-                data:dataEx, datex:dataEx,
-                valor:valor, qtdEx:qtdG20,
-                fonte:'Auto-'+(div.source||'B3'), moeda:div.moeda||'BRL',
-                isExDate:true
-              });
-            }
+          lista.push({ id:Date.now().toString()+Math.random(), ticker:r.ticker, tipo:tipoFinal, data:dataPag, datex:dataEx||dataPag, valor:valor, qtdEx:qtdG20, fonte:'Auto-'+(div.source||'B3'), moeda:div.moeda||'BRL' });
+          if(dataEx&&dataEx!==dataPag){
+            var dupG20ex=lista.some(function(p){ return p.ticker===r.ticker&&(p.data||'').substring(0,10)===dataEx&&Math.abs((p.valor||0)-valor)<0.001; });
+            if(!dupG20ex) lista.push({ id:Date.now().toString()+Math.random()+'ex', ticker:r.ticker, tipo:tipoFinal, data:dataEx, datex:dataEx, valor:valor, qtdEx:qtdG20, fonte:'Auto-'+(div.source||'B3'), moeda:div.moeda||'BRL', isExDate:true });
           }
         }
       });
@@ -310,9 +196,34 @@ function _importarTodosProventosBackground(onDone){
   }).catch(function(){ if(onDone) onDone(); });
 }
 
+var _PROV_CACHE_VER = 'v5_clean';
+var _PROV_TTL_HORAS = 24;
+
+function _provDeveReimportar(){
+  try{
+    var ver = localStorage.getItem('g20_prov_cache_ver');
+    var ultimaStr = localStorage.getItem('g20_prov_last_import');
+    if(ver !== _PROV_CACHE_VER){
+      var divs = JSON.parse(localStorage.getItem('g20_dividendos')||'[]')
+        .filter(function(d){ var f=d.fonte||''; return f!=='auto'&&f.indexOf('Auto-')!==0; });
+      localStorage.setItem('g20_dividendos', JSON.stringify(divs));
+      localStorage.setItem('g20_prov_cache_ver', _PROV_CACHE_VER);
+      localStorage.removeItem('g20_prov_last_import');
+      return true;
+    }
+    if(!ultimaStr) return true;
+    var horasPassadas = (new Date() - new Date(ultimaStr)) / 3600000;
+    return horasPassadas >= _PROV_TTL_HORAS;
+  }catch(e){ return true; }
+}
+
+function _provMarcarImportado(){
+  try{ localStorage.setItem('g20_prov_last_import', new Date().toISOString()); }catch(e){}
+}
+
 </script>
 <script>
-/* ── FILTRO PATRIMONIAL ── */
+/* FILTRO PATRIMONIAL */
 var _patView='total';
 var _patData={total:0,rf:0,rv:0,bens:0,rfSub:'',nAtivos:0};
 function togglePatFilter(e){
@@ -347,7 +258,7 @@ function _patRenderSingle(){
   if(vEl) vEl.textContent=vals[_patView]>0?fmtBRL(vals[_patView]):'–';
   if(sEl) sEl.textContent=subs[_patView];
 }
-/* ── AGENDA PROVENTOS ── */
+/* AGENDA PROVENTOS */
 var _provWeekOffset = 0;
 var _provSource = 'carteira';
 var _PROV_CACHE_VER = 'v4_polygon_b3_clean';
@@ -357,7 +268,7 @@ function _provDeveReimportar(){
   try{
     var ver       = localStorage.getItem('g20_prov_cache_ver');
     var ultimaStr = localStorage.getItem('g20_prov_last_import');
-    // Versão diferente → limpa e força reimportação
+    // Vers o diferente   limpa e for a reimporta  o
     if(ver !== _PROV_CACHE_VER){
       var divs = JSON.parse(localStorage.getItem('g20_dividendos')||'[]')
         .filter(function(d){ var f=d.fonte||''; return f!=='auto'&&f.indexOf('Auto-')!==0; });
@@ -367,7 +278,7 @@ function _provDeveReimportar(){
       console.log('[Proventos] Cache limpo — nova versão detectada');
       return true;
     }
-    // Verifica se passou 24h desde a última importação
+    // Verifica se passou 24h desde a  ltima importa  o
     if(!ultimaStr) return true;
     var ultima = new Date(ultimaStr);
     var agora  = new Date();
@@ -438,7 +349,7 @@ function renderProvAgenda(){
     var divs;
     if(_provSource==='gestao'){
       divs=allDivs.filter(function(d){
-        // Gestão Patrimonial usa fonte='auto'
+        // Gest o Patrimonial usa fonte='auto'
         return d.fonte==='auto' && d.valorCota>0 && d.qtd>0;
       }).map(function(d){
         return {
@@ -459,7 +370,7 @@ function renderProvAgenda(){
 
     if(!divs.length){
       if(_provSource==='gestao'){
-        // Importa gestão se não tem dados ou passou 24h
+        // Importa gest o se n o tem dados ou passou 24h
         if(typeof _importarTodosProventosBackground==='function'){
           _importarTodosProventosBackground(function(){
             _provMarcarImportado();
@@ -477,11 +388,11 @@ function renderProvAgenda(){
 
     var range=_weekRange(_provWeekOffset);
     var hoje=new Date().toISOString().split('T')[0];
-    // Semana atual: mostra desde segunda-feira (inclui proventos do início da semana)
+    // Semana atual: mostra desde segunda-feira (inclui proventos do in cio da semana)
     var fromDate=range.from;
 
     var futuros=divs.filter(function(d){
-      // Usa data de pagamento OU data-com — whichever is in the week
+      // Usa data de pagamento OU data-com   whichever is in the week
       var dataPag=(d.data||'').substring(0,10);
       var dataEx=(d.datex||d.data||'').substring(0,10);
       return dataPag>=fromDate&&dataPag<=range.to;
@@ -499,7 +410,7 @@ function renderProvAgenda(){
     futuros.forEach(function(d){
       var key=d.ticker+'|'+d.data;
       if(!map[key]) map[key]={ticker:d.ticker,data:d.data,datex:d.datex||'',tipo:d.tipo||'Dividendo',valor:d.valor||0,qtdEx:d.qtdEx||0,total:0,moeda:d.moeda||'BRL'};
-      // Usa total pré-calculado se disponível (gestão), senão calcula
+      // Usa total pr -calculado se dispon vel (gest o), sen o calcula
       map[key].total+=d.total>0?d.total:(d.valor||0)*(d.qtdEx||0);
     });
 
@@ -534,7 +445,7 @@ function renderProvAgenda(){
         var tipo,tipoClass;
         if(tipoRaw.includes('JCP')||tipoRaw.includes('JUROS')){tipo='JCP';tipoClass='prov-tipo-jcp';}
         else if(tipoRaw.includes('REND')){tipo='Rendimento';tipoClass='prov-tipo-rendimento';}
-        else if(tipoRaw.includes('BONIF')){tipo='Bonificação';tipoClass='prov-tipo-bonificacao';}
+        else if(tipoRaw.includes('BONIF')){tipo='Bonificacao';tipoClass='prov-tipo-bonificacao';}
         else{tipo='Dividendo';tipoClass='prov-tipo-dividendo';}
         var logoUrl=_provLogoUrl(item.ticker);
         var dataCom=item.datex&&item.datex!==item.data?item.datex:item.data;
@@ -1336,7 +1247,7 @@ body.pat-hidden .pat-kpi-var .var-brl::after{content:'(••••)';position:a
   <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
 </div>
 <script>
-// Se já tem sessão salva, esconde overlay imediatamente
+// Se j  tem sess o salva, esconde overlay imediatamente
 if(localStorage.getItem('g20_uid')){
   var ol=document.getElementById('g20LoadingOverlay');
   if(ol) ol.style.display='none';
@@ -2008,7 +1919,7 @@ var PROXY_URL = 'https://g20-proxy.vercel.app';
 
 function loadData(k,d){try{var v=localStorage.getItem('g20_'+k);return v?JSON.parse(v):d;}catch(e){return d;}}
 
-// ── ENGINE DE CÁLCULO RF (espelho do gestao-patrimonial) ──────────────────
+// //  ENGINE DE CLCULO RF (espelho do gestao-patrimonial)
 function _diasUteisEst(dc){ return dc*(252/365); }
 var _IOF_TAB=[96,93,90,86,83,80,76,73,70,66,63,60,56,53,50,46,43,40,36,33,30,26,23,20,16,13,10,6,3,0];
 var _RF_ISENTO_IR={LCI:1,LCA:1,CRI:1,CRA:1};
@@ -2028,20 +1939,20 @@ function _calcBrutoRF(valorInv,dataInicio,indexador,taxa){
   else if(indexador==='Prefixado'){ fator=Math.pow(1+t,dc/365); }
   return valorInv*fator;
 }
-// Rendimento de 1 dia útil estimado para RF
+// Rendimento de 1 dia  til estimado para RF
 function _calcRFVarDia(rf){
   if(rf.encerrado) return 0;
   var inv=rf.valorInv||0;
   if(!inv||!rf.dataInicio||rf.taxa===undefined) return 0;
   var hoje=_calcBrutoRF(inv,rf.dataInicio,rf.indexador,rf.taxa);
-  // Simula ontem: subtrai 1/252 de dia útil da data de início
+  // Simula ontem: subtrai 1/252 de dia  til da data de in cio
   var dtOntem=new Date(rf.dataInicio);
   dtOntem.setTime(dtOntem.getTime()+(1/252)*365*86400000);
   var ontem=_calcBrutoRF(inv,dtOntem.toISOString().slice(0,10),rf.indexador,rf.taxa);
   return hoje-ontem;
 }
 
-// ── VARIAÇÃO DIÁRIA ───────────────────────────────────────────────────────
+// //  VARIAO DIRIA
 var _dashRVCot={}, _dashUsdBRL=5.85;
 
 function _rvIsBR(ticker,tipo){
@@ -2085,7 +1996,7 @@ function _buscarCotacoesEAtualizarRV(){
     if(el){el.textContent='–';el.className='pat-kpi-var neu';}
     return;
   }
-  // Calcula posições
+  // Calcula posi  es
   var posMap={};
   rvAportes.sort(function(a,b){return a.data.localeCompare(b.data);}).forEach(function(a){
     if(!posMap[a.ticker]) posMap[a.ticker]={qtd:0,totalInv:0,tipo:a.tipo||''};
@@ -2102,7 +2013,7 @@ function _buscarCotacoesEAtualizarRV(){
   }
 
   var PROXY='https://g20-proxy.vercel.app';
-  // Câmbio
+  // C mbio
   fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL')
     .then(function(r){return r.json();})
     .then(function(d){if(d.USDBRL&&d.USDBRL.bid){var r=parseFloat(d.USDBRL.bid);if(r>3&&r<20)_dashUsdBRL=r;}})
@@ -2145,7 +2056,7 @@ function _buscarCotacoesEAtualizarRV(){
   }
 
   Promise.all(promises).then(function(){
-    // Calcula variação total RV
+    // Calcula varia  o total RV
     var rvVar1d=0, rvTotal=0;
     posicoes.forEach(function(p){
       var cot=_dashRVCot[p.ticker];
@@ -2158,7 +2069,7 @@ function _buscarCotacoesEAtualizarRV(){
     var rvPct=rvTotal>0?(rvVar1d/(rvTotal-rvVar1d))*100:0;
     _renderVarEl('dashRVVar',rvPct,rvVar1d);
 
-    // Atualiza total com cotações reais
+    // Atualiza total com cota  es reais
     var rfData=loadData('rendaFixa',[]);
     var rfLiq=rfData.filter(function(r){return !r.encerrado;}).reduce(function(s,r){
       return s+_calcBrutoRF(r.valorInv||0,r.dataInicio,r.indexador,r.taxa);
@@ -2170,13 +2081,13 @@ function _buscarCotacoesEAtualizarRV(){
     var totalEl=document.getElementById('dashPatTotal');
     if(totalEl&&totalReal>0) totalEl.textContent=fmtBRL(totalReal);
 
-    // Variação total patrimônio
+    // Varia  o total patrim nio
     var rfInfo=_calcRFVariacaoDia();
     var totalVar1d=rfInfo.var1d+rvVar1d;
     var totalPct=totalReal>0?(totalVar1d/(totalReal-totalVar1d))*100:0;
     _renderVarEl('dashPatVar',totalPct,totalVar1d);
 
-    // Atualiza snapshot de hoje com total "real" (cotações ao vivo) + re-renderiza sparklines + notificações
+    // Atualiza snapshot de hoje com total "real" (cota  es ao vivo) + re-renderiza sparklines + notifica  es
     try{ if(typeof _patSnapUpsert==='function'){ _patSnapUpsert(totalReal, rfLiq, rvTotal); _patRenderAllSparks(); } }catch(e){}
     try{ if(typeof renderNotifBadge==='function'){ renderNotifBadge(); renderNotifList(); } }catch(e){}
     try{ if(typeof renderDailyBrief==='function') renderDailyBrief(); }catch(e){}
@@ -2203,7 +2114,7 @@ function buscarTape(){
     ]).then(function(){
       try{localStorage.setItem('g20_indBCB_cache',JSON.stringify({ts:Date.now(),data:IND}));}catch(e){}
       renderTapeStatic();
-      _calcRFVariacaoDia(); // recalcula variação RF com IND atualizado
+      _calcRFVariacaoDia(); // recalcula varia  o RF com IND atualizado
     });
   }
 
@@ -2223,7 +2134,7 @@ function buscarTape(){
     }).catch(function(){});
 }
 
-// ── FRASE DO DIA: sinais PESSOAIS + 5 top / 5 flop da Gestão Patrimonial ──
+// //  FRASE DO DIA: sinais PESSOAIS + 5 top / 5 flop da Gesto Patrimonial
 function renderDailyBrief(){
   var el = document.getElementById('dailyBriefText');
   if(!el) return;
@@ -2289,7 +2200,7 @@ function renderDailyBrief(){
 
   el.innerHTML = parts.length ? parts.join('<span class="sep">·</span>') : 'Coletando dados…';
 
-  // Top 5 altas + Top 5 quedas dos ativos da Gestão Patrimonial (só posições abertas em rvAportes)
+  // Top 5 altas + Top 5 quedas dos ativos da Gest o Patrimonial (s  posi  es abertas em rvAportes)
   var destRow = document.getElementById('dbDestaques');
   var topEl = document.getElementById('dbTopTickers');
   var flopEl = document.getElementById('dbFlopTickers');
@@ -2395,23 +2306,23 @@ function setTickerSpeed(){
   track.style.animationDuration=Math.max(40, items*3)+'s';
 }
 
-// ── Ticker drag/swipe ─────────────────────────────────────
+// //  Ticker drag/swipe
 function initTickerDrag(){
   var wrap  = document.getElementById('tickerTapeWrap');
   var track = document.getElementById('tickerTapeTrack');
   if(!wrap || !track) return;
 
-  // Desliga animação CSS — controle 100% via JS/RAF
+  // Desliga anima  o CSS   controle 100% via JS/RAF
   track.style.animation = 'none';
 
   var trackW    = 0;   // calculado depois que o DOM estiver pronto
-  var curOffset = 0;   // posição atual em px — ÚNICA fonte de verdade
+  var curOffset = 0;   // posi  o atual em px    NICA fonte de verdade
   var velocity  = 0;   // px/frame para momentum
-  var autoSpeed = 0;   // px/frame para movimento automático (~1px/frame)
+  var autoSpeed = 0;   // px/frame para movimento autom tico (~1px/frame)
   var dragging  = false;
   var mainRAF   = null;
   var resumeTimer = null;
-  var autoMode  = true; // true = movimento automático, false = controle do usuário
+  var autoMode  = true; // true = movimento autom tico, false = controle do usu rio
 
   function init(){
     trackW    = track.scrollWidth / 2;
@@ -2427,22 +2338,22 @@ function initTickerDrag(){
     return x;
   }
 
-  // Loop principal único — roda sempre
+  // Loop principal  nico   roda sempre
   function mainLoop(){
     mainRAF = requestAnimationFrame(mainLoop);
-    if(dragging) return; // durante drag, transform é atualizado nos handlers
+    if(dragging) return; // durante drag, transform   atualizado nos handlers
 
     if(autoMode){
-      // Movimento automático suave para a esquerda
+      // Movimento autom tico suave para a esquerda
       curOffset = norm(curOffset - autoSpeed);
     } else {
-      // Momentum após soltar
+      // Momentum ap s soltar
       if(Math.abs(velocity) > 0.1){
         velocity *= 0.94;
         curOffset = norm(curOffset + velocity);
       } else {
         velocity = 0;
-        // Agenda retomada do automático após 3s
+        // Agenda retomada do autom tico ap s 3s
         if(!resumeTimer){
           resumeTimer = setTimeout(function(){
             resumeTimer = null;
@@ -2459,7 +2370,7 @@ function initTickerDrag(){
     mainRAF = requestAnimationFrame(mainLoop);
   }
 
-  // ── TOUCH ──────────────────────────────────────────────
+  // //  TOUCH
   var touchStartX = 0, touchStartY = 0, prevTouchX = 0, prevTouchTime = 0;
   var isHoriz = null;
 
@@ -2511,7 +2422,7 @@ function initTickerDrag(){
     }, 3000);
   }, {passive:true});
 
-  // ── MOUSE ──────────────────────────────────────────────
+  // //  MOUSE
   var prevMouseX = 0, prevMouseTime = 0;
 
   wrap.addEventListener('mousedown', function(e){
@@ -2548,7 +2459,7 @@ function initTickerDrag(){
     }
   });
 
-  // Inicia após DOM ter dimensões
+  // Inicia ap s DOM ter dimens es
   if(trackW === 0){
     setTimeout(init, 300);
   } else {
@@ -2638,7 +2549,7 @@ function loadPatStrip(){
   }catch(e){}
 }
 
-// ── HISTÓRICO PATRIMONIAL + SPARKLINE + CDI ─────────────────────
+// //  HISTRICO PATRIMONIAL + SPARKLINE + CDI
 var PAT_SNAP_KEY = 'g20_patSnapshots';
 var PAT_RANGE_KEYS = {total:'g20_patSparkRange_total', rf:'g20_patSparkRange_rf', rv:'g20_patSparkRange_rv'};
 
@@ -2650,7 +2561,7 @@ function _patSnapLoad(){
 }
 function _patSnapSave(arr){try{localStorage.setItem(PAT_SNAP_KEY,JSON.stringify(arr));}catch(e){}}
 
-// Fator diário do CDI (base IND.cdi em % a.a.)
+// Fator di rio do CDI (base IND.cdi em % a.a.)
 function _cdiDaily(){var aa=(IND&&IND.cdi)?IND.cdi:10.65;return Math.pow(1+aa/100,1/252);}
 
 // Insere/atualiza snapshot de HOJE
@@ -2658,13 +2569,13 @@ function _patSnapUpsert(total,rf,rv){
   if(!(total>0)) return;
   var arr=_patSnapLoad();
   var hoje=_todayISO();
-  // Migração: regenera se seed desatualizado OU se tem menos dias que o esperado
+  // Migra  o: regenera se seed desatualizado OU se tem menos dias que o esperado
   var allOldSeed = arr.length>0 && arr.every(function(s){return s.seed && s.seedV!==SEED_VERSION;});
   var shortSeed = arr.length>0 && arr.every(function(s){return s.seed;}) && arr.length<SEED_DAYS;
   if(arr.length===0 || allOldSeed || shortSeed){
     arr=_patSeed(total,rf,rv,SEED_DAYS);
   } else {
-    // Se histórico ainda é só seed e o novo valor diverge >3%, re-ancora
+    // Se hist rico ainda   s  seed e o novo valor diverge >3%, re-ancora
     var allSeed = arr.every(function(s){return s.seed;});
     var last0 = arr[arr.length-1];
     if(allSeed && last0 && last0.t>0){
@@ -2686,7 +2597,7 @@ function _patSnapUpsert(total,rf,rv){
   _patSnapSave(arr);
 }
 
-// Semente sintética: random walk ancorado HOJE, caminhando pra trás (v3)
+// Semente sint tica: random walk ancorado HOJE, caminhando pra tr s (v3)
 var SEED_VERSION = 4;
 var SEED_DAYS = 1825;
 function _patSeed(total,rf,rv,dias){
@@ -2694,7 +2605,7 @@ function _patSeed(total,rf,rv,dias){
   var cdiD=_cdiDaily();
   var volT=0.008;   // ~0.8% dia no total
   var volRV=0.015;  // ~1.5% dia na RV
-  // tSer[0] = hoje; vamos caminhando pra trás e empilhando
+  // tSer[0] = hoje; vamos caminhando pra tr s e empilhando
   var tSer=[total], rfSer=[rf], rvSer=[rv];
   var t=total, r=rf, v=rv;
   for(var i=1;i<dias;i++){
@@ -2706,7 +2617,7 @@ function _patSeed(total,rf,rv,dias){
     tSer.push(t); rfSer.push(r); rvSer.push(v);
   }
   tSer.reverse(); rfSer.reverse(); rvSer.reverse();
-  // Adiciona ruído leve no RF pra não ficar reta visual (±0.08% dia)
+  // Adiciona ru do leve no RF pra n o ficar reta visual ( 0.08% dia)
   for(var k=0;k<rfSer.length-1;k++){
     rfSer[k] *= (1 + (Math.random()*2-1)*0.0008);
   }
@@ -2720,7 +2631,7 @@ function _patSeed(total,rf,rv,dias){
   return arr;
 }
 
-// Constrói SVG sparkline. series: array de numbers. cdi: array opcional (mesmo tamanho, base 100)
+// Constr i SVG sparkline. series: array de numbers. cdi: array opcional (mesmo tamanho, base 100)
 function _buildSparkSVG(series, cdiSeries){
   var W=100, H=34;
   if(!series || series.length<2){
@@ -2762,7 +2673,7 @@ function _patGetRange(card){
   try{
     var v = localStorage.getItem(key);
     if(v) return v;
-    // migração do range global antigo (compatibilidade)
+    // migra  o do range global antigo (compatibilidade)
     var old = localStorage.getItem('g20_patSparkRange');
     return old || '30';
   }catch(e){return '30';}
@@ -2772,7 +2683,7 @@ function _patSetRange(card,d){
   try{localStorage.setItem(key,String(d));}catch(e){}
 }
 
-// Aceita número (dias), "ytd" ou "max"
+// Aceita n mero (dias), "ytd" ou "max"
 function _sliceRange(arr, code){
   if(!arr.length) return arr;
   if(code==='max') return arr.slice();
@@ -2835,7 +2746,7 @@ function _patRenderAllSparks(){
   _patRenderCard('rv');
 }
 
-// Bind botões de range (fase de captura, pra não ser bloqueado por stopPropagation do container)
+// Bind bot es de range (fase de captura, pra n o ser bloqueado por stopPropagation do container)
 document.addEventListener('click',function(e){
   var btn=e.target.closest('#rangeTotal button, #rangeRF button, #rangeRV button');
   if(!btn) return;
@@ -2861,9 +2772,9 @@ function closeSidebar(){
 }
 function csm(){ if(window.innerWidth<=768) closeSidebar(); }
 
-// ── BUSCA UNIVERSAL (⌘K / Ctrl+K) ─────────────────────────
+// //  BUSCA UNIVERSAL (K / Ctrl+K)
 var GSEARCH_INDEX = [
-  // Páginas
+  // P ginas
   {g:'Páginas', ico:'🏠', t:'Dashboard', s:'Painel principal', link:'dashboard.html'},
   {g:'Páginas', ico:'🎓', t:'Sala de Aula', s:'Todos os módulos e aulas', link:'sala-de-aula.html'},
   {g:'Páginas', ico:'🎬', t:'G20Flix', s:'80 episódios · lives mensais', link:'g20flix.html'},
@@ -2872,12 +2783,12 @@ var GSEARCH_INDEX = [
   {g:'Páginas', ico:'💼', t:'Gestão Patrimonial', s:'Seu patrimônio real', link:'gestao-patrimonial.html'},
   {g:'Páginas', ico:'🏆', t:'Game da Carteira', s:'Monte sua carteira e concorra a prêmios', link:'game.html'},
   {g:'Páginas', ico:'👤', t:'Meu Perfil', s:'Editar dados pessoais', link:'perfil.html'},
-  // Ações
+  // A  es
   {g:'Ações', ico:'➕', t:'Registrar aporte', s:'Gestão Patrimonial', link:'gestao-patrimonial.html'},
   {g:'Ações', ico:'📊', t:'Ver carteira de ações', s:'Sua RV na Gestão Patrimonial', link:'gestao-patrimonial.html'},
   {g:'Ações', ico:'💰', t:'Ver renda fixa', s:'CDB, LCI, Tesouro...', link:'gestao-patrimonial.html'},
   {g:'Ações', ico:'🏠', t:'Ver imóveis e bens', s:'Patrimônio Total', link:'gestao-patrimonial.html'},
-  // G20Flix — Lives mensais (Aporte da Carteira G20)
+  // G20Flix   Lives mensais (Aporte da Carteira G20)
   {g:'G20Flix', ico:'🎬', t:'#80 Aporte da Carteira G20 — Março 2026', s:'Live mensal · Análise completa e rebalanceamento', link:'g20flix.html'},
   {g:'G20Flix', ico:'🎬', t:'#79 Aporte da Carteira G20 — Fevereiro 2026', s:'Live mensal', link:'g20flix.html'},
   {g:'G20Flix', ico:'🎬', t:'#78 Aporte da Carteira G20 — Janeiro 2026', s:'Live mensal', link:'g20flix.html'},
@@ -2893,7 +2804,7 @@ var GSEARCH_INDEX = [
   {g:'G20Flix', ico:'🎬', t:'#68 Aporte da Carteira G20 — Março 2025', s:'Live mensal', link:'g20flix.html'},
   {g:'G20Flix', ico:'🎬', t:'#67 Aporte da Carteira G20 — Fevereiro 2025', s:'Live mensal', link:'g20flix.html'},
   {g:'G20Flix', ico:'🎬', t:'#66 Aporte da Carteira G20 — Janeiro 2025', s:'Live mensal', link:'g20flix.html'},
-  // Cursos — Sala de Aula
+  // Cursos   Sala de Aula
   {g:'Cursos', ico:'🎓', t:'Mercado de Capitais do Zero', s:'12 aulas · 3h20 · Fundamentos', link:'sala-de-aula.html'},
   {g:'Cursos', ico:'🎓', t:'Análise Fundamentalista Completa', s:'18 aulas · 5h45 · Análise', link:'sala-de-aula.html'},
   {g:'Cursos', ico:'🎓', t:'Fundos Imobiliários na Prática', s:'14 aulas · 4h10 · FIIs', link:'sala-de-aula.html'},
@@ -2910,7 +2821,7 @@ var GSEARCH_INDEX = [
   {g:'Aulas', ico:'📹', t:'Como investir em ações americanas', s:'Stocks US · 48min', link:'sala-de-aula.html'},
   {g:'Aulas', ico:'📹', t:'REITs: fundos imobiliários americanos', s:'REITs · 36min', link:'sala-de-aula.html'},
   {g:'Aulas', ico:'📹', t:'ETFs globais: IWDA, VWCE, CSPX', s:'ETFs · 42min', link:'sala-de-aula.html'},
-  // Termos / glossário rápidos
+  // Termos / gloss rio r pidos
   {g:'Termos', ico:'📘', t:'CDI', s:'Certificado de Depósito Interbancário · taxa base da RF', link:'gestao-patrimonial.html'},
   {g:'Termos', ico:'📘', t:'Selic', s:'Taxa básica de juros do Brasil', link:'gestao-patrimonial.html'},
   {g:'Termos', ico:'📘', t:'IPCA', s:'Índice oficial de inflação', link:'gestao-patrimonial.html'},
@@ -2924,7 +2835,7 @@ var GSEARCH_INDEX = [
   {g:'Termos', ico:'📘', t:'Rebalanceamento', s:'Ajustar pesos da carteira periodicamente', link:'carteira.html'},
 ];
 
-// Adiciona ativos da carteira do usuário ao índice
+// Adiciona ativos da carteira do usu rio ao  ndice
 function _gsearchTickersUser(){
   try{
     var aportes = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
@@ -2965,7 +2876,7 @@ function _gsScore(q, it){
   var hay=(it.t+' '+(it.s||'')+' '+(it.g||'')).toLowerCase();
   var pts=0, ql=q.length;
   if(hay.indexOf(q)>=0) pts += 10;
-  // bonus se começa com
+  // bonus se come a com
   if(it.t.toLowerCase().indexOf(q)===0) pts += 20;
   // fuzzy basic
   var last=-1, all=true;
@@ -2984,7 +2895,7 @@ function gsearchRender(q){
   var idx=_gsearchFullIndex();
   var scored = idx.map(function(it){return {it:it, sc:_gsScore(q,it)};}).filter(function(x){return !q || x.sc>0;});
   if(!q){
-    // Sem busca: mostra recentes (localStorage) + páginas + sugestões
+    // Sem busca: mostra recentes (localStorage) + p ginas + sugest es
     var recent = [];
     try {
       var rk = JSON.parse(localStorage.getItem('g20_gsearch_recent') || '[]');
@@ -3068,14 +2979,14 @@ document.addEventListener('keydown', function(e){
 document.addEventListener('DOMContentLoaded', function(){
   var inp=document.getElementById('gsearchInput');
   if(inp) inp.addEventListener('input', function(){ gsearchRender(this.value); });
-  // Detecta Mac para mostrar ⌘ no lugar de Ctrl
+  // Detecta Mac para mostrar   no lugar de Ctrl
   if(navigator.platform && /Mac|iPhone|iPod|iPad/.test(navigator.platform)){
     var kbd=document.getElementById('gsKbd');
     if(kbd) kbd.textContent='⌘ K';
   }
 });
 
-// ── OCULTAR VALORES PATRIMONIAIS (👁️) ──────────────────────
+// //  OCULTAR VALORES PATRIMONIAIS ()
 function togglePatHide(){
   var hidden = document.body.classList.toggle('pat-hidden');
   var ico = document.getElementById('patHideIco');
@@ -3101,7 +3012,7 @@ function togglePatHide(){
   }catch(e){}
 })();
 
-// Saudação dinâmica baseada na hora do dia
+// Sauda  o din mica baseada na hora do dia
 function atualizarSaudacao(){
   var h=new Date().getHours();
   var g,emoji;
@@ -3121,12 +3032,12 @@ if(document.readyState==='loading'){
 }
 setInterval(atualizarSaudacao, 60000);
 
-// toggleTheme e sistema de notificações estão em assets/g20-notifications.js
+// toggleTheme e sistema de notifica  es est o em assets/g20-notifications.js
 // -- SISTEMA DE NOTIFICA--ES (em shared) -----------------------
 
 // -- INIT ------------------------------------------------------
 (function(){
-  // Tema salvo, painel de notificações e pulse handler: shared G20Topbar
+  // Tema salvo, painel de notifica  es e pulse handler: shared G20Topbar
   if(window.G20Topbar) G20Topbar.init();
   renderSidebarUser();
   buscarTape();
@@ -3137,7 +3048,7 @@ setInterval(atualizarSaudacao, 60000);
 
 <script>
 
-// ── SIDEBAR: carrega perfil do localStorage ──────────────────
+// //  SIDEBAR: carrega perfil do localStorage
 (function(){
   try {
     var u = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
@@ -3165,10 +3076,10 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
 </script>
 
 <script>
-// ── Firebase Auth ─────────────────────────────────────────
+// //  Firebase Auth
 var _fbAuth, _fbDb;
 
-// Logout — definido globalmente antes de tudo
+// Logout   definido globalmente antes de tudo
 window.g20Logout = function() {
   if (_fbAuth) {
     _fbAuth.signOut().then(function(){
@@ -3219,7 +3130,7 @@ window.g20Logout = function() {
         .catch(function(){ window.location.href = 'login.html'; });
   };
 
-  // Redireciona imediatamente se não tem sessão salva
+  // Redireciona imediatamente se n o tem sess o salva
   var savedUid = localStorage.getItem('g20_uid');
   if (!savedUid) { window.location.href = 'login.html'; return; }
 
@@ -3232,7 +3143,7 @@ window.g20Logout = function() {
     }
     localStorage.setItem('g20_uid', user.uid);
 
-    // Polling: re-verifica aprovação a cada 3s (resolve aprovação após login)
+    // Polling: re-verifica aprova  o a cada 3s (resolve aprova  o ap s login)
     function verificarAcesso(tentativa) {
       _fbDb.collection('users').doc(user.uid).get().then(function(doc) {
         if (!doc.exists || (doc.data().aprovado !== true && doc.data().role !== 'admin')) {
@@ -3288,7 +3199,7 @@ window.g20Logout = function() {
         setTimeout(function(){ if(typeof tutStart==='function') tutStart(); }, 800);
       }
 
-      // ── Carrega dados patrimoniais do Firestore e atualiza painel ──
+      // //  Carrega dados patrimoniais do Firestore e atualiza painel
       var dbRef = _fbDb.collection('users').doc(user.uid).collection('dados');
       function atualizarPat(){
         dbRef.get({ source: 'server' }).then(function(snap) {
@@ -3307,7 +3218,7 @@ window.g20Logout = function() {
               });
             }
           }
-          // Aguarda 2s para cotações do Yahoo chegarem antes de renderizar variações
+          // Aguarda 2s para cota  es do Yahoo chegarem antes de renderizar varia  es
           setTimeout(_atualizarVariacoesPat, 2000);
         }).catch(function(e) { console.warn('Patrimônio Firestore:', e); });
       }
@@ -3345,7 +3256,7 @@ window.g20Logout = function() {
 </div>
 
 <script>
-// ── TUTORIAL ──────────────────────────────────────────────────
+// //  TUTORIAL
 var TUT_STEPS = [
   {
     tag:'Visão Geral', title:'Dashboard',
@@ -3411,7 +3322,7 @@ function tutRender(idx) {
   hole.style.width  = (rect.width + pad*2) + 'px';
   hole.style.height = (rect.height + pad*2) + 'px';
 
-  // Balão — à direita ou abaixo
+  // Bal o     direita ou abaixo
   var balloon = document.getElementById('tutBalloon');
   var vw = window.innerWidth;
   var vh = window.innerHeight;
@@ -3444,7 +3355,7 @@ function tutNext() {
     if (uid && typeof db !== 'undefined') {
       db.collection('users').doc(uid).update({tutorialVisto:true}).catch(function(){});
     }
-    // Tutorial concluído — fecha overlay e fica no dashboard
+    // Tutorial conclu do   fecha overlay e fica no dashboard
     var ov = document.getElementById('tutorialOverlay');
     if(ov) ov.classList.remove('ativo');
   }
