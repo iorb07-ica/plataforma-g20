@@ -249,10 +249,14 @@
     _appendNotifLog(dynamicas);
     var map={};
     saved.forEach(function(n){map[n.id]=n;});
-    dynamicas.forEach(function(n){map[n.id]=n;});
+    dynamicas.forEach(function(n){
+      if(map[n.id] && map[n.id].ts) n.ts = map[n.id].ts;
+      map[n.id]=n;
+    });
     var merged = Object.keys(map).map(function(k){return map[k];});
     if(!merged.length) merged = NOTIFS_FALLBACK;
     merged.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+    try{ localStorage.setItem(NOTIFS_KEY, JSON.stringify(merged)); }catch(e){}
     return merged.slice(0, NOTIFS_MAX);
   };
 
@@ -266,7 +270,7 @@
       var raw=localStorage.getItem(NOTIFS_KEY);
       if(raw) JSON.parse(raw).forEach(function(n){ if(!map[n.id]) map[n.id]=n; });
     }catch(e){}
-    gerarNotifsDinamicas().forEach(function(n){ if(!map[n.id]) map[n.id]=n; });
+    gerarNotifsDinamicas().forEach(function(n){ if(!map[n.id]) map[n.id]=n; else if(!map[n.id].ts) map[n.id].ts=n.ts; });
     var arr = Object.keys(map).map(function(k){return map[k];});
     arr.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
     return arr;
