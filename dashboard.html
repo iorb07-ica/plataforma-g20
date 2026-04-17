@@ -2673,27 +2673,45 @@ function setAgendaFiltro(tipo, btn){
 var _AGENDA_BR_ACOES = ['VALE3','PETR4','ITUB4','BBDC4','BBAS3','WEGE3','RENT3','B3SA3','SUZB3','GGBR4','JBSS3','LREN3','RADL3','RAIL3','VIVT3','ABEV3','ITSA4','TAEE11','ENBR3','CPLE6','EGIE3','PRIO3','TOTS3','RDOR3','HAPV3','SBSP3','CMIG4','CSNA3','BRKM5','CSAN3'];
 var _AGENDA_BR_FIIS = ['HGLG11','MXRF11','KNRI11','XPML11','VISC11','HGBS11','BCFF11','XPLG11','RBRR11','RBRY11','KNCR11','HGRE11','XPCI11','IRDM11','CPTS11','BTLG11','PVBI11','VGIR11','TGAR11','HSML11'];
 
-function _fetchYahooDividends(ticker, tipoAtivo){
+function _fetchDividends(ticker, tipoAtivo){
   var isBR = tipoAtivo==='Acao'||tipoAtivo==='FII'||tipoAtivo==='FIAGRO'||/\d$/.test(ticker);
-  var symbol = isBR ? ticker+'.SA' : ticker;
-  var from = Math.floor((Date.now() - 180*86400000)/1000);
-  return fetch(AGENDA_PROXY+'/api/dividends-br?symbol='+symbol+'&from='+from)
-    .then(function(r){ return r.ok?r.json():[]; })
-    .then(function(divs){
-      if(!Array.isArray(divs)) divs=[];
-      return divs.map(function(d){
-        return {
-          ticker: ticker, tipo: tipoAtivo||'Acao',
-          dataEx: (d.ex_date||'').substring(0,10),
-          dataPag: (d.payment_date||d.date||'').substring(0,10),
-          valor: +(d.value||0),
-          tipoProv: d.type||'Dividendo',
-          source: 'mercado',
-          currency: isBR?'BRL':'USD'
-        };
-      }).filter(function(it){ return it.dataPag; });
-    })
-    .catch(function(){ return []; });
+  if(isBR){
+    var siType = (tipoAtivo==='FII'||tipoAtivo==='FIAGRO') ? 'fii' : 'acao';
+    return fetch(AGENDA_PROXY+'/api/provents-si?ticker='+ticker+'&type='+siType)
+      .then(function(r){ return r.ok?r.json():[]; })
+      .then(function(divs){
+        if(!Array.isArray(divs)) return [];
+        return divs.map(function(d){
+          return {
+            ticker:ticker, tipo:tipoAtivo||'Acao',
+            dataEx:(d.ex_date||'').substring(0,10),
+            dataPag:(d.payment_date||'').substring(0,10),
+            valor:+(d.value||0),
+            tipoProv:d.type||'Dividendo',
+            source:'mercado', currency:'BRL'
+          };
+        }).filter(function(it){ return it.dataPag; });
+      })
+      .catch(function(){ return []; });
+  } else {
+    var from = Math.floor((Date.now() - 180*86400000)/1000);
+    return fetch(AGENDA_PROXY+'/api/dividends-br?symbol='+ticker+'&from='+from)
+      .then(function(r){ return r.ok?r.json():[]; })
+      .then(function(divs){
+        if(!Array.isArray(divs)) divs=[];
+        return divs.map(function(d){
+          return {
+            ticker:ticker, tipo:tipoAtivo||'Stock',
+            dataEx:(d.ex_date||'').substring(0,10),
+            dataPag:(d.payment_date||d.date||'').substring(0,10),
+            valor:+(d.value||0),
+            tipoProv:d.type||'Dividendo',
+            source:'mercado', currency:'USD'
+          };
+        }).filter(function(it){ return it.dataPag; });
+      })
+      .catch(function(){ return []; });
+  }
 }
 
 function _fetchAgendaAll(){
@@ -2702,10 +2720,10 @@ function _fetchAgendaAll(){
   if(body) body.innerHTML = '<div class="agenda-empty">⏳ Buscando proventos via StatusInvest...</div>';
 
   var promises = [];
-  _AGENDA_BR_ACOES.forEach(function(tk){ promises.push(_fetchYahooDividends(tk, 'Acao')); });
-  _AGENDA_BR_FIIS.forEach(function(tk){ promises.push(_fetchYahooDividends(tk, 'FII')); });
+  _AGENDA_BR_ACOES.forEach(function(tk){ promises.push(_fetchDividends(tk, 'Acao')); });
+  _AGENDA_BR_FIIS.forEach(function(tk){ promises.push(_fetchDividends(tk, 'FII')); });
   var usStocks = ['AAPL','MSFT','GOOGL','AMZN','NVDA','META','JPM','JNJ','KO','PG','PEP','O','SCHD','T','VZ'];
-  usStocks.forEach(function(tk){ promises.push(_fetchYahooDividends(tk, 'Stock')); });
+  usStocks.forEach(function(tk){ promises.push(_fetchDividends(tk, 'Stock')); });
 
   Promise.all(promises).then(function(results){
     var all = [];
@@ -2743,7 +2761,7 @@ function _fetchAgendaYahoo(){
 
   var promises = tks.map(function(tk){
     var tipo = userTickers[tk].tipo;
-    return _fetchYahooDividends(tk, tipo).then(function(items){
+    return _fetchDividends(tk, tipo).then(function(items){
       return items.map(function(it){ it.source='minha'; return it; });
     });
   });
