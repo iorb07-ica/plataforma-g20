@@ -214,8 +214,33 @@ body.pat-hidden .pat-kpi-var .var-brl{color:transparent !important;position:rela
 body.pat-hidden .pat-kpi-var .var-brl::after{content:'(••••)';position:absolute;left:0;top:0;color:#7a8599;letter-spacing:2px}
 
 /* PAINEL PATRIMONIAL */
-.pat-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:6px}
+.pat-cal-wrap{display:grid;grid-template-columns:1fr 320px;gap:12px;margin-bottom:6px;align-items:start}
+@media(max-width:900px){.pat-cal-wrap{grid-template-columns:1fr}}
+.pat-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 @media(max-width:600px){.pat-strip{grid-template-columns:1fr 1fr}.pat-strip .pat-kpi:first-child{grid-column:1/-1}}
+/* Calendário */
+.dash-calendar{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;overflow:hidden}
+.cal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.cal-title{font-size:13px;font-weight:700;color:var(--text);letter-spacing:.3px}
+.cal-nav{display:flex;gap:4px}
+.cal-nav button{background:none;border:1px solid var(--border);color:var(--text2);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.cal-nav button:hover{border-color:var(--gold);color:var(--gold)}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}
+.cal-dow{font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;padding:4px 0;letter-spacing:.5px}
+.cal-day{font-size:12px;padding:6px 2px;border-radius:6px;cursor:pointer;transition:all .15s;color:var(--text2);position:relative}
+.cal-day:hover{background:rgba(232,184,75,.1);color:var(--text)}
+.cal-day.today{background:var(--gold);color:#000;font-weight:800}
+.cal-day.other-month{opacity:.25}
+.cal-day.selected:not(.today){background:rgba(232,184,75,.15);color:var(--gold);font-weight:700}
+.cal-day.has-event::after{content:'';position:absolute;bottom:2px;left:50%;transform:translateX(-50%);width:4px;height:4px;border-radius:50%;background:var(--gold)}
+.cal-day.has-event.has-div::after{background:#10b981}
+.cal-day.has-event.has-venc::after{background:#e63946}
+.cal-events{margin-top:10px;border-top:1px solid var(--border);padding-top:8px;max-height:120px;overflow-y:auto}
+.cal-ev-item{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:11px;color:var(--text2);transition:background .12s}
+.cal-ev-item:hover{background:rgba(255,255,255,.05)}
+.cal-ev-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.cal-ev-text{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal-ev-date{font-size:10px;color:var(--text3);flex-shrink:0}
 .pat-kpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;position:relative;overflow:hidden;cursor:pointer;transition:.2s;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 .pat-kpi:hover{border-color:rgba(232,184,75,.3);transform:translateY(-1px)}
 .pat-kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--pk-c,var(--gold))}
@@ -821,6 +846,7 @@ if(localStorage.getItem('g20_uid')){
         <span id="patHideIco">👁️</span>
       </button>
     </div>
+    <div class="pat-cal-wrap">
     <div class="pat-strip" id="patStrip">
       <div class="pat-kpi" style="--pk-c:#e8b84b" onclick="if(!event.target.closest('.pat-kpi-range'))location.href='gestao-patrimonial.html'">
         <div class="pat-kpi-label">Patrimônio Total</div>
@@ -874,6 +900,17 @@ if(localStorage.getItem('g20_uid')){
         </div>
       </div>
     </div>
+    <!-- CALENDÁRIO -->
+    <div class="dash-calendar" id="dashCalendar">
+      <div class="cal-header">
+        <button class="cal-nav" style="border:none;background:none" onclick="calNav(-1)"><span style="border:1px solid var(--border);width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text2);cursor:pointer;font-size:14px">‹</span></button>
+        <div class="cal-title" id="calTitle">Abril 2026</div>
+        <button class="cal-nav" style="border:none;background:none" onclick="calNav(1)"><span style="border:1px solid var(--border);width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text2);cursor:pointer;font-size:14px">›</span></button>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
+      <div class="cal-events" id="calEvents"></div>
+    </div>
+    </div><!-- /pat-cal-wrap -->
 
     <!-- ÚLTIMO EPISÓDIO -->
     <div class="section-title">Último Episódio <span>● AO VIVO MENSAL</span></div>
@@ -2367,6 +2404,147 @@ document.addEventListener('keydown', function(e){
   else if(e.key==='ArrowUp'){ e.preventDefault(); _gsSetActive(_gsActive-1); }
   else if(e.key==='Enter'){ e.preventDefault(); gsearchIr(); }
 });
+// ── CALENDÁRIO DO DASHBOARD ──
+var _calYear, _calMonth;
+(function(){
+  var now = new Date();
+  _calYear = now.getFullYear();
+  _calMonth = now.getMonth();
+})();
+
+function calNav(dir){
+  _calMonth += dir;
+  if(_calMonth < 0){ _calMonth = 11; _calYear--; }
+  if(_calMonth > 11){ _calMonth = 0; _calYear++; }
+  renderCalendar();
+}
+
+function _calGetEvents(){
+  var evts = [];
+  var MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  // Lives G20Flix — último sábado de cada mês (aproximado: dia 28)
+  for(var m=0; m<12; m++){
+    evts.push({date:_calYear+'-'+String(m+1).padStart(2,'0')+'-28', text:'Live Aporte G20Flix — '+MESES[m], color:'#e63946', type:'live'});
+  }
+  // Proventos da carteira (do localStorage)
+  try{
+    var provs = JSON.parse(localStorage.getItem('g20_proventos')||'[]');
+    provs.forEach(function(p){
+      if(p.dataPgto && p.dataPgto.startsWith(_calYear+'')){
+        evts.push({date:p.dataPgto, text:p.ticker+' — Provento R$ '+(+p.valor||0).toFixed(2), color:'#10b981', type:'div'});
+      }
+    });
+  }catch(e){}
+  // Vencimentos RF
+  try{
+    var rf = JSON.parse(localStorage.getItem('g20_rfTitulos')||'[]');
+    rf.forEach(function(t){
+      if(t.vencimento && t.vencimento.startsWith(_calYear+'')){
+        evts.push({date:t.vencimento, text:(t.tipo||'RF')+' '+t.emissor+' — Vencimento', color:'#f59e0b', type:'venc'});
+      }
+    });
+  }catch(e){}
+  return evts;
+}
+
+function renderCalendar(){
+  var MESES_FULL = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  var DIAS = ['D','S','T','Q','Q','S','S'];
+  var titleEl = document.getElementById('calTitle');
+  var gridEl = document.getElementById('calGrid');
+  var evtsEl = document.getElementById('calEvents');
+  if(!gridEl) return;
+
+  titleEl.textContent = MESES_FULL[_calMonth] + ' ' + _calYear;
+
+  var firstDay = new Date(_calYear, _calMonth, 1).getDay();
+  var daysInMonth = new Date(_calYear, _calMonth+1, 0).getDate();
+  var daysInPrev = new Date(_calYear, _calMonth, 0).getDate();
+  var today = new Date();
+  var isCurrentMonth = (today.getFullYear()===_calYear && today.getMonth()===_calMonth);
+
+  var events = _calGetEvents();
+  var eventDays = {};
+  events.forEach(function(ev){
+    var parts = ev.date.split('-');
+    if(+parts[0]===_calYear && +parts[1]===_calMonth+1){
+      var d = +parts[2];
+      if(!eventDays[d]) eventDays[d] = [];
+      eventDays[d].push(ev);
+    }
+  });
+
+  var html = DIAS.map(function(d){ return '<div class="cal-dow">'+d+'</div>'; }).join('');
+
+  // Dias do mês anterior
+  for(var i=firstDay-1; i>=0; i--){
+    html += '<div class="cal-day other-month">'+(daysInPrev-i)+'</div>';
+  }
+  // Dias do mês atual
+  for(var d=1; d<=daysInMonth; d++){
+    var cls = 'cal-day';
+    if(isCurrentMonth && d===today.getDate()) cls += ' today';
+    if(eventDays[d]){
+      cls += ' has-event';
+      var types = eventDays[d].map(function(e){return e.type;});
+      if(types.indexOf('div')>=0) cls += ' has-div';
+      if(types.indexOf('venc')>=0) cls += ' has-venc';
+    }
+    html += '<div class="'+cls+'" onclick="calShowDay('+d+')">'+d+'</div>';
+  }
+  // Dias do próximo mês
+  var totalCells = firstDay + daysInMonth;
+  var remaining = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
+  for(var r=1; r<=remaining; r++){
+    html += '<div class="cal-day other-month">'+r+'</div>';
+  }
+
+  gridEl.innerHTML = html;
+
+  // Mostra eventos do dia atual ou do mês
+  if(isCurrentMonth) calShowDay(today.getDate());
+  else calShowDay(1);
+}
+
+function calShowDay(day){
+  var evtsEl = document.getElementById('calEvents');
+  if(!evtsEl) return;
+  var events = _calGetEvents();
+  var dayEvts = events.filter(function(ev){
+    var parts = ev.date.split('-');
+    return +parts[0]===_calYear && +parts[1]===_calMonth+1 && +parts[2]===day;
+  });
+
+  // Highlight do dia
+  document.querySelectorAll('.cal-day.selected').forEach(function(el){el.classList.remove('selected');});
+  var allDays = document.querySelectorAll('.cal-day:not(.other-month)');
+  allDays.forEach(function(el){ if(el.textContent==day && !el.classList.contains('other-month')) el.classList.add('selected'); });
+
+  if(!dayEvts.length){
+    var monthEvts = events.filter(function(ev){
+      var p = ev.date.split('-');
+      return +p[0]===_calYear && +p[1]===_calMonth+1;
+    }).slice(0,5);
+    if(monthEvts.length){
+      evtsEl.innerHTML = '<div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Próximos eventos</div>' +
+        monthEvts.map(function(ev){
+          return '<div class="cal-ev-item"><div class="cal-ev-dot" style="background:'+ev.color+'"></div><div class="cal-ev-text">'+ev.text+'</div><div class="cal-ev-date">'+ev.date.split('-')[2]+'/'+ev.date.split('-')[1]+'</div></div>';
+        }).join('');
+    } else {
+      evtsEl.innerHTML = '<div style="font-size:11px;color:var(--text3);text-align:center;padding:8px">Nenhum evento neste mês</div>';
+    }
+    return;
+  }
+  evtsEl.innerHTML = '<div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Dia '+day+'</div>' +
+    dayEvts.map(function(ev){
+      return '<div class="cal-ev-item"><div class="cal-ev-dot" style="background:'+ev.color+'"></div><div class="cal-ev-text">'+ev.text+'</div></div>';
+    }).join('');
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+  renderCalendar();
+});
+
 document.addEventListener('DOMContentLoaded', function(){
   var inp=document.getElementById('gsearchInput');
   if(inp) inp.addEventListener('input', function(){ gsearchRender(this.value); });
