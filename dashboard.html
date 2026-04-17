@@ -55,33 +55,87 @@ function _patRenderSingle(){
   if(sEl) sEl.textContent=subs[_patView];
 }
 /* ── AGENDA PROVENTOS ── */
-function renderProvAgenda(){
-  try{
-    var list=document.getElementById('provAgendaList');
+var _provWeekOffset = 0;
+
+function setProvWeek(w, el) {
+  _provWeekOffset = w;
+  document.querySelectorAll('.prov-week-tab').forEach(function(t){ t.classList.remove('active'); });
+  if(el) el.classList.add('active');
+  renderProvAgenda();
+}
+
+function _weekRange(offset) {
+  // Retorna {from, to} da semana (seg-dom) com offset em semanas
+  var now = new Date();
+  var day = now.getDay(); // 0=dom, 1=seg...
+  var mondayOffset = day === 0 ? -6 : 1 - day;
+  var monday = new Date(now);
+  monday.setDate(now.getDate() + mondayOffset + (offset * 7));
+  monday.setHours(0,0,0,0);
+  var sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  var toISO = function(d){ return d.toISOString().split('T')[0]; };
+  return { from: toISO(monday), to: toISO(sunday) };
+}
+
+function renderProvAgenda() {
+  try {
+    var list = document.getElementById('provAgendaList');
     if(!list) return;
-    var divs=JSON.parse(localStorage.getItem('dividendos')||'[]');
-    var hoje=new Date().toISOString().split('T')[0];
-    var limite=new Date(Date.now()+30*86400000).toISOString().split('T')[0];
-    var futuros=divs.filter(function(d){return d.data>=hoje&&d.data<=limite;}).sort(function(a,b){return a.data.localeCompare(b.data);});
-    if(!futuros.length){list.innerHTML='<div class="prov-agenda-empty">Nenhum provento nos próximos 30 dias</div>';return;}
-    var map={};
-    futuros.forEach(function(d){
-      var key=d.ticker+'|'+d.data;
-      if(!map[key]) map[key]={ticker:d.ticker,data:d.data,tipo:d.tipo||'Dividendo',total:0};
-      map[key].total+=(d.valor||0)*(d.qtdEx||0);
+
+    var divs = JSON.parse(localStorage.getItem('g20_dividendos') || '[]');
+    if(!divs.length) {
+      list.innerHTML = '<div class="prov-agenda-empty">Nenhum provento cadastrado.<br><small>Importe na Carteira G20</small></div>';
+      return;
+    }
+
+    var range = _weekRange(_provWeekOffset);
+    var hoje = new Date().toISOString().split('T')[0];
+    var fromDate = _provWeekOffset === 0 ? hoje : range.from;
+
+    var futuros = divs.filter(function(d) {
+      return d.data >= fromDate && d.data <= range.to;
+    }).sort(function(a,b){ return a.data.localeCompare(b.data); });
+
+    if(!futuros.length) {
+      var labels = ['esta semana','na próxima semana','em 2 semanas','em 3 semanas'];
+      list.innerHTML = '<div class="prov-agenda-empty">Nenhum provento ' + (labels[_provWeekOffset]||'') + '</div>';
+      return;
+    }
+
+    // Agrupa por ticker+data
+    var map = {};
+    futuros.forEach(function(d) {
+      var key = d.ticker + '|' + d.data;
+      if(!map[key]) map[key] = { ticker: d.ticker, data: d.data, tipo: d.tipo||'Dividendo', total: 0 };
+      map[key].total += (d.valor||0) * (d.qtdEx||0);
     });
-    var items=Object.values(map).sort(function(a,b){return a.data.localeCompare(b.data);});
-    var totalGeral=items.reduce(function(s,i){return s+i.total;},0);
-    var html='';
-    items.slice(0,8).forEach(function(item){
-      var dt=item.data.split('-');
-      var tipo=(item.tipo||'').toUpperCase().includes('JCP')?'JCP':(item.tipo||'').toUpperCase().includes('REND')?'Rend.':'Div.';
-      html+='<div class="prov-agenda-item"><span class="prov-agenda-ticker">'+item.ticker+'</span><span class="prov-agenda-tipo">'+tipo+'</span><span class="prov-agenda-data">'+dt[2]+'/'+dt[1]+'</span><span class="prov-agenda-valor">'+(item.total>0?'R$ '+item.total.toFixed(2):'–')+'</span></div>';
+
+    var items = Object.values(map).sort(function(a,b){ return a.data.localeCompare(b.data); });
+    var totalGeral = items.reduce(function(s,i){ return s + i.total; }, 0);
+
+    var html = '';
+    items.forEach(function(item) {
+      var dt = item.data.split('-');
+      var tipo = (item.tipo||'').toUpperCase().includes('JCP') ? 'JCP' :
+                 (item.tipo||'').toUpperCase().includes('REND') ? 'Rend.' : 'Div.';
+      html += '<div class="prov-agenda-item">'
+            + '<span class="prov-agenda-ticker">' + item.ticker + '</span>'
+            + '<span class="prov-agenda-tipo">' + tipo + '</span>'
+            + '<span class="prov-agenda-data">' + dt[2] + '/' + dt[1] + '</span>'
+            + '<span class="prov-agenda-valor">' + (item.total > 0 ? 'R$ ' + item.total.toFixed(2) : '–') + '</span>'
+            + '</div>';
     });
-    if(items.length>8) html+='<div style="font-size:10px;color:#7a8599;text-align:center;padding:4px 0">+ '+(items.length-8)+' mais…</div>';
-    if(totalGeral>0) html+='<div class="prov-agenda-total-row"><span class="prov-agenda-total-label">Total a receber (30d)</span><span class="prov-agenda-total-val">R$ '+totalGeral.toFixed(2)+'</span></div>';
-    list.innerHTML=html;
-  }catch(e){}
+
+    if(totalGeral > 0) {
+      html += '<div class="prov-agenda-total-row">'
+            + '<span class="prov-agenda-total-label">Total da semana</span>'
+            + '<span class="prov-agenda-total-val">R$ ' + totalGeral.toFixed(2) + '</span>'
+            + '</div>';
+    }
+
+    list.innerHTML = html;
+  } catch(e) {}
 }
 
 
@@ -776,23 +830,28 @@ body.pat-hidden .pat-kpi-var .var-brl::after{content:'(••••)';position:a
 .pat-filter-opt:hover{background:rgba(232,184,75,.1);color:#e8b84b}
 .pat-filter-opt.active{color:#e8b84b;background:rgba(232,184,75,.08)}
 /* ── AGENDA PROVENTOS ── */
-.prov-agenda{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;position:relative;overflow:hidden;margin-bottom:0;cursor:default}
-.prov-agenda::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:#10b981}
-.prov-agenda-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
-.prov-agenda-title{font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#c2cbdd;display:flex;align-items:center;gap:6px}
-.prov-agenda-list{display:flex;flex-direction:column;gap:5px}
-.prov-agenda-item{display:flex;align-items:center;gap:8px;padding:7px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid rgba(255,255,255,.05)}
+.prov-agenda{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;position:relative;overflow:hidden;margin-bottom:0}
+.prov-agenda::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--gold)}
+.prov-agenda-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.prov-agenda-title{font-size:13px;font-weight:800;color:var(--gold);letter-spacing:.3px;display:flex;align-items:center;gap:6px}
+.prov-week-tabs{display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap}
+.prov-week-tab{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#7a8599;font-size:10px;font-weight:600;padding:3px 9px;border-radius:5px;cursor:pointer;transition:.15s;white-space:nowrap}
+.prov-week-tab:hover{background:rgba(232,184,75,.1);color:#e8b84b;border-color:rgba(232,184,75,.3)}
+.prov-week-tab.active{background:rgba(232,184,75,.15);color:#e8b84b;border-color:rgba(232,184,75,.4)}
+.prov-agenda-list{display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto}
+.prov-agenda-item{display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid rgba(255,255,255,.05);transition:.15s}
+.prov-agenda-item:hover{background:rgba(255,255,255,.06)}
 .prov-agenda-ticker{font-size:12px;font-weight:800;color:#e8b84b;min-width:52px}
-.prov-agenda-tipo{font-size:10px;font-weight:600;color:#7a8599;min-width:44px}
-.prov-agenda-data{font-size:11px;color:#c2cbdd;min-width:48px}
+.prov-agenda-tipo{font-size:10px;font-weight:600;color:#7a8599;min-width:42px}
+.prov-agenda-data{font-size:11px;color:#c2cbdd;min-width:44px}
 .prov-agenda-valor{font-size:12px;font-weight:700;color:#10b981;margin-left:auto}
 .prov-agenda-total-row{display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
 .prov-agenda-total-label{font-size:11px;color:#7a8599;font-weight:600}
 .prov-agenda-total-val{font-size:14px;font-weight:800;color:#10b981}
-.prov-agenda-empty{font-size:12px;color:#7a8599;text-align:center;padding:10px 0}
+.prov-agenda-empty{font-size:12px;color:#7a8599;text-align:center;padding:16px 0}
 
 /* ── LAYOUT PATRIMONIAL 2 COLUNAS ── */
-.pat-cal-wrap{display:grid;grid-template-columns:1fr 300px;gap:10px;margin-bottom:12px;align-items:stretch}
+.pat-cal-wrap{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;align-items:stretch}
 @media(max-width:900px){.pat-cal-wrap{grid-template-columns:1fr}}
 </style>
 
@@ -1015,14 +1074,20 @@ if(localStorage.getItem('g20_uid')){
         <span id="cmpRV" style="display:none"></span><span id="rangeRV" style="display:none"></span>
       </div>
       <div class="prov-agenda">
-      <div class="prov-agenda-header">
-        <div class="prov-agenda-title">📅 Próximos Proventos <span style="color:#7a8599;font-weight:500;font-size:10px">(30d)</span></div>
-        <a href="carteira.html" style="font-size:10px;color:#7a8599;text-decoration:none;font-weight:600">ver todos →</a>
+        <div class="prov-agenda-header">
+          <div class="prov-agenda-title">📅 Agenda de Proventos</div>
+          <a href="carteira.html" style="font-size:10px;color:#7a8599;text-decoration:none;font-weight:600">ver todos →</a>
+        </div>
+        <div class="prov-week-tabs" id="provWeekTabs">
+          <button class="prov-week-tab active" data-w="0" onclick="setProvWeek(0,this)">Esta semana</button>
+          <button class="prov-week-tab" data-w="1" onclick="setProvWeek(1,this)">Próx. semana</button>
+          <button class="prov-week-tab" data-w="2" onclick="setProvWeek(2,this)">+2 semanas</button>
+          <button class="prov-week-tab" data-w="3" onclick="setProvWeek(3,this)">+3 semanas</button>
+        </div>
+        <div class="prov-agenda-list" id="provAgendaList">
+          <div class="prov-agenda-empty">Carregando…</div>
+        </div>
       </div>
-      <div class="prov-agenda-list" id="provAgendaList">
-        <div class="prov-agenda-empty">Carregando…</div>
-      </div>
-    </div>
     </div><!-- /pat-cal-wrap -->
 
 
