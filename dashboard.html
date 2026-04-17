@@ -350,22 +350,35 @@ function _patRenderSingle(){
 /* ── AGENDA PROVENTOS ── */
 var _provWeekOffset = 0;
 var _provSource = 'carteira';
-var _PROV_CACHE_VER = 'v3_polygon_b3'; // muda para forçar reimportação
+var _PROV_CACHE_VER = 'v4_polygon_b3_clean';
+var _PROV_TTL_HORAS = 24; // reimporta uma vez por dia
 
-// Limpa cache de dividendos antigos (Yahoo) na primeira execução desta versão
-(function(){
+function _provDeveReimportar(){
   try{
-    var ver = localStorage.getItem('g20_prov_cache_ver');
+    var ver       = localStorage.getItem('g20_prov_cache_ver');
+    var ultimaStr = localStorage.getItem('g20_prov_last_import');
+    // Versão diferente → limpa e força reimportação
     if(ver !== _PROV_CACHE_VER){
-      // Remove todos os auto-importados — serão reimportados com B3/Polygon
       var divs = JSON.parse(localStorage.getItem('g20_dividendos')||'[]')
         .filter(function(d){ var f=d.fonte||''; return f!=='auto'&&f.indexOf('Auto-')!==0; });
       localStorage.setItem('g20_dividendos', JSON.stringify(divs));
       localStorage.setItem('g20_prov_cache_ver', _PROV_CACHE_VER);
-      console.log('[Proventos] Cache limpo — reimportando com B3/Polygon');
+      localStorage.removeItem('g20_prov_last_import');
+      console.log('[Proventos] Cache limpo — nova versão detectada');
+      return true;
     }
-  }catch(e){}
-})(); // 'carteira' ou 'gestao'
+    // Verifica se passou 24h desde a última importação
+    if(!ultimaStr) return true;
+    var ultima = new Date(ultimaStr);
+    var agora  = new Date();
+    var horasPassadas = (agora - ultima) / 3600000;
+    return horasPassadas >= _PROV_TTL_HORAS;
+  }catch(e){ return true; }
+}
+
+function _provMarcarImportado(){
+  try{ localStorage.setItem('g20_prov_last_import', new Date().toISOString()); }catch(e){}
+} // 'carteira' ou 'gestao'
 
 function toggleProvSource(e){
   e.stopPropagation();
@@ -446,10 +459,16 @@ function renderProvAgenda(){
 
     if(!divs.length){
       if(_provSource==='gestao'){
-        // Tenta importar automaticamente
-        _importarProventosGestaoBackground(function(){
-          list.innerHTML='<div class="prov-agenda-empty">Nenhum provento nos próximos dias na Gestão Patrimonial.</div>';
-        });
+        // Importa gestão se não tem dados ou passou 24h
+        if(typeof _importarTodosProventosBackground==='function'){
+          _importarTodosProventosBackground(function(){
+            _provMarcarImportado();
+            renderProvAgenda();
+          });
+        } else {
+          list.innerHTML='<div class="prov-agenda-empty">Nenhum provento na Gestão Patrimonial.</div>';
+        }
+        return; // aguarda callback
       } else {
         list.innerHTML='<div class="prov-agenda-empty">Nenhum provento nesta semana na Carteira G20.</div>';
       }
@@ -3277,13 +3296,16 @@ window.g20Logout = function() {
             try { localStorage.setItem('g20_' + doc.id, JSON.stringify(doc.data().value)); } catch(e) {}
           });
           loadPatStrip();
-          // Importa AMBAS as fontes em paralelo, depois renderiza
-          if(typeof _importarTodosProventosBackground==='function'){
-            _importarTodosProventosBackground(function(){
-              if(typeof renderProvAgenda==='function') renderProvAgenda();
-            });
-          } else {
-            if(typeof renderProvAgenda==='function') renderProvAgenda();
+          // Renderiza imediatamente com dados em cache
+          if(typeof renderProvAgenda==='function') renderProvAgenda();
+          // Reimporta em background apenas se passou 24h ou primeira vez
+          if(typeof _provDeveReimportar==='function' && _provDeveReimportar()){
+            if(typeof _importarTodosProventosBackground==='function'){
+              _importarTodosProventosBackground(function(){
+                _provMarcarImportado();
+                if(typeof renderProvAgenda==='function') renderProvAgenda();
+              });
+            }
           }
           // Aguarda 2s para cotações do Yahoo chegarem antes de renderizar variações
           setTimeout(_atualizarVariacoesPat, 2000);
