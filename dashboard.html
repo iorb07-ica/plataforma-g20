@@ -2673,25 +2673,21 @@ function setAgendaFiltro(tipo, btn){
 var _AGENDA_BR_ACOES = ['VALE3','PETR4','ITUB4','BBDC4','BBAS3','WEGE3','RENT3','B3SA3','SUZB3','GGBR4','JBSS3','LREN3','RADL3','RAIL3','VIVT3','ABEV3','ITSA4','TAEE11','ENBR3','CPLE6','EGIE3','PRIO3','TOTS3','RDOR3','HAPV3','SBSP3','CMIG4','CSNA3','BRKM5','CSAN3'];
 var _AGENDA_BR_FIIS = ['HGLG11','MXRF11','KNRI11','XPML11','VISC11','HGBS11','BCFF11','XPLG11','RBRR11','RBRY11','KNCR11','HGRE11','XPCI11','IRDM11','CPTS11','BTLG11','PVBI11','VGIR11','TGAR11','HSML11'];
 
-function _fetchBrapiDividends(ticker, tipoAtivo){
-  var tk = '';
-  try{ tk = localStorage.getItem('g20_tokenBrapi')||''; }catch(e){}
-  if(!tk) return Promise.resolve([]);
+function _fetchYahooDividends(ticker, tipoAtivo){
   var isBR = tipoAtivo==='Acao'||tipoAtivo==='FII'||tipoAtivo==='FIAGRO'||/\d$/.test(ticker);
-  var url = 'https://brapi.dev/api/quote/'+ticker+'?dividends=true&token='+tk;
-  return fetch(url)
-    .then(function(r){ return r.ok?r.json():null; })
-    .then(function(data){
-      if(!data||!data.results||!data.results[0]) return [];
-      var divs = (data.results[0].dividendsData&&data.results[0].dividendsData.cashDividends)||[];
+  var symbol = isBR ? ticker+'.SA' : ticker;
+  var from = Math.floor((Date.now() - 180*86400000)/1000);
+  return fetch(AGENDA_PROXY+'/api/dividends-br?symbol='+symbol+'&from='+from)
+    .then(function(r){ return r.ok?r.json():[]; })
+    .then(function(divs){
+      if(!Array.isArray(divs)) divs=[];
       return divs.map(function(d){
         return {
-          ticker: ticker,
-          tipo: tipoAtivo||'Acao',
-          dataEx: (d.lastDatePrior||'').substring(0,10),
-          dataPag: (d.paymentDate||'').substring(0,10),
-          valor: +(d.rate||0),
-          tipoProv: d.label||'Dividendo',
+          ticker: ticker, tipo: tipoAtivo||'Acao',
+          dataEx: (d.ex_date||'').substring(0,10),
+          dataPag: (d.payment_date||d.date||'').substring(0,10),
+          valor: +(d.value||0),
+          tipoProv: d.type||'Dividendo',
           source: 'mercado',
           currency: isBR?'BRL':'USD'
         };
@@ -2706,10 +2702,10 @@ function _fetchAgendaAll(){
   if(body) body.innerHTML = '<div class="agenda-empty">⏳ Buscando proventos via StatusInvest...</div>';
 
   var promises = [];
-  _AGENDA_BR_ACOES.forEach(function(tk){ promises.push(_fetchBrapiDividends(tk, 'Acao')); });
-  _AGENDA_BR_FIIS.forEach(function(tk){ promises.push(_fetchBrapiDividends(tk, 'FII')); });
+  _AGENDA_BR_ACOES.forEach(function(tk){ promises.push(_fetchYahooDividends(tk, 'Acao')); });
+  _AGENDA_BR_FIIS.forEach(function(tk){ promises.push(_fetchYahooDividends(tk, 'FII')); });
   var usStocks = ['AAPL','MSFT','GOOGL','AMZN','NVDA','META','JPM','JNJ','KO','PG','PEP','O','SCHD','T','VZ'];
-  usStocks.forEach(function(tk){ promises.push(_fetchBrapiDividends(tk, 'Stock')); });
+  usStocks.forEach(function(tk){ promises.push(_fetchYahooDividends(tk, 'Stock')); });
 
   Promise.all(promises).then(function(results){
     var all = [];
@@ -2747,7 +2743,7 @@ function _fetchAgendaYahoo(){
 
   var promises = tks.map(function(tk){
     var tipo = userTickers[tk].tipo;
-    return _fetchBrapiDividends(tk, tipo).then(function(items){
+    return _fetchYahooDividends(tk, tipo).then(function(items){
       return items.map(function(it){ it.source='minha'; return it; });
     });
   });
