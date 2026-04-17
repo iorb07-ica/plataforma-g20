@@ -2431,61 +2431,69 @@ function calNav(dir){
   renderCalendar();
 }
 
+// Cache de earnings da Finnhub
+var _calEarningsCache = {};
+var _calEarningsLoading = {};
+
+function _calFetchEarnings(){
+  var key = _calMonth + '-' + _calYear;
+  if(_calEarningsCache[key] || _calEarningsLoading[key]) return;
+  var fhKey = '';
+  try{ fhKey = localStorage.getItem('g20_finnhub_key')||''; }catch(e){}
+  if(!fhKey) return;
+  _calEarningsLoading[key] = true;
+  var pad = function(n){ return String(n).padStart(2,'0'); };
+  var from = _calYear+'-'+pad(_calMonth+1)+'-01';
+  var lastDay = new Date(_calYear, _calMonth+1, 0).getDate();
+  var to = _calYear+'-'+pad(_calMonth+1)+'-'+pad(lastDay);
+
+  // Busca tickers do usuário
+  var userTickers = {};
+  try{
+    var a1 = JSON.parse(localStorage.getItem('g20_aportes')||'[]');
+    a1.forEach(function(a){ if(a&&a.ticker) userTickers[a.ticker.replace(/\.SA$/i,'').toUpperCase()]=1; });
+    var a2 = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
+    a2.forEach(function(a){ if(a&&a.ticker) userTickers[a.ticker.replace(/\.SA$/i,'').toUpperCase()]=1; });
+  }catch(e){}
+
+  fetch('https://finnhub.io/api/v1/calendar/earnings?from='+from+'&to='+to+'&token='+fhKey)
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if(data && data.earningsCalendar){
+        _calEarningsCache[key] = data.earningsCalendar.filter(function(e){
+          return userTickers[e.symbol.replace(/\.SA$/i,'').toUpperCase()];
+        }).map(function(e){
+          var hora = e.hour==='bmo'?' (pré-mercado)':e.hour==='amc'?' (pós-mercado)':'';
+          return {date:e.date, text:'📊 '+e.symbol+' — Earnings'+hora, color:'#3b82f6', type:'result'};
+        });
+      }
+      _calEarningsLoading[key] = false;
+      renderCalendar();
+    })
+    .catch(function(){ _calEarningsLoading[key] = false; });
+}
+
 function _calGetEvents(){
   var evts = [];
   var y = _calYear;
   var MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
   var pad = function(n){ return String(n).padStart(2,'0'); };
 
-  // Lives G20Flix — último sábado de cada mês
+  // Lives G20Flix
   for(var m=0; m<12; m++){
     evts.push({date:y+'-'+pad(m+1)+'-28', text:'🎬 Live Aporte G20Flix — '+MESES[m], color:'#e63946', type:'live'});
   }
 
-  // Resultados de empresas (earnings) — datas aproximadas T1 2026
-  // Resultados trimestrais (fontes: Investing.com / RI das empresas)
-  var earnings = [
-    // 1T26
-    {date:y+'-04-24', text:'📊 VALE3 — Resultado 1T26'},
-    {date:y+'-04-29', text:'📊 AAPL — Earnings Q1 2026'},
-    {date:y+'-04-29', text:'📊 MSFT — Earnings Q1 2026'},
-    {date:y+'-04-30', text:'📊 AMZN — Earnings Q1 2026'},
-    {date:y+'-05-05', text:'📊 PETR4 — Resultado 1T26'},
-    {date:y+'-05-06', text:'📊 ITUB4 — Resultado 1T26'},
-    {date:y+'-05-07', text:'📊 BBDC4 — Resultado 1T26'},
-    {date:y+'-05-07', text:'📊 BBAS3 — Resultado 1T26'},
-    {date:y+'-05-14', text:'📊 WEGE3 — Resultado 1T26'},
-    {date:y+'-05-15', text:'📊 B3SA3 — Resultado 1T26'},
-    {date:y+'-05-28', text:'📊 NVDA — Earnings Q1 2026'},
-    // 2T26
-    {date:y+'-07-23', text:'📊 VALE3 — Resultado 2T26'},
-    {date:y+'-07-30', text:'📊 AAPL — Earnings Q2 2026'},
-    {date:y+'-07-29', text:'📊 MSFT — Earnings Q2 2026'},
-    {date:y+'-08-06', text:'📊 PETR4 — Resultado 2T26'},
-    // 3T26
-    {date:y+'-10-22', text:'📊 VALE3 — Resultado 3T26'},
-    {date:y+'-10-29', text:'📊 AAPL — Earnings Q3 2026'},
-    {date:y+'-11-05', text:'📊 PETR4 — Resultado 3T26'},
-  ];
-  earnings.forEach(function(e){ evts.push({date:e.date, text:e.text, color:'#3b82f6', type:'result'}); });
-
-  // Dividendos/JCP — FIIs pagam todo dia 15 do mês seguinte
-  var divs = [];
-  for(var dm=1; dm<=12; dm++){
-    divs.push({date:y+'-'+pad(dm)+'-15', text:'💰 FIIs — Pgto rendimentos mensais'});
+  // Earnings da Finnhub (API dinâmica)
+  var cacheKey = _calMonth + '-' + _calYear;
+  if(_calEarningsCache[cacheKey]){
+    _calEarningsCache[cacheKey].forEach(function(e){ evts.push(e); });
   }
-  divs = divs.concat([
-    {date:y+'-06-15', text:'💰 VALE3 — Pgto dividendo'},
-    {date:y+'-09-15', text:'💰 VALE3 — Pgto dividendo'},
-    {date:y+'-12-15', text:'💰 VALE3 — Pgto dividendo'},
-    {date:y+'-05-20', text:'💰 PETR4 — Pgto dividendo'},
-    {date:y+'-08-20', text:'💰 PETR4 — Pgto dividendo'},
-    {date:y+'-11-20', text:'💰 PETR4 — Pgto dividendo'},
-    {date:y+'-06-01', text:'💰 BBAS3 — Pgto dividendo'},
-    {date:y+'-09-01', text:'💰 ITUB4 — Pgto JCP'},
-    {date:y+'-12-01', text:'💰 BBDC4 — Pgto JCP'},
-  ]);
-  divs.forEach(function(d){ evts.push({date:d.date, text:d.text, color:'#10b981', type:'div'}); });
+
+  // FIIs — rendimento mensal dia 15
+  for(var dm=1; dm<=12; dm++){
+    evts.push({date:y+'-'+pad(dm)+'-15', text:'💰 FIIs — Pgto rendimentos mensais', color:'#10b981', type:'div'});
+  }
 
   // Copom 2026 (datas oficiais BCB) + FOMC (Fed)
   var macro = [
@@ -2510,7 +2518,7 @@ function _calGetEvents(){
   ];
   macro.forEach(function(m){ evts.push({date:m.date, text:m.text, color:'#f59e0b', type:'macro'}); });
 
-  // Proventos reais do usuário (localStorage)
+  // Proventos reais do usuário
   try{
     var provs = JSON.parse(localStorage.getItem('g20_proventos')||'[]');
     provs.forEach(function(p){
@@ -2520,7 +2528,7 @@ function _calGetEvents(){
     });
   }catch(e){}
 
-  // Vencimentos RF do usuário
+  // Vencimentos RF
   try{
     var rf = JSON.parse(localStorage.getItem('g20_rfTitulos')||'[]');
     rf.forEach(function(t){
@@ -2534,6 +2542,7 @@ function _calGetEvents(){
 }
 
 function renderCalendar(){
+  _calFetchEarnings();
   var MESES_FULL = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   var DIAS = ['D','S','T','Q','Q','S','S'];
   var titleEl = document.getElementById('calTitle');
