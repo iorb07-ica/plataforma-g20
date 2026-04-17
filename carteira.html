@@ -2188,8 +2188,9 @@ input[type="text"].apl-inp-preco{text-align:right}
       <div class="apl-hdr-col" style="text-align:right">Total</div>
       <div></div>
     </div>
+    <div class="apl-rows-wrap" id="aplRowsWrap">
     <!-- Linha 0 — IDs fixos para autocomplete -->
-    <div id="aplRow0" class="apl-row">
+    <div id="aplRow0" class="apl-row" data-apl-page="1">
       <select id="apl_op0" class="apl-sel apl-op-c" onchange="aplOpColor(this);aplCalc()">
         <option value="C">Compra</option><option value="V">Venda</option>
       </select>
@@ -2227,12 +2228,19 @@ input[type="text"].apl-inp-preco{text-align:right}
     </div>
     <!-- Linhas extras -->
     <div id="aplExtras"></div>
+    </div><!-- /apl-rows-wrap -->
+    <!-- Paginação (aparece só se tiver >10 linhas) -->
+    <div id="aplPagination" class="apl-pagination" style="display:none">
+      <button class="apl-pg-btn" onclick="aplPageGo(-1)">‹ Anterior</button>
+      <span id="aplPgInfo" class="apl-pg-info">Página 1 de 1</span>
+      <button class="apl-pg-btn" onclick="aplPageGo(1)">Próxima ›</button>
+    </div>
     <!-- Adicionar linha -->
     <button class="apl-add-btn" onclick="aplAddLinha()">＋ Adicionar outro lançamento</button>
     <!-- Total geral -->
     <div id="aplSumPanel" style="display:none" class="apl-sum-panel">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,.35)">Total do Lote</span>
+      <div class="apl-sum-main">
+        <span class="apl-sum-label">Total do Lote</span>
         <span id="aplSumVal" class="apl-sum-total">--</span>
       </div>
       <div id="aplSumTags" class="apl-sum-tags"></div>
@@ -5754,17 +5762,17 @@ function abrirModalAporte(ticker){
     if(totEl){ totEl.className='apl-total-val'; totEl.textContent='--'; }
     // Moeda: mostra R$ por padrão
     var moedaEl=document.getElementById('apl_moeda0');
-    if(moedaEl){ moedaEl.style.display='block'; moedaEl.value='BRL'; moedaEl.className='apl-moeda-sel brl'; }
+    if(moedaEl){ moedaEl.style.display='block'; moedaEl.value='BRL'; moedaEl.className='apl-moeda brl'; }
     var h=document.getElementById('aplHint0'); if(h){h.textContent='';h.style.color='';}
     // Reset estado de preço
     _aplPrecoSource['0'] = 'empty';
     _aplPrecoLive['0'] = null;
     if(typeof aplAtualizarBadge==='function') aplAtualizarBadge('0');
     // Oculta badge de cotação automática
-    var badge0=document.getElementById('aplBadge0'); if(badge0) badge0.style.display='none';
+    var badge0=document.getElementById('aplPrecoBadge0'); if(badge0) badge0.style.display='none';
     // Limpa linhas extras
     var extras=document.getElementById('aplExtras'); if(extras) extras.innerHTML='';
-    _aplRows=[];_aplRowCount=1;
+    _aplRows=[];_aplRowCount=1;_aplPage=1;
     if(typeof aplUpdCount==='function') aplUpdCount();
     var sumP=document.getElementById('aplSumPanel'); if(sumP) sumP.style.display='none';
 
@@ -8512,10 +8520,35 @@ function showToastIA(msg){
 // ── MODAL APORTE: FUNÇÕES AUXILIARES ─────────────────────────
 var _aplRows = [];
 var _aplRowCount = 1;
+var _aplPage = 1;
+var APL_PER_PAGE = 10;
 
 function aplUpdCount(){
   var el=document.getElementById('aplLinhaCount');
   if(el) el.textContent=_aplRowCount+' linha'+(_aplRowCount>1?'s':'');
+  aplRenderPages();
+}
+
+function aplRenderPages(){
+  var totalPages = Math.max(1, Math.ceil(_aplRowCount / APL_PER_PAGE));
+  if(_aplPage > totalPages) _aplPage = totalPages;
+  var pgDiv = document.getElementById('aplPagination');
+  if(pgDiv) pgDiv.style.display = totalPages > 1 ? 'flex' : 'none';
+  var pgInfo = document.getElementById('aplPgInfo');
+  if(pgInfo) pgInfo.textContent = 'Página ' + _aplPage + ' de ' + totalPages;
+  // Mostra/esconde linhas conforme a página atual
+  var allRows = document.querySelectorAll('#aplRowsWrap .apl-row');
+  allRows.forEach(function(row, i){
+    var rowPage = Math.floor(i / APL_PER_PAGE) + 1;
+    row.setAttribute('data-apl-page', rowPage);
+    row.style.display = (rowPage === _aplPage) ? '' : 'none';
+  });
+}
+
+function aplPageGo(dir){
+  var totalPages = Math.max(1, Math.ceil(_aplRowCount / APL_PER_PAGE));
+  _aplPage = Math.max(1, Math.min(totalPages, _aplPage + dir));
+  aplRenderPages();
 }
 
 function aplOpColor(sel){
@@ -8610,7 +8643,9 @@ function aplAddLinha(){
   var today=new Date().toISOString().split('T')[0];
   var r='x'+Date.now();
   _aplRows.push(r);
-  _aplRowCount++; aplUpdCount();
+  _aplRowCount++;
+  _aplPage = Math.ceil(_aplRowCount / APL_PER_PAGE);
+  aplUpdCount();
 
   var div=document.createElement('div');
   div.id='aplRow'+r; div.className='apl-row';
