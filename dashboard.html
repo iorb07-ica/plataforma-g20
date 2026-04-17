@@ -25,15 +25,17 @@ var _gestaoImportDone    = false;
 function _getQtdNaDataGestao(ticker, dataRef){
   try{
     var aportes = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
-    var posicoes = aportes.filter(function(a){ return a.ticker===ticker; })
-      .sort(function(a,b){ return a.data.localeCompare(b.data); });
     var qtd=0;
-    posicoes.forEach(function(a){
-      if(a.data<=dataRef){
-        if(a.op==='C') qtd+=parseFloat(a.qtd||0);
-        else qtd-=parseFloat(a.qtd||0);
-      }
-    });
+    aportes
+      .filter(function(a){ return a.ticker&&a.ticker.toUpperCase()===ticker.toUpperCase(); })
+      .sort(function(a,b){ return (a.data||'').localeCompare(b.data||''); })
+      .forEach(function(a){
+        if(!a.data||a.data>dataRef) return;
+        var q=parseFloat(a.qtd)||0;
+        // op='C' ou sem op = compra; op='V' = venda
+        if(a.op==='V') qtd-=q;
+        else qtd+=q;
+      });
     return Math.max(0,qtd);
   }catch(e){ return 0; }
 }
@@ -90,9 +92,9 @@ function _importarProventosGestaoBackground(onEmpty){
         if(!valorCota) return;
 
         var qtd=_getQtdNaDataGestao(r.ticker,dataExStr||dataStr);
+        if(qtd<=0){var dp=new Date(dataExStr||dataStr);dp.setDate(dp.getDate()+7);qtd=_getQtdNaDataGestao(r.ticker,dp.toISOString().split('T')[0]);}
         if(qtd<=0) qtd=_getQtdNaDataGestao(r.ticker,hoje);
         if(qtd<=0) return;
-
         var dup=lista.some(function(p){
           return p.ticker===r.ticker
             && (p.data||'').substring(0,10)===dataStr
@@ -172,9 +174,11 @@ function _importarTodosProventosBackground(onDone){
     if(!a.ticker) return;
     if(!gestMap[a.ticker]) gestMap[a.ticker]={ticker:a.ticker,tipo:a.tipo||'Acao',origem:'gestao'};
   });
-  // Só ativos com posição atual
+  // Inclui ativos com posição atual OU que já tiveram posição (para histórico)
   Object.values(gestMap).forEach(function(p){
-    if(_getQtdNaDataGestao(p.ticker, hoje)>0) tarefas.push(p);
+    var qtdHoje = _getQtdNaDataGestao(p.ticker, hoje);
+    // Se qtd=0 hoje mas tem aportes, inclui mesmo assim (pode ter posição na data do dividendo)
+    if(qtdHoje > 0 || gestMap[p.ticker]) tarefas.push(p);
   });
 
   if(!tarefas.length){ if(onDone) onDone(); return; }
@@ -240,9 +244,9 @@ function _importarTodosProventosBackground(onDone){
         if(r.origem==='gestao'){
           // Formato da Gestão Patrimonial
           var qtd=_getQtdNaDataGestao(r.ticker,dataEx||dataPag);
+          if(qtd<=0){var dp2=new Date(dataEx||dataPag);dp2.setDate(dp2.getDate()+7);qtd=_getQtdNaDataGestao(r.ticker,dp2.toISOString().split('T')[0]);}
           if(qtd<=0) qtd=_getQtdNaDataGestao(r.ticker,hoje);
           if(qtd<=0) return;
-          var dup=lista.some(function(p){
             return p.ticker===r.ticker&&(p.data||'').substring(0,10)===dataPag&&Math.abs((p.valorCota||0)-valor)<0.00001;
           });
           if(dup) return;
@@ -345,7 +349,23 @@ function _patRenderSingle(){
 }
 /* ── AGENDA PROVENTOS ── */
 var _provWeekOffset = 0;
-var _provSource = 'carteira'; // 'carteira' ou 'gestao'
+var _provSource = 'carteira';
+var _PROV_CACHE_VER = 'v3_polygon_b3'; // muda para forçar reimportação
+
+// Limpa cache de dividendos antigos (Yahoo) na primeira execução desta versão
+(function(){
+  try{
+    var ver = localStorage.getItem('g20_prov_cache_ver');
+    if(ver !== _PROV_CACHE_VER){
+      // Remove todos os auto-importados — serão reimportados com B3/Polygon
+      var divs = JSON.parse(localStorage.getItem('g20_dividendos')||'[]')
+        .filter(function(d){ var f=d.fonte||''; return f!=='auto'&&f.indexOf('Auto-')!==0; });
+      localStorage.setItem('g20_dividendos', JSON.stringify(divs));
+      localStorage.setItem('g20_prov_cache_ver', _PROV_CACHE_VER);
+      console.log('[Proventos] Cache limpo — reimportando com B3/Polygon');
+    }
+  }catch(e){}
+})(); // 'carteira' ou 'gestao'
 
 function toggleProvSource(e){
   e.stopPropagation();
