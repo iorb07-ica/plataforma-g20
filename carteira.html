@@ -2198,6 +2198,7 @@ input[type="text"].apl-inp-preco{text-align:right}
       </select>
       <input type="date" id="apl_data0" class="apl-inp"
         onfocus="this.select()"
+        onpaste="handleDatePaste(event, this)"
         onchange="aplCalc();aplOnDataChange('0')">
       <div class="apl-tk-wrap">
         <input id="aporte_ticker" class="apl-inp" placeholder="PETR4, AAPL..."
@@ -8491,6 +8492,78 @@ function showToast(msg, color){
   setTimeout(function(){ t.remove(); }, 2500);
 }
 
+// Intercepta Ctrl+V em inputs type="date" e converte o formato colado para YYYY-MM-DD
+// Suporta: 2024-04-01, 01/04/2024, 01.04.2024, 01-04-2024, 01/04/24, etc.
+function handleDatePaste(e, input){
+  try {
+    e.preventDefault();
+    var texto = (e.clipboardData || window.clipboardData).getData('text').trim();
+    if(!texto) return;
+
+    var iso = parseDataParaISO(texto);
+    if(iso){
+      input.value = iso;
+      // Dispara evento de change manualmente para acionar os listeners existentes
+      input.dispatchEvent(new Event('change', {bubbles:true}));
+    } else {
+      showToast('⚠️ Formato de data não reconhecido: '+texto, '#e63946');
+    }
+  } catch(err){
+    console.warn('[handleDatePaste]', err);
+  }
+}
+
+// Converte string de data em vários formatos para YYYY-MM-DD
+// Retorna null se não conseguir interpretar
+function parseDataParaISO(str){
+  if(!str) return null;
+  str = String(str).trim();
+
+  // Formato 1: já está em ISO YYYY-MM-DD (ou YYYY/MM/DD)
+  var m = str.match(/^(\d{4})[-\/\.](\d{1,2})[-\/\.](\d{1,2})$/);
+  if(m){
+    var y=m[1], mo=m[2].padStart(2,'0'), d=m[3].padStart(2,'0');
+    return validarData(y, mo, d);
+  }
+
+  // Formato 2: pt-BR DD/MM/YYYY (com / . ou -)
+  m = str.match(/^(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{4})$/);
+  if(m){
+    var d2=m[1].padStart(2,'0'), mo2=m[2].padStart(2,'0'), y2=m[3];
+    return validarData(y2, mo2, d2);
+  }
+
+  // Formato 3: pt-BR DD/MM/YY (ano 2 dígitos → assume 20XX)
+  m = str.match(/^(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{2})$/);
+  if(m){
+    var d3=m[1].padStart(2,'0'), mo3=m[2].padStart(2,'0'), y3='20'+m[3];
+    return validarData(y3, mo3, d3);
+  }
+
+  // Formato 4: só números (DDMMYYYY ou DDMMYY)
+  var soNum = str.replace(/\D/g,'');
+  if(soNum.length === 8){
+    return validarData(soNum.substring(4,8), soNum.substring(2,4), soNum.substring(0,2));
+  }
+  if(soNum.length === 6){
+    return validarData('20'+soNum.substring(4,6), soNum.substring(2,4), soNum.substring(0,2));
+  }
+
+  return null;
+}
+
+// Valida se ano/mes/dia formam uma data real e retorna ISO, ou null
+function validarData(y, mo, d){
+  var ano = parseInt(y,10), mes = parseInt(mo,10), dia = parseInt(d,10);
+  if(ano < 1900 || ano > 2100) return null;
+  if(mes < 1 || mes > 12) return null;
+  if(dia < 1 || dia > 31) return null;
+  // Valida dia do mês real (ex: 31/02 é inválido)
+  var dt = new Date(ano, mes-1, dia);
+  if(dt.getFullYear() !== ano || dt.getMonth() !== mes-1 || dt.getDate() !== dia) return null;
+  return y+'-'+mo+'-'+d;
+}
+
 </script>
 
   <script>
@@ -8653,6 +8726,7 @@ function aplAddLinha(){
   // Data
   var dt=mk('input',{type:'date',id:'aplDt'+r,className:'apl-inp',value:today});
   dt.addEventListener('focus',function(){ this.select(); });
+  dt.addEventListener('paste',function(e){ handleDatePaste(e, this); });
   dt.addEventListener('change',function(){aplCalc();aplOnDataChange(r);});
   div.appendChild(dt);
 
