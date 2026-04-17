@@ -56,6 +56,26 @@ function _patRenderSingle(){
 }
 /* ── AGENDA PROVENTOS ── */
 var _provWeekOffset = 0;
+var _provSource = 'carteira'; // 'carteira' ou 'gestao'
+
+function toggleProvSource(e){
+  e.stopPropagation();
+  var dd=document.getElementById('provSourceDropdown');
+  dd.classList.toggle('open');
+  document.addEventListener('click',function closeDD(ev){
+    if(!ev.target.closest('.prov-source-wrap')){dd.classList.remove('open');document.removeEventListener('click',closeDD);}
+  });
+}
+
+function setProvSource(src, el){
+  _provSource = src;
+  document.getElementById('provSourceDropdown').classList.remove('open');
+  document.querySelectorAll('.prov-source-opt').forEach(function(o){o.classList.remove('active');});
+  if(el) el.classList.add('active');
+  var labels = {carteira:'Carteira G20', gestao:'Gestão Patrimonial'};
+  document.getElementById('provSourceLabel').textContent = labels[src] || 'Carteira G20';
+  renderProvAgenda();
+}
 
 function setProvWeek(w, el) {
   _provWeekOffset = w;
@@ -83,7 +103,25 @@ function renderProvAgenda() {
     var list = document.getElementById('provAgendaList');
     if(!list) return;
 
-    var divs = JSON.parse(localStorage.getItem('g20_dividendos') || '[]');
+    var allDivs = JSON.parse(localStorage.getItem('g20_dividendos') || '[]');
+    // Separa por fonte: Carteira G20 usa 'Auto-*', Gestão Patrimonial usa 'auto'
+    var divs;
+    if(_provSource === 'gestao'){
+      divs = allDivs.filter(function(d){ return d.fonte === 'auto'; });
+      // Normaliza campos da gestão para o formato do dashboard
+      divs = divs.map(function(d){
+        return {
+          ticker: d.ticker,
+          tipo:   d.tipo || 'Dividendo',
+          data:   (d.data||'').substring(0,10),
+          valor:  d.valorCota || 0,
+          qtdEx:  d.qtd || 0,
+          fonte:  'auto'
+        };
+      });
+    } else {
+      divs = allDivs.filter(function(d){ return d.fonte && d.fonte.indexOf('Auto-')===0; });
+    }
     if(!divs.length) {
       list.innerHTML = '<div class="prov-agenda-empty">Nenhum provento cadastrado.<br><small>Importe na Carteira G20</small></div>';
       return;
@@ -853,6 +891,16 @@ body.pat-hidden .pat-kpi-var .var-brl::after{content:'(••••)';position:a
 /* ── LAYOUT PATRIMONIAL 2 COLUNAS ── */
 .pat-cal-wrap{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;align-items:stretch}
 @media(max-width:900px){.pat-cal-wrap{grid-template-columns:1fr}}
+
+/* ── DROPDOWN FONTE PROVENTOS ── */
+.prov-source-wrap{position:relative}
+.prov-source-btn{background:rgba(232,184,75,.1);border:1px solid rgba(232,184,75,.25);color:#e8b84b;font-size:10px;font-weight:700;padding:3px 9px;border-radius:5px;cursor:pointer;white-space:nowrap;transition:.15s}
+.prov-source-btn:hover{background:rgba(232,184,75,.2)}
+.prov-source-dropdown{display:none;position:absolute;top:calc(100% + 4px);right:0;background:#1a2236;border:1px solid rgba(255,255,255,.12);border-radius:8px;min-width:160px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:20}
+.prov-source-dropdown.open{display:block}
+.prov-source-opt{padding:8px 14px;font-size:12px;font-weight:600;color:#c2cbdd;cursor:pointer;transition:.15s}
+.prov-source-opt:hover{background:rgba(232,184,75,.1);color:#e8b84b}
+.prov-source-opt.active{color:#e8b84b;background:rgba(232,184,75,.08)}
 </style>
 
 <!-- Firebase Auth -->
@@ -1076,7 +1124,18 @@ if(localStorage.getItem('g20_uid')){
       <div class="prov-agenda">
         <div class="prov-agenda-header">
           <div class="prov-agenda-title">📅 Agenda de Proventos</div>
-          <a href="carteira.html" style="font-size:10px;color:#7a8599;text-decoration:none;font-weight:600">ver todos →</a>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="prov-source-wrap" onclick="event.stopPropagation()">
+              <button class="prov-source-btn" onclick="toggleProvSource(event)">
+                <span id="provSourceLabel">Carteira G20</span> ▾
+              </button>
+              <div class="prov-source-dropdown" id="provSourceDropdown">
+                <div class="prov-source-opt active" onclick="setProvSource('carteira',this)">Carteira G20</div>
+                <div class="prov-source-opt" onclick="setProvSource('gestao',this)">Gestão Patrimonial</div>
+              </div>
+            </div>
+            <a href="carteira.html" style="font-size:10px;color:#7a8599;text-decoration:none;font-weight:600">ver todos →</a>
+          </div>
         </div>
         <div class="prov-week-tabs" id="provWeekTabs">
           <button class="prov-week-tab active" data-w="0" onclick="setProvWeek(0,this)">Esta semana</button>
