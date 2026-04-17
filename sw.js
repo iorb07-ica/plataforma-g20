@@ -1,4 +1,4 @@
-const CACHE = 'g20-v6';
+const CACHE = 'g20-v7';
 
 // Apenas assets estáticos que raramente mudam
 const STATIC = [
@@ -53,17 +53,16 @@ self.addEventListener('fetch', function(e) {
     return;
   }
 
-  // Assets estáticos — cache-first
+  // Assets — network-first (busca rede, cache só como fallback offline)
   e.respondWith(
-    caches.match(e.request).then(function(cached) {
-      if (cached) return cached;
-      return fetch(e.request).then(function(response) {
-        if (response && response.status === 200) {
-          var clone = response.clone();
-          caches.open(CACHE).then(function(cache) { cache.put(e.request, clone); });
-        }
-        return response;
-      });
+    fetch(e.request).then(function(response) {
+      if (response && response.status === 200) {
+        var clone = response.clone();
+        caches.open(CACHE).then(function(cache) { cache.put(e.request, clone); });
+      }
+      return response;
+    }).catch(function() {
+      return caches.match(e.request);
     })
   );
 });
