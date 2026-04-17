@@ -2658,13 +2658,65 @@ function renderCalendar(){
 // ── AGENDA DE PROVENTOS ──
 var _agendaFiltro = 'carteira';
 var _agendaCache = null;
+var _agendaAllCache = null;
+var _agendaAllLoading = false;
 var AGENDA_PROXY = 'https://g20-proxy.vercel.app';
 
 function setAgendaFiltro(tipo, btn){
   _agendaFiltro = tipo;
   document.querySelectorAll('.agenda-tab').forEach(function(b){b.classList.remove('active');});
   if(btn) btn.classList.add('active');
-  _renderAgendaBody();
+  if(tipo==='todos' && !_agendaAllCache && !_agendaAllLoading) _fetchAgendaAll();
+  else _renderAgendaBody();
+}
+
+function _fetchAgendaAll(){
+  var fhKey = '';
+  try{ fhKey = localStorage.getItem('g20_finnhub_key')||''; }catch(e){}
+  if(!fhKey){
+    var body = document.getElementById('agendaBody');
+    if(body) body.innerHTML = '<div class="agenda-empty">Para ver todos os proventos do mercado, configure a key do Finnhub.<br><br><span style="font-size:10px;color:var(--text3)">No console (F12):<br>localStorage.setItem(\'g20_finnhub_key\',\'SUA_KEY\')</span></div>';
+    return;
+  }
+  _agendaAllLoading = true;
+  var body = document.getElementById('agendaBody');
+  if(body) body.innerHTML = '<div class="agenda-empty">⏳ Buscando dividendos do mercado via Finnhub...</div>';
+
+  var hoje = new Date();
+  var dom = hoje.getDay();
+  var seg = new Date(hoje); seg.setDate(seg.getDate() - (dom===0?6:dom-1));
+  var sexta = new Date(seg); sexta.setDate(sexta.getDate() + 13);
+  var pad = function(n){ return String(n).padStart(2,'0'); };
+  var from = seg.getFullYear()+'-'+pad(seg.getMonth()+1)+'-'+pad(seg.getDate());
+  var to = sexta.getFullYear()+'-'+pad(sexta.getMonth()+1)+'-'+pad(sexta.getDate());
+
+  fetch('https://finnhub.io/api/v1/calendar/earnings?from='+from+'&to='+to+'&token='+fhKey)
+    .then(function(){ return true; }).catch(function(){});
+
+  fetch('https://finnhub.io/api/v1/stock/dividend2?from='+from+'&to='+to+'&token='+fhKey)
+    .then(function(r){ return r.ok?r.json():null; })
+    .then(function(data){
+      if(!data || !data.data) throw new Error('no data');
+      _agendaAllCache = data.data.map(function(d){
+        return {
+          ticker: d.symbol||'',
+          tipo: '',
+          dataEx: (d.exDate||'').substring(0,10),
+          dataPag: (d.payDate||d.date||'').substring(0,10),
+          valor: +(d.amount||0),
+          tipoProv: 'Dividendo',
+          source: 'mercado',
+          currency: d.currency||'USD'
+        };
+      }).filter(function(d){ return d.dataPag && d.ticker; });
+      _agendaAllLoading = false;
+      _renderAgendaBody();
+    })
+    .catch(function(){
+      _agendaAllLoading = false;
+      var body2 = document.getElementById('agendaBody');
+      if(body2) body2.innerHTML = '<div class="agenda-empty">Erro ao buscar dividendos. Verifique sua key do Finnhub.</div>';
+    });
 }
 
 function _getUserTickers(){
@@ -2755,7 +2807,8 @@ function _renderAgendaBody(){
   var segISO = seg.toISOString().split('T')[0];
   var sextaISO = sexta.toISOString().split('T')[0];
 
-  var filtered = _agendaCache.filter(function(it){
+  var baseData = _agendaFiltro==='todos' && _agendaAllCache ? _agendaAllCache : (_agendaCache||[]);
+  var filtered = baseData.filter(function(it){
     if(_agendaFiltro==='carteira') return it.source==='minha';
     return true;
   }).filter(function(it){ return it.dataPag && it.dataPag.length===10; });
@@ -2816,7 +2869,7 @@ function _renderAgendaBody(){
           '<div class="agenda-dt">Pagamento <strong>'+fmtDate(it.dataPag)+'</strong></div>'+
         '</div>'+
       '</div>'+
-      '<div class="agenda-valor">'+fmtBRL(it.valor)+'</div>'+
+      '<div class="agenda-valor">'+(it.currency==='USD'?'US$ '+it.valor.toFixed(2):fmtBRL(it.valor))+'</div>'+
     '</div>';
   }).join('');
 }
