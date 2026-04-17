@@ -2755,22 +2755,27 @@ function _renderAgendaBody(){
   var segISO = seg.toISOString().split('T')[0];
   var sextaISO = sexta.toISOString().split('T')[0];
 
-  var items = _agendaCache.filter(function(it){
+  var filtered = _agendaCache.filter(function(it){
     if(_agendaFiltro==='carteira') return it.source==='minha';
     return true;
-  }).filter(function(it){
+  }).filter(function(it){ return it.dataPag && it.dataPag.length===10; });
+
+  var items = filtered.filter(function(it){
     return it.dataPag >= segISO && it.dataPag <= sextaISO;
   });
 
-  // Se não tem na semana, mostra próximos 10
+  // Se não tem na semana, mostra próximos futuros OU últimos pagos
   var showingNext = false;
   if(!items.length){
     var hojeISO = hoje.toISOString().split('T')[0];
-    items = _agendaCache.filter(function(it){
-      if(_agendaFiltro==='carteira') return it.source==='minha' && it.dataPag >= hojeISO;
-      return it.dataPag >= hojeISO;
-    }).slice(0,10);
-    showingNext = true;
+    var futuros = filtered.filter(function(it){ return it.dataPag >= hojeISO; });
+    if(futuros.length){
+      items = futuros.slice(0,10);
+      showingNext = true;
+    } else {
+      items = filtered.sort(function(a,b){ return b.dataPag.localeCompare(a.dataPag); }).slice(0,10);
+      showingNext = true;
+    }
   }
 
   // Deduplica
