@@ -2166,6 +2166,8 @@ input[type="text"].apl-inp-preco{text-align:right}
 .tac-badge{font-size:10px;padding:2px 8px;border-radius:4px;font-weight:700;white-space:nowrap}
 .tac-loading{padding:14px 16px;font-size:12px;color:var(--text3);text-align:center}
 .apl-moeda.brl{color:#2ecc71!important;border-color:rgba(46,204,113,.35)!important;background:rgba(46,204,113,.08)!important}
+.ticker-invalido{border:1px solid rgba(230,57,70,.7)!important;background:rgba(230,57,70,.08)!important;animation:tickerShake .35s}
+@keyframes tickerShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
 </style>
 <div class="modal" id="modalAporte">
   <div class="modal-box">
@@ -2199,7 +2201,7 @@ input[type="text"].apl-inp-preco{text-align:right}
       <div class="apl-tk-wrap">
         <input id="aporte_ticker" class="apl-inp" placeholder="PETR4, AAPL..."
           autocomplete="off" style="font-weight:700;font-size:14px"
-          oninput="this.value=this.value.toUpperCase();autoDetectTipo(this.value);buscarSugestoesTicker(this.value);aplCalc();if(_aplPrecoSource['0']!=='edited'){_aplPrecoSource['0']='empty';aplAtualizarBadge('0');var p0=document.getElementById('apl_preco0');if(p0)p0.value='';}"
+          oninput="this.value=this.value.toUpperCase();this.removeAttribute('data-ticker-validado');this.classList.remove('ticker-invalido');autoDetectTipo(this.value);buscarSugestoesTicker(this.value);aplCalc();if(_aplPrecoSource['0']!=='edited'){_aplPrecoSource['0']='empty';aplAtualizarBadge('0');var p0=document.getElementById('apl_preco0');if(p0)p0.value='';}"
           onkeydown="navegarAutocomplete(event)"
           onblur="setTimeout(function(){fecharAutocomplete();var tk=document.getElementById('aporte_ticker');var tp=document.getElementById('aporte_tipo');var dt=document.getElementById('apl_data0');if(tk&&tk.value&&_aplPrecoSource['0']!=='edited'&&_aplPrecoSource['0']!=='live'&&_aplPrecoSource['0']!=='historical')aplTriggerCotacao('0',tk.value,tp?tp.value:'Acao',dt?dt.value:'');},200)">
         <div id="tickerAutocomplete" class="ticker-autocomplete" style="display:none"></div>
@@ -2910,7 +2912,11 @@ function selecionarSugestao(symbol, tipo){
   var tipoFinal = corrigirTipoProxy(symbol, tipo);
   var flagBR    = ['Acao','FII','FIAGRO'].includes(tipoFinal);
   var tickerFinal = flagBR ? symbol.replace(/\.SA$/i,'').toUpperCase() : symbol.toUpperCase();
-  if(input) input.value = tickerFinal;
+  if(input){
+    input.value = tickerFinal;
+    input.setAttribute('data-ticker-validado','1');
+    input.classList.remove('ticker-invalido');
+  }
   var sel = document.getElementById('aporte_tipo');
   if(sel) sel.value = tipoFinal;
   aplTipoChange0(tipoFinal);
@@ -5755,6 +5761,11 @@ function abrirModalAporte(ticker){
     var opEl=document.getElementById('apl_op0'); if(opEl) opEl.className='apl-sel apl-op-c';
     set('apl_data0',today);
     set('aporte_ticker','');
+    var tkNovo=document.getElementById('aporte_ticker');
+    if(tkNovo){
+      tkNovo.removeAttribute('data-ticker-validado');
+      tkNovo.classList.remove('ticker-invalido');
+    }
     set('aporte_tipo','Acao');
     set('apl_qtd0','');
     set('apl_preco0','');
@@ -5778,6 +5789,11 @@ function abrirModalAporte(ticker){
 
     if(ticker && typeof ticker==='string' && !ticker.match(/^\d+$/)){
       set('aporte_ticker', ticker);
+      var tkPre=document.getElementById('aporte_ticker');
+      if(tkPre){
+        tkPre.setAttribute('data-ticker-validado','1');
+        tkPre.classList.remove('ticker-invalido');
+      }
       if(typeof autoDetectTipo==='function') autoDetectTipo(ticker);
     }
     modal.style.cssText='display:flex !important;align-items:center;justify-content:center;';
@@ -5798,7 +5814,8 @@ function aplSalvar(){
   var novos=[], erros=[];
 
   // Linha 0
-  var t0=(document.getElementById('aporte_ticker')||{value:''}).value.trim().toUpperCase();
+  var t0El=document.getElementById('aporte_ticker');
+  var t0=(t0El||{value:''}).value.trim().toUpperCase();
   var op0=(document.getElementById('apl_op0')||{value:'C'}).value;
   var d0=(document.getElementById('apl_data0')||{value:''}).value;
   var tp0=(document.getElementById('aporte_tipo')||{value:'Acao'}).value;
@@ -5806,11 +5823,17 @@ function aplSalvar(){
   var p0=aplParsePreco((document.getElementById('apl_preco0')||{value:''}).value);
   var m0=(document.getElementById('apl_moeda0')||{value:'BRL'}).value;
   if(!t0||!d0||q0<=0||p0<=0){ erros.push('Linha 1: preencha Ticker, Data, Qtd e Preço'); }
+  else if(t0El && t0El.getAttribute('data-ticker-validado')!=='1'){
+    erros.push('Linha 1: selecione o ticker "'+t0+'" na lista de sugestões');
+    t0El.classList.add('ticker-invalido');
+    try{ t0El.focus(); }catch(e){}
+  }
   else novos.push({id:Date.now().toString()+Math.random().toString(36).substr(2,4),ticker:t0,tipo:tp0,op:op0,data:d0,qtd:q0,preco:p0,moeda:m0,obs:''});
 
   // Linhas extras
   _aplRows.forEach(function(r,i){
-    var t=(document.getElementById('aplTk'+r)||{value:''}).value.trim().toUpperCase();
+    var tEl=document.getElementById('aplTk'+r);
+    var t=(tEl||{value:''}).value.trim().toUpperCase();
     var op=(document.getElementById('aplOp'+r)||{value:'C'}).value;
     var d=(document.getElementById('aplDt'+r)||{value:''}).value;
     var tp=(document.getElementById('aplTp'+r)||{value:'Acao'}).value;
@@ -5818,6 +5841,11 @@ function aplSalvar(){
     var p=aplParsePreco((document.getElementById('aplP'+r)||{value:''}).value);
     var m=(document.getElementById('aplM'+r)||{value:'BRL'}).value||'BRL';
     if(!t||!d||q<=0||p<=0){ erros.push('Linha '+(i+2)+': preencha todos os campos'); return; }
+    if(tEl && tEl.getAttribute('data-ticker-validado')!=='1'){
+      erros.push('Linha '+(i+2)+': selecione o ticker "'+t+'" na lista de sugestões');
+      tEl.classList.add('ticker-invalido');
+      return;
+    }
     novos.push({id:Date.now().toString()+Math.random().toString(36).substr(2,4),ticker:t,tipo:tp,op:op,data:d,qtd:q,preco:p,moeda:m,obs:''});
   });
 
@@ -6273,7 +6301,12 @@ function editarAporte(id){
   op0.value=ap.op||'C';
   op0.className='apl-sel '+(ap.op==='V'?'apl-op-v':'apl-op-c');
   document.getElementById('apl_data0').value=ap.data;
-  document.getElementById('aporte_ticker').value=ap.ticker;
+  var tkEdit=document.getElementById('aporte_ticker');
+  if(tkEdit){
+    tkEdit.value=ap.ticker;
+    tkEdit.setAttribute('data-ticker-validado','1');
+    tkEdit.classList.remove('ticker-invalido');
+  }
   document.getElementById('aporte_tipo').value=ap.tipo;
   document.getElementById('apl_qtd0').value=ap.qtd;
   document.getElementById('apl_preco0').value=ap.preco;
@@ -8612,6 +8645,8 @@ function aplAddLinha(){
   var tk=mk('input',{type:'text',id:'aplTk'+r,className:'apl-inp',placeholder:'PETR4, AAPL...',autocomplete:'off',style:'font-weight:700;font-size:14px'});
   tk.addEventListener('input',function(){
     this.value=this.value.toUpperCase();
+    this.removeAttribute('data-ticker-validado');
+    this.classList.remove('ticker-invalido');
     aplDetectTipo(r,this.value);
     aplBuscarAC(r,this.value,acId);
     aplCalc();
@@ -8743,7 +8778,11 @@ function aplSelAC(r, symbol, tipo, acId){
   var tk=document.getElementById('aplTk'+r);
   var tp=document.getElementById('aplTp'+r);
   var hint=document.getElementById('aplH'+r);
-  if(tk) tk.value=ticker;
+  if(tk){
+    tk.value=ticker;
+    tk.setAttribute('data-ticker-validado','1');
+    tk.classList.remove('ticker-invalido');
+  }
   if(tp){tp.value=tipoFinal;aplTipoExtra(r,tipoFinal);}
   if(hint){
     if(flagBR){hint.textContent='🇧🇷 '+tipoFinal+' (B3)';hint.style.color='#2ecc71';}
