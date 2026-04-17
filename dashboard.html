@@ -335,6 +335,10 @@ body.pat-hidden .pat-kpi-var .var-brl::after{content:'(••••)';position:a
 .agenda-dt strong{color:var(--text2);font-weight:600}
 .agenda-valor{font-size:15px;font-weight:800;color:var(--gold);white-space:nowrap;flex-shrink:0}
 .agenda-empty{text-align:center;padding:24px 12px;color:var(--text3);font-size:12px}
+.agenda-tabs{display:flex;gap:4px}
+.agenda-tab{font-size:11px;padding:5px 12px;border-radius:6px;background:none;border:1px solid var(--border);color:var(--text2);cursor:pointer;transition:all .2s;font-family:inherit;font-weight:600}
+.agenda-tab.active{background:var(--gold);color:#000;border-color:var(--gold)}
+.agenda-tab:hover:not(.active){border-color:var(--text3);color:var(--text)}
 /* ÚLTIMO EPISÓDIO */
 .latest-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;display:flex;flex-direction:column;animation:fadeUp .5s .1s var(--ease) both;transition:border-color .2s;-webkit-tap-highlight-color:transparent}
 @media(min-width:600px){.latest-card{flex-direction:row}}
@@ -952,8 +956,14 @@ if(localStorage.getItem('g20_uid')){
     <!-- AGENDA DA SEMANA -->
     <div class="agenda-card" id="agendaCard">
       <div class="agenda-header">
-        <div class="agenda-title"><span class="agenda-title-ico">📅</span> Agenda da Semana</div>
-        <div class="agenda-date" id="agendaDate"></div>
+        <div class="agenda-title"><span class="agenda-title-ico">📅</span> Agenda de Proventos</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="agenda-tabs">
+            <button class="agenda-tab active" onclick="setAgendaFiltro('carteira',this)">Minha Carteira</button>
+            <button class="agenda-tab" onclick="setAgendaFiltro('todos',this)">Todos</button>
+          </div>
+          <div class="agenda-date" id="agendaDate"></div>
+        </div>
       </div>
       <div class="agenda-scroll" id="agendaBody">
         <div class="agenda-empty">⏳ Carregando proventos...</div>
@@ -2645,81 +2655,108 @@ function renderCalendar(){
 }
 
 
-// ── AGENDA DA SEMANA ──
-function renderAgenda(){
+// ── AGENDA DE PROVENTOS ──
+var _agendaFiltro = 'carteira';
+var _agendaCache = null;
+var AGENDA_PROXY = 'https://g20-proxy.vercel.app';
+
+function setAgendaFiltro(tipo, btn){
+  _agendaFiltro = tipo;
+  document.querySelectorAll('.agenda-tab').forEach(function(b){b.classList.remove('active');});
+  if(btn) btn.classList.add('active');
+  _renderAgendaBody();
+}
+
+function _getUserTickers(){
+  var tickers = {};
+  try{
+    var a1 = JSON.parse(localStorage.getItem('g20_aportes')||'[]');
+    a1.forEach(function(a){ if(a&&a.ticker){ var t=a.ticker.replace(/\.SA$/i,'').toUpperCase(); tickers[t]={tipo:a.tipo||'Acao'}; }});
+    var a2 = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
+    a2.forEach(function(a){ if(a&&a.ticker){ var t=a.ticker.replace(/\.SA$/i,'').toUpperCase(); tickers[t]={tipo:a.tipo||'Acao'}; }});
+  }catch(e){}
+  return tickers;
+}
+
+function _fetchAgendaYahoo(){
+  var body = document.getElementById('agendaBody');
+  if(body) body.innerHTML = '<div class="agenda-empty">⏳ Buscando proventos via Yahoo Finance...</div>';
+
+  var userTickers = _getUserTickers();
+  var tks = Object.keys(userTickers);
+  if(!tks.length){
+    if(body) body.innerHTML = '<div class="agenda-empty">Cadastre ativos na Carteira G20 ou Gestão Patrimonial</div>';
+    return;
+  }
+
+  var from30 = Math.floor((Date.now() - 90*86400000)/1000);
+  var promises = tks.map(function(tk){
+    var suffix = userTickers[tk].tipo==='Stock'||userTickers[tk].tipo==='REIT'||userTickers[tk].tipo==='ETF'||userTickers[tk].tipo==='UCITs' ? '' : '.SA';
+    return fetch(AGENDA_PROXY+'/api/dividends-br?symbol='+tk+suffix+'&from='+from30)
+      .then(function(r){ return r.ok?r.json():[]; })
+      .then(function(divs){
+        if(!Array.isArray(divs)) divs = divs.dividends||[];
+        return divs.map(function(d){
+          return {
+            ticker: tk,
+            tipo: userTickers[tk].tipo,
+            dataEx: (d.ex_date||d.exDate||'').substring(0,10),
+            dataPag: (d.payment_date||d.paymentDate||d.date||'').substring(0,10),
+            valor: +(d.value||d.amount||0),
+            tipoProv: (d.type||'Dividendo'),
+            source: 'minha'
+          };
+        });
+      })
+      .catch(function(){ return []; });
+  });
+
+  Promise.all(promises).then(function(results){
+    var all = [];
+    results.forEach(function(arr){ all = all.concat(arr); });
+    all.sort(function(a,b){ return b.dataPag.localeCompare(a.dataPag); });
+    _agendaCache = all;
+    _renderAgendaBody();
+  });
+}
+
+function _renderAgendaBody(){
   var body = document.getElementById('agendaBody');
   var dateEl = document.getElementById('agendaDate');
-  if(!body) return;
+  if(!body || !_agendaCache) return;
 
   var hoje = new Date();
   var dom = hoje.getDay();
   var seg = new Date(hoje); seg.setDate(seg.getDate() - (dom===0?6:dom-1));
   var sexta = new Date(seg); sexta.setDate(sexta.getDate() + 6);
-
   var fmt = function(d){ return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0'); };
   if(dateEl) dateEl.innerHTML = '📆 '+fmt(seg)+' a '+fmt(sexta)+'/'+sexta.getFullYear();
 
   var segISO = seg.toISOString().split('T')[0];
   var sextaISO = sexta.toISOString().split('T')[0];
 
-  // Busca proventos do localStorage (carteira + gestão)
-  var items = [];
-  var LOGO_FALLBACK_COLORS = {
-    Acao:'#3b82f6',FII:'#10b981',FIAGRO:'#f59e0b',Stock:'#8b5cf6',
-    REIT:'#e74c3c',ETF:'#e67e22',Cripto:'#f7931a',UCITs:'#00bcd4'
-  };
+  var items = _agendaCache.filter(function(it){
+    if(_agendaFiltro==='carteira') return it.source==='minha';
+    return true;
+  }).filter(function(it){
+    return it.dataPag >= segISO && it.dataPag <= sextaISO;
+  });
 
-  function addProvs(key){
-    try{
-      var provs = JSON.parse(localStorage.getItem('g20_'+key)||'[]');
-      if(!Array.isArray(provs)) return;
-      provs.forEach(function(p){
-        if(!p || !p.ticker) return;
-        var dataPag = (p.dataPgto||p.payment_date||'').substring(0,10);
-        var dataEx = (p.dataEx||p.ex_date||'').substring(0,10);
-        if(!dataPag) return;
-        if(dataPag >= segISO && dataPag <= sextaISO){
-          var tipo = (p.tipo_provento||p.type||'Rendimento').toLowerCase();
-          var badgeCls = 'rendimento';
-          if(tipo.indexOf('divid')>=0) badgeCls = 'dividendo';
-          else if(tipo.indexOf('jcp')>=0 || tipo.indexOf('juros')>=0) badgeCls = 'jcp';
-          var badgeLabel = badgeCls.charAt(0).toUpperCase()+badgeCls.slice(1);
-          var valor = +(p.valor||0);
-          items.push({
-            ticker: p.ticker,
-            tipo: p.tipoAtivo||'',
-            badge: badgeLabel,
-            badgeCls: badgeCls,
-            dataEx: dataEx,
-            dataPag: dataPag,
-            valor: valor
-          });
-        }
-      });
-    }catch(e){}
+  // Se não tem na semana, mostra próximos 10
+  var showingNext = false;
+  if(!items.length){
+    var hojeISO = hoje.toISOString().split('T')[0];
+    items = _agendaCache.filter(function(it){
+      if(_agendaFiltro==='carteira') return it.source==='minha' && it.dataPag >= hojeISO;
+      return it.dataPag >= hojeISO;
+    }).slice(0,10);
+    showingNext = true;
   }
-  addProvs('dividendos');
-  addProvs('proventos');
-
-  // Também busca de rvAportes para pegar tickers da gestão
-  try{
-    var gp = JSON.parse(localStorage.getItem('g20_gpProventos')||'[]');
-    if(Array.isArray(gp)) gp.forEach(function(p){
-      if(!p||!p.ticker) return;
-      var dataPag = (p.dataPgto||'').substring(0,10);
-      var dataEx = (p.dataEx||'').substring(0,10);
-      if(dataPag >= segISO && dataPag <= sextaISO){
-        var tipo = (p.tipo_provento||'Rendimento').toLowerCase();
-        var badgeCls = tipo.indexOf('divid')>=0?'dividendo':tipo.indexOf('jcp')>=0?'jcp':'rendimento';
-        items.push({ticker:p.ticker,tipo:p.tipoAtivo||'',badge:badgeCls.charAt(0).toUpperCase()+badgeCls.slice(1),badgeCls:badgeCls,dataEx:dataEx,dataPag:dataPag,valor:+(p.valor||0)});
-      }
-    });
-  }catch(e){}
 
   // Deduplica
   var seen = {};
   items = items.filter(function(it){
-    var k = it.ticker+it.dataPag+it.badge;
+    var k = it.ticker+it.dataPag+it.valor;
     if(seen[k]) return false;
     seen[k]=1; return true;
   });
@@ -2727,22 +2764,28 @@ function renderAgenda(){
   items.sort(function(a,b){ return a.dataPag.localeCompare(b.dataPag); });
 
   if(!items.length){
-    body.innerHTML = '<div class="agenda-empty">Nenhum provento programado para esta semana</div>';
+    body.innerHTML = '<div class="agenda-empty">Nenhum provento encontrado'+(_agendaFiltro==='carteira'?' na sua carteira':'')+'</div>';
     return;
   }
 
+  var LOGO_FALLBACK_COLORS = {Acao:'#3b82f6',FII:'#10b981',FIAGRO:'#f59e0b',Stock:'#8b5cf6',REIT:'#e74c3c',ETF:'#e67e22',Cripto:'#f7931a',UCITs:'#00bcd4'};
   var fmtDate = function(d){ if(!d) return '--'; var p=d.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; };
   var fmtBRL = function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
 
-  body.innerHTML = items.map(function(it){
+  var headerHtml = showingNext ? '<div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;padding:0 4px">Próximos proventos</div>' : '';
+
+  body.innerHTML = headerHtml + items.map(function(it){
     var logoUrl = 'https://icons.brapi.dev/icons/'+it.ticker.replace(/\.SA$/i,'')+'.svg';
     var fallbackColor = LOGO_FALLBACK_COLORS[it.tipo]||'#3b82f6';
     var initials = it.ticker.replace(/\d+$/,'').substring(0,4);
+    var tipo = (it.tipoProv||'').toLowerCase();
+    var badgeCls = tipo.indexOf('divid')>=0?'dividendo':tipo.indexOf('jcp')>=0||tipo.indexOf('juros')>=0?'jcp':'rendimento';
+    var badgeLabel = badgeCls.charAt(0).toUpperCase()+badgeCls.slice(1);
 
     return '<div class="agenda-item">'+
       '<div class="agenda-logo"><img src="'+logoUrl+'" alt="'+it.ticker+'" onerror="this.style.display=\'none\';this.parentNode.innerHTML=\'<div class=agenda-logo-fallback style=background:'+fallbackColor+'>'+initials+'</div>\'"></div>'+
       '<div class="agenda-info">'+
-        '<div><span class="agenda-ticker">'+it.ticker+'</span><span class="agenda-badge '+it.badgeCls+'">'+it.badge+'</span></div>'+
+        '<div><span class="agenda-ticker">'+it.ticker+'</span><span class="agenda-badge '+badgeCls+'">'+badgeLabel+'</span></div>'+
         '<div class="agenda-dates">'+
           '<div class="agenda-dt">Data com <strong>'+fmtDate(it.dataEx)+'</strong></div>'+
           '<div class="agenda-dt">Pagamento <strong>'+fmtDate(it.dataPag)+'</strong></div>'+
@@ -2751,6 +2794,10 @@ function renderAgenda(){
       '<div class="agenda-valor">'+fmtBRL(it.valor)+'</div>'+
     '</div>';
   }).join('');
+}
+
+function renderAgenda(){
+  _fetchAgendaYahoo();
 }
 
 document.addEventListener('DOMContentLoaded', function(){
