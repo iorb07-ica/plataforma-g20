@@ -294,14 +294,23 @@
   };
 
   window.fmtTimeAgo = function(ts){
-    var diff=Date.now()-ts;
-    var min=Math.floor(diff/60000);
-    var h=Math.floor(diff/3600000);
-    var d=Math.floor(diff/86400000);
-    if(min<1) return 'agora';
-    if(min<60) return min+'min atras';
-    if(h<24) return h+'h atras';
-    return d+'d atras';
+    if(!ts) return '';
+    var diff = Date.now() - ts;
+    var seg = Math.floor(diff / 1000);
+    var min = Math.floor(diff / 60000);
+    var h   = Math.floor(diff / 3600000);
+    var d   = Math.floor(diff / 86400000);
+    if(seg < 60)  return 'Agora';
+    if(min === 1) return 'Há 1 minuto';
+    if(min < 60)  return 'Há ' + min + ' minutos';
+    if(h === 1)   return 'Há 1 hora';
+    if(h < 24)    return 'Há ' + h + ' horas';
+    if(d === 1)   return 'Ontem';
+    if(d < 7)     return 'Há ' + d + ' dias';
+    if(d < 14)    return 'Há 1 semana';
+    if(d < 30)    return 'Há ' + Math.floor(d / 7) + ' semanas';
+    if(d < 60)    return 'Há 1 mês';
+    return 'Há ' + Math.floor(d / 30) + ' meses';
   };
 
   // ═══════════════ RENDER ═══════════════
