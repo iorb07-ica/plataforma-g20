@@ -2711,11 +2711,31 @@ function _fetchAgendaYahoo(){
       .catch(function(){ return []; });
   });
 
+  // Também carrega proventos já salvos no localStorage
+  var localItems = [];
+  try{
+    var stored = JSON.parse(localStorage.getItem('g20_dividendos')||'[]');
+    if(Array.isArray(stored)) stored.forEach(function(p){
+      if(!p||!p.ticker) return;
+      var dataPag = (p.dataPgto||p.data||p.payment_date||'').substring(0,10);
+      var dataEx = (p.dataEx||p.datex||p.ex_date||dataPag).substring(0,10);
+      if(!dataPag) return;
+      localItems.push({
+        ticker: p.ticker, tipo: userTickers[p.ticker]?userTickers[p.ticker].tipo:'',
+        dataEx: dataEx, dataPag: dataPag, valor: +(p.valor||0),
+        tipoProv: p.tipo||p.type||'Dividendo', source:'minha'
+      });
+    });
+  }catch(e){}
+
   Promise.all(promises).then(function(results){
-    var all = [];
+    var all = localItems.slice();
     results.forEach(function(arr){ all = all.concat(arr); });
     all.sort(function(a,b){ return b.dataPag.localeCompare(a.dataPag); });
     _agendaCache = all;
+    _renderAgendaBody();
+  }).catch(function(){
+    _agendaCache = localItems;
     _renderAgendaBody();
   });
 }
