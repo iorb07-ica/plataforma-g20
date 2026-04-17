@@ -4510,6 +4510,11 @@ function buscarCotacoesRV(){
       rvSetCotStatus(found>0 ? '✅ '+found+' cotações atualizadas · USD/BRL: R$ '+rvUsdBRL.toFixed(2) : '⚠️ Sem cotações');
       renderRVPosicoes();
       renderKPIs(); renderCharts();
+      // Dispara busca silenciosa de proventos em background (B3 + Polygon via proxy)
+      // Roda depois das cotações pra garantir que _getQtdNaData tenha posições corretas
+      if(typeof buscarProventosAuto === 'function'){
+        setTimeout(function(){ buscarProventosAuto(true); }, 600);
+      }
     });
   });
 }
@@ -7109,9 +7114,10 @@ function limparProventosInvalidos(){
 }
 
 // ── Busca automática via Yahoo Finance ──
-function buscarProventosAuto(){
+// silent=true: usado no disparo automático ao abrir a página (não exibe toasts de "sem ativos")
+function buscarProventosAuto(silent){
   var aportes = loadRVAportes();
-  if(!aportes.length){ showToast('⚠️ Nenhum ativo em RV cadastrado'); return; }
+  if(!aportes.length){ if(!silent) showToast('⚠️ Nenhum ativo em RV cadastrado'); return; }
 
   var hoje = new Date().toISOString().split('T')[0];
   var posMap = {};
@@ -7120,7 +7126,7 @@ function buscarProventosAuto(){
     return _getQtdNaData(p.ticker, hoje) > 0;
   });
 
-  if(!ativos.length){ showToast('⚠️ Nenhum ativo com posição ativa'); return; }
+  if(!ativos.length){ if(!silent) showToast('⚠️ Nenhum ativo com posição ativa'); return; }
 
   var status = document.getElementById('provBuscarStatus');
   if(status) status.textContent = '⏳ Atualizando proventos...';
@@ -7140,8 +7146,10 @@ function buscarProventosAuto(){
 
   Promise.all(fetches).then(function(results){
     // Limpa registros inválidos (valorCota=0 ou qtd=0 ou total=0) que vieram de buscas anteriores com bug
+    // Cobre fontes antigas ('auto') e novas ('Auto-B3', 'Auto-Polygon')
     var lista = loadProventos().filter(function(p){
-      return p.fonte !== 'auto' || (p.valorCota > 0 && p.qtd > 0);
+      var isAuto = p.fonte === 'auto' || (p.fonte && p.fonte.indexOf('Auto-') === 0);
+      return !isAuto || (p.valorCota > 0 && p.qtd > 0);
     });
 
     var novos = 0;
@@ -7200,12 +7208,16 @@ function buscarProventosAuto(){
         });
         if(dup) return;
 
-        // ── Tipo de provento ──
+        // Tipo de provento + fonte rastreável
         var tipoDiv = 'Dividendo';
         if(r.tipo==='FII'||r.tipo==='FIAGRO') tipoDiv='Rendimento';
         var typeStr = (div.type||div.dividendType||div.label||'').toLowerCase();
         if(typeStr.includes('jcp')||typeStr.includes('juros')) tipoDiv='JCP';
         else if(typeStr.includes('rend')||typeStr.includes('amort')) tipoDiv='Rendimento';
+
+        // Fonte explícita: BR = B3 via proxy, US = Polygon via proxy
+        var isRBR = (r.tipo==='Acao'||r.tipo==='FII'||r.tipo==='FIAGRO'||/\d$/.test(r.ticker));
+        var fonteProv = isRBR ? 'Auto-B3' : 'Auto-Polygon';
 
         lista.push({
           ticker: r.ticker,
@@ -7215,7 +7227,7 @@ function buscarProventosAuto(){
           qtd:    qtd,
           total:  valorCota * qtd,
           obs:    '',
-          fonte:  'auto'
+          fonte:  fonteProv
         });
         novos++;
       });
@@ -7721,8 +7733,8 @@ function gpSwitchTab(tabId, btn) {
   if (tabId === 'proventos') {
     setTimeout(function(){
       if (typeof renderProvAll === 'function') renderProvAll();
-      // Busca automática sempre que abre a aba
-      if (typeof buscarProventosAuto === 'function') buscarProventosAuto();
+      // Busca silenciosa ao reabrir a aba (já rodou automaticamente na abertura da página)
+      if (typeof buscarProventosAuto === 'function') buscarProventosAuto(true);
     }, 80);
   }
   if (tabId === 'rebalancear') {
