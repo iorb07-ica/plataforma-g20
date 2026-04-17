@@ -8934,10 +8934,20 @@ function aplPreencherPreco(rowId, price, moeda, label){
     ? document.getElementById('apl_moeda0')
     : document.getElementById('aplM'+rowId);
   if(!precoEl) return;
+  // Determina tipo da linha para decidir casas decimais
+  var tipoEl = rowId==='0'
+    ? document.getElementById('aporte_tipo')
+    : document.getElementById('aplTp'+rowId);
+  var tipoRow = tipoEl ? tipoEl.value : 'Acao';
+  // Cripto pode ter preço muito baixo (ex: SHIB) — mantém até 6 casas
+  // Demais ativos (Acao, FII, FIAGRO, Stock, REIT, ETF, UCITs) sempre 2 casas
+  var maxFrac = (tipoRow === 'Cripto') ? 6 : 2;
+  // Arredonda fisicamente para eliminar ruído de ponto flutuante (ex: 36.889999 → 36.89)
+  var priceRounded = Math.round(price * Math.pow(10, maxFrac)) / Math.pow(10, maxFrac);
   // Formata no padrão pt-BR
-  var formatted = price.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:6});
-  // Remove trailing zeros desnecessários
-  if(formatted.includes(',')) formatted = formatted.replace(/,?0+$/, function(m){ return m[0]===','?'':m.replace(/0+$/,''); });
+  var formatted = priceRounded.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:maxFrac});
+  // Remove trailing zeros desnecessários (apenas para Cripto, mantém mínimo de 2 casas)
+  if(maxFrac > 2 && formatted.includes(',')) formatted = formatted.replace(/(,\d{2})(\d*?)0+$/, '$1$2');
   precoEl.value = formatted;
   // Atualiza moeda se aplicável
   if(moedaEl && moeda && moedaEl.style.display!=='none'){
@@ -9004,7 +9014,7 @@ function aplBuscarCotacaoModal(rowId, ticker, tipo, data){
 
 // dispara busca com debounce (evita chamadas a cada keystroke)
 function aplTriggerCotacao(rowId, ticker, tipo, data){
-  if(!ticker || ticker.length < 2) return;
+  if(!ticker) return;
   clearTimeout(_aplPrecoTimer[rowId]);
   if(_aplPrecoSource[rowId]==='edited') return; // nunca rebusca se editado
   _aplPrecoTimer[rowId] = setTimeout(function(){
