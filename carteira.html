@@ -6311,8 +6311,8 @@ function renderAportes(){
       })()
       +'<td style="color:var(--text2)">'+(a.obs||'-')+'</td>'
       +'<td style="white-space:nowrap">'
-      +'<button class="action-btn" onclick="editarAporte(\''+a.id+'\')">✏️</button> '
-      +'<button class="action-btn" onclick="excluirAporte(\''+a.id+'\')" style="border-color:rgba(230,57,70,.4);color:var(--red)">🗑️</button>'
+      +'<button class="action-btn" data-action="edit" data-id="'+a.id+'" title="Editar">✏️</button> '
+      +'<button class="action-btn" data-action="del" data-id="'+a.id+'" style="border-color:rgba(230,57,70,.4);color:var(--red)" title="Excluir">🗑️</button>'
       +'</td></tr>';
   }).join('');
 }
@@ -6325,35 +6325,88 @@ function limparFiltrosAportes(){
   renderAportes();
 }
 
-// ★ PATCH: editarAporte — onTipoChange sincroniza moeda ao editar
+// ★ PATCH v2: editarAporte — blindado com try/catch + checks de existência
+// + mesmo método de abertura do modal que abrirModalAporte (cssText display:flex)
 function editarAporte(id){
-  var ap=loadData('aportes',[]).find(function(a){return a.id===id;});
-  if(!ap) return;
-  document.getElementById('aporte_editId').value=id;
-  // Reset extras
-  document.getElementById('aplExtras').innerHTML='';
-  _aplRows=[]; _aplRowCount=1; aplUpdCount();
-  document.getElementById('aplSumPanel').style.display='none';
-  // Fill linha 0
-  var op0=document.getElementById('apl_op0');
-  op0.value=ap.op||'C';
-  op0.className='apl-sel '+(ap.op==='V'?'apl-op-v':'apl-op-c');
-  document.getElementById('apl_data0').value=ap.data;
-  var tkEdit=document.getElementById('aporte_ticker');
-  if(tkEdit){
-    tkEdit.value=ap.ticker;
-    tkEdit.setAttribute('data-ticker-validado','1');
-    tkEdit.classList.remove('ticker-invalido');
+  try {
+    if(!id) { console.warn('[editarAporte] id vazio'); return; }
+    var ap = loadData('aportes',[]).find(function(a){return a.id===id;});
+    if(!ap) { console.warn('[editarAporte] aporte não encontrado para id:', id); return; }
+    var modal = document.getElementById('modalAporte');
+    if(!modal) { console.warn('[editarAporte] modalAporte não existe no DOM'); return; }
+
+    var set = function(elemId,v){ var el=document.getElementById(elemId); if(el) el.value=v; };
+
+    set('aporte_editId', id);
+
+    // Reset extras
+    var extras = document.getElementById('aplExtras'); if(extras) extras.innerHTML='';
+    if(typeof _aplRows !== 'undefined') _aplRows = [];
+    if(typeof _aplRowCount !== 'undefined') _aplRowCount = 1;
+    if(typeof aplUpdCount==='function') aplUpdCount();
+    var sumP = document.getElementById('aplSumPanel'); if(sumP) sumP.style.display='none';
+
+    // Fill linha 0
+    var op0 = document.getElementById('apl_op0');
+    if(op0){
+      op0.value = ap.op || 'C';
+      op0.className = 'apl-sel ' + (ap.op==='V' ? 'apl-op-v' : 'apl-op-c');
+    }
+    set('apl_data0', ap.data || '');
+
+    var tkEdit = document.getElementById('aporte_ticker');
+    if(tkEdit){
+      tkEdit.value = ap.ticker || '';
+      tkEdit.setAttribute('data-ticker-validado','1');
+      tkEdit.classList.remove('ticker-invalido');
+    }
+    set('aporte_tipo', ap.tipo || 'Acao');
+    set('apl_qtd0', ap.qtd != null ? ap.qtd : '');
+    set('apl_preco0', ap.preco != null ? ap.preco : '');
+
+    if(typeof aplTipoChange0==='function') aplTipoChange0(ap.tipo || 'Acao');
+
+    var m0 = document.getElementById('apl_moeda0');
+    if(m0 && ap.moeda) m0.value = ap.moeda;
+
+    if(typeof aplCalc==='function') aplCalc();
+
+    // Abre o modal do mesmo jeito que abrirModalAporte faz
+    modal.style.cssText = 'display:flex !important;align-items:center;justify-content:center;';
+    modal.classList.add('show');
+  } catch(err) {
+    console.error('[editarAporte] erro:', err);
+    alert('Erro ao abrir edição: ' + (err && err.message ? err.message : err));
   }
-  document.getElementById('aporte_tipo').value=ap.tipo;
-  document.getElementById('apl_qtd0').value=ap.qtd;
-  document.getElementById('apl_preco0').value=ap.preco;
-  aplTipoChange0(ap.tipo);
-  var m0=document.getElementById('apl_moeda0');
-  if(m0 && ap.moeda) m0.value=ap.moeda;
-  aplCalc();
-  document.getElementById('modalAporte').classList.add('show');
 }
+
+// ★ PATCH v2: Event delegation para botões lápis/lixeira da tabela Transações
+// Evita bugs com onclick inline quando ids têm caracteres especiais
+(function(){
+  var tbodyId = 'tbodyAportes';
+  // tenta amarrar imediatamente; se tbody ainda não existe, espera DOM
+  function bind(){
+    var tbody = document.getElementById(tbodyId);
+    if(!tbody || tbody.dataset.actionBound === '1') return;
+    tbody.dataset.actionBound = '1';
+    tbody.addEventListener('click', function(e){
+      var btn = e.target.closest('button[data-action]');
+      if(!btn) return;
+      var action = btn.getAttribute('data-action');
+      var id = btn.getAttribute('data-id');
+      if(!id) return;
+      if(action === 'edit') editarAporte(id);
+      else if(action === 'del') excluirAporte(id);
+    });
+  }
+  if(document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bind);
+  } else {
+    bind();
+  }
+  // retry 1x caso tbody só exista após render
+  setTimeout(bind, 500);
+})();
 
 // ============================================================
 // DIVIDENDOS / PROVENTOS
