@@ -6550,8 +6550,14 @@ function salvarProventosBR(ticker, divs, dataCompra, fonte){
     var qtd = qtdNaData(ticker, dataEx || dataPag);
     if(qtd <= 0) return;
 
+    // Check de duplicata: mesmo ticker + mesmo mês-ano + mesmo valor = mesmo pagamento
+    // (evita salvar duas vezes quando fontes trazem datas ligeiramente diferentes)
+    var mesAnoNovo = dataPag.substring(0, 7); // YYYY-MM
     var existe = stored.find(function(x){
-      return x.ticker===ticker && x.data===dataPag && Math.abs(x.valor-valor)<0.0001;
+      if(x.ticker !== ticker) return false;
+      if(Math.abs((+x.valor || 0) - valor) > 0.0001) return false;
+      var mesAnoExist = (x.data || '').substring(0, 7);
+      return mesAnoExist === mesAnoNovo;
     });
 
     if(existe){
@@ -6602,15 +6608,14 @@ function salvarProventosUS(ticker, divList, fonte){
     var qtd = qtdNaData(ticker, dataEx || dataPag);
     if(qtd <= 0) return;
 
-    // Duplicata: mesmo ticker, mesma data de pagamento, valor similar (tolerância 0.01)
-    // Isso protege contra gravar 2x quando Polygon e FMP trazem o mesmo evento
+    // Duplicata: mesmo ticker + mesmo mês-ano + valor similar = mesmo pagamento
+    // (mais permissivo que match exato por data — diferentes fontes podem trazer datas ligeiramente diferentes)
+    var mesAnoNovo = dataPag.substring(0, 7); // YYYY-MM
     var existe = stored.find(function(x){
       if(x.ticker !== ticker) return false;
-      // Compara data de pagamento OU data ex
-      var matchData = (x.data === dataPag) || (x.datex === dataEx) ||
-                      (x.data === dataEx) || (x.datex === dataPag);
-      if(!matchData) return false;
-      return Math.abs((x.valor||0) - amount) < 0.01;
+      if(Math.abs((+x.valor || 0) - amount) > 0.01) return false;
+      var mesAnoExist = (x.data || '').substring(0, 7);
+      return mesAnoExist === mesAnoNovo;
     });
 
     if(existe){
