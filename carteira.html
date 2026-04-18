@@ -6388,15 +6388,40 @@ function dataProventoMaisRecente(ticker){
   return maisRecente || null;
 }
 
-// Decide qual data usar como "from" na busca de proventos
-// Se já tem proventos salvos: usa data do último menos 7 dias (margem de segurança)
-// Se não tem nada: usa a data da primeira compra (busca histórico completo)
+// Data do PROVENTO MAIS ANTIGO já salvo pra um ticker
+function dataProventoMaisAntigo(ticker){
+  var stored = loadData('dividendos',[]);
+  var doTicker = stored.filter(function(d){ return d.ticker === ticker; });
+  if(!doTicker.length) return null;
+  var maisAntigo = doTicker.reduce(function(min, d){
+    var data = d.data || d.datex || '';
+    if(!data) return min;
+    return (!min || data < min) ? data : min;
+  }, '');
+  return maisAntigo || null;
+}
+
+// Decide qual data usar como "from" na busca de proventos.
+// Regras:
+// 1. Sem proventos salvos → usa data da primeira compra (busca histórico completo)
+// 2. Tem proventos salvos, mas a compra é ANTERIOR ao provento mais antigo →
+//    usa data da primeira compra (precisa preencher gap histórico)
+// 3. Caso contrário (incremental normal) → usa data do provento mais recente - 7 dias
 function calcularDataInicioBuscaProventos(ticker, dataCompra){
   var dtUltimo = dataProventoMaisRecente(ticker);
   if(!dtUltimo) return dataCompra;
 
-  // Subtrai 7 dias de margem de segurança para pegar qualquer provento
-  // anunciado tarde ou com data atualizada pelo emissor
+  // Verifica se há aporte ANTES do provento mais antigo salvo.
+  // Isso acontece quando a primeira vez rodou com race condition
+  // (qtdEx 0 pros aportes antigos) ou quando foi cadastrado aporte antigo
+  // depois que já existiam proventos salvos.
+  var dtAntigo = dataProventoMaisAntigo(ticker);
+  if(dtAntigo && dataCompra < dtAntigo){
+    // Tem gap histórico — rebusca desde a compra
+    return dataCompra;
+  }
+
+  // Fluxo normal: incremental com 7 dias de margem
   var d = new Date(dtUltimo);
   d.setDate(d.getDate() - 7);
   var dtSegura = d.toISOString().split('T')[0];
