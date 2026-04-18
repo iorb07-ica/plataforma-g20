@@ -6470,17 +6470,53 @@ function importarProventosBR(ticker){
   // Cache incremental: se já tem proventos, busca só do mais recente pra frente (com 7 dias de margem)
   var dataInicio = calcularDataInicioBuscaProventos(ticker, dataCompra);
 
-  // Busca direto na B3 via proxy (com fallback Yahoo)
-  var urlDiv = PROXY_URL+'/api/dividends-br?symbol='+encodeURIComponent(ticker)+'&from='+encodeURIComponent(dataInicio);
+  // ARQUITETURA BR: Statusinvest primário + B3 fallback
+  // - Statusinvest: histórico longo (2016+), data-com + data-pgto separadas, DIV/JCP/Rendimento
+  // - B3: backup oficial se Statusinvest falhar (últimos 12-18 meses)
+  var urlSI = PROXY_URL+'/api/provents-si?symbol='+encodeURIComponent(ticker)+'&from='+encodeURIComponent(dataInicio);
+  var urlB3 = PROXY_URL+'/api/dividends-br?symbol='+encodeURIComponent(ticker)+'&from='+encodeURIComponent(dataInicio);
 
-  return fetch(urlDiv)
+  return fetch(urlSI)
     .then(function(r){ return r.ok ? r.json() : []; })
     .catch(function(){ return []; })
     .then(function(divs){
-      divs = Array.isArray(divs) ? divs : [];
-      return salvarProventosBR(ticker, divs, dataCompra, divs.length && divs[0].source ? divs[0].source : 'B3');
+      // Normaliza resposta (pode vir como array direto ou {data:[...]})
+      if(Array.isArray(divs)) return divs;
+      if(divs && Array.isArray(divs.data)) return divs.data;
+      return [];
+    })
+    .then(function(divsSI){
+      // Se Statusinvest trouxe dados, usa Statusinvest
+      if(divsSI.length > 0){
+        divsSI = dedupProventos(divsSI);
+        return salvarProventosBR(ticker, divsSI, dataCompra, 'Statusinvest');
+      }
+      // Fallback para B3
+      return fetch(urlB3)
+        .then(function(r){ return r.ok ? r.json() : []; })
+        .catch(function(){ return []; })
+        .then(function(divsB3){
+          divsB3 = Array.isArray(divsB3) ? divsB3 : [];
+          divsB3 = dedupProventos(divsB3);
+          return salvarProventosBR(ticker, divsB3, dataCompra, 'B3');
+        });
     });
 }
+
+// Dedup genérico por (data+valor+tipo) — trata B3 duplicando por classe e Statusinvest ok
+function dedupProventos(divs){
+  var seen = {};
+  var out = [];
+  divs.forEach(function(d){
+    var data  = (d.payment_date||'').substring(0,10);
+    var valor = parseFloat(d.value||d.rate||d.amount||0).toFixed(6);
+    var tipo  = String(d.type||d.label||'Dividendo').toUpperCase();
+    var k = data+'|'+valor+'|'+tipo;
+    if(!seen[k]){ seen[k] = true; out.push(d); }
+  });
+  return out;
+}
+
 
 function salvarProventosBR(ticker, divs, dataCompra, fonte){
   if(!divs || !divs.length) return 0;
@@ -6493,6 +6529,8 @@ function salvarProventosBR(ticker, divs, dataCompra, fonte){
     var dataEx  = (dv.ex_date || dv.lastDatePrior || dv.exDate || dataPag).substring(0,10);
     var valor   = parseFloat(dv.value || dv.rate || dv.amount || 0);
     var tipo    = dv.type || dv.label || dv.kind || 'Dividendo';
+    // Fonte individual (B3 ou Yahoo) — do próprio registro, não da chamada inteira
+    var fonteReg = dv.source || fonte || 'B3';
 
     if(!dataPag || !valor) return;
     if(dataPag < dataCompra) return;
@@ -6511,6 +6549,13 @@ function salvarProventosBR(ticker, divs, dataCompra, fonte){
         existe.qtdEx = qtd;
         novos++; // conta como alterado
       }
+      // Upgrade de fonte: Yahoo → B3 (B3 tem ex_date preciso)
+      if(fonteReg === 'B3' && existe.fonte === 'Auto-Yahoo'){
+        existe.fonte = 'Auto-B3';
+        existe.datex = dataEx;
+        existe.tipo  = tipo; // B3 separa DIV/JCP
+        novos++;
+      }
       return;
     }
 
@@ -6522,7 +6567,7 @@ function salvarProventosBR(ticker, divs, dataCompra, fonte){
       datex:  dataEx,
       valor:  valor,
       qtdEx:  qtd,
-      fonte:  'Auto-'+fonte
+      fonte:  'Auto-'+fonteReg
     });
     novos++;
   });
