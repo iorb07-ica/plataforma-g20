@@ -1822,9 +1822,10 @@ body.pat-hidden .g-kpi-sub::after{justify-content:flex-start;padding-right:0;pad
             <option value="">Todos os ativos</option>
           </select>
           <input class="search-input" id="searchProv" placeholder="🔍 Ticker..." oninput="renderDividendos()" style="min-width:130px">
-          <button class="btn-sm btn-gold" id="btnImportarProventos" onclick="importarTodosProventos()">📥 Importar</button>
+          <button class="btn-sm btn-gold" id="btnImportarProventos" onclick="importarTodosProventos(null, true)">📥 Importar</button>
           <button class="btn-sm btn-outline" onclick="buscarDividendos()">↻ Brapi</button>
           <button class="btn-sm btn-outline" onclick="abrirModalDividendo()">+ Manual</button>
+          <button class="btn-sm btn-outline" id="btnHistCompleto" onclick="importarHistoricoCompleto()" title="Busca dividendos antigos (>2 anos) via FMP — útil apenas na 1ª vez para ativos antigos">📜 Histórico Completo</button>
         </div>
       </div>
 
@@ -6371,12 +6372,60 @@ function dataPrimeiraCompra(ticker){
   return aportes.sort(function(a,b){ return a.data.localeCompare(b.data); })[0].data;
 }
 
+// ============================================================
+// CACHE INCREMENTAL DE PROVENTOS
+// ============================================================
+
+// Retorna a data do provento mais recente salvo para o ticker, ou null
+function dataProventoMaisRecente(ticker){
+  var stored = loadData('dividendos',[]);
+  var doTicker = stored.filter(function(d){ return d.ticker === ticker; });
+  if(!doTicker.length) return null;
+  var maisRecente = doTicker.reduce(function(max, d){
+    var data = d.data || d.datex || '';
+    return data > max ? data : max;
+  }, '');
+  return maisRecente || null;
+}
+
+// Decide qual data usar como "from" na busca de proventos
+// Se já tem proventos salvos: usa data do último menos 7 dias (margem de segurança)
+// Se não tem nada: usa a data da primeira compra (busca histórico completo)
+function calcularDataInicioBuscaProventos(ticker, dataCompra){
+  var dtUltimo = dataProventoMaisRecente(ticker);
+  if(!dtUltimo) return dataCompra;
+
+  // Subtrai 7 dias de margem de segurança para pegar qualquer provento
+  // anunciado tarde ou com data atualizada pelo emissor
+  var d = new Date(dtUltimo);
+  d.setDate(d.getDate() - 7);
+  var dtSegura = d.toISOString().split('T')[0];
+
+  // Não busca antes da data de compra
+  return dtSegura < dataCompra ? dataCompra : dtSegura;
+}
+
+// Verifica se já rodou importação completa de proventos hoje
+function jaRodouProventosHoje(){
+  var ultima = localStorage.getItem('g20_prov_last_import');
+  var hoje = new Date().toISOString().split('T')[0];
+  return ultima === hoje;
+}
+
+function marcarProventosRodadosHoje(){
+  var hoje = new Date().toISOString().split('T')[0];
+  localStorage.setItem('g20_prov_last_import', hoje);
+}
+
 function importarProventosBR(ticker){
   var dataCompra = dataPrimeiraCompra(ticker);
   if(!dataCompra) return Promise.resolve(0);
 
+  // Cache incremental: se já tem proventos, busca só do mais recente pra frente (com 7 dias de margem)
+  var dataInicio = calcularDataInicioBuscaProventos(ticker, dataCompra);
+
   // Busca direto na B3 via proxy (com fallback Yahoo)
-  var urlDiv = PROXY_URL+'/api/dividends-br?symbol='+encodeURIComponent(ticker)+'&from='+encodeURIComponent(dataCompra);
+  var urlDiv = PROXY_URL+'/api/dividends-br?symbol='+encodeURIComponent(ticker)+'&from='+encodeURIComponent(dataInicio);
 
   return fetch(urlDiv)
     .then(function(r){ return r.ok ? r.json() : []; })
@@ -6436,68 +6485,209 @@ function salvarProventosBR(ticker, divs, dataCompra, fonte){
   return novos;
 }
 
+// Salva proventos US (Polygon ou FMP) evitando duplicatas
+// Retorna quantos foram adicionados/atualizados
+function salvarProventosUS(ticker, divList, fonte){
+  var stored = loadData('dividendos',[]);
+  var novos  = 0;
+
+  divList.forEach(function(dv){
+    var dataPag = (dv.payment_date || dv.date || '').substring(0,10);
+    var dataEx  = (dv.ex_date || dv.date || dataPag).substring(0,10);
+    var amount  = parseFloat(dv.amount || dv.value || 0);
+    if(!dataPag || !amount) return;
+
+    var qtd = qtdNaData(ticker, dataEx || dataPag);
+    if(qtd <= 0) return;
+
+    // Duplicata: mesmo ticker, mesma data de pagamento, valor similar (tolerância 0.01)
+    // Isso protege contra gravar 2x quando Polygon e FMP trazem o mesmo evento
+    var existe = stored.find(function(x){
+      if(x.ticker !== ticker) return false;
+      // Compara data de pagamento OU data ex
+      var matchData = (x.data === dataPag) || (x.datex === dataEx) ||
+                      (x.data === dataEx) || (x.datex === dataPag);
+      if(!matchData) return false;
+      return Math.abs((x.valor||0) - amount) < 0.01;
+    });
+
+    if(existe){
+      // Atualiza qtdEx se estiver errado
+      if(Math.abs((existe.qtdEx||0)-qtd)>0.001){ existe.qtdEx=qtd; novos++; }
+      // Atualiza datex se separado agora e não estava antes
+      if(dataEx && dataEx!==dataPag && (!existe.datex || existe.datex===existe.data)){
+        existe.datex=dataEx; novos++;
+      }
+      // Se o registro antigo era do FMP/Yahoo e veio nova do Polygon, upgrade a fonte
+      // (Polygon tem dados de melhor qualidade pros recentes)
+      if(fonte === 'Polygon' && (existe.fonte === 'Auto-FMP' || existe.fonte === 'Auto-Yahoo')){
+        existe.fonte = 'Auto-Polygon';
+      }
+      return;
+    }
+
+    stored.push({
+      id:     Date.now().toString()+Math.random(),
+      ticker: ticker,
+      tipo:   dv.type || 'Dividendo',
+      data:   dataPag,
+      datex:  dataEx || dataPag,
+      valor:  amount,
+      qtdEx:  qtd,
+      fonte:  'Auto-'+fonte,
+      moeda:  'USD'
+    });
+    novos++;
+  });
+
+  if(novos > 0) saveData('dividendos', stored);
+  return novos;
+}
+
 function importarProventosUS(ticker){
   var dataCompra = dataPrimeiraCompra(ticker);
   if(!dataCompra) return Promise.resolve(0);
 
+  // Cache incremental: só busca o que é novo desde o último provento salvo
+  var dataInicio = calcularDataInicioBuscaProventos(ticker, dataCompra);
+
   var apiSymbol = ticker === 'BRK.B' ? 'BRK-B' : (isBR(ticker,'') ? ticker+'.SA' : ticker);
-  var urlDiv = PROXY_URL+'/api/dividends?symbol='+encodeURIComponent(apiSymbol)+'&from='+dataCompra;
+  var urlDiv = PROXY_URL+'/api/dividends?symbol='+encodeURIComponent(apiSymbol)+'&from='+dataInicio;
 
   return fetch(urlDiv)
     .then(function(r){ return r.ok ? r.json() : {}; })
     .catch(function(){ return {}; })
     .then(function(d){
-      var stored = loadData('dividendos',[]);
-      var novos  = 0;
-
       var divList = d.dividends || [];
-      divList.forEach(function(dv){
-        // Polygon retorna ex_date como data principal, payment_date separado
-        var dataPag = (dv.payment_date || dv.date || '').substring(0,10);
-        var dataEx  = (dv.ex_date || dv.date || dataPag).substring(0,10);
-        var amount  = parseFloat(dv.amount || dv.value || 0);
-        if(!dataPag || !amount) return;
-
-        var qtd = qtdNaData(ticker, dataEx || dataPag);
-        if(qtd <= 0) return;
-
-        var existe = stored.find(function(x){
-          return x.ticker===ticker && x.data===dataPag && Math.abs(x.valor-amount)<0.001;
-        });
-        if(existe){
-          if(Math.abs((existe.qtdEx||0)-qtd)>0.001){ existe.qtdEx=qtd; novos++; }
-          // Atualiza datex se separado
-          if(dataEx && dataEx!==dataPag && (!existe.datex || existe.datex===existe.data)){
-            existe.datex=dataEx; novos++;
-          }
-          return;
-        }
-
-        stored.push({
-          id:     Date.now().toString()+Math.random(),
-          ticker: ticker,
-          tipo:   dv.type || 'Dividendo',
-          data:   dataPag,
-          datex:  dataEx || dataPag,
-          valor:  amount,
-          qtdEx:  qtd,
-          fonte:  'Auto-Polygon',
-          moeda:  'USD'
-        });
-        novos++;
-      });
-
-      if(novos > 0) saveData('dividendos', stored);
-      return novos;
+      return salvarProventosUS(ticker, divList, 'Polygon');
     })
     .catch(function(){ return 0; });
 }
 
-function importarTodosProventos(callback){
+// ============================================================
+// IMPORT HISTÓRICO (supera o limite de 2 anos do Polygon grátis)
+// ============================================================
+// Usa FMP (Financial Modeling Prep) via proxy /api/dividends-yahoo
+// (apesar do nome do endpoint, a fonte é FMP — Yahoo bloqueia Vercel)
+// FMP tem 30+ anos de histórico, plano free 250 chamadas/dia
+// Usado 1 vez pra preencher o "gap histórico" — depois Polygon mantém o dia-a-dia.
+
+function importarProventosUSHistorico(ticker){
+  var dataCompra = dataPrimeiraCompra(ticker);
+  if(!dataCompra) return Promise.resolve(0);
+
+  // Só busca até 2 anos atrás (onde o Polygon grátis começa)
+  // Mais 30 dias de overlap pra garantir que não fique gap na transição
+  var hoje = new Date();
+  var doisAnosMenos30dias = new Date(hoje.getFullYear()-2, hoje.getMonth(), hoje.getDate()+30);
+  var dataFim = doisAnosMenos30dias.toISOString().split('T')[0];
+
+  // Se a compra é MAIS recente que o fim da janela, não precisa do histórico
+  // (Polygon já cobre todo o período)
+  if(dataCompra >= dataFim){
+    return Promise.resolve(0);
+  }
+
+  var apiSymbol = ticker === 'BRK.B' ? 'BRK-B' : (isBR(ticker,'') ? ticker+'.SA' : ticker);
+  var url = PROXY_URL+'/api/dividends-yahoo?symbol='+encodeURIComponent(apiSymbol) +
+            '&from='+dataCompra + '&to='+dataFim;
+
+  return fetch(url)
+    .then(function(r){ return r.ok ? r.json() : {}; })
+    .catch(function(){ return {}; })
+    .then(function(d){
+      var divList = d.dividends || [];
+      return salvarProventosUS(ticker, divList, 'FMP');
+    })
+    .catch(function(){ return 0; });
+}
+
+// ============================================================
+// IMPORT HISTÓRICO COMPLETO (botão "📜 Histórico Completo")
+// ============================================================
+// Chamado pelo botão "📜 Histórico Completo" na aba Proventos.
+// Busca em paralelo os dividendos anteriores a 2 anos atrás pra todos
+// os ativos US da carteira. Usa FMP (30+ anos histórico) com cache Redis.
+
+function importarHistoricoCompleto(){
+  var pos = calcPosicoes();
+  var posUS = pos.filter(function(p){ return !isBR(p.ticker, p.tipo) && p.tipo !== 'Cripto'; });
+
+  if(!posUS.length){
+    showToast('Nenhum ativo US na carteira.');
+    return;
+  }
+
+  // Identifica só os que realmente precisam (data de compra > 2 anos atrás)
+  var hoje = new Date();
+  var doisAnos = new Date(hoje.getFullYear()-2, hoje.getMonth(), hoje.getDate()).toISOString().split('T')[0];
+  var precisam = posUS.filter(function(p){
+    var dt = dataPrimeiraCompra(p.ticker);
+    return dt && dt < doisAnos;
+  });
+
+  if(!precisam.length){
+    showToast('Todos os ativos US têm aportes recentes (< 2 anos). Polygon já cobre tudo.');
+    return;
+  }
+
+  if(!confirm('Buscar dividendos históricos (>2 anos) via FMP para '+precisam.length+' ativo(s)?\n\n' +
+              'Ativos: ' + precisam.map(function(p){return p.ticker;}).join(', ') + '\n\n' +
+              'Isso cobre o período anterior a 2 anos atrás (que o Polygon grátis não alcança).')){
+    return;
+  }
+
+  var btn = document.getElementById('btnHistCompleto');
+  if(btn){ btn.textContent='⏳ Buscando...'; btn.disabled=true; }
+
+  console.log('[Histórico] Buscando pra '+precisam.length+' ativo(s): '+precisam.map(function(p){return p.ticker;}).join(', '));
+
+  var promises = precisam.map(function(p){
+    return importarProventosUSHistorico(p.ticker).then(function(n){
+      console.log('  '+p.ticker+': '+n+' provento(s) histórico(s) adicionado(s)');
+      return {ticker: p.ticker, n: n||0};
+    });
+  });
+
+  Promise.all(promises).then(function(resultados){
+    var total = resultados.reduce(function(s,r){return s+r.n;}, 0);
+    if(btn){ btn.textContent='📜 Histórico Completo'; btn.disabled=false; }
+    renderDividendos();
+    renderPosicoes();
+    if(total > 0){
+      showToast('✅ '+total+' provento(s) histórico(s) importado(s)!', '#10b981');
+      console.log('[Histórico] ✅ Total: '+total+' provento(s) adicionado(s).');
+    } else {
+      showToast('Nenhum provento novo encontrado (pode já estar tudo importado).');
+    }
+  });
+}
+
+// ============================================================
+// IMPORTAÇÃO COMPLETA DE PROVENTOS
+// ============================================================
+// Estratégia:
+//  - BR (B3): dispara todos em paralelo (sem rate limit)
+//  - US (Polygon): processa em grupos de 5, com espera de 61s entre grupos
+//    (respeita limite de 5 chamadas/minuto do plano gratuito)
+//  - Cache diário: se já rodou hoje, pula (exceto se forcarRefresh=true)
+//  - Cache incremental: cada chamada só pede proventos desde o último salvo
+//
+// Parâmetros:
+//   callback(total)    — chamado ao final com quantos foram importados
+//   forcarRefresh=true — ignora cache diário e roda mesmo que já tenha rodado
+function importarTodosProventos(callback, forcarRefresh){
   var pos = calcPosicoes();
   if(!pos.length){ if(callback) callback(0); return; }
 
-  // Primeiro recalcula qtdEx de todos os proventos existentes
+  // Cache diário: já rodou hoje? pula
+  if(!forcarRefresh && jaRodouProventosHoje()){
+    console.log('[Proventos] Já importado hoje — cache diário ativo. Use o botão pra forçar refresh se precisar.');
+    if(callback) callback(0);
+    return;
+  }
+
+  // Recalcula qtdEx de todos os proventos existentes
   pos.forEach(function(p){ _recalcularQtdExProventos(p.ticker); });
 
   var btn = document.getElementById('btnImportarProventos');
@@ -6506,22 +6696,83 @@ function importarTodosProventos(callback){
   var posBR = pos.filter(function(p){ return isBR(p.ticker, p.tipo); });
   var posUS = pos.filter(function(p){ return !isBR(p.ticker, p.tipo); });
 
-  var promises = [];
-  posBR.forEach(function(p){ promises.push(importarProventosBR(p.ticker)); });
-  posUS.forEach(function(p){ promises.push(importarProventosUS(p.ticker)); });
+  console.log('[Proventos] Iniciando import: '+posBR.length+' BR + '+posUS.length+' US');
 
-  Promise.all(promises).then(function(resultados){
-    var total = resultados.reduce(function(s,n){ return s+(n||0); }, 0);
+  var totalImportado = 0;
+
+  // 1) BR: todos em paralelo (B3 não tem rate limit)
+  var promisesBR = posBR.map(function(p){
+    return importarProventosBR(p.ticker).then(function(n){ return n||0; });
+  });
+
+  Promise.all(promisesBR).then(function(resBR){
+    totalImportado += resBR.reduce(function(s,n){ return s+n; }, 0);
+    if(posBR.length > 0){
+      console.log('[Proventos BR] Concluído: '+resBR.reduce(function(s,n){return s+n;},0)+' novo(s)');
+      renderDividendos();
+      renderPosicoes();
+    }
+
+    // 2) US: processa em grupos de 5 com espera de 61s (Polygon free = 5/min)
+    if(posUS.length === 0){
+      finalizarImport();
+      return;
+    }
+
+    processarGrupoUS(posUS, 0);
+  });
+
+  function processarGrupoUS(lista, inicio){
+    var grupo = lista.slice(inicio, inicio + 5);
+    var restantes = lista.length - inicio - grupo.length;
+
+    if(restantes > 0){
+      console.log('[Proventos US] Processando grupo '+(Math.floor(inicio/5)+1)+' ('+grupo.length+' ativos). Ainda faltam '+restantes+' ativos após este grupo.');
+    } else {
+      console.log('[Proventos US] Processando último grupo ('+grupo.length+' ativos).');
+    }
+
+    if(btn) btn.textContent = '⏳ US '+(inicio+grupo.length)+'/'+lista.length+'...';
+
+    var promisesUS = grupo.map(function(p){
+      return importarProventosUS(p.ticker).then(function(n){ return n||0; });
+    });
+
+    Promise.all(promisesUS).then(function(resUS){
+      var novosGrupo = resUS.reduce(function(s,n){return s+n;}, 0);
+      totalImportado += novosGrupo;
+      if(novosGrupo > 0){
+        renderDividendos();
+        renderPosicoes();
+      }
+
+      var proximoInicio = inicio + grupo.length;
+      if(proximoInicio >= lista.length){
+        // Acabou
+        finalizarImport();
+        return;
+      }
+
+      // Espera 61s antes do próximo grupo (respeita 5/min do Polygon)
+      console.log('[Proventos US] Aguardando 61s pra respeitar rate limit (5/min)...');
+      if(btn) btn.textContent = '⏳ Aguardando API... ('+proximoInicio+'/'+lista.length+')';
+      setTimeout(function(){
+        processarGrupoUS(lista, proximoInicio);
+      }, 61000);
+    });
+  }
+
+  function finalizarImport(){
     if(btn){ btn.textContent='📥 Importar Proventos'; btn.disabled=false; }
+    marcarProventosRodadosHoje();
     renderDividendos();
     renderPosicoes();
-    if(callback) callback(total);
-    if(total > 0 && callback && callback.toString().includes('renderPosicoes')){
-      console.log('[Proventos] '+total+' novo(s) importado(s)');
-    } else if(total > 0){
-      mostrarErros(['✅ '+total+' novo(s) provento(s) importado(s)!']);
+    console.log('[Proventos] ✅ Import completo. Total: '+totalImportado+' novo(s).');
+    if(callback) callback(totalImportado);
+    if(totalImportado > 0){
+      mostrarErros(['✅ '+totalImportado+' novo(s) provento(s) importado(s)!']);
     }
-  });
+  }
 }
 
 // ============================================================
