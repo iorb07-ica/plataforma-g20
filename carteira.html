@@ -3642,7 +3642,13 @@ function renderPosicoes(){
   var search = (document.getElementById('searchTicker').value||'').toUpperCase();
   var divs = loadData('dividendos',[]);
   var divRec = divs.filter(function(d){return d.data<new Date().toISOString().split('T')[0];})
-                   .reduce(function(s,d){return s+(d.valor*(d.qtdEx||0));},0);
+                   .reduce(function(s,d){
+                     // Blindagem: suporta schema misto (valor|valorCota, qtdEx|qtd, total pré-calculado)
+                     if(d.total != null) return s + (parseFloat(d.total)||0);
+                     var vlr = parseFloat(d.valor != null ? d.valor : (d.valorCota != null ? d.valorCota : 0)) || 0;
+                     var qtd = parseFloat(d.qtdEx != null ? d.qtdEx : (d.qtd != null ? d.qtd : 0)) || 0;
+                     return s + (vlr * qtd);
+                   },0);
 
   if(filtroAtivo!=='todos') pos=pos.filter(function(p){return p.tipo===filtroAtivo;});
   if(search) pos=pos.filter(function(p){return p.ticker.includes(search);});
@@ -4088,7 +4094,12 @@ function renderDrawerProv(){
     : function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
 
   var totalProv = divs.filter(function(d){ return d.data < new Date().toISOString().split('T')[0]; })
-    .reduce(function(s,d){ return s+d.valor*(d.qtdEx||0); },0);
+    .reduce(function(s,d){
+      if(d.total != null) return s + (parseFloat(d.total)||0);
+      var vlr = parseFloat(d.valor != null ? d.valor : (d.valorCota != null ? d.valorCota : 0)) || 0;
+      var qtd = parseFloat(d.qtdEx != null ? d.qtdEx : (d.qtd != null ? d.qtd : 0)) || 0;
+      return s + (vlr * qtd);
+    },0);
 
   var summaryHtml = divs.length ? '<div class="dtx-summary" style="margin-bottom:14px">'+
     '<div class="dtx-sum-card"><div class="lbl">Total Recebido</div><div class="val" style="color:var(--green)">'+fmt(totalProv)+'</div></div>'+
