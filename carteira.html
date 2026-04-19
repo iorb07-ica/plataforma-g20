@@ -1827,6 +1827,7 @@ body.pat-hidden .g-kpi-sub::after{justify-content:flex-start;padding-right:0;pad
           </select>
           <input class="search-input" id="searchProv" placeholder="🔍 Ticker..." oninput="renderDividendos()" style="min-width:130px">
           <button class="btn-sm btn-gold" id="btnImportarProventos" onclick="importarTodosProventos(null, true)">📥 Importar</button>
+          <button class="btn-sm btn-outline" id="btnRecarregarNuvem" onclick="recarregarProventosDoFirestore()" title="Recarrega proventos direto do Firestore (útil se localStorage foi corrompido)">☁️ Recarregar da Nuvem</button>
           <button class="btn-sm btn-outline" onclick="buscarDividendos()">↻ Brapi</button>
           <button class="btn-sm btn-outline" onclick="abrirModalDividendo()">+ Manual</button>
           <button class="btn-sm btn-outline" id="btnHistCompleto" onclick="importarHistoricoCompleto()" title="Busca dividendos antigos (>2 anos) via FMP — útil apenas na 1ª vez para ativos antigos">📜 Histórico Completo</button>
@@ -9363,6 +9364,72 @@ function closeFab(){
   if(items) items.classList.remove('open');
   if(main)  main.classList.remove('open');
   if(ov)    ov.classList.remove('show');
+}
+
+// ═══════════════════════════════════════════════════════════
+// RECARREGAR PROVENTOS DIRETO DO FIRESTORE
+// Útil quando localStorage foi corrompido ou perdido
+// ═══════════════════════════════════════════════════════════
+function recarregarProventosDoFirestore(){
+  var btn = document.getElementById('btnRecarregarNuvem');
+  var originalText = btn ? btn.textContent : '';
+
+  function updateBtn(text, disabled){
+    if(btn){ btn.textContent = text; btn.disabled = !!disabled; }
+  }
+
+  // Validações
+  if(!window.firebase || !firebase.apps || !firebase.apps.length){
+    alert('❌ Firebase não disponível. Faça login primeiro.');
+    return;
+  }
+  if(!_db_ref || !_db_uid){
+    alert('❌ Banco de dados não conectado. Recarregue a página e faça login.');
+    return;
+  }
+
+  if(!confirm('Buscar proventos direto do Firestore?\n\nIsso vai SOBRESCREVER os proventos atuais do seu navegador com os que estão salvos na nuvem.\n\nContinuar?')){
+    return;
+  }
+
+  updateBtn('⏳ Carregando...', true);
+
+  // Busca todos os documentos da coleção "dados" do usuário
+  _db_ref.get({ source: 'server' }).then(function(snap){
+    var count = 0;
+    var keysRestauradas = [];
+
+    snap.forEach(function(doc){
+      var key = doc.id;
+      var val = doc.data().value;
+
+      // Foca nas chaves relacionadas a proventos/dividendos
+      if(key === 'dividendos' || key === 'rvDividendos' || key.indexOf('dividend') !== -1 || key.indexOf('provent') !== -1){
+        _db_cache[key] = val;
+        try{
+          localStorage.setItem('g20_' + key, JSON.stringify(val));
+          keysRestauradas.push(key + ' (' + (Array.isArray(val) ? val.length : '?') + ')');
+          if(Array.isArray(val)) count += val.length;
+        }catch(e){
+          console.warn('Erro ao salvar '+key+':', e);
+        }
+      }
+    });
+
+    updateBtn(originalText, false);
+
+    if(count > 0){
+      alert('✅ Sucesso!\n\nRestaurados ' + count + ' proventos do Firestore.\n\nChaves: ' + keysRestauradas.join(', ') + '\n\nA página vai recarregar para atualizar a visualização.');
+      // Recarrega a página pra garantir que tudo rerenderize limpo
+      setTimeout(function(){ location.reload(); }, 500);
+    } else {
+      alert('⚠️ Nenhum provento encontrado no Firestore.\n\nPode ser que:\n• Os dados nunca foram salvos na nuvem\n• Você está em outra conta\n\nTente fazer uma importação normal (📥 Importar).');
+    }
+  }).catch(function(err){
+    updateBtn(originalText, false);
+    console.error('Erro ao recarregar do Firestore:', err);
+    alert('❌ Erro ao conectar no Firestore:\n\n' + (err.message || err));
+  });
 }
 
 // ── FORMATAÇÃO PREÇO pt-BR ────────────────────────────────────
