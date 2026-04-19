@@ -1,6 +1,6 @@
-const CACHE = 'g20-v7';
+﻿const CACHE = 'g20-v8';
 
-// Apenas assets estáticos que raramente mudam
+// Apenas assets estÃ¡ticos que raramente mudam
 const STATIC = [
   'manifest.json',
   'icon-192.png',
@@ -43,7 +43,7 @@ self.addEventListener('fetch', function(e) {
       url.includes('awesomeapi.com.br') || url.includes('yahoo') ||
       url.includes('cdnjs.cloudflare.com')) return;
 
-  // HTMLs — NUNCA usa cache, sempre busca da rede
+  // HTMLs â€” NUNCA usa cache, sempre busca da rede
   if (url.endsWith('.html') || url.endsWith('/')) {
     e.respondWith(
       fetch(e.request).catch(function() {
@@ -53,7 +53,7 @@ self.addEventListener('fetch', function(e) {
     return;
   }
 
-  // Assets — network-first (busca rede, cache só como fallback offline)
+  // Assets â€” network-first (busca rede, cache sÃ³ como fallback offline)
   e.respondWith(
     fetch(e.request).then(function(response) {
       if (response && response.status === 200) {
