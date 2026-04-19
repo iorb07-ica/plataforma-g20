@@ -2444,20 +2444,103 @@ function loadData(k, defaultVal){
   return (defaultVal !== undefined) ? defaultVal : null;
 }
 
-// saveData — local imediato + Firestore com debounce
-function saveData(k, v){
+// saveData — local imediato + Firestore com debounce + retry + alerta em falha
+function saveData(k, v, opts){
+  opts = opts || {};
   _db_cache[k] = v;
   try{ localStorage.setItem('g20_'+k, JSON.stringify(v)); }catch(e){}
   if(!_dbIsUserKey(k) || !_db_ref) return;
+
+  // Modo imediato (sem debounce) - usado após imports grandes ou beforeunload
+  var delay = opts.immediate ? 0 : 800;
+
   if(_db_pending_saves[k]) clearTimeout(_db_pending_saves[k]);
   _db_pending_saves[k] = setTimeout(function(){
-    _db_ref.doc(k).set({
-      value: v,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }).catch(function(e){ console.warn('G20 DB save ['+k+']:', e); });
+    _saveFirestoreComRetry(k, v, 0);
     delete _db_pending_saves[k];
-  }, 800);
+  }, delay);
 }
+
+// Retry automático com backoff exponencial + alerta se falhar definitivamente
+function _saveFirestoreComRetry(k, v, tentativa){
+  _db_ref.doc(k).set({
+    value: v,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  }).then(function(){
+    if(tentativa > 0) console.log('✅ G20 DB save ['+k+'] OK após '+tentativa+' tentativa(s)');
+  }).catch(function(e){
+    console.warn('G20 DB save ['+k+'] tentativa '+(tentativa+1)+' falhou:', e.message);
+    if(tentativa < 3){
+      var espera = [2000, 5000, 15000][tentativa];
+      setTimeout(function(){ _saveFirestoreComRetry(k, v, tentativa+1); }, espera);
+    } else {
+      console.error('❌ G20 DB save ['+k+'] FALHOU após 4 tentativas:', e);
+      _mostrarAlertaSaveFailed(k, e.message);
+    }
+  });
+}
+
+// Alerta flutuante no canto da tela quando save falha
+function _mostrarAlertaSaveFailed(k, msg){
+  var existing = document.getElementById('saveFailedAlert');
+  if(existing) existing.remove();
+  var el = document.createElement('div');
+  el.id = 'saveFailedAlert';
+  el.style.cssText = 'position:fixed;top:20px;right:20px;background:#e63946;color:#fff;padding:14px 18px;border-radius:10px;max-width:340px;font-size:13px;z-index:99999;box-shadow:0 6px 24px rgba(0,0,0,.5);line-height:1.4';
+  el.innerHTML = '<div style="font-weight:800;margin-bottom:4px">⚠️ FALHA AO SALVAR NA NUVEM</div>'+
+                 '<div style="font-size:12px;margin-bottom:6px">Chave: <b>'+k+'</b></div>'+
+                 '<div style="font-size:11px;opacity:.9">'+msg+'</div>'+
+                 '<div style="font-size:11px;margin-top:8px">Dados salvos localmente. Tente forçar novo save.</div>'+
+                 '<button onclick="this.parentElement.remove()" style="margin-top:8px;background:#fff;color:#e63946;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:700">Fechar</button>';
+  document.body.appendChild(el);
+}
+
+// Força save imediato de uma chave - retorna Promise para confirmação
+function forcarSaveFirestore(k){
+  var v = loadData(k);
+  if(v === null || v === undefined) return Promise.reject('sem dados');
+  if(!_db_ref) return Promise.reject('sem Firestore');
+  return _db_ref.doc(k).set({
+    value: v,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// BLINDAGEM: flush síncrono no fechamento da aba
+// Garante que saves pendentes disparem antes do unload
+// ═══════════════════════════════════════════════════════════
+function _flushAllPendingSaves(){
+  var chaves = Object.keys(_db_pending_saves);
+  if(!chaves.length) return;
+  console.log('[flush] Disparando '+chaves.length+' save(s) pendente(s) antes de fechar...');
+  chaves.forEach(function(k){
+    clearTimeout(_db_pending_saves[k]);
+    delete _db_pending_saves[k];
+    var v = _db_cache[k];
+    if(v !== undefined && _db_ref){
+      // Save fire-and-forget sem aguardar - navegador mantém request em progresso
+      try{
+        _db_ref.doc(k).set({
+          value: v,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      }catch(e){
+        console.warn('[flush] Erro síncrono em ['+k+']:', e);
+      }
+    }
+  });
+}
+
+// Registra handlers de fechamento/visibilidade
+window.addEventListener('beforeunload', _flushAllPendingSaves);
+window.addEventListener('pagehide',      _flushAllPendingSaves);
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'hidden'){
+    // Mobile: visibilitychange é mais confiável que beforeunload
+    _flushAllPendingSaves();
+  }
+});
 // ═══════════════════════════════════════════════════════════
 
 
@@ -6526,12 +6609,34 @@ function calcularDataInicioBuscaProventos(ticker, dataCompra){
 function jaRodouProventosHoje(){
   var ultima = localStorage.getItem('g20_prov_last_import');
   var hoje = new Date().toISOString().split('T')[0];
-  return ultima === hoje;
+  // Só considera "rodou hoje" se foi marcado como COMPLETO E VALIDADO
+  var status = localStorage.getItem('g20_prov_last_status');
+  return ultima === hoje && status === 'complete';
 }
 
 function marcarProventosRodadosHoje(){
   var hoje = new Date().toISOString().split('T')[0];
   localStorage.setItem('g20_prov_last_import', hoje);
+  // Status só vira 'complete' após validação Firestore
+}
+
+function marcarImportEmProgresso(){
+  localStorage.setItem('g20_prov_last_status', 'in_progress');
+  localStorage.setItem('g20_prov_last_start', new Date().toISOString());
+}
+
+function marcarImportCompleto(){
+  localStorage.setItem('g20_prov_last_status', 'complete');
+  localStorage.removeItem('g20_prov_last_start');
+}
+
+function detectarImportInterrompido(){
+  var status = localStorage.getItem('g20_prov_last_status');
+  var start  = localStorage.getItem('g20_prov_last_start');
+  if(status !== 'in_progress' || !start) return false;
+  // Se começou há mais de 30min e nunca completou, foi interrompido
+  var minutos = (Date.now() - new Date(start).getTime()) / 60000;
+  return minutos > 0; // qualquer tempo em in_progress = interrompido
 }
 
 function importarProventosBR(ticker){
@@ -6847,12 +6952,20 @@ function importarTodosProventos(callback, forcarRefresh){
   var pos = calcPosicoes();
   if(!pos.length){ if(callback) callback(0); return; }
 
-  // Cache diário: já rodou hoje? pula
+  // Cache diário: já rodou hoje E foi validado? pula
   if(!forcarRefresh && jaRodouProventosHoje()){
-    console.log('[Proventos] Já importado hoje — cache diário ativo. Use o botão pra forçar refresh se precisar.');
+    console.log('[Proventos] Já importado hoje (validado) — cache diário ativo. Use o botão pra forçar.');
     if(callback) callback(0);
     return;
   }
+
+  // Detecta se tinha import em progresso interrompido
+  if(detectarImportInterrompido()){
+    console.log('[Proventos] ⚠️ Detectado import interrompido na última sessão. Retomando...');
+  }
+
+  // Marca status "em progresso" — se usuário fechar, próxima sessão detecta
+  marcarImportEmProgresso();
 
   // Recalcula qtdEx de todos os proventos existentes
   pos.forEach(function(p){ _recalcularQtdExProventos(p.ticker); });
@@ -6878,6 +6991,14 @@ function importarTodosProventos(callback, forcarRefresh){
       console.log('[Proventos BR] Concluído: '+resBR.reduce(function(s,n){return s+n;},0)+' novo(s)');
       renderDividendos();
       renderPosicoes();
+      // CHECKPOINT: força save Firestore após BR completo
+      if(totalImportado > 0){
+        forcarSaveFirestore('dividendos').then(function(){
+          console.log('[Proventos] 💾 Checkpoint BR salvo no Firestore.');
+        }).catch(function(e){
+          console.warn('[Proventos] Checkpoint BR falhou:', e.message);
+        });
+      }
     }
 
     // 2) US: processa em grupos de 5 com espera de 61s (Polygon free = 5/min)
@@ -6913,9 +7034,16 @@ function importarTodosProventos(callback, forcarRefresh){
         renderPosicoes();
       }
 
+      // CHECKPOINT: força save Firestore após CADA grupo de 5 US
+      // Se usuário fechar, só perde o grupo em andamento (máx 5 tickers)
+      forcarSaveFirestore('dividendos').then(function(){
+        console.log('[Proventos] 💾 Checkpoint US grupo '+(Math.floor(inicio/5)+1)+' salvo no Firestore.');
+      }).catch(function(e){
+        console.warn('[Proventos] Checkpoint US falhou:', e.message);
+      });
+
       var proximoInicio = inicio + grupo.length;
       if(proximoInicio >= lista.length){
-        // Acabou
         finalizarImport();
         return;
       }
@@ -6935,10 +7063,41 @@ function importarTodosProventos(callback, forcarRefresh){
     renderDividendos();
     renderPosicoes();
     console.log('[Proventos] ✅ Import completo. Total: '+totalImportado+' novo(s).');
+
+    // VALIDAÇÃO FIRESTORE OBRIGATÓRIA antes de marcar como completo
+    console.log('[Proventos] Forçando save imediato final no Firestore...');
+    forcarSaveFirestore('dividendos').then(function(){
+      console.log('[Proventos] ✅ Save Firestore final confirmado.');
+      // Validação: lê do servidor e confere
+      setTimeout(function(){
+        _db_ref.doc('dividendos').get({ source: 'server' }).then(function(doc){
+          if(doc.exists){
+            var salvos = (doc.data().value || []).length;
+            var local  = loadData('dividendos',[]).length;
+            console.log('[Proventos] 🔍 VALIDAÇÃO: local='+local+' | Firestore='+salvos);
+            if(salvos === local){
+              // SÓ MARCA COMO COMPLETO SE VALIDOU!
+              marcarImportCompleto();
+              if(totalImportado > 0){
+                mostrarErros(['✅ '+totalImportado+' proventos importados e confirmados na nuvem ('+salvos+' total).']);
+              }
+            } else {
+              // Não marca como complete — próxima sessão vai retentar
+              mostrarErros(['⚠️ DIVERGÊNCIA: local='+local+' mas Firestore='+salvos+'. Será retentado na próxima sessão.']);
+            }
+          } else {
+            mostrarErros(['❌ Firestore não retornou o documento após save!']);
+          }
+        }).catch(function(e){
+          mostrarErros(['⚠️ Falha ao validar save Firestore: '+e.message]);
+        });
+      }, 1500);
+    }).catch(function(e){
+      console.error('[Proventos] ❌ Save Firestore falhou:', e);
+      mostrarErros(['❌ ERRO SALVANDO NA NUVEM: '+(e.message||e)+' — dados estão apenas no seu navegador!']);
+    });
+
     if(callback) callback(totalImportado);
-    if(totalImportado > 0){
-      mostrarErros(['✅ '+totalImportado+' novo(s) provento(s) importado(s)!']);
-    }
   }
 }
 
