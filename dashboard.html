@@ -1461,12 +1461,12 @@ body.pat-hidden #v3GaugeVal{opacity:0}
 }
 
 /* Mini-cards do patrimonio - compactos */
-.v3-pat-streak,.v3-pat-best{padding:20px 16px !important;display:flex !important;flex-direction:column;justify-content:center;align-items:center;text-align:center;gap:6px}
-.v3-pat-streak .v3-mini-lbl,.v3-pat-best .v3-mini-lbl{font-size:11px;margin-bottom:4px;text-align:center}
-.v3-pat-streak .v3-mini-val,.v3-pat-best .v3-mini-val{font-size:38px !important;text-align:center}
-.v3-pat-streak .v3-mini-sub,.v3-pat-best .v3-mini-sub{font-size:12px;margin-top:4px;text-align:center}
-.v3-pat-streak .v3-streak-dots{margin-top:10px;justify-content:center}
-.v3-pat-best .v3-mini-mini-bar{margin-top:10px;width:100%}
+.v3-pat-streak,.v3-pat-best{padding:16px 18px !important;display:flex !important;flex-direction:column;justify-content:center;gap:6px}
+.v3-pat-streak .v3-mini-lbl,.v3-pat-best .v3-mini-lbl{font-size:10px;margin-bottom:2px}
+.v3-pat-streak .v3-mini-val,.v3-pat-best .v3-mini-val{font-size:26px !important}
+.v3-pat-streak .v3-mini-sub,.v3-pat-best .v3-mini-sub{font-size:11px;margin-top:2px}
+.v3-pat-streak .v3-streak-dots{margin-top:8px}
+.v3-pat-best .v3-mini-mini-bar{margin-top:10px}
 
 /* Linha G20Cast + Sua Carteira Hoje (50/50) */
 .v3-cast-today-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px;animation:fadeUp .5s .1s var(--ease) both;align-items:stretch}
@@ -4418,18 +4418,17 @@ function v3LoadHistorico12m(){
 // G20CAST CARD - Carrega ultimo epis. + 3 anteriores via RSS
 // -----------------------------------------------------------
 
-// Mapa de IDs Spotify por numero de episodio (para card oficial do Spotify).
-// Como adicionar novos episodios:
-//   1. Abra https://open.spotify.com/show/0tXbvmYpLcR0W9TYgX2Q1g
-//   2. Clique no episodio novo
-//   3. Copie o ID da URL (parte depois de /episode/)
-//   4. Adicione aqui no formato:   707: 'XXXXXXXXXXXXXXXXXXXXXX',
-// Episodios nao mapeados tentam descoberta automatica (oEmbed) ou caem em MP3 nativo.
+// Mapa de IDs Spotify - rede de seguranca para episodios conhecidos.
+// A descoberta automatica (via oEmbed com CORS) tenta preencher o resto.
+// Adicionar aqui somente se a descoberta automatica falhar para algum episodio.
 window.G20CAST_SPOTIFY_IDS = {
   706: '5uGZElpNE11L0us50NOeLk',
   705: '4KvKWPLrt8nNvGcTidSxDO',
   704: '2h7ei2iPWmbaqGeUoEXAVw'
 };
+
+// Cache em memoria para IDs descobertos durante a sessao
+window._G20CAST_DISCOVERED = {};
 
 function v3LoadCast(){
   try{
@@ -4494,6 +4493,21 @@ function v3LoadCast(){
 
       // Armazenar items globalmente pra play inline dos anteriores
       window._v3CastItems = items;
+
+      // Pre-descoberta em background: tenta resolver IDs Spotify para os 4 primeiros episodios.
+      // Se funcionar, quando usuario clicar em "Ouvir agora" ja tera o ID cacheado (instantaneo).
+      // Se CORS bloquear, v3CastShowEmbed tentara novamente e cai em MP3 nativo.
+      try{
+        var toDiscover = items.slice(0, 4);
+        toDiscover.forEach(function(it){
+          var m = (it.title||'').match(/#(\d+)/);
+          var n = m ? parseInt(m[1],10) : null;
+          if(!n) return;
+          if(window.G20CAST_SPOTIFY_IDS[n]) return; // ja mapeado
+          if(window._G20CAST_DISCOVERED[n]) return; // ja descoberto
+          v3CastDiscoverId(it.link, n);
+        });
+      }catch(e){ console.warn('pre-discovery:', e); }
 
       // Lista de anteriores com botão de play em cada
       var listHtml = '';
@@ -5111,6 +5125,74 @@ function v3CastPlayItem(idx){
   }catch(e){ console.warn('v3CastPlayItem:', e); }
 }
 
+// Tenta descobrir o ID Spotify de um episodio chamando o oEmbed do Spotify
+// com o link anchor.fm. O Spotify as vezes resolve e retorna iframe com ID correto.
+// Se CORS bloquear, tenta via proxy publico. Se tudo falhar, retorna null silenciosamente.
+function v3CastDiscoverId(anchorLink, epNum){
+  if(!anchorLink || !epNum) return Promise.resolve(null);
+
+  // Ja mapeado manualmente? retorna direto.
+  if(window.G20CAST_SPOTIFY_IDS[epNum]){
+    return Promise.resolve(window.G20CAST_SPOTIFY_IDS[epNum]);
+  }
+  // Ja descoberto nessa sessao? retorna do cache.
+  if(window._G20CAST_DISCOVERED[epNum]){
+    return Promise.resolve(window._G20CAST_DISCOVERED[epNum]);
+  }
+
+  function extractIdFromHtml(html){
+    if(!html) return null;
+    var m = html.match(/\/embed\/episode\/([a-zA-Z0-9]{20,})/);
+    return m ? m[1] : null;
+  }
+
+  var oembedUrl = 'https://open.spotify.com/oembed?url=' + encodeURIComponent(anchorLink);
+
+  // Tentativa 1: fetch direto (Spotify adicionou CORS em 2022)
+  return fetch(oembedUrl, { mode: 'cors' })
+    .then(function(r){ return r.ok ? r.json() : Promise.reject('oembed-'+r.status); })
+    .then(function(data){
+      var id = extractIdFromHtml(data && data.html);
+      if(id){
+        window._G20CAST_DISCOVERED[epNum] = id;
+        console.info('G20Cast: ID descoberto via oEmbed direto para #'+epNum+':', id);
+        return id;
+      }
+      return null;
+    })
+    .catch(function(err1){
+      // Tentativa 2: proxy CORS publico (allorigins.win)
+      var proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(oembedUrl);
+      return fetch(proxyUrl)
+        .then(function(r){ return r.ok ? r.json() : Promise.reject('proxy-'+r.status); })
+        .then(function(data){
+          var id = extractIdFromHtml(data && data.html);
+          if(id){
+            window._G20CAST_DISCOVERED[epNum] = id;
+            console.info('G20Cast: ID descoberto via proxy para #'+epNum+':', id);
+            return id;
+          }
+          return null;
+        })
+        .catch(function(err2){
+          // Tentativa 3: corsproxy.io (alternativo)
+          var proxy2 = 'https://corsproxy.io/?' + encodeURIComponent(oembedUrl);
+          return fetch(proxy2)
+            .then(function(r){ return r.ok ? r.json() : Promise.reject('proxy2-'+r.status); })
+            .then(function(data){
+              var id = extractIdFromHtml(data && data.html);
+              if(id){
+                window._G20CAST_DISCOVERED[epNum] = id;
+                console.info('G20Cast: ID descoberto via corsproxy para #'+epNum+':', id);
+                return id;
+              }
+              return null;
+            })
+            .catch(function(){ return null; });
+        });
+    });
+}
+
 function v3CastShowEmbed(link){
   var embedEl = document.getElementById('v3CastPlayerEmbed');
   if(!embedEl || !link) return;
@@ -5137,21 +5219,17 @@ function v3CastShowEmbed(link){
   }
   var epNum = ep && ep.num ? parseInt(ep.num, 10) : null;
 
-  // Helper: renderiza iframe oficial do Spotify (card bonito)
+  // Helpers
   function renderSpotifyIframe(spotifyId){
     embedEl.innerHTML = '<iframe src="https://open.spotify.com/embed/episode/'+spotifyId+'?utm_source=g20cast" width="100%" height="152" frameborder="0" allowfullscreen allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" style="border-radius:12px;display:block"></iframe>';
     setTimeout(function(){ try{ embedEl.scrollIntoView({block:'nearest',behavior:'smooth'}); }catch(e){} }, 100);
   }
 
-  // Helper: player MP3 nativo (fallback final)
   function renderMp3Player(){
     var mp3Url = '';
     if(ep){
-      if(typeof ep.enclosure === 'object' && ep.enclosure && ep.enclosure.link){
-        mp3Url = ep.enclosure.link;
-      } else if(typeof ep.enclosure === 'string'){
-        mp3Url = ep.enclosure;
-      }
+      if(typeof ep.enclosure === 'object' && ep.enclosure && ep.enclosure.link){ mp3Url = ep.enclosure.link; }
+      else if(typeof ep.enclosure === 'string'){ mp3Url = ep.enclosure; }
     }
     if(mp3Url){
       var title = (ep && ep.title) ? (ep.title||'').replace(/^G20Cast\s*#?\d+\s*[-\u2013\u2014:]*\s*/i,'').trim() : 'Epis\u00f3dio';
@@ -5168,73 +5246,32 @@ function v3CastShowEmbed(link){
     setTimeout(function(){ try{ embedEl.scrollIntoView({block:'nearest',behavior:'smooth'}); }catch(e){} }, 100);
   }
 
-  // Helper: tenta extrair ID Spotify de um JSON oEmbed
-  function tryExtractIdFromOembed(data){
-    if(!data || !data.html) return null;
-    var mSrc = data.html.match(/src=\"(https:\/\/open\.spotify\.com\/embed\/episode\/[^\"?]+)/);
-    if(mSrc && mSrc[1]){
-      var mId = mSrc[1].match(/\/episode\/([a-zA-Z0-9]+)/);
-      if(mId && mId[1]) return mId[1];
-    }
-    return null;
-  }
-
-  // --- CAMADA 1: ID mapeado no codigo (garantido, instantaneo) ---
+  // --- CAMADA 1: ID mapeado manualmente (instantaneo, 100% garantido) ---
   if(epNum && window.G20CAST_SPOTIFY_IDS && window.G20CAST_SPOTIFY_IDS[epNum]){
     renderSpotifyIframe(window.G20CAST_SPOTIFY_IDS[epNum]);
     return;
   }
 
+  // --- CAMADA 2: ID descoberto em background durante carga do RSS ---
+  if(epNum && window._G20CAST_DISCOVERED[epNum]){
+    renderSpotifyIframe(window._G20CAST_DISCOVERED[epNum]);
+    return;
+  }
+
+  // --- CAMADA 3: Descoberta em tempo-real (usuario clicou antes da pre-descoberta terminar) ---
   embedEl.innerHTML = '<div style="padding:24px 16px;text-align:center;color:#7a8599;font-size:11px">Carregando player Spotify\u2026</div>';
 
-  var oembedUrl = 'https://open.spotify.com/oembed?url=' + encodeURIComponent(link);
-
-  // --- CAMADA 2: oEmbed direto (pode falhar por CORS) ---
-  fetch(oembedUrl, { mode: 'cors' })
-    .then(function(r){ return r.ok ? r.json() : Promise.reject('oembed-fail'); })
-    .then(function(data){
-      var id = tryExtractIdFromOembed(data);
-      if(id){
-        renderSpotifyIframe(id);
-        if(epNum && window.G20CAST_SPOTIFY_IDS){ window.G20CAST_SPOTIFY_IDS[epNum] = id; }
-        return;
-      }
-      // Se oEmbed retornou mas sem ID extraivel, usa HTML bruto
-      if(data && data.html){
-        var html = data.html.replace(/height=\"\d+\"/, 'height=\"152\"');
-        embedEl.innerHTML = html;
-        setTimeout(function(){ try{ embedEl.scrollIntoView({block:'nearest',behavior:'smooth'}); }catch(e){} }, 100);
-        return;
-      }
-      throw 'no-html';
-    })
-    .catch(function(err){
-      console.warn('oEmbed direto falhou, tentando proxy CORS:', err);
-      // --- CAMADA 3: oEmbed via proxy CORS publico (contorna bloqueio CORS) ---
-      var proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(oembedUrl);
-      fetch(proxyUrl)
-        .then(function(r){ return r.ok ? r.json() : Promise.reject('proxy-fail'); })
-        .then(function(data){
-          var id = tryExtractIdFromOembed(data);
-          if(id){
-            renderSpotifyIframe(id);
-            if(epNum && window.G20CAST_SPOTIFY_IDS){ window.G20CAST_SPOTIFY_IDS[epNum] = id; }
-            return;
-          }
-          if(data && data.html){
-            var html = data.html.replace(/height=\"\d+\"/, 'height=\"152\"');
-            embedEl.innerHTML = html;
-            setTimeout(function(){ try{ embedEl.scrollIntoView({block:'nearest',behavior:'smooth'}); }catch(e){} }, 100);
-            return;
-          }
-          throw 'no-html-proxy';
-        })
-        .catch(function(err2){
-          console.warn('Proxy CORS falhou, caindo para MP3 nativo:', err2);
-          // --- CAMADA 4: Player MP3 nativo (funciona sempre) ---
-          renderMp3Player();
-        });
-    });
+  v3CastDiscoverId(link, epNum).then(function(spotifyId){
+    if(spotifyId){
+      renderSpotifyIframe(spotifyId);
+    } else {
+      // --- CAMADA 4: Fallback MP3 nativo (funciona sempre) ---
+      console.warn('G20Cast: descoberta automatica falhou para epis', epNum, '- usando MP3');
+      renderMp3Player();
+    }
+  }).catch(function(){
+    renderMp3Player();
+  });
 }
 
 // -----------------------------------------------------------
