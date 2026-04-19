@@ -3888,6 +3888,37 @@ function v3FmtPct(n,dec){
 }
 
 // -----------------------------------------------------------
+// HELPERS NORMALIZADORES - resolvem schema misto CG20 vs GP
+// -----------------------------------------------------------
+// Dividendo da Gestao Patrimonial (fonte 'auto'):    {valorCota, qtd, total}
+// Dividendo da Carteira G20      (fonte 'Auto-*'):   {valor, qtdEx}  (sem total)
+function v3DivTotal(d){
+  if(!d) return 0;
+  var t = parseFloat(d.total)||0;
+  if(t>0) return t;
+  // CG20: valor * qtdEx
+  var v = parseFloat(d.valor||d.valorCota)||0;
+  var q = parseFloat(d.qtdEx||d.qtd)||0;
+  return v*q;
+}
+function v3DivData(d){
+  if(!d) return '';
+  return (d.dataPag||d.data||d.dataPgto||'').substring(0,10);
+}
+function v3DivValorPorCota(d){
+  if(!d) return 0;
+  return parseFloat(d.valor||d.valorCota||0);
+}
+
+// Snapshots patrimoniais ficam em 'g20_patSnapshots' com schema {d,t,rf,rv,c}
+function v3LoadSnapshots(){
+  try{
+    var s = JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]');
+    return Array.isArray(s) ? s : [];
+  }catch(e){ return []; }
+}
+
+// -----------------------------------------------------------
 // Helper: calcular posicoes atuais da Carteira G20
 // Fonte correta: localStorage 'g20_aportes' (nao 'g20_carteira')
 // Estrutura do aporte: {ticker, data, qtd, op:'C'|'V', preco, tipo}
@@ -4052,18 +4083,18 @@ function v3LoadKpiProv(){
     var ativosSet = {};
 
     divs.forEach(function(d){
-      var dp = (d.dataPag||d.data||d.dataPgto||'').substring(0,7);
+      var dp = v3DivData(d).substring(0,7);
       if(dp === mesAtual){
-        var t = parseFloat(d.total)||0;
-        if(!t) t = (parseFloat(d.valorCota)||0) * (parseFloat(d.qtd)||0);
-        totalMes += t;
+        totalMes += v3DivTotal(d);
         if(d.ticker) ativosSet[d.ticker] = true;
       }
     });
 
     var qtdAtivos = Object.keys(ativosSet).length;
-    document.getElementById('v3ProvVal').textContent = v3FmtBRL(totalMes);
-    document.getElementById('v3ProvSub').textContent = qtdAtivos
+    var valEl = document.getElementById('v3ProvVal');
+    var subEl = document.getElementById('v3ProvSub');
+    if(valEl) valEl.textContent = v3FmtBRL(totalMes);
+    if(subEl) subEl.textContent = qtdAtivos
       ? (qtdAtivos+' ativo'+(qtdAtivos>1?'s':'')+' pagaram')
       : 'Nenhum pagamento ainda';
   }catch(e){
@@ -4084,11 +4115,9 @@ function v3LoadKpiYield(){
     var total12m = 0;
 
     divs.forEach(function(d){
-      var dp = (d.dataPag||d.data||d.dataPgto||'').substring(0,10);
+      var dp = v3DivData(d);
       if(dp >= corteStr){
-        var t = parseFloat(d.total)||0;
-        if(!t) t = (parseFloat(d.valorCota)||0) * (parseFloat(d.qtd)||0);
-        total12m += t;
+        total12m += v3DivTotal(d);
       }
     });
 
@@ -4096,8 +4125,10 @@ function v3LoadKpiYield(){
     var base = carteira.total || carteira.totalAplicado;
     var yieldPct = base > 0 ? (total12m/base)*100 : 0;
 
-    document.getElementById('v3YieldVal').textContent = v3FmtPct(yieldPct);
-    document.getElementById('v3YieldSub').textContent = v3FmtBRL(total12m)+' acumulado';
+    var yVal = document.getElementById('v3YieldVal');
+    var ySub = document.getElementById('v3YieldSub');
+    if(yVal) yVal.textContent = v3FmtPct(yieldPct);
+    if(ySub) ySub.textContent = v3FmtBRL(total12m)+' acumulado';
   }catch(e){
     console.warn('v3LoadKpiYield:', e);
     var el=document.getElementById('v3YieldVal'); if(el) el.textContent='\u2013';
@@ -4258,12 +4289,11 @@ function v3LoadHistorico12m(){
     }
 
     divs.forEach(function(div){
-      var dp = (div.dataPag||div.data||div.dataPgto||'').substring(0,7);
+      var dp = v3DivData(div).substring(0,7);
       var m = null;
       for(var j=0;j<meses.length;j++){ if(meses[j].ym===dp){ m=meses[j]; break; } }
       if(m){
-        var t = parseFloat(div.total)||0;
-        if(!t) t = (parseFloat(div.valorCota)||0) * (parseFloat(div.qtd)||0);
+        var t = v3DivTotal(div);
         m.val += t;
         total12m += t;
       }
@@ -4502,43 +4532,42 @@ function v3LoadToday(){
 // -----------------------------------------------------------
 function v3LoadStreakBest(){
   try{
-    // Snapshots do painel patrimonial ficam em localStorage com chave PAT_SNAP_KEY
-    // Formato: array de {d:'YYYY-MM-DD', total:numero}
-    var snapKeys = ['g20_patSnap','g20_pat_snapshot','pat_snapshots'];
-    var snap = null;
-    for(var i=0;i<snapKeys.length && !snap;i++){
-      try{ snap = JSON.parse(localStorage.getItem(snapKeys[i])||'null'); }catch(e){}
-    }
+    // Snapshots reais do painel patrimonial: chave 'g20_patSnapshots', schema {d,t,rf,rv,c}
+    var snap = v3LoadSnapshots();
 
-    if(!snap || !Array.isArray(snap) || snap.length < 2){
-      document.getElementById('v3StreakVal').innerHTML = '0<span style="font-size:11px;color:#7a8599;font-weight:600"> dias</span>';
-      document.getElementById('v3StreakSub').textContent = 'Aguardando hist\u00f3rico';
-      document.getElementById('v3BestVal').textContent = '\u2013';
-      document.getElementById('v3BestSub').textContent = 'Aguardando hist\u00f3rico';
+    var stEl = document.getElementById('v3StreakVal');
+    var stSubEl = document.getElementById('v3StreakSub');
+    var bestEl = document.getElementById('v3BestVal');
+    var bestSubEl = document.getElementById('v3BestSub');
+
+    if(!snap || snap.length < 2){
+      if(stEl) stEl.innerHTML = '0<span style="font-size:11px;color:#7a8599;font-weight:600"> dias</span>';
+      if(stSubEl) stSubEl.textContent = 'Aguardando hist\u00f3rico';
+      if(bestEl) bestEl.textContent = '\u2013';
+      if(bestSubEl) bestSubEl.textContent = 'Aguardando hist\u00f3rico';
       return;
     }
 
     // Ordenar por data
-    snap.sort(function(a,b){ return (a.d||a.date||'').localeCompare(b.d||b.date||''); });
+    snap.sort(function(a,b){ return (a.d||'').localeCompare(b.d||''); });
 
-    // Calcular variacoes diarias
+    // Calcular variacoes diarias (campo 't' = total)
     var vars = [];
     for(var j=1;j<snap.length;j++){
-      var prev = parseFloat(snap[j-1].total||snap[j-1].val||0);
-      var cur  = parseFloat(snap[j].total||snap[j].val||0);
+      var prev = parseFloat(snap[j-1].t)||0;
+      var cur  = parseFloat(snap[j].t)||0;
       if(prev>0){
-        vars.push({d:snap[j].d||snap[j].date, pct:((cur-prev)/prev)*100});
+        vars.push({d:snap[j].d, pct:((cur-prev)/prev)*100});
       }
     }
 
-    // Streak atual: contar dias consecutivos do final com variacao >= 0
+    // Streak atual: dias consecutivos do final com variacao >= 0
     var streak = 0;
     var streakType = 'up';
     for(var k=vars.length-1;k>=0;k--){
       if(vars[k].pct >= 0){ streak++; } else { break; }
     }
     if(streak === 0){
-      // Se nao tem streak positivo, conta negativo
       streakType = 'dn';
       for(var kk=vars.length-1;kk>=0;kk--){
         if(vars[kk].pct < 0){ streak++; } else { break; }
@@ -4547,38 +4576,39 @@ function v3LoadStreakBest(){
 
     var stLbl = streakType==='up' ? 'dias em alta' : 'dias em baixa';
     var stCls = streakType==='up' ? 'v3-good' : 'v3-bad';
-    var stEl = document.getElementById('v3StreakVal');
-    stEl.innerHTML = streak+'<span style="font-size:11px;color:#7a8599;font-weight:600"> '+stLbl+'</span>';
-    stEl.className = 'v3-mini-val '+stCls;
-    document.getElementById('v3StreakSub').textContent = vars.length+' dias analisados';
+    if(stEl){
+      stEl.innerHTML = streak+'<span style="font-size:11px;color:#7a8599;font-weight:600"> '+stLbl+'</span>';
+      stEl.className = 'v3-mini-val '+stCls;
+    }
+    if(stSubEl) stSubEl.textContent = vars.length+' dias analisados';
 
-    // Renderizar bolinhas dos ultimos 7 dias
+    // Bolinhas dos ultimos 7 dias
     var last7 = vars.slice(-7);
     var dotsHtml = '';
+    // Pad inicial se menos de 7
+    for(var p=0; p<7-last7.length; p++){
+      dotsHtml += '<span class="v3-dot"></span>';
+    }
     last7.forEach(function(v,idx){
       var cls = v.pct >= 0 ? 'up' : 'dn';
       var cur = idx === last7.length-1 ? ' cur' : '';
       dotsHtml += '<span class="v3-dot '+cls+cur+'"></span>';
     });
-    // Pad com dots vazios se menos de 7
-    while(last7.length + (dotsHtml.match(/class=/g)||[]).length < 14){
-      if((dotsHtml.match(/<span class=/g)||[]).length >= 7) break;
-      dotsHtml = '<span class="v3-dot"></span>' + dotsHtml;
-    }
-    document.getElementById('v3StreakDots').innerHTML = dotsHtml;
+    var dotsEl = document.getElementById('v3StreakDots');
+    if(dotsEl) dotsEl.innerHTML = dotsHtml;
 
-    // Melhor mes dos ultimos 12m - agrupa por YYYY-MM
+    // Melhor mes - agrupa por YYYY-MM, usa primeiro valor do mes como base e ultimo como fim
     var porMes = {};
     snap.forEach(function(s){
-      var d = s.d||s.date||'';
+      var d = s.d||'';
       var ym = d.substring(0,7);
       if(!ym) return;
-      if(!porMes[ym]) porMes[ym] = {first:parseFloat(s.total||s.val||0), last:parseFloat(s.total||s.val||0)};
-      else porMes[ym].last = parseFloat(s.total||s.val||0);
+      var t = parseFloat(s.t)||0;
+      if(!porMes[ym]) porMes[ym] = {first:t, last:t};
+      else porMes[ym].last = t;
     });
 
     var melhor = null;
-    var hoje = new Date();
     Object.keys(porMes).forEach(function(ym){
       var m = porMes[ym];
       if(m.first > 0){
@@ -4588,21 +4618,16 @@ function v3LoadStreakBest(){
     });
 
     if(melhor){
-      document.getElementById('v3BestVal').innerHTML = (melhor.pct>=0?'+':'')+melhor.pct.toFixed(1).replace('.',',')+'<span style="font-size:11px;color:#7a8599;font-weight:600">%</span>';
+      if(bestEl) bestEl.innerHTML = (melhor.pct>=0?'+':'')+melhor.pct.toFixed(1).replace('.',',')+'<span style="font-size:11px;color:#7a8599;font-weight:600">%</span>';
       var meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
       var mn = parseInt(melhor.ym.substring(5,7))-1;
       var mLbl = meses[mn]+'/'+melhor.ym.substring(2,4);
-      document.getElementById('v3BestSub').textContent = mLbl+' \u00b7 '+v3FmtBRL(melhor.delta);
-      // Barra preenchida proporcional (assume max 5% como "full")
+      if(bestSubEl) bestSubEl.textContent = mLbl+' \u00b7 '+v3FmtBRL(melhor.delta);
+      // Barra de progresso proporcional (assume max 5% como "full")
       var fillPct = Math.min(Math.abs(melhor.pct)/5*100, 100);
       var fillEl = document.getElementById('v3BestFill');
       if(fillEl) setTimeout(function(){ fillEl.style.width = fillPct+'%'; }, 400);
-    } else {
-      document.getElementById('v3BestVal').textContent = '\u2013';
-      document.getElementById('v3BestSub').textContent = 'Sem dados suficientes';
     }
-
-    // Retry mais tarde se dados do painel ainda carregarem
   }catch(e){ console.warn('v3LoadStreakBest:', e); }
 }
 
@@ -4643,48 +4668,61 @@ function v3LoadWelcome(){
     var atSubEl = document.getElementById('v3WelcomeAtivosSub');
     if(atSubEl) atSubEl.textContent = numAtivos > 0 ? 'CG20 + Gest\u00e3o Patrimonial' : 'adicione ativos';
 
-    // Card 2: Proximo provento
+    // Card 2: Proximo provento (futuro) OU ultimo pago se nao houver futuros
     var divs = JSON.parse(localStorage.getItem('g20_dividendos')||'[]');
     var hojeStr = hoje.toISOString().substring(0,10);
     var futuros = [];
+    var passados = [];
     divs.forEach(function(d){
-      var dp = (d.dataPag||d.data||d.dataPgto||'').substring(0,10);
-      if(dp && dp >= hojeStr){
-        var total = parseFloat(d.total)||0;
-        if(!total) total = (parseFloat(d.valorCota)||0) * (parseFloat(d.qtd)||0);
-        futuros.push({ticker:d.ticker, data:dp, total:total});
-      }
+      var dp = v3DivData(d);
+      if(!dp) return;
+      var total = v3DivTotal(d);
+      if(!total) return;
+      var item = {ticker:d.ticker, data:dp, total:total};
+      if(dp >= hojeStr) futuros.push(item);
+      else passados.push(item);
     });
     futuros.sort(function(a,b){ return a.data.localeCompare(b.data); });
+    passados.sort(function(a,b){ return b.data.localeCompare(a.data); }); // mais recente primeiro
+
+    var proxEl = document.getElementById('v3WelcomeProxProv');
+    var proxSubEl = document.getElementById('v3WelcomeProxProvSub');
+
     if(futuros.length){
       var prox = futuros[0];
       var dataProx = new Date(prox.data+'T00:00:00');
       var diasAte = Math.round((dataProx - hoje)/(1000*60*60*24));
-      var proxEl = document.getElementById('v3WelcomeProxProv');
-      var proxSubEl = document.getElementById('v3WelcomeProxProvSub');
       if(proxEl){
         if(diasAte <= 0) proxEl.innerHTML = 'HOJE';
         else if(diasAte === 1) proxEl.innerHTML = 'amanh\u00e3';
         else proxEl.innerHTML = 'em '+diasAte+'<span style="font-size:11px;color:#7a8599;font-weight:600"> dias</span>';
       }
       if(proxSubEl) proxSubEl.textContent = prox.ticker+' \u00b7 '+v3FmtBRL(prox.total);
+    } else if(passados.length){
+      // Nao tem futuro agendado - mostra o ultimo recebido
+      var ult = passados[0];
+      var dataUlt = new Date(ult.data+'T00:00:00');
+      var diasAtras = Math.round((hoje - dataUlt)/(1000*60*60*24));
+      if(proxEl){
+        proxEl.innerHTML = '<span style="font-size:13px;color:#7a8599;font-weight:600">\u00faltimo:</span> '+ult.ticker;
+      }
+      if(proxSubEl){
+        var quando = diasAtras === 0 ? 'hoje' : (diasAtras === 1 ? 'ontem' : ('h\u00e1 '+diasAtras+' dias'));
+        proxSubEl.textContent = v3FmtBRL(ult.total)+' \u00b7 '+quando;
+      }
     } else {
-      var proxEl2 = document.getElementById('v3WelcomeProxProv');
-      var proxSubEl2 = document.getElementById('v3WelcomeProxProvSub');
-      if(proxEl2) proxEl2.textContent = '\u2013';
-      if(proxSubEl2) proxSubEl2.textContent = 'nenhum proventoprevisto';
+      if(proxEl) proxEl.textContent = '\u2013';
+      if(proxSubEl) proxSubEl.textContent = 'sem dividendos registrados';
     }
 
-    // Card 3: Recebido este mes (mesmo calculo do KPI Proventos)
+    // Card 3: Recebido este mes
     var mesAtual = hoje.toISOString().substring(0,7);
     var recebidoMes = 0;
     var ativosRec = {};
     divs.forEach(function(d){
-      var dp = (d.dataPag||d.data||d.dataPgto||'').substring(0,7);
+      var dp = v3DivData(d).substring(0,7);
       if(dp === mesAtual){
-        var t = parseFloat(d.total)||0;
-        if(!t) t = (parseFloat(d.valorCota)||0) * (parseFloat(d.qtd)||0);
-        recebidoMes += t;
+        recebidoMes += v3DivTotal(d);
         if(d.ticker) ativosRec[d.ticker] = true;
       }
     });
@@ -4692,7 +4730,7 @@ function v3LoadWelcome(){
     if(mesEl) mesEl.textContent = v3FmtBRL(recebidoMes);
     var mesSubEl = document.getElementById('v3WelcomeMesSub');
     var nAt = Object.keys(ativosRec).length;
-    if(mesSubEl) mesSubEl.textContent = nAt ? (nAt+' ativo'+(nAt>1?'s':'')+' pagou') : 'nada ainda';
+    if(mesSubEl) mesSubEl.textContent = nAt ? (nAt+' ativo'+(nAt>1?'s':'')+' pagou') : 'nada ainda este m\u00eas';
   }catch(e){ console.warn('v3LoadWelcome:', e); }
 }
 
@@ -4984,34 +5022,63 @@ function v3InitBlocks(){
 
   // Quando LS estiver vazio, tentar Firestore
   v3TryLoadAportesFromFirestore(function(){
-    // Re-executar todos os loaders que dependem de aportes
-    v3LoadKpiRent();
-    v3LoadKpiProv();
-    v3LoadKpiYield();
-    v3LoadKpiAportes();
-    v3LoadKpisLinha2();
-    v3LoadComposicao();
-    v3LoadHistorico12m();
-    v3LoadWelcome();
-    v3LoadMeta();
+    v3LoadKpiRent(); v3LoadKpiProv(); v3LoadKpiYield(); v3LoadKpiAportes();
+    v3LoadKpisLinha2(); v3LoadComposicao(); v3LoadHistorico12m();
+    v3LoadWelcome(); v3LoadMeta();
   });
 
   // Retries escalonados para dados que chegam async (Firestore, snapshots, precos)
-  [1500, 3000, 5000, 8000, 12000].forEach(function(delay){
+  [1500, 3000, 5000, 8000, 12000, 20000, 35000, 60000].forEach(function(delay){
     setTimeout(function(){
-      v3LoadKpiRent();
-      v3LoadKpiProv();
-      v3LoadKpiYield();
-      v3LoadKpiAportes();
-      v3LoadKpisLinha2();
-      v3LoadComposicao();
-      v3LoadHistorico12m();
-      v3LoadWelcome();
-      v3LoadStreakBest();
-      v3LoadMeta();
-      v3LoadToday();
+      v3LoadKpiRent(); v3LoadKpiProv(); v3LoadKpiYield(); v3LoadKpiAportes();
+      v3LoadKpisLinha2(); v3LoadComposicao(); v3LoadHistorico12m();
+      v3LoadWelcome(); v3LoadStreakBest(); v3LoadMeta(); v3LoadToday();
     }, delay);
   });
+
+  // OBSERVER DE STORAGE: re-renderiza automaticamente quando LS mudar
+  // (dispara quando outra aba ou o proprio script grava dados do Firestore/proventos)
+  if(!window._v3StorageHookInstalled){
+    window._v3StorageHookInstalled = true;
+
+    var CHAVES_RELEVANTES = {
+      'g20_dividendos':1, 'g20_aportes':1, 'g20_rvAportes':1, 'g20_precos':1,
+      'g20_rendaFixa':1, 'g20_patrimonioBens':1, 'g20_indBCB_cache':1,
+      'g20_patSnap':1, 'g20_pat_snapshot':1, 'pat_snapshots':1
+    };
+
+    // Hook no setItem do proprio tab (cross-tab ja vem via 'storage' event)
+    var _origSetItem = localStorage.setItem.bind(localStorage);
+    localStorage.setItem = function(k, v){
+      _origSetItem(k, v);
+      if(CHAVES_RELEVANTES[k]){
+        clearTimeout(window._v3ReloadTimer);
+        window._v3ReloadTimer = setTimeout(function(){
+          console.log('[V3] Storage mudou ('+k+'), re-renderizando...');
+          try{
+            v3LoadWelcome(); v3LoadKpiRent(); v3LoadKpiProv(); v3LoadKpiYield();
+            v3LoadKpiAportes(); v3LoadKpisLinha2(); v3LoadComposicao();
+            v3LoadHistorico12m(); v3LoadStreakBest(); v3LoadMeta(); v3LoadToday();
+          }catch(e){}
+        }, 300); // debounce 300ms (junta varios setItem consecutivos numa so renderizacao)
+      }
+    };
+
+    // Evento 'storage' nativo (disparado por outras abas)
+    window.addEventListener('storage', function(e){
+      if(e.key && CHAVES_RELEVANTES[e.key]){
+        clearTimeout(window._v3ReloadTimer);
+        window._v3ReloadTimer = setTimeout(function(){
+          console.log('[V3] Outra aba mudou storage ('+e.key+')');
+          try{
+            v3LoadWelcome(); v3LoadKpiRent(); v3LoadKpiProv(); v3LoadKpiYield();
+            v3LoadKpiAportes(); v3LoadKpisLinha2(); v3LoadComposicao();
+            v3LoadHistorico12m(); v3LoadStreakBest(); v3LoadMeta(); v3LoadToday();
+          }catch(e){}
+        }, 300);
+      }
+    });
+  }
 }
 
 // -- INIT ------------------------------------------------------
