@@ -260,7 +260,7 @@ function _patRenderSingle(){
 }
 /* AGENDA PROVENTOS */
 var _provWeekOffset = 0;
-var _provSource = 'carteira';
+var _provSource = 'gestao';
 
 function toggleProvSource(e){
   e.stopPropagation();
@@ -1224,7 +1224,7 @@ body.pat-hidden #v3GaugeVal{opacity:0}
   border-radius:16px;
   padding:16px;
   position:relative;
-  overflow:hidden;
+  overflow:visible;
   margin-bottom:0;
   box-shadow:0 12px 32px rgba(0,0,0,.5), 0 24px 64px rgba(0,0,0,.4);
   display:flex;
@@ -1301,7 +1301,7 @@ body.pat-hidden #v3GaugeVal{opacity:0}
 .prov-source-wrap{position:relative}
 .prov-source-btn{background:rgba(232,184,75,.08);border:1px solid rgba(232,184,75,.22);color:#e8c766;font-size:10px;font-weight:600;padding:4px 11px;border-radius:6px;cursor:pointer;white-space:nowrap;transition:.2s var(--ease);letter-spacing:.3px;font-family:'DM Sans',sans-serif}
 .prov-source-btn:hover{background:rgba(232,184,75,.14);border-color:rgba(232,184,75,.4);box-shadow:0 0 8px rgba(232,184,75,.15)}
-.prov-source-dropdown{display:none;position:absolute;top:calc(100% + 6px);right:0;background:linear-gradient(140deg,#1a1f2e 0%,#0f121b 100%);border:1px solid rgba(232,184,75,.2);border-radius:10px;min-width:170px;overflow:hidden;box-shadow:0 12px 32px rgba(0,0,0,.6),0 0 0 1px rgba(232,184,75,.08) inset;z-index:20}
+.prov-source-dropdown{display:none;position:absolute;top:calc(100% + 6px);right:0;background:linear-gradient(140deg,#1a1f2e 0%,#0f121b 100%);border:1px solid rgba(232,184,75,.2);border-radius:10px;min-width:170px;overflow:hidden;box-shadow:0 12px 32px rgba(0,0,0,.6),0 0 0 1px rgba(232,184,75,.08) inset;z-index:9999}
 .prov-source-dropdown.open{display:block}
 .prov-source-opt{padding:9px 14px;font-size:11.5px;font-weight:600;color:#c2cbdd;cursor:pointer;transition:.15s;letter-spacing:.2px}
 .prov-source-opt:hover{background:rgba(232,184,75,.08);color:#e8c766}
@@ -1952,11 +1952,11 @@ if(localStorage.getItem('g20_uid')){
         <div class="prov-agenda-subheader">
           <div class="prov-source-wrap" onclick="event.stopPropagation()">
             <button class="prov-source-btn" onclick="toggleProvSource(event)">
-              <span id="provSourceLabel">Carteira G20</span> ▾
+              <span id="provSourceLabel">Gestão Patrimonial</span> ▾
             </button>
             <div class="prov-source-dropdown" id="provSourceDropdown">
-              <div class="prov-source-opt active" onclick="setProvSource('carteira',this)">Carteira G20</div>
-              <div class="prov-source-opt" onclick="setProvSource('gestao',this)">Gestão Patrimonial</div>
+              <div class="prov-source-opt active" onclick="setProvSource('gestao',this)">Gestão Patrimonial</div>
+              <div class="prov-source-opt" onclick="setProvSource('carteira',this)">Carteira G20</div>
             </div>
           </div>
           <a href="carteira.html" class="prov-ver-todos">ver todos →</a>
@@ -3932,24 +3932,10 @@ function v3LoadSnapshots(){
 // Retorna: { posicoes: [{ticker,qtd,valorAplicado,tipo}], total, totalAplicado }
 // -----------------------------------------------------------
 function v3TryLoadAportesFromFirestore(cb){
-  // Chamado quando LS vazio - tenta puxar do Firestore em background
-  try{
-    if(!window.firebase || !firebase.auth) return;
-    var user = firebase.auth().currentUser;
-    if(!user) return;
-    var db = firebase.firestore();
-    db.collection('users').doc(user.uid).collection('aportes').get().then(function(snap){
-      var aportes = [];
-      snap.forEach(function(doc){
-        var d = doc.data();
-        if(d) aportes.push(d);
-      });
-      if(aportes.length){
-        try{ localStorage.setItem('g20_aportes', JSON.stringify(aportes)); }catch(e){}
-        if(typeof cb === 'function') cb(aportes);
-      }
-    }).catch(function(e){ console.warn('v3 Firestore aportes:', e); });
-  }catch(e){}
+  // NO-OP: os aportes ja vem via atualizarPat() no fluxo normal do dashboard.
+  // A colecao 'aportes' como subcollection de users/{uid} nao existe mais -
+  // usamos a subcollection 'dados' que e sincronizada por atualizarPat().
+  return;
 }
 
 function v3CalcCarteiraG20(){
@@ -5263,18 +5249,19 @@ window.g20Logout = function() {
           }
           // Renderiza imediatamente com dados em cache
           if(typeof renderProvAgenda==='function') renderProvAgenda();
-          // Reimporta em background apenas se passou 24h ou primeira vez
-          if(typeof _provDeveReimportar==='function' && _provDeveReimportar()){
-            if(typeof _importarTodosProventosBackground==='function'){
-              _importarTodosProventosBackground(function(){
-                _provMarcarImportado();
-                if(typeof renderProvAgenda==='function') renderProvAgenda();
-                // V3: re-rodar tambem apos import de proventos
-                if(typeof v3InitBlocks === 'function'){
-                  try{ v3InitBlocks(); }catch(e){}
-                }
-              });
-            }
+          // Reimporta se: 1) TTL venceu, OU 2) storage de dividendos vazio (primeira vez no dashboard)
+          var divsAtuais = [];
+          try{ divsAtuais = JSON.parse(localStorage.getItem('g20_dividendos')||'[]'); }catch(e){}
+          var precisaImportar = (typeof _provDeveReimportar==='function' && _provDeveReimportar()) || divsAtuais.length === 0;
+          if(precisaImportar && typeof _importarTodosProventosBackground==='function'){
+            _importarTodosProventosBackground(function(){
+              if(typeof _provMarcarImportado==='function') _provMarcarImportado();
+              if(typeof renderProvAgenda==='function') renderProvAgenda();
+              // V3: re-rodar tambem apos import de proventos
+              if(typeof v3InitBlocks === 'function'){
+                try{ v3InitBlocks(); }catch(e){}
+              }
+            });
           }
           // Aguarda 2s para cota  es do Yahoo chegarem antes de renderizar varia  es
           setTimeout(function(){
