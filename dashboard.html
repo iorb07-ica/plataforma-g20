@@ -3923,7 +3923,14 @@ function v3TryLoadAportesFromFirestore(cb){
 
 function v3CalcCarteiraG20(){
   try{
-    var aportes = JSON.parse(localStorage.getItem('g20_aportes')||'[]');
+    // Ler de MULTIPLAS fontes (union)
+    var aportesCG20 = [];
+    var aportesRV = [];
+    try{ aportesCG20 = JSON.parse(localStorage.getItem('g20_aportes')||'[]'); }catch(e){}
+    try{ aportesRV = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); }catch(e){}
+
+    // Preferencia: CG20 se existir, senao RV da Gestao Patrimonial
+    var aportes = aportesCG20.length > 0 ? aportesCG20 : aportesRV;
     if(!aportes.length) return {posicoes:[], total:0, totalAplicado:0};
 
     // Agrupar por ticker
@@ -3933,14 +3940,20 @@ function v3CalcCarteiraG20(){
       var t = a.ticker.toUpperCase();
       if(!mapa[t]) mapa[t] = {ticker:t, qtd:0, valorAplicado:0, tipo:(a.tipo||'Acao'), cotacao:0};
       var q = parseFloat(a.qtd)||0;
-      var p = parseFloat(a.preco)||0;
-      if((a.op||'C')==='C'){ mapa[t].qtd += q; mapa[t].valorAplicado += q*p; }
-      else { mapa[t].qtd -= q; mapa[t].valorAplicado -= q*p; }
-      // Preservar tipo se algum aporte tiver
+      // Preco considerando moeda USD (estrutura do rvAportes tem moeda+fxRate)
+      var pr = parseFloat(a.preco)||0;
+      if(a.moeda === 'USD') pr = pr * (parseFloat(a.fxRate)||5.85);
+      if((a.op||'C')==='C'){ mapa[t].qtd += q; mapa[t].valorAplicado += q*pr; }
+      else {
+        // Venda: usar preco medio atual pra nao distorcer
+        var pm = mapa[t].qtd > 0 ? mapa[t].valorAplicado / mapa[t].qtd : pr;
+        mapa[t].valorAplicado -= q*pm;
+        mapa[t].qtd -= q;
+      }
       if(a.tipo) mapa[t].tipo = a.tipo;
     });
 
-    // Tentar pegar cotacoes do cache (preco salvo por carteira.html)
+    // Tentar pegar cotacoes: primeiro g20_precos (carteira.html), depois cache Yahoo
     var precos = {};
     try{ precos = JSON.parse(localStorage.getItem('g20_precos')||'{}'); }catch(e){}
 
@@ -3948,10 +3961,14 @@ function v3CalcCarteiraG20(){
     var total = 0, totalAplicado = 0;
 
     Object.values(mapa).forEach(function(p){
-      if(p.qtd <= 0) return;
+      if(p.qtd <= 0.001) return;
       var cot = 0;
-      if(precos[p.ticker] && precos[p.ticker].preco) cot = parseFloat(precos[p.ticker].preco)||0;
-      // Fallback: usar preco medio dos aportes
+      if(precos[p.ticker]){
+        if(typeof precos[p.ticker] === 'number') cot = precos[p.ticker];
+        else if(precos[p.ticker].preco) cot = parseFloat(precos[p.ticker].preco)||0;
+        else if(precos[p.ticker].price) cot = parseFloat(precos[p.ticker].price)||0;
+      }
+      // Fallback: preco medio dos aportes
       if(!cot && p.qtd>0) cot = p.valorAplicado / p.qtd;
       p.cotacao = cot;
       p.valor = p.qtd * cot;
@@ -4937,6 +4954,21 @@ function v3TutorClick(){
 // ORQUESTRADOR V3 - chama todos os loaders
 // -----------------------------------------------------------
 function v3InitBlocks(){
+  // DEBUG: mapear estado das chaves localStorage ao rodar init
+  try{
+    var keys = ['g20_aportes','g20_rvAportes','g20_rendaFixa','g20_patrimonioBens','g20_dividendos','g20_precos','g20_indBCB_cache'];
+    var status = {};
+    keys.forEach(function(k){
+      var v = localStorage.getItem(k);
+      if(!v){ status[k] = 'VAZIO'; return; }
+      try{
+        var parsed = JSON.parse(v);
+        status[k] = Array.isArray(parsed) ? (parsed.length+' items') : (typeof parsed === 'object' ? Object.keys(parsed).length+' keys' : 'ok');
+      }catch(e){ status[k] = 'ERRO PARSE'; }
+    });
+    console.log('[V3 init] LS status:', status);
+  }catch(e){}
+
   v3LoadWelcome();
   v3LoadKpiRent();
   v3LoadKpiProv();
@@ -5156,6 +5188,10 @@ window.g20Logout = function() {
             try { localStorage.setItem('g20_' + doc.id, JSON.stringify(doc.data().value)); } catch(e) {}
           });
           loadPatStrip();
+          // V3: re-rodar loaders com dados Firestore ja sincronizados em LS
+          if(typeof v3InitBlocks === 'function'){
+            try{ v3InitBlocks(); }catch(e){ console.warn('v3InitBlocks p\u00f3s-sync:', e); }
+          }
           // Renderiza imediatamente com dados em cache
           if(typeof renderProvAgenda==='function') renderProvAgenda();
           // Reimporta em background apenas se passou 24h ou primeira vez
@@ -5164,11 +5200,21 @@ window.g20Logout = function() {
               _importarTodosProventosBackground(function(){
                 _provMarcarImportado();
                 if(typeof renderProvAgenda==='function') renderProvAgenda();
+                // V3: re-rodar tambem apos import de proventos
+                if(typeof v3InitBlocks === 'function'){
+                  try{ v3InitBlocks(); }catch(e){}
+                }
               });
             }
           }
           // Aguarda 2s para cota  es do Yahoo chegarem antes de renderizar varia  es
-          setTimeout(_atualizarVariacoesPat, 2000);
+          setTimeout(function(){
+            _atualizarVariacoesPat();
+            // V3: mais um retry apos cotacoes chegarem
+            if(typeof v3InitBlocks === 'function'){
+              try{ v3InitBlocks(); }catch(e){}
+            }
+          }, 2000);
         }).catch(function(e) { console.warn('Patrim\u00f4nio Firestore:', e); });
       }
       atualizarPat();
