@@ -5101,28 +5101,54 @@ function v3CastShowEmbed(link){
   var embedEl = document.getElementById('v3CastPlayerEmbed');
   if(!embedEl || !link) return;
 
-  // Se ja tem player, fecha
-  if(embedEl.style.display === 'block'){
+  // Toggle: se ja tem player mesmo link, fecha
+  if(embedEl.style.display === 'block' && embedEl.dataset.currentLink === link){
     embedEl.style.display = 'none';
     embedEl.innerHTML = '';
+    embedEl.dataset.currentLink = '';
     return;
   }
 
-  // anchor.fm embed (bonito, dark)
-  if(link.indexOf('anchor.fm') >= 0){
-    var m = link.match(/-e([a-z0-9]+)/i);
-    if(m && m[1]){
-      var epId = m[1];
-      embedEl.innerHTML = '<iframe src="https://anchor.fm/g20cast/embed/episodes/'+epId+'" height="110" width="100%" frameborder="0" scrolling="no" style="border-radius:10px"></iframe>';
-      embedEl.style.display = 'block';
-      // Rola pro player caso esteja fora da viewport
+  // Loading state
+  embedEl.innerHTML = '<div style="padding:24px 16px;text-align:center;color:#7a8599;font-size:11px">Carregando player Spotify\u2026</div>';
+  embedEl.style.display = 'block';
+  embedEl.dataset.currentLink = link;
+
+  // Usa oEmbed oficial do Spotify - aceita links anchor.fm e open.spotify.com
+  // Retorna HTML de iframe com visual oficial (capa + dark theme + nome do canal)
+  var oembedUrl = 'https://open.spotify.com/oembed?url=' + encodeURIComponent(link);
+
+  fetch(oembedUrl)
+    .then(function(r){ return r.ok ? r.json() : Promise.reject('oembed-fail'); })
+    .then(function(data){
+      if(!data || !data.html){ throw 'no-html'; }
+      // Ajusta o iframe para 152px (altura padrao Spotify) e nosso border-radius
+      var html = data.html.replace(/height="\d+"/, 'height="152"');
+      embedEl.innerHTML = html;
       setTimeout(function(){
         try{ embedEl.scrollIntoView({block:'nearest',behavior:'smooth'}); }catch(e){}
       }, 100);
-      return;
-    }
-  }
-  window.open(link, '_blank');
+    })
+    .catch(function(err){
+      console.warn('Spotify oEmbed falhou, tentando fallback:', err);
+      // Fallback 1: extrai ID direto do link anchor.fm ou open.spotify.com
+      var epId = null;
+      var mSpotify = link.match(/open\.spotify\.com\/episode\/([a-zA-Z0-9]+)/);
+      if(mSpotify){ epId = mSpotify[1]; }
+      if(!epId){
+        var mAnchor = link.match(/-e([a-z0-9]+)/i);
+        if(mAnchor){ epId = mAnchor[1]; }
+      }
+      if(epId){
+        // Tenta embed oficial spotify (funciona se o ID estiver no catalogo Spotify)
+        embedEl.innerHTML = '<iframe src="https://open.spotify.com/embed/episode/'+epId+'?utm_source=g20" width="100%" height="152" frameborder="0" allowfullscreen allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" style="border-radius:12px"></iframe>';
+        setTimeout(function(){
+          try{ embedEl.scrollIntoView({block:'nearest',behavior:'smooth'}); }catch(e){}
+        }, 100);
+      } else {
+        embedEl.innerHTML = '<div style="padding:16px;text-align:center;color:#7a8599;font-size:11px">Player indispon\u00edvel. <a href="'+link+'" target="_blank" style="color:#e8c766">Abrir no Spotify</a></div>';
+      }
+    });
 }
 
 // -----------------------------------------------------------
