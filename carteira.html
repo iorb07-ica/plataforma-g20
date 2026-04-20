@@ -95,7 +95,7 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .search-input{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 12px;border-radius:8px;font-size:12px;font-family:inherit;min-width:160px}
 .search-input:focus{outline:none;border-color:var(--gold)}
 /* TABLE */
-.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:auto;-webkit-overflow-scrolling:touch;max-height:62vh}
+.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:110px}
 /* Thead sticky — gradiente dourado sobre fundo sólido */
 .table-wrap thead{position:sticky;top:0;z-index:501}
 .table-wrap thead tr{background:linear-gradient(180deg,rgba(232,184,75,.10) 0%,rgba(232,184,75,.04) 100%),var(--surface)}
@@ -289,9 +289,12 @@ tr:hover td{background:var(--sur2)!important}
 .mkt-us{background:rgba(52,152,219,.1);color:#3498db;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:700}
 
 /* ── DRAWER TRANSAÇÕES POR ATIVO ── */
-.drawer-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:300}
+.drawer-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9500}
 .drawer-overlay.show{display:block}
-.drawer{position:fixed;top:0;right:0;height:100vh;width:480px;max-width:96vw;background:var(--bg2);border-left:1px solid var(--border);z-index:301;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);box-shadow:-8px 0 40px rgba(0,0,0,.4)}
+.drawer{position:fixed;top:0;right:0;height:100vh;width:480px;max-width:96vw;background:var(--bg2);border-left:1px solid var(--border);z-index:9501;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);box-shadow:-8px 0 40px rgba(0,0,0,.4)}
+/* Quando drawer aberto, rebaixa thead sticky da tabela pra não sobrepor */
+body.drawer-open .table-wrap thead,
+body.drawer-open .table-wrap thead th{z-index:1 !important}
 .drawer.open{transform:translateX(0)}
 .drawer-header{padding:18px 20px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-shrink:0}
 .drawer-ticker{font-size:20px;font-weight:800;letter-spacing:.5px}
@@ -575,10 +578,10 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
 
 /* Stats: fontes responsivas sem clamp para evitar conflito com Chart.js */
 
-/* Tabela sempre scrollável horizontalmente */
+/* Tabela scrollável horizontalmente (vertical usa scroll da página) */
 .table-wrap {
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -632,6 +635,7 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
   /* Tabela — scroll horizontal suave, colunas essenciais sempre visíveis */
   .table-wrap {
     overflow-x: auto;
+    overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     border-radius: 10px;
     /* Indica visualmente que há mais conteúdo */
@@ -1823,9 +1827,11 @@ body.pat-hidden .g-kpi-sub::after{justify-content:flex-start;padding-right:0;pad
             <option value="">Todos os ativos</option>
           </select>
           <input class="search-input" id="searchProv" placeholder="🔍 Ticker..." oninput="renderDividendos()" style="min-width:130px">
-          <button class="btn-sm btn-gold" id="btnImportarProventos" onclick="importarTodosProventos()">📥 Importar</button>
+          <button class="btn-sm btn-gold" id="btnImportarProventos" onclick="importarTodosProventos(null, true)">📥 Importar</button>
+          <button class="btn-sm btn-outline" id="btnRecarregarNuvem" onclick="recarregarProventosDoFirestore()" title="Recarrega proventos direto do Firestore (útil se localStorage foi corrompido)">☁️ Recarregar da Nuvem</button>
           <button class="btn-sm btn-outline" onclick="buscarDividendos()">↻ Brapi</button>
           <button class="btn-sm btn-outline" onclick="abrirModalDividendo()">+ Manual</button>
+          <button class="btn-sm btn-outline" id="btnHistCompleto" onclick="importarHistoricoCompleto()" title="Busca dividendos antigos (>2 anos) via FMP — útil apenas na 1ª vez para ativos antigos">📜 Histórico Completo</button>
         </div>
       </div>
 
@@ -2028,18 +2034,20 @@ body.pat-hidden .g-kpi-sub::after{justify-content:flex-start;padding-right:0;pad
 
 <!-- FAB SPEED DIAL -->
 <style>
-.fab-wrap{position:fixed;bottom:28px;right:24px;z-index:500;display:flex;flex-direction:column;align-items:flex-end;gap:10px}
+.fab-wrap{position:fixed;bottom:28px;right:24px;z-index:500;display:flex;flex-direction:column;align-items:flex-end;gap:12px;pointer-events:none}
 @media(max-width:768px){.fab-wrap{bottom:calc(72px + var(--safe-bottom,0px) + 12px)}}
-.fab-main{width:60px;height:60px;border-radius:50%;background:var(--gold);color:#000;border:none;font-size:30px;font-weight:700;line-height:1;box-shadow:0 6px 28px rgba(232,184,75,.55);cursor:pointer;transition:transform .2s,box-shadow .2s;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.fab-main{width:60px;height:60px;border-radius:50%;background:var(--gold);color:#000;border:none;font-size:30px;font-weight:700;line-height:1;box-shadow:0 6px 28px rgba(232,184,75,.55);cursor:pointer;transition:transform .2s,box-shadow .2s;display:flex;align-items:center;justify-content:center;flex-shrink:0;pointer-events:auto}
 .fab-main:hover{transform:scale(1.08);box-shadow:0 8px 36px rgba(232,184,75,.7)}
 .fab-main.open{transform:rotate(45deg)}
-.fab-items{display:flex;flex-direction:column;align-items:flex-end;gap:8px;opacity:0;pointer-events:none;transform:translateY(10px);transition:opacity .2s,transform .2s}
-.fab-items.open{opacity:1;pointer-events:all;transform:translateY(0)}
-.fab-item{display:flex;align-items:center;gap:10px;cursor:pointer}
-.fab-item-label{background:rgba(12,14,22,0.95);color:#f4f6fa;font-size:13px;font-weight:700;padding:7px 14px;border-radius:10px;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.08)}
-.fab-item-btn{width:46px;height:46px;border-radius:50%;border:none;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.3);flex-shrink:0;transition:transform .15s}
+/* Card preto de fundo envolvendo as 3 opções */
+.fab-items{display:none;flex-direction:column;align-items:stretch;gap:10px;padding:14px;background:rgba(8,10,16,0.96);border:1px solid rgba(232,184,75,.25);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.7),0 0 0 1px rgba(0,0,0,.4);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:0;pointer-events:none;transform:translateY(10px);transition:opacity .2s,transform .2s}
+.fab-items.open{display:flex;opacity:1;pointer-events:all;transform:translateY(0)}
+.fab-item{display:flex;align-items:center;justify-content:flex-end;gap:12px;cursor:pointer;pointer-events:auto;padding:2px 4px;border-radius:10px;transition:background .15s}
+.fab-item:hover{background:rgba(232,184,75,.08)}
+.fab-item-label{color:#f4f6fa;font-size:13px;font-weight:700;white-space:nowrap;letter-spacing:.2px}
+.fab-item-btn{width:44px;height:44px;border-radius:50%;border:none;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.4);flex-shrink:0;transition:transform .15s}
 .fab-item-btn:hover{transform:scale(1.12)}
-.fab-overlay{display:none;position:fixed;inset:0;z-index:499}
+.fab-overlay{display:none;position:fixed;inset:0;z-index:499;background:rgba(0,0,0,.25)}
 .fab-overlay.show{display:block}
 </style>
 <div class="fab-overlay" id="fabOverlay" onclick="closeFab()"></div>
@@ -2167,6 +2175,8 @@ input[type="text"].apl-inp-preco{text-align:right}
 .tac-badge{font-size:10px;padding:2px 8px;border-radius:4px;font-weight:700;white-space:nowrap}
 .tac-loading{padding:14px 16px;font-size:12px;color:var(--text3);text-align:center}
 .apl-moeda.brl{color:#2ecc71!important;border-color:rgba(46,204,113,.35)!important;background:rgba(46,204,113,.08)!important}
+.ticker-invalido{border:1px solid rgba(230,57,70,.7)!important;background:rgba(230,57,70,.08)!important;animation:tickerShake .35s}
+@keyframes tickerShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
 </style>
 <div class="modal" id="modalAporte">
   <div class="modal-box">
@@ -2196,11 +2206,13 @@ input[type="text"].apl-inp-preco{text-align:right}
         <option value="C">Compra</option><option value="V">Venda</option>
       </select>
       <input type="date" id="apl_data0" class="apl-inp"
-        onclick="try{this.showPicker();}catch(e){}" onchange="aplCalc();aplOnDataChange('0')">
+        onfocus="this.select()"
+        onpaste="handleDatePaste(event, this)"
+        onchange="aplCalc();aplOnDataChange('0')">
       <div class="apl-tk-wrap">
         <input id="aporte_ticker" class="apl-inp" placeholder="PETR4, AAPL..."
           autocomplete="off" style="font-weight:700;font-size:14px"
-          oninput="this.value=this.value.toUpperCase();autoDetectTipo(this.value);buscarSugestoesTicker(this.value);aplCalc();if(_aplPrecoSource['0']!=='edited'){_aplPrecoSource['0']='empty';aplAtualizarBadge('0');var p0=document.getElementById('apl_preco0');if(p0)p0.value='';}"
+          oninput="this.value=this.value.toUpperCase();this.removeAttribute('data-ticker-validado');this.classList.remove('ticker-invalido');autoDetectTipo(this.value);buscarSugestoesTicker(this.value);aplCalc();if(_aplPrecoSource['0']!=='edited'){_aplPrecoSource['0']='empty';aplAtualizarBadge('0');var p0=document.getElementById('apl_preco0');if(p0)p0.value='';}"
           onkeydown="navegarAutocomplete(event)"
           onblur="setTimeout(function(){fecharAutocomplete();var tk=document.getElementById('aporte_ticker');var tp=document.getElementById('aporte_tipo');var dt=document.getElementById('apl_data0');if(tk&&tk.value&&_aplPrecoSource['0']!=='edited'&&_aplPrecoSource['0']!=='live'&&_aplPrecoSource['0']!=='historical')aplTriggerCotacao('0',tk.value,tp?tp.value:'Acao',dt?dt.value:'');},200)">
         <div id="tickerAutocomplete" class="ticker-autocomplete" style="display:none"></div>
@@ -2299,8 +2311,7 @@ input[type="text"].apl-inp-preco{text-align:right}
   </div>
 </div>
 
-<!-- FAB mobile -->
-<button class="btn-plus-fab" onclick="abrirModalAporte(null)" title="Novo aporte">＋</button>
+<!-- FAB mobile antigo removido — substituído pelo speed dial .fab-wrap abaixo -->
 
 <!-- DRAWER TRANSAÇÕES POR ATIVO -->
 <div class="drawer-overlay" id="drawerOverlay" onclick="fecharDrawer()"></div>
@@ -2434,20 +2445,103 @@ function loadData(k, defaultVal){
   return (defaultVal !== undefined) ? defaultVal : null;
 }
 
-// saveData — local imediato + Firestore com debounce
-function saveData(k, v){
+// saveData — local imediato + Firestore com debounce + retry + alerta em falha
+function saveData(k, v, opts){
+  opts = opts || {};
   _db_cache[k] = v;
   try{ localStorage.setItem('g20_'+k, JSON.stringify(v)); }catch(e){}
   if(!_dbIsUserKey(k) || !_db_ref) return;
+
+  // Modo imediato (sem debounce) - usado após imports grandes ou beforeunload
+  var delay = opts.immediate ? 0 : 800;
+
   if(_db_pending_saves[k]) clearTimeout(_db_pending_saves[k]);
   _db_pending_saves[k] = setTimeout(function(){
-    _db_ref.doc(k).set({
-      value: v,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }).catch(function(e){ console.warn('G20 DB save ['+k+']:', e); });
+    _saveFirestoreComRetry(k, v, 0);
     delete _db_pending_saves[k];
-  }, 800);
+  }, delay);
 }
+
+// Retry automático com backoff exponencial + alerta se falhar definitivamente
+function _saveFirestoreComRetry(k, v, tentativa){
+  _db_ref.doc(k).set({
+    value: v,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  }).then(function(){
+    if(tentativa > 0) console.log('✅ G20 DB save ['+k+'] OK após '+tentativa+' tentativa(s)');
+  }).catch(function(e){
+    console.warn('G20 DB save ['+k+'] tentativa '+(tentativa+1)+' falhou:', e.message);
+    if(tentativa < 3){
+      var espera = [2000, 5000, 15000][tentativa];
+      setTimeout(function(){ _saveFirestoreComRetry(k, v, tentativa+1); }, espera);
+    } else {
+      console.error('❌ G20 DB save ['+k+'] FALHOU após 4 tentativas:', e);
+      _mostrarAlertaSaveFailed(k, e.message);
+    }
+  });
+}
+
+// Alerta flutuante no canto da tela quando save falha
+function _mostrarAlertaSaveFailed(k, msg){
+  var existing = document.getElementById('saveFailedAlert');
+  if(existing) existing.remove();
+  var el = document.createElement('div');
+  el.id = 'saveFailedAlert';
+  el.style.cssText = 'position:fixed;top:20px;right:20px;background:#e63946;color:#fff;padding:14px 18px;border-radius:10px;max-width:340px;font-size:13px;z-index:99999;box-shadow:0 6px 24px rgba(0,0,0,.5);line-height:1.4';
+  el.innerHTML = '<div style="font-weight:800;margin-bottom:4px">⚠️ FALHA AO SALVAR NA NUVEM</div>'+
+                 '<div style="font-size:12px;margin-bottom:6px">Chave: <b>'+k+'</b></div>'+
+                 '<div style="font-size:11px;opacity:.9">'+msg+'</div>'+
+                 '<div style="font-size:11px;margin-top:8px">Dados salvos localmente. Tente forçar novo save.</div>'+
+                 '<button onclick="this.parentElement.remove()" style="margin-top:8px;background:#fff;color:#e63946;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:700">Fechar</button>';
+  document.body.appendChild(el);
+}
+
+// Força save imediato de uma chave - retorna Promise para confirmação
+function forcarSaveFirestore(k){
+  var v = loadData(k);
+  if(v === null || v === undefined) return Promise.reject('sem dados');
+  if(!_db_ref) return Promise.reject('sem Firestore');
+  return _db_ref.doc(k).set({
+    value: v,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// BLINDAGEM: flush síncrono no fechamento da aba
+// Garante que saves pendentes disparem antes do unload
+// ═══════════════════════════════════════════════════════════
+function _flushAllPendingSaves(){
+  var chaves = Object.keys(_db_pending_saves);
+  if(!chaves.length) return;
+  console.log('[flush] Disparando '+chaves.length+' save(s) pendente(s) antes de fechar...');
+  chaves.forEach(function(k){
+    clearTimeout(_db_pending_saves[k]);
+    delete _db_pending_saves[k];
+    var v = _db_cache[k];
+    if(v !== undefined && _db_ref){
+      // Save fire-and-forget sem aguardar - navegador mantém request em progresso
+      try{
+        _db_ref.doc(k).set({
+          value: v,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      }catch(e){
+        console.warn('[flush] Erro síncrono em ['+k+']:', e);
+      }
+    }
+  });
+}
+
+// Registra handlers de fechamento/visibilidade
+window.addEventListener('beforeunload', _flushAllPendingSaves);
+window.addEventListener('pagehide',      _flushAllPendingSaves);
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'hidden'){
+    // Mobile: visibilitychange é mais confiável que beforeunload
+    _flushAllPendingSaves();
+  }
+});
 // ═══════════════════════════════════════════════════════════
 
 
@@ -2559,16 +2653,18 @@ var US_CLEARBIT = {
 };
 
 function buildLogoUrls(ticker, tipo){
-  // === TradingView primeiro (G20 integration v1) ===
-  var tvUrl = (window.TV_LOGOS && window.TV_LOGOS.getUrl) ? window.TV_LOGOS.getUrl(ticker) : null;
-  var originalUrls = _buildLogoUrlsOriginal(ticker, tipo) || [];
-  return tvUrl ? [tvUrl].concat(originalUrls) : originalUrls;
-}
-function _buildLogoUrlsOriginal(ticker, tipo){
   var t    = ticker.replace(/\.SA$/i,'').toUpperCase();
   var isBr = isBR(ticker, tipo||'Stock');
   var cb   = '?_v='+LOGO_VERSION;
   var urls = [];
+
+  // === TradingView mapa exato primeiro (G20 integration v1) ===
+  // Se o ticker esta no mapa window.TV_LOGOS, usa logoid exato como fonte #0.
+  // Senao, array comeca vazio e segue fluxo original (Logo.dev, Yahoo, etc).
+  if(window.TV_LOGOS && window.TV_LOGOS.getUrl){
+    var tvUrl = window.TV_LOGOS.getUrl(ticker);
+    if(tvUrl) urls.push(tvUrl);
+  }
 
   // ── US ────────────────────────────────────────────────────────
   if(!isBr){
@@ -2917,7 +3013,11 @@ function selecionarSugestao(symbol, tipo){
   var tipoFinal = corrigirTipoProxy(symbol, tipo);
   var flagBR    = ['Acao','FII','FIAGRO'].includes(tipoFinal);
   var tickerFinal = flagBR ? symbol.replace(/\.SA$/i,'').toUpperCase() : symbol.toUpperCase();
-  if(input) input.value = tickerFinal;
+  if(input){
+    input.value = tickerFinal;
+    input.setAttribute('data-ticker-validado','1');
+    input.classList.remove('ticker-invalido');
+  }
   var sel = document.getElementById('aporte_tipo');
   if(sel) sel.value = tipoFinal;
   aplTipoChange0(tipoFinal);
@@ -3615,11 +3715,37 @@ function toggleMoeda(){
 
 function renderPosicoes(){
 
+  // ============================================================
+  // PROTEÇÃO CONTRA DESSINCRONIZAÇÃO DO FILTRO
+  // ============================================================
+  // Se filtroAtivo não é 'todos' mas o botão correspondente não está
+  // visualmente ativo, confia no visual e corrige o filtroAtivo.
+  // Isso previne bug onde a variável JS fica travada com valor antigo.
+  var btnAtivo = document.querySelector('.filter-btn.active');
+  if(btnAtivo){
+    var onclick = btnAtivo.getAttribute('onclick') || '';
+    var match = onclick.match(/setFiltro\(['"]([^'"]+)['"]/);
+    if(match && match[1] !== filtroAtivo){
+      filtroAtivo = match[1];
+    }
+  } else if(filtroAtivo !== 'todos'){
+    // Nenhum botão ativo mas filtro não-todos: reseta pra todos
+    filtroAtivo = 'todos';
+    var btnTodos = document.querySelector('.filter-btn[onclick*="setFiltro(\'todos\'"]');
+    if(btnTodos) btnTodos.classList.add('active');
+  }
+
   var pos = calcPosicoes();
   var search = (document.getElementById('searchTicker').value||'').toUpperCase();
   var divs = loadData('dividendos',[]);
   var divRec = divs.filter(function(d){return d.data<new Date().toISOString().split('T')[0];})
-                   .reduce(function(s,d){return s+(d.valor*(d.qtdEx||0));},0);
+                   .reduce(function(s,d){
+                     // Blindagem: suporta schema misto (valor|valorCota, qtdEx|qtd, total pré-calculado)
+                     if(d.total != null) return s + (parseFloat(d.total)||0);
+                     var vlr = parseFloat(d.valor != null ? d.valor : (d.valorCota != null ? d.valorCota : 0)) || 0;
+                     var qtd = parseFloat(d.qtdEx != null ? d.qtdEx : (d.qtd != null ? d.qtd : 0)) || 0;
+                     return s + (vlr * qtd);
+                   },0);
 
   if(filtroAtivo!=='todos') pos=pos.filter(function(p){return p.tipo===filtroAtivo;});
   if(search) pos=pos.filter(function(p){return p.ticker.includes(search);});
@@ -3780,6 +3906,9 @@ function renderPosicoes(){
 
   atualizarStats(totalInvGlobal, totalPosGlobal, totalPosGlobal-totalInvGlobal, divRec, totalProvGlobal);
   atualizarVarDia(varDiaBRL, totalPosGlobal);
+
+  // Reordena colunas conforme preferência salva do usuário (th + td do tbody)
+  if(typeof aplicarOrdemColunas === 'function') aplicarOrdemColunas();
 }
 
 function atualizarVarDia(varBRL, totalPos){
@@ -3948,12 +4077,14 @@ function abrirDrawer(ticker, tipo, nome){
   setDrawerTab('tx');
   document.getElementById('drawerOverlay').classList.add('show');
   document.getElementById('drawerAtivo').classList.add('open');
+  document.body.classList.add('drawer-open');
   document.body.style.overflow = 'hidden';
 }
 
 function fecharDrawer(){
   document.getElementById('drawerOverlay').classList.remove('show');
   document.getElementById('drawerAtivo').classList.remove('open');
+  document.body.classList.remove('drawer-open');
   document.body.style.overflow = '';
 }
 
@@ -4062,7 +4193,12 @@ function renderDrawerProv(){
     : function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
 
   var totalProv = divs.filter(function(d){ return d.data < new Date().toISOString().split('T')[0]; })
-    .reduce(function(s,d){ return s+d.valor*(d.qtdEx||0); },0);
+    .reduce(function(s,d){
+      if(d.total != null) return s + (parseFloat(d.total)||0);
+      var vlr = parseFloat(d.valor != null ? d.valor : (d.valorCota != null ? d.valorCota : 0)) || 0;
+      var qtd = parseFloat(d.qtdEx != null ? d.qtdEx : (d.qtd != null ? d.qtd : 0)) || 0;
+      return s + (vlr * qtd);
+    },0);
 
   var summaryHtml = divs.length ? '<div class="dtx-summary" style="margin-bottom:14px">'+
     '<div class="dtx-sum-card"><div class="lbl">Total Recebido</div><div class="val" style="color:var(--green)">'+fmt(totalProv)+'</div></div>'+
@@ -5762,6 +5898,11 @@ function abrirModalAporte(ticker){
     var opEl=document.getElementById('apl_op0'); if(opEl) opEl.className='apl-sel apl-op-c';
     set('apl_data0',today);
     set('aporte_ticker','');
+    var tkNovo=document.getElementById('aporte_ticker');
+    if(tkNovo){
+      tkNovo.removeAttribute('data-ticker-validado');
+      tkNovo.classList.remove('ticker-invalido');
+    }
     set('aporte_tipo','Acao');
     set('apl_qtd0','');
     set('apl_preco0','');
@@ -5785,6 +5926,11 @@ function abrirModalAporte(ticker){
 
     if(ticker && typeof ticker==='string' && !ticker.match(/^\d+$/)){
       set('aporte_ticker', ticker);
+      var tkPre=document.getElementById('aporte_ticker');
+      if(tkPre){
+        tkPre.setAttribute('data-ticker-validado','1');
+        tkPre.classList.remove('ticker-invalido');
+      }
       if(typeof autoDetectTipo==='function') autoDetectTipo(ticker);
     }
     modal.style.cssText='display:flex !important;align-items:center;justify-content:center;';
@@ -5805,7 +5951,8 @@ function aplSalvar(){
   var novos=[], erros=[];
 
   // Linha 0
-  var t0=(document.getElementById('aporte_ticker')||{value:''}).value.trim().toUpperCase();
+  var t0El=document.getElementById('aporte_ticker');
+  var t0=(t0El||{value:''}).value.trim().toUpperCase();
   var op0=(document.getElementById('apl_op0')||{value:'C'}).value;
   var d0=(document.getElementById('apl_data0')||{value:''}).value;
   var tp0=(document.getElementById('aporte_tipo')||{value:'Acao'}).value;
@@ -5813,11 +5960,17 @@ function aplSalvar(){
   var p0=aplParsePreco((document.getElementById('apl_preco0')||{value:''}).value);
   var m0=(document.getElementById('apl_moeda0')||{value:'BRL'}).value;
   if(!t0||!d0||q0<=0||p0<=0){ erros.push('Linha 1: preencha Ticker, Data, Qtd e Preço'); }
+  else if(t0El && t0El.getAttribute('data-ticker-validado')!=='1'){
+    erros.push('Linha 1: selecione o ticker "'+t0+'" na lista de sugestões');
+    t0El.classList.add('ticker-invalido');
+    try{ t0El.focus(); }catch(e){}
+  }
   else novos.push({id:Date.now().toString()+Math.random().toString(36).substr(2,4),ticker:t0,tipo:tp0,op:op0,data:d0,qtd:q0,preco:p0,moeda:m0,obs:''});
 
   // Linhas extras
   _aplRows.forEach(function(r,i){
-    var t=(document.getElementById('aplTk'+r)||{value:''}).value.trim().toUpperCase();
+    var tEl=document.getElementById('aplTk'+r);
+    var t=(tEl||{value:''}).value.trim().toUpperCase();
     var op=(document.getElementById('aplOp'+r)||{value:'C'}).value;
     var d=(document.getElementById('aplDt'+r)||{value:''}).value;
     var tp=(document.getElementById('aplTp'+r)||{value:'Acao'}).value;
@@ -5825,6 +5978,11 @@ function aplSalvar(){
     var p=aplParsePreco((document.getElementById('aplP'+r)||{value:''}).value);
     var m=(document.getElementById('aplM'+r)||{value:'BRL'}).value||'BRL';
     if(!t||!d||q<=0||p<=0){ erros.push('Linha '+(i+2)+': preencha todos os campos'); return; }
+    if(tEl && tEl.getAttribute('data-ticker-validado')!=='1'){
+      erros.push('Linha '+(i+2)+': selecione o ticker "'+t+'" na lista de sugestões');
+      tEl.classList.add('ticker-invalido');
+      return;
+    }
     novos.push({id:Date.now().toString()+Math.random().toString(36).substr(2,4),ticker:t,tipo:tp,op:op,data:d,qtd:q,preco:p,moeda:m,obs:''});
   });
 
@@ -6252,8 +6410,8 @@ function renderAportes(){
       })()
       +'<td style="color:var(--text2)">'+(a.obs||'-')+'</td>'
       +'<td style="white-space:nowrap">'
-      +'<button class="action-btn" onclick="editarAporte(\''+a.id+'\')">✏️</button> '
-      +'<button class="action-btn" onclick="excluirAporte(\''+a.id+'\')" style="border-color:rgba(230,57,70,.4);color:var(--red)">🗑️</button>'
+      +'<button class="action-btn" data-action="edit" data-id="'+a.id+'" title="Editar">✏️</button> '
+      +'<button class="action-btn" data-action="del" data-id="'+a.id+'" style="border-color:rgba(230,57,70,.4);color:var(--red)" title="Excluir">🗑️</button>'
       +'</td></tr>';
   }).join('');
 }
@@ -6266,30 +6424,88 @@ function limparFiltrosAportes(){
   renderAportes();
 }
 
-// ★ PATCH: editarAporte — onTipoChange sincroniza moeda ao editar
+// ★ PATCH v2: editarAporte — blindado com try/catch + checks de existência
+// + mesmo método de abertura do modal que abrirModalAporte (cssText display:flex)
 function editarAporte(id){
-  var ap=loadData('aportes',[]).find(function(a){return a.id===id;});
-  if(!ap) return;
-  document.getElementById('aporte_editId').value=id;
-  // Reset extras
-  document.getElementById('aplExtras').innerHTML='';
-  _aplRows=[]; _aplRowCount=1; aplUpdCount();
-  document.getElementById('aplSumPanel').style.display='none';
-  // Fill linha 0
-  var op0=document.getElementById('apl_op0');
-  op0.value=ap.op||'C';
-  op0.className='apl-sel '+(ap.op==='V'?'apl-op-v':'apl-op-c');
-  document.getElementById('apl_data0').value=ap.data;
-  document.getElementById('aporte_ticker').value=ap.ticker;
-  document.getElementById('aporte_tipo').value=ap.tipo;
-  document.getElementById('apl_qtd0').value=ap.qtd;
-  document.getElementById('apl_preco0').value=ap.preco;
-  aplTipoChange0(ap.tipo);
-  var m0=document.getElementById('apl_moeda0');
-  if(m0 && ap.moeda) m0.value=ap.moeda;
-  aplCalc();
-  document.getElementById('modalAporte').classList.add('show');
+  try {
+    if(!id) { console.warn('[editarAporte] id vazio'); return; }
+    var ap = loadData('aportes',[]).find(function(a){return a.id===id;});
+    if(!ap) { console.warn('[editarAporte] aporte não encontrado para id:', id); return; }
+    var modal = document.getElementById('modalAporte');
+    if(!modal) { console.warn('[editarAporte] modalAporte não existe no DOM'); return; }
+
+    var set = function(elemId,v){ var el=document.getElementById(elemId); if(el) el.value=v; };
+
+    set('aporte_editId', id);
+
+    // Reset extras
+    var extras = document.getElementById('aplExtras'); if(extras) extras.innerHTML='';
+    if(typeof _aplRows !== 'undefined') _aplRows = [];
+    if(typeof _aplRowCount !== 'undefined') _aplRowCount = 1;
+    if(typeof aplUpdCount==='function') aplUpdCount();
+    var sumP = document.getElementById('aplSumPanel'); if(sumP) sumP.style.display='none';
+
+    // Fill linha 0
+    var op0 = document.getElementById('apl_op0');
+    if(op0){
+      op0.value = ap.op || 'C';
+      op0.className = 'apl-sel ' + (ap.op==='V' ? 'apl-op-v' : 'apl-op-c');
+    }
+    set('apl_data0', ap.data || '');
+
+    var tkEdit = document.getElementById('aporte_ticker');
+    if(tkEdit){
+      tkEdit.value = ap.ticker || '';
+      tkEdit.setAttribute('data-ticker-validado','1');
+      tkEdit.classList.remove('ticker-invalido');
+    }
+    set('aporte_tipo', ap.tipo || 'Acao');
+    set('apl_qtd0', ap.qtd != null ? ap.qtd : '');
+    set('apl_preco0', ap.preco != null ? ap.preco : '');
+
+    if(typeof aplTipoChange0==='function') aplTipoChange0(ap.tipo || 'Acao');
+
+    var m0 = document.getElementById('apl_moeda0');
+    if(m0 && ap.moeda) m0.value = ap.moeda;
+
+    if(typeof aplCalc==='function') aplCalc();
+
+    // Abre o modal do mesmo jeito que abrirModalAporte faz
+    modal.style.cssText = 'display:flex !important;align-items:center;justify-content:center;';
+    modal.classList.add('show');
+  } catch(err) {
+    console.error('[editarAporte] erro:', err);
+    alert('Erro ao abrir edição: ' + (err && err.message ? err.message : err));
+  }
 }
+
+// ★ PATCH v2: Event delegation para botões lápis/lixeira da tabela Transações
+// Evita bugs com onclick inline quando ids têm caracteres especiais
+(function(){
+  var tbodyId = 'tbodyAportes';
+  // tenta amarrar imediatamente; se tbody ainda não existe, espera DOM
+  function bind(){
+    var tbody = document.getElementById(tbodyId);
+    if(!tbody || tbody.dataset.actionBound === '1') return;
+    tbody.dataset.actionBound = '1';
+    tbody.addEventListener('click', function(e){
+      var btn = e.target.closest('button[data-action]');
+      if(!btn) return;
+      var action = btn.getAttribute('data-action');
+      var id = btn.getAttribute('data-id');
+      if(!id) return;
+      if(action === 'edit') editarAporte(id);
+      else if(action === 'del') excluirAporte(id);
+    });
+  }
+  if(document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bind);
+  } else {
+    bind();
+  }
+  // retry 1x caso tbody só exista após render
+  setTimeout(bind, 500);
+})();
 
 // ============================================================
 // DIVIDENDOS / PROVENTOS
@@ -6340,65 +6556,152 @@ function dataPrimeiraCompra(ticker){
   return aportes.sort(function(a,b){ return a.data.localeCompare(b.data); })[0].data;
 }
 
+// ============================================================
+// CACHE INCREMENTAL DE PROVENTOS
+// ============================================================
+
+// Retorna a data do provento mais recente salvo para o ticker, ou null
+function dataProventoMaisRecente(ticker){
+  var stored = loadData('dividendos',[]);
+  var doTicker = stored.filter(function(d){ return d.ticker === ticker; });
+  if(!doTicker.length) return null;
+  var maisRecente = doTicker.reduce(function(max, d){
+    var data = d.data || d.datex || '';
+    return data > max ? data : max;
+  }, '');
+  return maisRecente || null;
+}
+
+// Data do PROVENTO MAIS ANTIGO já salvo pra um ticker
+function dataProventoMaisAntigo(ticker){
+  var stored = loadData('dividendos',[]);
+  var doTicker = stored.filter(function(d){ return d.ticker === ticker; });
+  if(!doTicker.length) return null;
+  var maisAntigo = doTicker.reduce(function(min, d){
+    var data = d.data || d.datex || '';
+    if(!data) return min;
+    return (!min || data < min) ? data : min;
+  }, '');
+  return maisAntigo || null;
+}
+
+// Decide qual data usar como "from" na busca de proventos.
+// Regras:
+// 1. Sem proventos salvos → usa data da primeira compra (busca histórico completo)
+// 2. Tem proventos salvos, mas a compra é ANTERIOR ao provento mais antigo →
+//    usa data da primeira compra (precisa preencher gap histórico)
+// 3. Caso contrário (incremental normal) → usa data do provento mais recente - 7 dias
+function calcularDataInicioBuscaProventos(ticker, dataCompra){
+  var dtUltimo = dataProventoMaisRecente(ticker);
+  if(!dtUltimo) return dataCompra;
+
+  // Verifica se há aporte ANTES do provento mais antigo salvo.
+  // Isso acontece quando a primeira vez rodou com race condition
+  // (qtdEx 0 pros aportes antigos) ou quando foi cadastrado aporte antigo
+  // depois que já existiam proventos salvos.
+  var dtAntigo = dataProventoMaisAntigo(ticker);
+  if(dtAntigo && dataCompra < dtAntigo){
+    // Tem gap histórico — rebusca desde a compra
+    return dataCompra;
+  }
+
+  // Fluxo normal: incremental com 7 dias de margem
+  var d = new Date(dtUltimo);
+  d.setDate(d.getDate() - 7);
+  var dtSegura = d.toISOString().split('T')[0];
+
+  // Não busca antes da data de compra
+  return dtSegura < dataCompra ? dataCompra : dtSegura;
+}
+
+// Verifica se já rodou importação completa de proventos hoje
+function jaRodouProventosHoje(){
+  var ultima = localStorage.getItem('g20_prov_last_import');
+  var hoje = new Date().toISOString().split('T')[0];
+  // Só considera "rodou hoje" se foi marcado como COMPLETO E VALIDADO
+  var status = localStorage.getItem('g20_prov_last_status');
+  return ultima === hoje && status === 'complete';
+}
+
+function marcarProventosRodadosHoje(){
+  var hoje = new Date().toISOString().split('T')[0];
+  localStorage.setItem('g20_prov_last_import', hoje);
+  // Status só vira 'complete' após validação Firestore
+}
+
+function marcarImportEmProgresso(){
+  localStorage.setItem('g20_prov_last_status', 'in_progress');
+  localStorage.setItem('g20_prov_last_start', new Date().toISOString());
+}
+
+function marcarImportCompleto(){
+  localStorage.setItem('g20_prov_last_status', 'complete');
+  localStorage.removeItem('g20_prov_last_start');
+}
+
+function detectarImportInterrompido(){
+  var status = localStorage.getItem('g20_prov_last_status');
+  var start  = localStorage.getItem('g20_prov_last_start');
+  if(status !== 'in_progress' || !start) return false;
+  // Se começou há mais de 30min e nunca completou, foi interrompido
+  var minutos = (Date.now() - new Date(start).getTime()) / 60000;
+  return minutos > 0; // qualquer tempo em in_progress = interrompido
+}
+
 function importarProventosBR(ticker){
   var dataCompra = dataPrimeiraCompra(ticker);
   if(!dataCompra) return Promise.resolve(0);
 
-  // 1ª tentativa: Yahoo Finance via proxy (histórico + próximo declarado)
-  var tickerSA = ticker+'.SA';
-  var from = Math.floor(new Date(dataCompra).getTime()/1000);
-  var urlDiv = PROXY_URL+'/api/dividends-br?symbol='+encodeURIComponent(tickerSA)+'&from='+from+(tokenBrapi?'&token='+encodeURIComponent(tokenBrapi):'');
+  // Cache incremental: se já tem proventos, busca só do mais recente pra frente (com 7 dias de margem)
+  var dataInicio = calcularDataInicioBuscaProventos(ticker, dataCompra);
 
-  // Busca também o próximo dividendo declarado via quote
-  var urlQuote = PROXY_URL+'/api/quote?symbol='+encodeURIComponent(tickerSA);
+  // ARQUITETURA BR: Statusinvest primário + B3 fallback
+  // - Statusinvest: histórico longo (2016+), data-com + data-pgto separadas, DIV/JCP/Rendimento
+  // - B3: backup oficial se Statusinvest falhar (últimos 12-18 meses)
+  var urlSI = PROXY_URL+'/api/provents-si?symbol='+encodeURIComponent(ticker)+'&from='+encodeURIComponent(dataInicio);
+  var urlB3 = PROXY_URL+'/api/dividends-br?symbol='+encodeURIComponent(ticker)+'&from='+encodeURIComponent(dataInicio);
 
-  return Promise.all([
-    fetch(urlDiv).then(function(r){ return r.ok ? r.json() : []; }).catch(function(){ return []; }),
-    fetch(urlQuote).then(function(r){ return r.ok ? r.json() : {}; }).catch(function(){ return {}; })
-  ]).then(function(results){
-    var divs = Array.isArray(results[0]) ? results[0] : (results[0].dividends || []);
-    var quote = results[1] || {};
-
-    // Se o Yahoo retornou próximo dividendo no quote, adiciona como futuro
-    if(quote.dividendDate && quote.trailingAnnualDividendRate > 0){
-      var nextDate = new Date(quote.dividendDate * 1000).toISOString().split('T')[0];
-      var hoje = new Date().toISOString().split('T')[0];
-      if(nextDate >= hoje){
-        // Estima valor por cota como último dividendo / 4 (trimestral) ou / 12 (mensal)
-        var freq = quote.dividendRate ? Math.round(quote.trailingAnnualDividendRate / quote.dividendRate) : 4;
-        var valor = quote.trailingAnnualDividendRate / Math.max(freq, 1);
-        divs.push({ payment_date: nextDate, ex_date: nextDate, value: valor, type: 'Dividendo' });
+  return fetch(urlSI)
+    .then(function(r){ return r.ok ? r.json() : []; })
+    .catch(function(){ return []; })
+    .then(function(divs){
+      // Normaliza resposta (pode vir como array direto ou {data:[...]})
+      if(Array.isArray(divs)) return divs;
+      if(divs && Array.isArray(divs.data)) return divs.data;
+      return [];
+    })
+    .then(function(divsSI){
+      // Se Statusinvest trouxe dados, usa Statusinvest
+      if(divsSI.length > 0){
+        divsSI = dedupProventos(divsSI);
+        return salvarProventosBR(ticker, divsSI, dataCompra, 'Statusinvest');
       }
-    }
-
-    return salvarProventosBR(ticker, divs, dataCompra, 'Yahoo');
-  })
-    .catch(function(){
-      // 2ª tentativa: DadosMercado (gratuito quando disponível)
-      return fetch('https://api.dadosdemercado.com.br/v1/companies/'+ticker+'/dividends')
-        .then(function(r){
-          if(!r.ok) throw new Error('HTTP '+r.status);
-          return r.json();
-        })
-        .then(function(d){
-          var divs = Array.isArray(d) ? d : (d.data || d.dividends || []);
-          return salvarProventosBR(ticker, divs, dataCompra, 'DadosMercado');
-        })
-        .catch(function(){
-          // 3ª tentativa: Brapi (requer token)
-          if(!tokenBrapi) return 0;
-          return fetch(BRAPI_URL+'/quote/'+ticker+'?dividends=true&token='+tokenBrapi)
-            .then(function(r){ return r.json(); })
-            .then(function(d){
-              if(!d.results || !d.results[0]) return 0;
-              var res = d.results[0];
-              var divs = res.dividendsData && res.dividendsData.cashDividends || [];
-              return salvarProventosBR(ticker, divs, dataCompra, 'Brapi');
-            })
-            .catch(function(){ return 0; });
+      // Fallback para B3
+      return fetch(urlB3)
+        .then(function(r){ return r.ok ? r.json() : []; })
+        .catch(function(){ return []; })
+        .then(function(divsB3){
+          divsB3 = Array.isArray(divsB3) ? divsB3 : [];
+          divsB3 = dedupProventos(divsB3);
+          return salvarProventosBR(ticker, divsB3, dataCompra, 'B3');
         });
     });
 }
+
+// Dedup genérico por (data+valor+tipo) — trata B3 duplicando por classe e Statusinvest ok
+function dedupProventos(divs){
+  var seen = {};
+  var out = [];
+  divs.forEach(function(d){
+    var data  = (d.payment_date||'').substring(0,10);
+    var valor = parseFloat(d.value||d.rate||d.amount||0).toFixed(6);
+    var tipo  = String(d.type||d.label||'Dividendo').toUpperCase();
+    var k = data+'|'+valor+'|'+tipo;
+    if(!seen[k]){ seen[k] = true; out.push(d); }
+  });
+  return out;
+}
+
 
 function salvarProventosBR(ticker, divs, dataCompra, fonte){
   if(!divs || !divs.length) return 0;
@@ -6411,6 +6714,8 @@ function salvarProventosBR(ticker, divs, dataCompra, fonte){
     var dataEx  = (dv.ex_date || dv.lastDatePrior || dv.exDate || dataPag).substring(0,10);
     var valor   = parseFloat(dv.value || dv.rate || dv.amount || 0);
     var tipo    = dv.type || dv.label || dv.kind || 'Dividendo';
+    // Fonte individual (B3 ou Yahoo) — do próprio registro, não da chamada inteira
+    var fonteReg = dv.source || fonte || 'B3';
 
     if(!dataPag || !valor) return;
     if(dataPag < dataCompra) return;
@@ -6419,8 +6724,14 @@ function salvarProventosBR(ticker, divs, dataCompra, fonte){
     var qtd = qtdNaData(ticker, dataEx || dataPag);
     if(qtd <= 0) return;
 
+    // Check de duplicata: mesmo ticker + mesmo mês-ano + mesmo valor = mesmo pagamento
+    // (evita salvar duas vezes quando fontes trazem datas ligeiramente diferentes)
+    var mesAnoNovo = dataPag.substring(0, 7); // YYYY-MM
     var existe = stored.find(function(x){
-      return x.ticker===ticker && x.data===dataPag && Math.abs(x.valor-valor)<0.0001;
+      if(x.ticker !== ticker) return false;
+      if(Math.abs((+x.valor || 0) - valor) > 0.0001) return false;
+      var mesAnoExist = (x.data || '').substring(0, 7);
+      return mesAnoExist === mesAnoNovo;
     });
 
     if(existe){
@@ -6428,6 +6739,13 @@ function salvarProventosBR(ticker, divs, dataCompra, fonte){
       if(Math.abs((existe.qtdEx||0) - qtd) > 0.001){
         existe.qtdEx = qtd;
         novos++; // conta como alterado
+      }
+      // Upgrade de fonte: Yahoo → B3 (B3 tem ex_date preciso)
+      if(fonteReg === 'B3' && existe.fonte === 'Auto-Yahoo'){
+        existe.fonte = 'Auto-B3';
+        existe.datex = dataEx;
+        existe.tipo  = tipo; // B3 separa DIV/JCP
+        novos++;
       }
       return;
     }
@@ -6440,7 +6758,65 @@ function salvarProventosBR(ticker, divs, dataCompra, fonte){
       datex:  dataEx,
       valor:  valor,
       qtdEx:  qtd,
-      fonte:  'Auto-'+fonte
+      fonte:  'Auto-'+fonteReg
+    });
+    novos++;
+  });
+
+  if(novos > 0) saveData('dividendos', stored);
+  return novos;
+}
+
+// Salva proventos US (Polygon ou FMP) evitando duplicatas
+// Retorna quantos foram adicionados/atualizados
+function salvarProventosUS(ticker, divList, fonte){
+  var stored = loadData('dividendos',[]);
+  var novos  = 0;
+
+  divList.forEach(function(dv){
+    var dataPag = (dv.payment_date || dv.date || '').substring(0,10);
+    var dataEx  = (dv.ex_date || dv.date || dataPag).substring(0,10);
+    var amount  = parseFloat(dv.amount || dv.value || 0);
+    if(!dataPag || !amount) return;
+
+    var qtd = qtdNaData(ticker, dataEx || dataPag);
+    if(qtd <= 0) return;
+
+    // Duplicata: mesmo ticker + mesmo mês-ano + valor similar = mesmo pagamento
+    // (mais permissivo que match exato por data — diferentes fontes podem trazer datas ligeiramente diferentes)
+    var mesAnoNovo = dataPag.substring(0, 7); // YYYY-MM
+    var existe = stored.find(function(x){
+      if(x.ticker !== ticker) return false;
+      if(Math.abs((+x.valor || 0) - amount) > 0.01) return false;
+      var mesAnoExist = (x.data || '').substring(0, 7);
+      return mesAnoExist === mesAnoNovo;
+    });
+
+    if(existe){
+      // Atualiza qtdEx se estiver errado
+      if(Math.abs((existe.qtdEx||0)-qtd)>0.001){ existe.qtdEx=qtd; novos++; }
+      // Atualiza datex se separado agora e não estava antes
+      if(dataEx && dataEx!==dataPag && (!existe.datex || existe.datex===existe.data)){
+        existe.datex=dataEx; novos++;
+      }
+      // Se o registro antigo era do FMP/Yahoo e veio nova do Polygon, upgrade a fonte
+      // (Polygon tem dados de melhor qualidade pros recentes)
+      if(fonte === 'Polygon' && (existe.fonte === 'Auto-FMP' || existe.fonte === 'Auto-Yahoo')){
+        existe.fonte = 'Auto-Polygon';
+      }
+      return;
+    }
+
+    stored.push({
+      id:     Date.now().toString()+Math.random(),
+      ticker: ticker,
+      tipo:   dv.type || 'Dividendo',
+      data:   dataPag,
+      datex:  dataEx || dataPag,
+      valor:  amount,
+      qtdEx:  qtd,
+      fonte:  'Auto-'+fonte,
+      moeda:  'USD'
     });
     novos++;
   });
@@ -6453,85 +6829,154 @@ function importarProventosUS(ticker){
   var dataCompra = dataPrimeiraCompra(ticker);
   if(!dataCompra) return Promise.resolve(0);
 
+  // Cache incremental: só busca o que é novo desde o último provento salvo
+  var dataInicio = calcularDataInicioBuscaProventos(ticker, dataCompra);
+
   var apiSymbol = ticker === 'BRK.B' ? 'BRK-B' : (isBR(ticker,'') ? ticker+'.SA' : ticker);
-  var urlDiv   = PROXY_URL+'/api/dividends?symbol='+encodeURIComponent(apiSymbol)+'&from='+dataCompra;
-  var urlQuote = PROXY_URL+'/api/quote?symbol='+encodeURIComponent(apiSymbol);
+  var urlDiv = PROXY_URL+'/api/dividends?symbol='+encodeURIComponent(apiSymbol)+'&from='+dataInicio;
 
-  return Promise.all([
-    fetch(urlDiv).then(function(r){ return r.json(); }).catch(function(){ return {}; }),
-    fetch(urlQuote).then(function(r){ return r.json(); }).catch(function(){ return {}; })
-  ]).then(function(results){
-    var d     = results[0] || {};
-    var quote = results[1] || {};
-    var stored = loadData('dividendos',[]);
-    var hoje   = new Date().toISOString().split('T')[0];
-    var novos  = 0;
-
-    // Histórico de dividendos
-    var divList = d.dividends || [];
-    divList.forEach(function(dv){
-      var dataPag = dv.date || '';
-      if(!dataPag) return;
-      var qtd = qtdNaData(ticker, dataPag);
-      if(qtd <= 0) return;
-      var existe = stored.find(function(x){
-        return x.ticker===ticker && x.data===dataPag && Math.abs(x.valor-dv.amount)<0.001;
-      });
-      if(existe){
-        // Atualiza qtdEx se estiver errado
-        if(Math.abs((existe.qtdEx||0) - qtd) > 0.001){
-          existe.qtdEx = qtd;
-          novos++;
-        }
-        return;
-      }
-      stored.push({
-        id: Date.now().toString()+Math.random(),
-        ticker: ticker, tipo: 'Dividendo',
-        data: dataPag, datex: dataPag,
-        valor: parseFloat(dv.amount||0),
-        qtdEx: qtd, fonte: 'Auto-Proxy', moeda: 'USD'
-      });
-      novos++;
-    });
-
-    // Próximo dividendo declarado via quote
-    if(quote.dividendDate){
-      var nextDate = new Date(quote.dividendDate * 1000).toISOString().split('T')[0];
-      if(nextDate >= hoje){
-        var valor = parseFloat(quote.dividendRate || 0) / 4; // assume trimestral
-        if(valor > 0){
-          var jaExiste = stored.find(function(x){
-            return x.ticker===ticker && x.data===nextDate;
-          });
-          if(!jaExiste){
-            var qtd = qtdNaData(ticker, nextDate);
-            if(qtd > 0){
-              stored.push({
-                id: Date.now().toString()+Math.random(),
-                ticker: ticker, tipo: 'Dividendo',
-                data: nextDate, datex: nextDate,
-                valor: valor, qtdEx: qtd,
-                fonte: 'Auto-Yahoo-Next', moeda: 'USD'
-              });
-              novos++;
-            }
-          }
-        }
-      }
-    }
-
-    if(novos > 0) saveData('dividendos', stored);
-    return novos;
-  })
-  .catch(function(){ return 0; });
+  return fetch(urlDiv)
+    .then(function(r){ return r.ok ? r.json() : {}; })
+    .catch(function(){ return {}; })
+    .then(function(d){
+      var divList = d.dividends || [];
+      return salvarProventosUS(ticker, divList, 'Polygon');
+    })
+    .catch(function(){ return 0; });
 }
 
-function importarTodosProventos(callback){
+// ============================================================
+// IMPORT HISTÓRICO (supera o limite de 2 anos do Polygon grátis)
+// ============================================================
+// Usa FMP (Financial Modeling Prep) via proxy /api/dividends-yahoo
+// (apesar do nome do endpoint, a fonte é FMP — Yahoo bloqueia Vercel)
+// FMP tem 30+ anos de histórico, plano free 250 chamadas/dia
+// Usado 1 vez pra preencher o "gap histórico" — depois Polygon mantém o dia-a-dia.
+
+function importarProventosUSHistorico(ticker){
+  var dataCompra = dataPrimeiraCompra(ticker);
+  if(!dataCompra) return Promise.resolve(0);
+
+  // Só busca até 2 anos atrás (onde o Polygon grátis começa)
+  // Mais 30 dias de overlap pra garantir que não fique gap na transição
+  var hoje = new Date();
+  var doisAnosMenos30dias = new Date(hoje.getFullYear()-2, hoje.getMonth(), hoje.getDate()+30);
+  var dataFim = doisAnosMenos30dias.toISOString().split('T')[0];
+
+  // Se a compra é MAIS recente que o fim da janela, não precisa do histórico
+  // (Polygon já cobre todo o período)
+  if(dataCompra >= dataFim){
+    return Promise.resolve(0);
+  }
+
+  var apiSymbol = ticker === 'BRK.B' ? 'BRK-B' : (isBR(ticker,'') ? ticker+'.SA' : ticker);
+  var url = PROXY_URL+'/api/dividends-yahoo?symbol='+encodeURIComponent(apiSymbol) +
+            '&from='+dataCompra + '&to='+dataFim;
+
+  return fetch(url)
+    .then(function(r){ return r.ok ? r.json() : {}; })
+    .catch(function(){ return {}; })
+    .then(function(d){
+      var divList = d.dividends || [];
+      return salvarProventosUS(ticker, divList, 'FMP');
+    })
+    .catch(function(){ return 0; });
+}
+
+// ============================================================
+// IMPORT HISTÓRICO COMPLETO (botão "📜 Histórico Completo")
+// ============================================================
+// Chamado pelo botão "📜 Histórico Completo" na aba Proventos.
+// Busca em paralelo os dividendos anteriores a 2 anos atrás pra todos
+// os ativos US da carteira. Usa FMP (30+ anos histórico) com cache Redis.
+
+function importarHistoricoCompleto(){
+  var pos = calcPosicoes();
+  var posUS = pos.filter(function(p){ return !isBR(p.ticker, p.tipo) && p.tipo !== 'Cripto'; });
+
+  if(!posUS.length){
+    showToast('Nenhum ativo US na carteira.');
+    return;
+  }
+
+  // Identifica só os que realmente precisam (data de compra > 2 anos atrás)
+  var hoje = new Date();
+  var doisAnos = new Date(hoje.getFullYear()-2, hoje.getMonth(), hoje.getDate()).toISOString().split('T')[0];
+  var precisam = posUS.filter(function(p){
+    var dt = dataPrimeiraCompra(p.ticker);
+    return dt && dt < doisAnos;
+  });
+
+  if(!precisam.length){
+    showToast('Todos os ativos US têm aportes recentes (< 2 anos). Polygon já cobre tudo.');
+    return;
+  }
+
+  if(!confirm('Buscar dividendos históricos (>2 anos) via FMP para '+precisam.length+' ativo(s)?\n\n' +
+              'Ativos: ' + precisam.map(function(p){return p.ticker;}).join(', ') + '\n\n' +
+              'Isso cobre o período anterior a 2 anos atrás (que o Polygon grátis não alcança).')){
+    return;
+  }
+
+  var btn = document.getElementById('btnHistCompleto');
+  if(btn){ btn.textContent='⏳ Buscando...'; btn.disabled=true; }
+
+  console.log('[Histórico] Buscando pra '+precisam.length+' ativo(s): '+precisam.map(function(p){return p.ticker;}).join(', '));
+
+  var promises = precisam.map(function(p){
+    return importarProventosUSHistorico(p.ticker).then(function(n){
+      console.log('  '+p.ticker+': '+n+' provento(s) histórico(s) adicionado(s)');
+      return {ticker: p.ticker, n: n||0};
+    });
+  });
+
+  Promise.all(promises).then(function(resultados){
+    var total = resultados.reduce(function(s,r){return s+r.n;}, 0);
+    if(btn){ btn.textContent='📜 Histórico Completo'; btn.disabled=false; }
+    renderDividendos();
+    renderPosicoes();
+    if(total > 0){
+      showToast('✅ '+total+' provento(s) histórico(s) importado(s)!', '#10b981');
+      console.log('[Histórico] ✅ Total: '+total+' provento(s) adicionado(s).');
+    } else {
+      showToast('Nenhum provento novo encontrado (pode já estar tudo importado).');
+    }
+  });
+}
+
+// ============================================================
+// IMPORTAÇÃO COMPLETA DE PROVENTOS
+// ============================================================
+// Estratégia:
+//  - BR (B3): dispara todos em paralelo (sem rate limit)
+//  - US (Polygon): processa em grupos de 5, com espera de 61s entre grupos
+//    (respeita limite de 5 chamadas/minuto do plano gratuito)
+//  - Cache diário: se já rodou hoje, pula (exceto se forcarRefresh=true)
+//  - Cache incremental: cada chamada só pede proventos desde o último salvo
+//
+// Parâmetros:
+//   callback(total)    — chamado ao final com quantos foram importados
+//   forcarRefresh=true — ignora cache diário e roda mesmo que já tenha rodado
+function importarTodosProventos(callback, forcarRefresh){
   var pos = calcPosicoes();
   if(!pos.length){ if(callback) callback(0); return; }
 
-  // Primeiro recalcula qtdEx de todos os proventos existentes
+  // Cache diário: já rodou hoje E foi validado? pula
+  if(!forcarRefresh && jaRodouProventosHoje()){
+    console.log('[Proventos] Já importado hoje (validado) — cache diário ativo. Use o botão pra forçar.');
+    if(callback) callback(0);
+    return;
+  }
+
+  // Detecta se tinha import em progresso interrompido
+  if(detectarImportInterrompido()){
+    console.log('[Proventos] ⚠️ Detectado import interrompido na última sessão. Retomando...');
+  }
+
+  // Marca status "em progresso" — se usuário fechar, próxima sessão detecta
+  marcarImportEmProgresso();
+
+  // Recalcula qtdEx de todos os proventos existentes
   pos.forEach(function(p){ _recalcularQtdExProventos(p.ticker); });
 
   var btn = document.getElementById('btnImportarProventos');
@@ -6540,22 +6985,129 @@ function importarTodosProventos(callback){
   var posBR = pos.filter(function(p){ return isBR(p.ticker, p.tipo); });
   var posUS = pos.filter(function(p){ return !isBR(p.ticker, p.tipo); });
 
-  var promises = [];
-  posBR.forEach(function(p){ promises.push(importarProventosBR(p.ticker)); });
-  posUS.forEach(function(p){ promises.push(importarProventosUS(p.ticker)); });
+  console.log('[Proventos] Iniciando import: '+posBR.length+' BR + '+posUS.length+' US');
 
-  Promise.all(promises).then(function(resultados){
-    var total = resultados.reduce(function(s,n){ return s+(n||0); }, 0);
+  var totalImportado = 0;
+
+  // 1) BR: todos em paralelo (B3 não tem rate limit)
+  var promisesBR = posBR.map(function(p){
+    return importarProventosBR(p.ticker).then(function(n){ return n||0; });
+  });
+
+  Promise.all(promisesBR).then(function(resBR){
+    totalImportado += resBR.reduce(function(s,n){ return s+n; }, 0);
+    if(posBR.length > 0){
+      console.log('[Proventos BR] Concluído: '+resBR.reduce(function(s,n){return s+n;},0)+' novo(s)');
+      renderDividendos();
+      renderPosicoes();
+      // CHECKPOINT: força save Firestore após BR completo
+      if(totalImportado > 0){
+        forcarSaveFirestore('dividendos').then(function(){
+          console.log('[Proventos] 💾 Checkpoint BR salvo no Firestore.');
+        }).catch(function(e){
+          console.warn('[Proventos] Checkpoint BR falhou:', e.message);
+        });
+      }
+    }
+
+    // 2) US: processa em grupos de 5 com espera de 61s (Polygon free = 5/min)
+    if(posUS.length === 0){
+      finalizarImport();
+      return;
+    }
+
+    processarGrupoUS(posUS, 0);
+  });
+
+  function processarGrupoUS(lista, inicio){
+    var grupo = lista.slice(inicio, inicio + 5);
+    var restantes = lista.length - inicio - grupo.length;
+
+    if(restantes > 0){
+      console.log('[Proventos US] Processando grupo '+(Math.floor(inicio/5)+1)+' ('+grupo.length+' ativos). Ainda faltam '+restantes+' ativos após este grupo.');
+    } else {
+      console.log('[Proventos US] Processando último grupo ('+grupo.length+' ativos).');
+    }
+
+    if(btn) btn.textContent = '⏳ US '+(inicio+grupo.length)+'/'+lista.length+'...';
+
+    var promisesUS = grupo.map(function(p){
+      return importarProventosUS(p.ticker).then(function(n){ return n||0; });
+    });
+
+    Promise.all(promisesUS).then(function(resUS){
+      var novosGrupo = resUS.reduce(function(s,n){return s+n;}, 0);
+      totalImportado += novosGrupo;
+      if(novosGrupo > 0){
+        renderDividendos();
+        renderPosicoes();
+      }
+
+      // CHECKPOINT: força save Firestore após CADA grupo de 5 US
+      // Se usuário fechar, só perde o grupo em andamento (máx 5 tickers)
+      forcarSaveFirestore('dividendos').then(function(){
+        console.log('[Proventos] 💾 Checkpoint US grupo '+(Math.floor(inicio/5)+1)+' salvo no Firestore.');
+      }).catch(function(e){
+        console.warn('[Proventos] Checkpoint US falhou:', e.message);
+      });
+
+      var proximoInicio = inicio + grupo.length;
+      if(proximoInicio >= lista.length){
+        finalizarImport();
+        return;
+      }
+
+      // Espera 61s antes do próximo grupo (respeita 5/min do Polygon)
+      console.log('[Proventos US] Aguardando 61s pra respeitar rate limit (5/min)...');
+      if(btn) btn.textContent = '⏳ Aguardando API... ('+proximoInicio+'/'+lista.length+')';
+      setTimeout(function(){
+        processarGrupoUS(lista, proximoInicio);
+      }, 61000);
+    });
+  }
+
+  function finalizarImport(){
     if(btn){ btn.textContent='📥 Importar Proventos'; btn.disabled=false; }
+    marcarProventosRodadosHoje();
     renderDividendos();
     renderPosicoes();
-    if(callback) callback(total);
-    if(total > 0 && callback && callback.toString().includes('renderPosicoes')){
-      console.log('[Proventos] '+total+' novo(s) importado(s)');
-    } else if(total > 0){
-      mostrarErros(['✅ '+total+' novo(s) provento(s) importado(s)!']);
-    }
-  });
+    console.log('[Proventos] ✅ Import completo. Total: '+totalImportado+' novo(s).');
+
+    // VALIDAÇÃO FIRESTORE OBRIGATÓRIA antes de marcar como completo
+    console.log('[Proventos] Forçando save imediato final no Firestore...');
+    forcarSaveFirestore('dividendos').then(function(){
+      console.log('[Proventos] ✅ Save Firestore final confirmado.');
+      // Validação: lê do servidor e confere
+      setTimeout(function(){
+        _db_ref.doc('dividendos').get({ source: 'server' }).then(function(doc){
+          if(doc.exists){
+            var salvos = (doc.data().value || []).length;
+            var local  = loadData('dividendos',[]).length;
+            console.log('[Proventos] 🔍 VALIDAÇÃO: local='+local+' | Firestore='+salvos);
+            if(salvos === local){
+              // SÓ MARCA COMO COMPLETO SE VALIDOU!
+              marcarImportCompleto();
+              if(totalImportado > 0){
+                mostrarErros(['✅ '+totalImportado+' proventos importados e confirmados na nuvem ('+salvos+' total).']);
+              }
+            } else {
+              // Não marca como complete — próxima sessão vai retentar
+              mostrarErros(['⚠️ DIVERGÊNCIA: local='+local+' mas Firestore='+salvos+'. Será retentado na próxima sessão.']);
+            }
+          } else {
+            mostrarErros(['❌ Firestore não retornou o documento após save!']);
+          }
+        }).catch(function(e){
+          mostrarErros(['⚠️ Falha ao validar save Firestore: '+e.message]);
+        });
+      }, 1500);
+    }).catch(function(e){
+      console.error('[Proventos] ❌ Save Firestore falhou:', e);
+      mostrarErros(['❌ ERRO SALVANDO NA NUVEM: '+(e.message||e)+' — dados estão apenas no seu navegador!']);
+    });
+
+    if(callback) callback(totalImportado);
+  }
 }
 
 // ============================================================
@@ -7217,11 +7769,14 @@ function renderDividendos(){
     var recentes = recebidos.sort(function(a,b){ return b.data.localeCompare(a.data); }).slice(0,8);
     rEl.innerHTML = '<div class="prov-card-title">✅ Recebidos <span style="color:var(--green);font-size:12px">'+fmt(totalRec)+'</span></div>'+
     (recentes.length ? recentes.map(function(d){
-      var total = d.valor*(d.qtdEx||0);
+      // Blindagem: normaliza campos para suportar schemas mistos (valor|valorCota, qtdEx|qtd)
+      var vlr = parseFloat(d.valor != null ? d.valor : (d.valorCota != null ? d.valorCota : 0)) || 0;
+      var qtd = parseFloat(d.qtdEx != null ? d.qtdEx : (d.qtd != null ? d.qtd : 0)) || 0;
+      var total = vlr * qtd;
       return '<div class="prov-list-item">'+
-        '<div class="prov-list-ticker">'+d.ticker+'</div>'+
-        '<div class="prov-list-tipo">'+d.tipo+'</div>'+
-        '<div class="prov-list-info">R$ '+d.valor.toFixed(4)+'/cota · '+(d.qtdEx||0)+' cotas</div>'+
+        '<div class="prov-list-ticker">'+(d.ticker||'')+'</div>'+
+        '<div class="prov-list-tipo">'+(d.tipo||'Dividendo')+'</div>'+
+        '<div class="prov-list-info">R$ '+vlr.toFixed(4)+'/cota · '+qtd+' cotas</div>'+
         '<div>'+
           '<div class="prov-list-val">'+fmt(total)+'</div>'+
           '<div class="prov-list-date">'+fmtDate(d.data)+'</div>'+
@@ -7856,37 +8411,38 @@ function thDrop(e, targetTh){
   if(!_dragSrcTh || targetTh === _dragSrcTh) return;
   if(targetTh.dataset.col === 'acoes') return;
 
-  var row   = document.getElementById('theadRow');
-  var ths   = Array.from(row.children);
-  var srcIdx= ths.indexOf(_dragSrcTh);
-  var tgtIdx= ths.indexOf(targetTh);
-
-  // Decide inserção antes ou depois
+  // Decide inserção antes ou depois com base na posição do cursor
   var rect  = targetTh.getBoundingClientRect();
   var after = e.clientX > rect.left + rect.width / 2;
 
   targetTh.classList.remove('th-drag-over-left','th-drag-over-right');
+
+  // 1) Move o <th> no cabeçalho
   if(after){
     targetTh.parentNode.insertBefore(_dragSrcTh, targetTh.nextSibling);
   } else {
     targetTh.parentNode.insertBefore(_dragSrcTh, targetTh);
   }
 
-  // Reordena os tds de cada linha para acompanhar
-  var tbody = document.getElementById('tbodyPosicoes');
-  Array.from(tbody.rows).forEach(function(tr){
-    var tds = Array.from(tr.cells);
-    if(tds.length < ths.length) return;
-    var movedTd = tds[srcIdx];
-    if(!movedTd) return;
-    if(after){
-      tr.insertBefore(movedTd, tds[tgtIdx] ? tds[tgtIdx].nextSibling : null);
-    } else {
-      tr.insertBefore(movedTd, tds[tgtIdx]||null);
-    }
-  });
+  // 2) Move os <td> correspondentes em cada linha do tbody
+  // Usa data-col (mais robusto que índice — os tds têm data-col na geração)
+  var srcCol = _dragSrcTh.dataset.col;
+  var tgtCol = targetTh.dataset.col;
+  var tbody  = document.getElementById('tbodyPosicoes');
+  if(tbody && srcCol && tgtCol){
+    Array.from(tbody.rows).forEach(function(tr){
+      var srcTd = tr.querySelector('td[data-col="'+srcCol+'"]');
+      var tgtTd = tr.querySelector('td[data-col="'+tgtCol+'"]');
+      if(!srcTd || !tgtTd) return;
+      if(after){
+        tr.insertBefore(srcTd, tgtTd.nextSibling);
+      } else {
+        tr.insertBefore(srcTd, tgtTd);
+      }
+    });
+  }
 
-  // Salva nova ordem de colunas
+  // 3) Salva nova ordem de colunas
   salvarOrdemColunas();
 }
 
@@ -7907,15 +8463,31 @@ function salvarOrdemColunas(){
 function aplicarOrdemColunas(){
   var ordem = loadData('colOrdem', null);
   if(!ordem || !ordem.length) return;
+
+  // 1) Reordena os <th> do cabeçalho
   var row = document.getElementById('theadRow');
-  if(!row) return;
-  ordem.forEach(function(col){
-    var th = row.querySelector('[data-col="'+col+'"]');
-    if(th) row.appendChild(th); // move para o fim em sequência
-  });
-  // Garante que "acoes" fique sempre no fim
-  var acoesTh = row.querySelector('[data-col="acoes"]');
-  if(acoesTh) row.appendChild(acoesTh);
+  if(row){
+    ordem.forEach(function(col){
+      var th = row.querySelector('[data-col="'+col+'"]');
+      if(th) row.appendChild(th); // move para o fim em sequência
+    });
+    // Garante que "acoes" fique sempre no fim
+    var acoesTh = row.querySelector('[data-col="acoes"]');
+    if(acoesTh) row.appendChild(acoesTh);
+  }
+
+  // 2) Reordena os <td> de cada linha do tbody seguindo a mesma ordem
+  var tbody = document.getElementById('tbodyPosicoes');
+  if(tbody){
+    Array.from(tbody.rows).forEach(function(tr){
+      ordem.forEach(function(col){
+        var td = tr.querySelector('td[data-col="'+col+'"]');
+        if(td) tr.appendChild(td);
+      });
+      var acoesTd = tr.querySelector('td[data-col="acoes"]');
+      if(acoesTd) tr.appendChild(acoesTd);
+    });
+  }
 }
 
 // ============================================================
@@ -8513,6 +9085,94 @@ function showToastIA(msg){
   setTimeout(function(){ t.remove(); }, 3000);
 }
 
+// Toast genérico — usado em aplSalvar e outras ações rápidas
+// Aceita (mensagem) ou (mensagem, cor) onde cor pode ser tipo '#e63946' pra erros
+function showToast(msg, color){
+  var bg = color || '#e8b84b';
+  var t = document.createElement('div');
+  t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:'+bg+';color:#000;padding:10px 22px;border-radius:10px;font-size:13px;font-weight:700;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,.3);max-width:90vw;text-align:center';
+  // Se a cor é vermelha ou azul, texto branco fica melhor
+  if(color && (color.indexOf('e63946')>=0 || color.indexOf('e53e3e')>=0 || color.indexOf('3b82f6')>=0 || color.indexOf('ef4444')>=0)){
+    t.style.color = '#fff';
+  }
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(function(){ t.style.opacity='0'; t.style.transition='opacity .3s'; }, 2200);
+  setTimeout(function(){ t.remove(); }, 2500);
+}
+
+// Intercepta Ctrl+V em inputs type="date" e converte o formato colado para YYYY-MM-DD
+// Suporta: 2024-04-01, 01/04/2024, 01.04.2024, 01-04-2024, 01/04/24, etc.
+function handleDatePaste(e, input){
+  try {
+    e.preventDefault();
+    var texto = (e.clipboardData || window.clipboardData).getData('text').trim();
+    if(!texto) return;
+
+    var iso = parseDataParaISO(texto);
+    if(iso){
+      input.value = iso;
+      // Dispara evento de change manualmente para acionar os listeners existentes
+      input.dispatchEvent(new Event('change', {bubbles:true}));
+    } else {
+      showToast('⚠️ Formato de data não reconhecido: '+texto, '#e63946');
+    }
+  } catch(err){
+    console.warn('[handleDatePaste]', err);
+  }
+}
+
+// Converte string de data em vários formatos para YYYY-MM-DD
+// Retorna null se não conseguir interpretar
+function parseDataParaISO(str){
+  if(!str) return null;
+  str = String(str).trim();
+
+  // Formato 1: já está em ISO YYYY-MM-DD (ou YYYY/MM/DD)
+  var m = str.match(/^(\d{4})[-\/\.](\d{1,2})[-\/\.](\d{1,2})$/);
+  if(m){
+    var y=m[1], mo=m[2].padStart(2,'0'), d=m[3].padStart(2,'0');
+    return validarData(y, mo, d);
+  }
+
+  // Formato 2: pt-BR DD/MM/YYYY (com / . ou -)
+  m = str.match(/^(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{4})$/);
+  if(m){
+    var d2=m[1].padStart(2,'0'), mo2=m[2].padStart(2,'0'), y2=m[3];
+    return validarData(y2, mo2, d2);
+  }
+
+  // Formato 3: pt-BR DD/MM/YY (ano 2 dígitos → assume 20XX)
+  m = str.match(/^(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{2})$/);
+  if(m){
+    var d3=m[1].padStart(2,'0'), mo3=m[2].padStart(2,'0'), y3='20'+m[3];
+    return validarData(y3, mo3, d3);
+  }
+
+  // Formato 4: só números (DDMMYYYY ou DDMMYY)
+  var soNum = str.replace(/\D/g,'');
+  if(soNum.length === 8){
+    return validarData(soNum.substring(4,8), soNum.substring(2,4), soNum.substring(0,2));
+  }
+  if(soNum.length === 6){
+    return validarData('20'+soNum.substring(4,6), soNum.substring(2,4), soNum.substring(0,2));
+  }
+
+  return null;
+}
+
+// Valida se ano/mes/dia formam uma data real e retorna ISO, ou null
+function validarData(y, mo, d){
+  var ano = parseInt(y,10), mes = parseInt(mo,10), dia = parseInt(d,10);
+  if(ano < 1900 || ano > 2100) return null;
+  if(mes < 1 || mes > 12) return null;
+  if(dia < 1 || dia > 31) return null;
+  // Valida dia do mês real (ex: 31/02 é inválido)
+  var dt = new Date(ano, mes-1, dia);
+  if(dt.getFullYear() !== ano || dt.getMonth() !== mes-1 || dt.getDate() !== dia) return null;
+  return y+'-'+mo+'-'+d;
+}
+
 </script>
 
   <script>
@@ -8674,7 +9334,8 @@ function aplAddLinha(){
 
   // Data
   var dt=mk('input',{type:'date',id:'aplDt'+r,className:'apl-inp',value:today});
-  dt.addEventListener('click',function(){try{this.showPicker();}catch(e){}});
+  dt.addEventListener('focus',function(){ this.select(); });
+  dt.addEventListener('paste',function(e){ handleDatePaste(e, this); });
   dt.addEventListener('change',function(){aplCalc();aplOnDataChange(r);});
   div.appendChild(dt);
 
@@ -8684,6 +9345,8 @@ function aplAddLinha(){
   var tk=mk('input',{type:'text',id:'aplTk'+r,className:'apl-inp',placeholder:'PETR4, AAPL...',autocomplete:'off',style:'font-weight:700;font-size:14px'});
   tk.addEventListener('input',function(){
     this.value=this.value.toUpperCase();
+    this.removeAttribute('data-ticker-validado');
+    this.classList.remove('ticker-invalido');
     aplDetectTipo(r,this.value);
     aplBuscarAC(r,this.value,acId);
     aplCalc();
@@ -8815,7 +9478,11 @@ function aplSelAC(r, symbol, tipo, acId){
   var tk=document.getElementById('aplTk'+r);
   var tp=document.getElementById('aplTp'+r);
   var hint=document.getElementById('aplH'+r);
-  if(tk) tk.value=ticker;
+  if(tk){
+    tk.value=ticker;
+    tk.setAttribute('data-ticker-validado','1');
+    tk.classList.remove('ticker-invalido');
+  }
   if(tp){tp.value=tipoFinal;aplTipoExtra(r,tipoFinal);}
   if(hint){
     if(flagBR){hint.textContent='🇧🇷 '+tipoFinal+' (B3)';hint.style.color='#2ecc71';}
@@ -8865,6 +9532,72 @@ function closeFab(){
   if(items) items.classList.remove('open');
   if(main)  main.classList.remove('open');
   if(ov)    ov.classList.remove('show');
+}
+
+// ═══════════════════════════════════════════════════════════
+// RECARREGAR PROVENTOS DIRETO DO FIRESTORE
+// Útil quando localStorage foi corrompido ou perdido
+// ═══════════════════════════════════════════════════════════
+function recarregarProventosDoFirestore(){
+  var btn = document.getElementById('btnRecarregarNuvem');
+  var originalText = btn ? btn.textContent : '';
+
+  function updateBtn(text, disabled){
+    if(btn){ btn.textContent = text; btn.disabled = !!disabled; }
+  }
+
+  // Validações
+  if(!window.firebase || !firebase.apps || !firebase.apps.length){
+    alert('❌ Firebase não disponível. Faça login primeiro.');
+    return;
+  }
+  if(!_db_ref || !_db_uid){
+    alert('❌ Banco de dados não conectado. Recarregue a página e faça login.');
+    return;
+  }
+
+  if(!confirm('Buscar proventos direto do Firestore?\n\nIsso vai SOBRESCREVER os proventos atuais do seu navegador com os que estão salvos na nuvem.\n\nContinuar?')){
+    return;
+  }
+
+  updateBtn('⏳ Carregando...', true);
+
+  // Busca todos os documentos da coleção "dados" do usuário
+  _db_ref.get({ source: 'server' }).then(function(snap){
+    var count = 0;
+    var keysRestauradas = [];
+
+    snap.forEach(function(doc){
+      var key = doc.id;
+      var val = doc.data().value;
+
+      // Foca nas chaves relacionadas a proventos/dividendos
+      if(key === 'dividendos' || key === 'rvDividendos' || key.indexOf('dividend') !== -1 || key.indexOf('provent') !== -1){
+        _db_cache[key] = val;
+        try{
+          localStorage.setItem('g20_' + key, JSON.stringify(val));
+          keysRestauradas.push(key + ' (' + (Array.isArray(val) ? val.length : '?') + ')');
+          if(Array.isArray(val)) count += val.length;
+        }catch(e){
+          console.warn('Erro ao salvar '+key+':', e);
+        }
+      }
+    });
+
+    updateBtn(originalText, false);
+
+    if(count > 0){
+      alert('✅ Sucesso!\n\nRestaurados ' + count + ' proventos do Firestore.\n\nChaves: ' + keysRestauradas.join(', ') + '\n\nA página vai recarregar para atualizar a visualização.');
+      // Recarrega a página pra garantir que tudo rerenderize limpo
+      setTimeout(function(){ location.reload(); }, 500);
+    } else {
+      alert('⚠️ Nenhum provento encontrado no Firestore.\n\nPode ser que:\n• Os dados nunca foram salvos na nuvem\n• Você está em outra conta\n\nTente fazer uma importação normal (📥 Importar).');
+    }
+  }).catch(function(err){
+    updateBtn(originalText, false);
+    console.error('Erro ao recarregar do Firestore:', err);
+    alert('❌ Erro ao conectar no Firestore:\n\n' + (err.message || err));
+  });
 }
 
 // ── FORMATAÇÃO PREÇO pt-BR ────────────────────────────────────
@@ -8967,10 +9700,20 @@ function aplPreencherPreco(rowId, price, moeda, label){
     ? document.getElementById('apl_moeda0')
     : document.getElementById('aplM'+rowId);
   if(!precoEl) return;
+  // Determina tipo da linha para decidir casas decimais
+  var tipoEl = rowId==='0'
+    ? document.getElementById('aporte_tipo')
+    : document.getElementById('aplTp'+rowId);
+  var tipoRow = tipoEl ? tipoEl.value : 'Acao';
+  // Cripto pode ter preço muito baixo (ex: SHIB) — mantém até 6 casas
+  // Demais ativos (Acao, FII, FIAGRO, Stock, REIT, ETF, UCITs) sempre 2 casas
+  var maxFrac = (tipoRow === 'Cripto') ? 6 : 2;
+  // Arredonda fisicamente para eliminar ruído de ponto flutuante (ex: 36.889999 → 36.89)
+  var priceRounded = Math.round(price * Math.pow(10, maxFrac)) / Math.pow(10, maxFrac);
   // Formata no padrão pt-BR
-  var formatted = price.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:6});
-  // Remove trailing zeros desnecessários
-  if(formatted.includes(',')) formatted = formatted.replace(/,?0+$/, function(m){ return m[0]===','?'':m.replace(/0+$/,''); });
+  var formatted = priceRounded.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:maxFrac});
+  // Remove trailing zeros desnecessários (apenas para Cripto, mantém mínimo de 2 casas)
+  if(maxFrac > 2 && formatted.includes(',')) formatted = formatted.replace(/(,\d{2})(\d*?)0+$/, '$1$2');
   precoEl.value = formatted;
   // Atualiza moeda se aplicável
   if(moedaEl && moeda && moedaEl.style.display!=='none'){
@@ -9037,7 +9780,7 @@ function aplBuscarCotacaoModal(rowId, ticker, tipo, data){
 
 // dispara busca com debounce (evita chamadas a cada keystroke)
 function aplTriggerCotacao(rowId, ticker, tipo, data){
-  if(!ticker || ticker.length < 2) return;
+  if(!ticker) return;
   clearTimeout(_aplPrecoTimer[rowId]);
   if(_aplPrecoSource[rowId]==='edited') return; // nunca rebusca se editado
   _aplPrecoTimer[rowId] = setTimeout(function(){
