@@ -4511,6 +4511,11 @@ function buscarCotacoesRV(){
       rvSetCotStatus(found>0 ? '✅ '+found+' cotações atualizadas · USD/BRL: R$ '+rvUsdBRL.toFixed(2) : '⚠️ Sem cotações');
       renderRVPosicoes();
       renderKPIs(); renderCharts();
+      // Dispara busca silenciosa de proventos em background (B3 + Polygon via proxy)
+      // Roda depois das cotações pra garantir que _getQtdNaData tenha posições corretas
+      if(typeof buscarProventosAuto === 'function'){
+        setTimeout(function(){ buscarProventosAuto(true); }, 600);
+      }
     });
   });
 }
@@ -4918,15 +4923,16 @@ function fetchLogo(ticker, tipo){
 }
 
 function buildLogoUrls(ticker, tipo){
-  // === TradingView primeiro (G20 integration v1) ===
-  var tvUrl = (window.TV_LOGOS && window.TV_LOGOS.getUrl) ? window.TV_LOGOS.getUrl(ticker) : null;
-  var originalUrls = _buildLogoUrlsOriginal(ticker, tipo) || [];
-  return tvUrl ? [tvUrl].concat(originalUrls) : originalUrls;
-}
-function _buildLogoUrlsOriginal(ticker, tipo){
   var t = ticker.replace(/\.SA$/i,'').toUpperCase();
   var isBr = _isBRLogo(ticker, tipo||'Stock');
   var urls = [];
+
+  // === TradingView mapa exato primeiro (G20 integration v1) ===
+  if(window.TV_LOGOS && window.TV_LOGOS.getUrl){
+    var tvUrl = window.TV_LOGOS.getUrl(ticker);
+    if(tvUrl) urls.push(tvUrl);
+  }
+
   if(!isBr){
     if(tokenLogoDev) urls.push('https://img.logo.dev/ticker/'+t+'?token='+tokenLogoDev+'&size=64&format=png');
     urls.push('https://query2.finance.yahoo.com/v1/finance/logobycompany?symbol='+t+'&lang=en-US');
@@ -5166,7 +5172,12 @@ function editarTransacaoRV(idx){
     var op0 = document.getElementById('apl_op0');
     if(op0){ op0.value = a.op || 'C'; op0.className = 'apl-sel ' + (a.op==='V'?'apl-op-v':'apl-op-c'); }
     var dt = document.getElementById('apl_data0'); if(dt) dt.value = a.data || '';
-    var tk = document.getElementById('aporte_ticker'); if(tk) tk.value = a.ticker || '';
+    var tk = document.getElementById('aporte_ticker');
+    if(tk){
+      tk.value = a.ticker || '';
+      tk.setAttribute('data-ticker-validado','1');
+      tk.classList.remove('ticker-invalido');
+    }
     var tp = document.getElementById('aporte_tipo'); if(tp) tp.value = a.tipo || 'Acao';
     var qt = document.getElementById('apl_qtd0'); if(qt) qt.value = a.qtd || '';
     var pr = document.getElementById('apl_preco0');
@@ -5437,6 +5448,8 @@ input[type="text"].apl-inp-preco{text-align:right}
 .tac-name{font-size:13px;color:var(--text2);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
 .tac-badge{font-size:10px;padding:2px 8px;border-radius:4px;font-weight:700;white-space:nowrap}
 .tac-loading{padding:14px 16px;font-size:12px;color:var(--text3);text-align:center}
+.ticker-invalido{border:1px solid rgba(230,57,70,.7)!important;background:rgba(230,57,70,.08)!important;animation:tickerShake .35s}
+@keyframes tickerShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
 .apl-preco-row{display:flex;gap:5px;align-items:center}
 .apl-preco-row .apl-inp{flex:1;min-width:0}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -5504,7 +5517,7 @@ input[type="text"].apl-inp-preco{text-align:right}
       <div class="apl-tk-wrap">
         <input id="aporte_ticker" class="apl-inp" placeholder="PETR4, AAPL..."
           autocomplete="off" style="font-weight:700;font-size:14px"
-          oninput="this.value=this.value.toUpperCase();autoDetectTipo(this.value);buscarSugestoesTicker(this.value);aplCalc();if(_aplPrecoSource['0']!=='edited'){_aplPrecoSource['0']='empty';aplAtualizarBadge('0');var p0=document.getElementById('apl_preco0');if(p0)p0.value='';}"
+          oninput="this.value=this.value.toUpperCase();this.removeAttribute('data-ticker-validado');this.classList.remove('ticker-invalido');autoDetectTipo(this.value);buscarSugestoesTicker(this.value);aplCalc();if(_aplPrecoSource['0']!=='edited'){_aplPrecoSource['0']='empty';aplAtualizarBadge('0');var p0=document.getElementById('apl_preco0');if(p0)p0.value='';}"
           onkeydown="navegarAutocomplete(event)"
           onblur="setTimeout(function(){fecharAutocomplete();var tk=document.getElementById('aporte_ticker');var tp=document.getElementById('aporte_tipo');var dt=document.getElementById('apl_data0');if(tk&&tk.value&&_aplPrecoSource['0']!=='edited'&&_aplPrecoSource['0']!=='live'&&_aplPrecoSource['0']!=='historical')aplTriggerCotacao('0',tk.value,tp?tp.value:'Acao',dt?dt.value:'');},200)">
         <div id="tickerAutocomplete" class="ticker-autocomplete" style="display:none"></div>
@@ -5735,6 +5748,8 @@ function aplAddLinha(){
   var tk=mk('input',{type:'text',id:'aplTk'+r,className:'apl-inp',placeholder:'PETR4, AAPL...',autocomplete:'off',style:'font-weight:700;font-size:14px'});
   tk.addEventListener('input',function(){
     this.value=this.value.toUpperCase();
+    this.removeAttribute('data-ticker-validado');
+    this.classList.remove('ticker-invalido');
     aplDetectTipo(r,this.value);
     aplBuscarAC(r,this.value,acId);
     aplCalc();
@@ -5870,7 +5885,11 @@ function aplSelAC(r, symbol, tipo, acId){
   var tk=document.getElementById('aplTk'+r);
   var tp=document.getElementById('aplTp'+r);
   var hint=document.getElementById('aplH'+r);
-  if(tk) tk.value=ticker;
+  if(tk){
+    tk.value=ticker;
+    tk.setAttribute('data-ticker-validado','1');
+    tk.classList.remove('ticker-invalido');
+  }
   if(tp){tp.value=tipoFinal;aplTipoExtra(r,tipoFinal);}
   if(hint){
     if(flagBR){hint.textContent='🇧🇷 '+tipoFinal+' (B3)';hint.style.color='#2ecc71';}
@@ -5996,8 +6015,18 @@ function aplPreencherPreco(rowId, price, moeda, label){
     ? document.getElementById('apl_moeda0')
     : document.getElementById('aplM'+rowId);
   if(!precoEl) return;
-  var formatted = price.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:6});
-  if(formatted.includes(',')) formatted = formatted.replace(/,?0+$/, function(m){ return m[0]===','?'':m.replace(/0+$/,''); });
+  // Determina tipo da linha para decidir casas decimais
+  var tipoEl = rowId==='0'
+    ? document.getElementById('aporte_tipo')
+    : document.getElementById('aplTp'+rowId);
+  var tipoRow = tipoEl ? tipoEl.value : 'Acao';
+  // Cripto pode ter preço muito baixo (ex: SHIB) — mantém até 6 casas
+  // Demais ativos (Acao, FII, FIAGRO, Stock, REIT, ETF, UCITs) sempre 2 casas
+  var maxFrac = (tipoRow === 'Cripto') ? 6 : 2;
+  // Arredonda fisicamente para eliminar ruído de ponto flutuante (ex: 36.889999 → 36.89)
+  var priceRounded = Math.round(price * Math.pow(10, maxFrac)) / Math.pow(10, maxFrac);
+  var formatted = priceRounded.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:maxFrac});
+  if(maxFrac > 2 && formatted.includes(',')) formatted = formatted.replace(/(,\d{2})(\d*?)0+$/, '$1$2');
   precoEl.value = formatted;
   if(moedaEl && moeda && moedaEl.style.display!=='none'){
     moedaEl.value = moeda==='USD'?'USD':'BRL';
@@ -6058,7 +6087,7 @@ function aplBuscarCotacaoModal(rowId, ticker, tipo, data){
 }
 
 function aplTriggerCotacao(rowId, ticker, tipo, data){
-  if(!ticker || ticker.length < 2) return;
+  if(!ticker) return;
   clearTimeout(_aplPrecoTimer[rowId]);
   if(_aplPrecoSource[rowId]==='edited') return;
   _aplPrecoTimer[rowId] = setTimeout(function(){
@@ -6204,7 +6233,11 @@ function selecionarSugestao(symbol, tipo){
   var tipoFinal = aplCorrigirTipo(symbol, tipo);
   var flagBR    = ['Acao','FII','FIAGRO'].includes(tipoFinal);
   var tickerFinal = flagBR ? symbol.replace(/\.SA$/i,'').toUpperCase() : symbol.toUpperCase();
-  if(input) input.value = tickerFinal;
+  if(input){
+    input.value = tickerFinal;
+    input.setAttribute('data-ticker-validado','1');
+    input.classList.remove('ticker-invalido');
+  }
   var sel = document.getElementById('aporte_tipo');
   if(sel) sel.value = tipoFinal;
   aplTipoChange0(tipoFinal);
@@ -6275,6 +6308,11 @@ function abrirModalAporte(ticker){
     var op0=document.getElementById('apl_op0'); if(op0){ op0.value='C'; op0.className='apl-sel apl-op-c'; }
     set('apl_data0', today);
     set('aporte_ticker','');
+    var tkNovo=document.getElementById('aporte_ticker');
+    if(tkNovo){
+      tkNovo.removeAttribute('data-ticker-validado');
+      tkNovo.classList.remove('ticker-invalido');
+    }
     set('aporte_tipo','Acao');
     set('apl_qtd0','');
     set('apl_preco0','');
@@ -6293,6 +6331,11 @@ function abrirModalAporte(ticker){
 
     if(ticker && typeof ticker==='string' && !ticker.match(/^\d+$/)){
       set('aporte_ticker', ticker);
+      var tkPre=document.getElementById('aporte_ticker');
+      if(tkPre){
+        tkPre.setAttribute('data-ticker-validado','1');
+        tkPre.classList.remove('ticker-invalido');
+      }
       if(typeof autoDetectTipo==='function') autoDetectTipo(ticker);
     }
     setTimeout(function(){
@@ -6311,7 +6354,8 @@ function aplSalvar(){
   var rate = (typeof rvUsdBRL!=='undefined'&&rvUsdBRL>0)?rvUsdBRL:5.0;
 
   // Linha 0
-  var t0=(document.getElementById('aporte_ticker')||{value:''}).value.trim().toUpperCase();
+  var t0El=document.getElementById('aporte_ticker');
+  var t0=(t0El||{value:''}).value.trim().toUpperCase();
   var op0=(document.getElementById('apl_op0')||{value:'C'}).value;
   var d0=(document.getElementById('apl_data0')||{value:''}).value;
   var tp0=(document.getElementById('aporte_tipo')||{value:'Acao'}).value;
@@ -6319,6 +6363,11 @@ function aplSalvar(){
   var p0=aplParsePreco((document.getElementById('apl_preco0')||{value:''}).value);
   var m0=(document.getElementById('apl_moeda0')||{value:'BRL'}).value;
   if(!t0||!d0||q0<=0||p0<=0){ erros.push('Linha 1: preencha Ticker, Data, Qtd e Preço'); }
+  else if(t0El && t0El.getAttribute('data-ticker-validado')!=='1'){
+    erros.push('Linha 1: selecione o ticker "'+t0+'" na lista de sugestões');
+    t0El.classList.add('ticker-invalido');
+    try{ t0El.focus(); }catch(e){}
+  }
   else {
     var isUS0 = (typeof RV_US_TYPES!=='undefined' && RV_US_TYPES.includes(tp0));
     novos.push({
@@ -6332,7 +6381,8 @@ function aplSalvar(){
 
   // Linhas extras
   _aplRows.forEach(function(r,i){
-    var t=(document.getElementById('aplTk'+r)||{value:''}).value.trim().toUpperCase();
+    var tEl=document.getElementById('aplTk'+r);
+    var t=(tEl||{value:''}).value.trim().toUpperCase();
     var op=(document.getElementById('aplOp'+r)||{value:'C'}).value;
     var d=(document.getElementById('aplDt'+r)||{value:''}).value;
     var tp=(document.getElementById('aplTp'+r)||{value:'Acao'}).value;
@@ -6340,6 +6390,11 @@ function aplSalvar(){
     var p=aplParsePreco((document.getElementById('aplP'+r)||{value:''}).value);
     var m=(document.getElementById('aplM'+r)||{value:'BRL'}).value||'BRL';
     if(!t||!d||q<=0||p<=0){ erros.push('Linha '+(i+2)+': preencha todos os campos'); return; }
+    if(tEl && tEl.getAttribute('data-ticker-validado')!=='1'){
+      erros.push('Linha '+(i+2)+': selecione o ticker "'+t+'" na lista de sugestões');
+      tEl.classList.add('ticker-invalido');
+      return;
+    }
     var isUS = (typeof RV_US_TYPES!=='undefined' && RV_US_TYPES.includes(tp));
     novos.push({
       id:Date.now().toString()+Math.random().toString(36).substr(2,4),
@@ -7067,9 +7122,10 @@ function limparProventosInvalidos(){
 }
 
 // ── Busca automática via Yahoo Finance ──
-function buscarProventosAuto(){
+// silent=true: usado no disparo automático ao abrir a página (não exibe toasts de "sem ativos")
+function buscarProventosAuto(silent){
   var aportes = loadRVAportes();
-  if(!aportes.length){ showToast('⚠️ Nenhum ativo em RV cadastrado'); return; }
+  if(!aportes.length){ if(!silent) showToast('⚠️ Nenhum ativo em RV cadastrado'); return; }
 
   var hoje = new Date().toISOString().split('T')[0];
   var posMap = {};
@@ -7078,7 +7134,7 @@ function buscarProventosAuto(){
     return _getQtdNaData(p.ticker, hoje) > 0;
   });
 
-  if(!ativos.length){ showToast('⚠️ Nenhum ativo com posição ativa'); return; }
+  if(!ativos.length){ if(!silent) showToast('⚠️ Nenhum ativo com posição ativa'); return; }
 
   var status = document.getElementById('provBuscarStatus');
   if(status) status.textContent = '⏳ Atualizando proventos...';
@@ -7098,8 +7154,10 @@ function buscarProventosAuto(){
 
   Promise.all(fetches).then(function(results){
     // Limpa registros inválidos (valorCota=0 ou qtd=0 ou total=0) que vieram de buscas anteriores com bug
+    // Cobre fontes antigas ('auto') e novas ('Auto-B3', 'Auto-Polygon')
     var lista = loadProventos().filter(function(p){
-      return p.fonte !== 'auto' || (p.valorCota > 0 && p.qtd > 0);
+      var isAuto = p.fonte === 'auto' || (p.fonte && p.fonte.indexOf('Auto-') === 0);
+      return !isAuto || (p.valorCota > 0 && p.qtd > 0);
     });
 
     var novos = 0;
@@ -7158,12 +7216,16 @@ function buscarProventosAuto(){
         });
         if(dup) return;
 
-        // ── Tipo de provento ──
+        // Tipo de provento + fonte rastreável
         var tipoDiv = 'Dividendo';
         if(r.tipo==='FII'||r.tipo==='FIAGRO') tipoDiv='Rendimento';
         var typeStr = (div.type||div.dividendType||div.label||'').toLowerCase();
         if(typeStr.includes('jcp')||typeStr.includes('juros')) tipoDiv='JCP';
         else if(typeStr.includes('rend')||typeStr.includes('amort')) tipoDiv='Rendimento';
+
+        // Fonte explícita: BR = B3 via proxy, US = Polygon via proxy
+        var isRBR = (r.tipo==='Acao'||r.tipo==='FII'||r.tipo==='FIAGRO'||/\d$/.test(r.ticker));
+        var fonteProv = isRBR ? 'Auto-B3' : 'Auto-Polygon';
 
         lista.push({
           ticker: r.ticker,
@@ -7173,7 +7235,7 @@ function buscarProventosAuto(){
           qtd:    qtd,
           total:  valorCota * qtd,
           obs:    '',
-          fonte:  'auto'
+          fonte:  fonteProv
         });
         novos++;
       });
@@ -7679,8 +7741,8 @@ function gpSwitchTab(tabId, btn) {
   if (tabId === 'proventos') {
     setTimeout(function(){
       if (typeof renderProvAll === 'function') renderProvAll();
-      // Busca automática sempre que abre a aba
-      if (typeof buscarProventosAuto === 'function') buscarProventosAuto();
+      // Busca silenciosa ao reabrir a aba (já rodou automaticamente na abertura da página)
+      if (typeof buscarProventosAuto === 'function') buscarProventosAuto(true);
     }, 80);
   }
   if (tabId === 'rebalancear') {
