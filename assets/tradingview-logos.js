@@ -158,14 +158,24 @@
     map: LOGOS,
 
     /**
+     * Normaliza o ticker removendo sufixos comuns (.SA, -USD, -USDT, -USDC, -BRL).
+     * Ex: "PETR4.SA" -> "PETR4", "BTC-USD" -> "BTC", "ETH-USDT" -> "ETH"
+     */
+    _normalize: function(ticker){
+      return String(ticker || '').toUpperCase().trim()
+        .replace(/\.SA$/i, '')
+        .replace(/-(USD|USDT|USDC|BRL|EUR)$/i, '');
+    },
+
+    /**
      * Retorna URL do logo do TradingView para um ticker.
-     * @param {string} ticker - Ex: "PETR4", "AAPL", "BTC"
+     * @param {string} ticker - Ex: "PETR4", "AAPL", "BTC", "BTC-USD"
      * @param {object} [opts] - { size: 'big'|'normal' } (default: 'big')
      * @returns {string|null} URL completa do SVG ou null se ticker desconhecido
      */
     getUrl: function(ticker, opts){
       if(!ticker) return null;
-      var key = String(ticker).toUpperCase().trim().replace(/\.SA$/i, '');
+      var key = this._normalize(ticker);
       var logoid = LOGOS[key];
       if(!logoid) return null;
       var size = (opts && opts.size) || 'big';
@@ -180,13 +190,12 @@
      */
     has: function(ticker){
       if(!ticker) return false;
-      var key = String(ticker).toUpperCase().trim().replace(/\.SA$/i, '');
-      return !!LOGOS[key];
+      return !!LOGOS[this._normalize(ticker)];
     },
 
     // Metadata
     count: Object.keys(LOGOS).length,
-    version: '1.0.0-20260419'
+    version: '1.1.0-20260419'
   };
 
 })();
