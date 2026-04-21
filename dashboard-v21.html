@@ -7601,21 +7601,62 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         } catch(e) { console.warn('[v21] frase:', e); }
       }
 
-      // Market pill com IBOV real (se disponível)
+      // Market pill inteligente — B3 ABERTA/FECHADA
       try {
-        var precos = JSON.parse(localStorage.getItem('g20_precos')||'{}');
+        var agoraBR = new Date();
+        var dow = agoraBR.getDay();      // 0=domingo, 6=sábado
+        var hora = agoraBR.getHours();
+        var min = agoraBR.getMinutes();
+        var minTotal = hora * 60 + min;
+
+        // Horário pregão B3: 10:00 às 17:55 (segunda a sexta)
+        var abertura = 10 * 60;        // 600
+        var fechamento = 17 * 60 + 55; // 1075
+        var isBusinessDay = (dow >= 1 && dow <= 5);
+        var isOpen = isBusinessDay && minTotal >= abertura && minTotal <= fechamento;
+
+        var precos = {};
+        try { precos = JSON.parse(localStorage.getItem('g20_precos')||'{}'); } catch(e) {}
         var ibov = precos['^BVSP'] || precos['IBOV'] || null;
+
+        var pill = document.querySelector('.v21-market-pill');
         var statusEl = getEl('v21-market-status');
-        if (statusEl) {
-          if (ibov && ibov.varPct !== undefined) {
-            var pct = parseFloat(ibov.varPct) || 0;
-            var sign = pct >= 0 ? '+' : '';
-            statusEl.textContent = 'B3 ABERTA • IBOV ' + sign + pct.toFixed(2).replace('.',',') + '%';
-          } else {
-            statusEl.textContent = 'B3 ABERTA • IBOV';
+
+        if (!pill || !statusEl) return;
+
+        // Texto
+        var statusTxt = isOpen ? 'B3 ABERTA' : 'B3 FECHADA';
+        if (ibov && ibov.varPct !== undefined) {
+          var pct = parseFloat(ibov.varPct) || 0;
+          var sign = pct >= 0 ? '+' : '';
+          statusTxt += ' • IBOV ' + sign + pct.toFixed(2).replace('.',',') + '%';
+        } else {
+          statusTxt += ' • IBOV';
+        }
+        statusEl.textContent = statusTxt;
+
+        // Cores: aberta = verde, fechada = cinza/amarelo
+        if (isOpen) {
+          pill.style.background = 'rgba(74,222,128,0.1)';
+          pill.style.borderColor = 'rgba(74,222,128,0.25)';
+          pill.style.color = '#4ade80';
+          var dot = pill.querySelector('.dot');
+          if (dot) {
+            dot.style.background = '#4ade80';
+            dot.style.boxShadow = '0 0 6px rgba(74,222,128,0.6)';
+          }
+        } else {
+          pill.style.background = 'rgba(201,169,97,0.08)';
+          pill.style.borderColor = 'rgba(201,169,97,0.25)';
+          pill.style.color = '#c9a961';
+          var dot = pill.querySelector('.dot');
+          if (dot) {
+            dot.style.background = '#c9a961';
+            dot.style.boxShadow = '0 0 6px rgba(201,169,97,0.4)';
+            dot.style.animation = 'none';  // sem pulso quando fechada
           }
         }
-      } catch(e) {}
+      } catch(e) { console.warn('[v21] market pill:', e); }
     } catch(e) { console.warn('[v21] header:', e); }
   }
 
@@ -7930,7 +7971,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var proximos = futuros.slice(0, 4);
 
       if (!proximos.length) {
-        list.innerHTML = '<div class="v21-agenda-empty">Sem proventos futuros nesta fonte</div>';
+        list.innerHTML = '<div class="v21-agenda-empty">Sem proventos futuros na fonte <strong style="color:#c9a961">' + (V21.provSource === 'gestao' ? 'GP' : 'CG20') + '</strong>.<br><span style="font-size:10px;opacity:0.7">Clique no botão acima pra trocar de fonte</span></div>';
         return;
       }
 
@@ -8045,7 +8086,18 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
   window.V21 = { refresh: v21RefreshAll, state: V21 };
 
-  console.log('%c[G20 v21] Etapa 1D v2 carregada (Hero Row refinado)', 'color:#c9a961;font-weight:bold;font-size:14px');
+  console.log('%c[G20 v21] Etapa 1D v2.1 carregada (fixes aplicados)', 'color:#c9a961;font-weight:bold;font-size:14px');
+
+  // Error handler pra capturar erros no console com mais contexto
+  if (!window._v21ErrorHandler) {
+    window._v21ErrorHandler = true;
+    window.addEventListener('error', function(e){
+      if (e.filename && e.filename.indexOf('dashboard-v21') !== -1) {
+        console.error('[v21 ERROR]', e.message, 'em linha', e.lineno, 'col', e.colno);
+      }
+    });
+  }
+
 })();
 </script>
 
