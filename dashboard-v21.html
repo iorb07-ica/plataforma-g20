@@ -10391,7 +10391,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   }
 
   // ════════════════════════════════════════════════════
-  // 📊 ETAPA 2B — 4 KPIs LIMPOS
+  // 📊 ETAPA 2B — 4 KPIs LIMPOS (v2 — lógica corrigida)
+  // Alinha com: v21LoadRent (calcRent 30d), v21LoadAgenda
+  // (proventos com fallback qtdCarteira), estrutura real
+  // de aportes (qtd × preco, op='C'/'V')
   // ════════════════════════════════════════════════════
   function v21LoadKpis() {
     try {
@@ -10420,39 +10423,35 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         else el.classList.add('is-neu');
       }
 
-      // Pega dados do adapter existente (mais robusto) -
-      var d = {};
-      try { d = (typeof v21PrepararDadosInsights === 'function') ? v21PrepararDadosInsights() : {}; } catch(e) { d = {}; }
-
-      // Carrega snap + aportes pro que o adapter não fornece
+      // Carrega dados brutos ---------------------------
       var snap = [];
+      var divs = [];
       var rvAp = [];
       var apBR = [];
+      var precos = {};
       try { snap = JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]'); } catch(e){}
+      try { divs = JSON.parse(localStorage.getItem('g20_dividendos')||'[]'); } catch(e){}
       try { rvAp = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){}
       try { apBR = JSON.parse(localStorage.getItem('g20_aportes')||'[]'); } catch(e){}
+      try { precos = JSON.parse(localStorage.getItem('g20_precos')||'{}'); } catch(e){}
 
       var hoje = new Date().toISOString().substring(0,10);
       var anoAtual = hoje.substring(0,4);
       var mesAtual = hoje.substring(0,7);
 
       // ─── Card 1: RENT. MÊS vs CDI ───────────────────
-      // Calcula rent do mês e cdi do mês a partir do snap
+      // USA MESMA LÓGICA DO v21LoadRent (calcRent com 30 dias corridos)
+      // pra ficar alinhado com o card Rentabilidade do Hero Row.
       var rentMes = null, cdiMes = null;
       if (snap.length >= 2) {
-        // Encontra primeiro snap do mês atual (ou último do mês anterior)
-        var idxMes = -1;
-        for (var i = snap.length - 1; i >= 0; i--) {
-          if (snap[i].d < mesAtual + '-01') { idxMes = i; break; }
-        }
-        if (idxMes === -1) idxMes = 0;
-        var inicio = snap[idxMes];
+        var idx30 = Math.max(0, snap.length - 1 - 30);
+        var inicio30 = snap[idx30];
         var fim = snap[snap.length - 1];
-        if (inicio && fim && inicio.t && fim.t) {
-          rentMes = ((fim.t / inicio.t) - 1) * 100;
+        if (inicio30 && fim && inicio30.t > 0 && fim.t > 0) {
+          rentMes = ((fim.t / inicio30.t) - 1) * 100;
         }
-        if (inicio && fim && inicio.c && fim.c) {
-          cdiMes = ((fim.c / inicio.c) - 1) * 100;
+        if (inicio30 && fim && inicio30.c > 0 && fim.c > 0) {
+          cdiMes = ((fim.c / inicio30.c) - 1) * 100;
         }
       }
       var kpi1Val = document.getElementById('v21Kpi1Val');
@@ -10472,9 +10471,23 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       }
 
       // ─── Card 2: ALPHA YTD ──────────────────────────
-      var alphaYtd = (d.alpha_ytd !== undefined) ? d.alpha_ytd : null;
-      var rentYtd = (d.rent_ytd !== undefined) ? d.rent_ytd : null;
-      var cdiYtd = (d.cdi_ytd !== undefined) ? d.cdi_ytd : null;
+      // Calcula direto do snap pra ficar alinhado com o Hero Row.
+      var rentYtd = null, cdiYtd = null, alphaYtd = null;
+      if (snap.length >= 2) {
+        var idxYTD = snap.findIndex(function(s){ return s.d >= anoAtual + '-01-01'; });
+        if (idxYTD === -1) idxYTD = 0;
+        var inicioYTD = snap[idxYTD];
+        var fimYTD = snap[snap.length - 1];
+        if (inicioYTD && fimYTD && inicioYTD.t > 0) {
+          rentYtd = ((fimYTD.t / inicioYTD.t) - 1) * 100;
+        }
+        if (inicioYTD && fimYTD && inicioYTD.c > 0) {
+          cdiYtd = ((fimYTD.c / inicioYTD.c) - 1) * 100;
+        }
+        if (rentYtd !== null && cdiYtd !== null) {
+          alphaYtd = rentYtd - cdiYtd;
+        }
+      }
       var kpi2Val = document.getElementById('v21Kpi2Val');
       var kpi2Sub = document.getElementById('v21Kpi2Sub');
       if (kpi2Val && alphaYtd !== null) {
@@ -10490,14 +10503,61 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       }
 
       // ─── Card 3: PROVENTOS MÊS ──────────────────────
-      var provMes = (d.proventos_mes !== undefined) ? d.proventos_mes : 0;
-      var ativosPag = (d.ativos_pagaram_mes !== undefined) ? d.ativos_pagaram_mes : 0;
+      // USA MESMA LÓGICA DO v21LoadAgenda (fallback qtdCarteira,
+      // aceita valorCota/valor/value/amount/rate, converte USD→BRL)
+      function getValorProvento(d) {
+        return parseFloat(d.valorCota) || parseFloat(d.valor) || parseFloat(d.value) ||
+               parseFloat(d.amount) || parseFloat(d.rate) || 0;
+      }
+      // Constrói mapa de qtdCarteira por ticker a partir dos aportes
+      var qtdMap = {};
+      rvAp.concat(apBR).forEach(function(a){
+        if (!a.ticker) return;
+        var t = a.ticker.toUpperCase();
+        var q = parseFloat(a.qtd)||0;
+        if ((a.op||'C') === 'V') q = -q;
+        qtdMap[t] = (qtdMap[t]||0) + q;
+      });
+
+      var sumProvMes = 0;
+      var tickersPagMes = {};
+      var divsFiltrados = divs.filter(function(d){
+        if (!d.fonte) return false;
+        var f = String(d.fonte).toLowerCase();
+        var isAuto = (f === 'auto' || f.indexOf('auto-') === 0 || f.indexOf('auto_') === 0);
+        var valor = getValorProvento(d);
+        var total = parseFloat(d.total||0);
+        return isAuto && (valor > 0 || total > 0);
+      });
+      divsFiltrados.forEach(function(d){
+        var dataPag = (d.data||'').substring(0,10);
+        if (!dataPag || !dataPag.startsWith(mesAtual)) return;
+        var valorCota = getValorProvento(d);
+        var qtdCart = qtdMap[(d.ticker||'').toUpperCase()] || 0;
+        var qtd = parseFloat(d.qtd||0) || qtdCart;
+        var total = parseFloat(d.total) || (valorCota * qtd);
+        if (total <= 0) return;
+
+        // Converte USD → BRL
+        var tickerU = (d.ticker||'').toUpperCase();
+        var ehStockUS = /^[A-Z]{1,5}$/.test(tickerU) && !/\d/.test(tickerU);
+        if (ehStockUS) {
+          var cotUSD = 5.00;
+          var usdbrl = precos['USDBRL=X'] || precos['USD'] || precos['USDBRL'];
+          if (usdbrl && usdbrl.price) cotUSD = parseFloat(usdbrl.price);
+          total = total * cotUSD;
+        }
+
+        sumProvMes += total;
+        tickersPagMes[d.ticker] = true;
+      });
+      var ativosPag = Object.keys(tickersPagMes).length;
+
       var kpi3Val = document.getElementById('v21Kpi3Val');
       var kpi3Sub = document.getElementById('v21Kpi3Sub');
       if (kpi3Val) {
-        kpi3Val.textContent = fmtBRL(provMes);
-        // Proventos sempre positivo ou zero
-        setValClass(kpi3Val, provMes > 0 ? 1 : 0);
+        kpi3Val.textContent = fmtBRL(sumProvMes);
+        setValClass(kpi3Val, sumProvMes > 0 ? 1 : 0);
       }
       if (kpi3Sub) {
         if (ativosPag > 0) {
@@ -10508,19 +10568,21 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       }
 
       // ─── Card 4: APORTES ANO ────────────────────────
+      // Estrutura real: {ticker, data, qtd, preco, op:'C'/'V', tipo:'Acao'/'Stock'/...}
+      // Valor total = qtd × preco (op='C' soma, op='V' subtrai)
       var aportesAno = 0;
       var mesesAno = {};
       rvAp.concat(apBR).forEach(function(a){
         var dataStr = (a.data||'').substring(0,10);
         if (!dataStr.startsWith(anoAtual)) return;
-        var v = parseFloat(a.valor)||0;
-        // Só conta APORTE (não saque/venda)
-        var tipo = (a.tipo||'').toLowerCase();
-        if (tipo === 'venda' || tipo === 'saque' || tipo === 'resgate') return;
-        if (v > 0) {
-          aportesAno += v;
-          mesesAno[dataStr.substring(0,7)] = true;
-        }
+        var q = parseFloat(a.qtd)||0;
+        var p = parseFloat(a.preco)||0;
+        var valor = q * p;
+        if (valor <= 0) return;
+        // Só soma se for compra (op='C' ou campo ausente — default é compra)
+        if ((a.op||'C') !== 'C') return;
+        aportesAno += valor;
+        mesesAno[dataStr.substring(0,7)] = true;
       });
       var qtdMesesAno = Object.keys(mesesAno).length;
       var mediaMes = qtdMesesAno > 0 ? aportesAno / qtdMesesAno : 0;
@@ -10544,6 +10606,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
       // Re-render icons lucide
       if (window.lucide) lucide.createIcons();
+
+      console.log('[v21 kpis] rentMes=', rentMes, 'cdiMes=', cdiMes, 'alphaYtd=', alphaYtd, 'provMes=', sumProvMes, 'aportesAno=', aportesAno);
 
     } catch(e) { console.warn('[v21 kpis]:', e); }
   }
