@@ -7916,10 +7916,69 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     v21LoadAgenda();
   };
 
+  // ==================== HELPERS ====================
+  // v2.6: Detecta moeda pelo ticker e/ou fonte
+  function detectarMoeda(ticker, fonte) {
+    if (!ticker) return 'BRL';
+    var f = String(fonte||'').toLowerCase();
+    // Se a fonte é Polygon, é US
+    if (f.indexOf('polygon') !== -1) return 'USD';
+    // Ações BR terminam em número (PETR4, BBAS3, TAEE11, ITSA4)
+    if (/\d+$/.test(ticker)) return 'BRL';
+    // Caso contrário, assume US (AAPL, JNJ, ORCL, STNE, XYLD, O, MSFT...)
+    return 'USD';
+  }
+
+  // v2.6: Formata moeda dinamicamente
+  function fmtMoeda(v, moeda, decimals) {
+    if (v === null || v === undefined || isNaN(v)) return '—';
+    decimals = decimals === undefined ? 2 : decimals;
+    var sign = v < 0 ? '-' : '';
+    var abs = Math.abs(v);
+    var prefix = moeda === 'USD' ? 'US$ ' : 'R$ ';
+    return sign + prefix + abs.toLocaleString('pt-BR', {minimumFractionDigits: decimals, maximumFractionDigits: decimals});
+  }
+
+  // v2.6: Calcula quantidade de um ticker na carteira do usuário
+  var _qtdCache = null;
+  function _buildQtdCache() {
+    _qtdCache = {};
+    try {
+      // Stocks US (g20_rvAportes — aportes de stocks)
+      var rvAp = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
+      rvAp.forEach(function(a){
+        if (!a.ticker) return;
+        var qtd = parseFloat(a.qtd) || 0;
+        var tipo = (a.tipo||'').toLowerCase();
+        if (tipo === 'venda') qtd = -qtd;
+        _qtdCache[a.ticker] = (_qtdCache[a.ticker]||0) + qtd;
+      });
+    } catch(e){}
+    try {
+      // Ações BR (g20_aportes — aportes tradicionais BR)
+      var apBR = JSON.parse(localStorage.getItem('g20_aportes')||'[]');
+      apBR.forEach(function(a){
+        if (!a.ticker) return;
+        var qtd = parseFloat(a.qtd) || 0;
+        var tipo = (a.tipo||'').toLowerCase();
+        if (tipo === 'venda') qtd = -qtd;
+        _qtdCache[a.ticker] = (_qtdCache[a.ticker]||0) + qtd;
+      });
+    } catch(e){}
+  }
+  function getQtdCarteira(ticker) {
+    if (!_qtdCache) _buildQtdCache();
+    return _qtdCache[ticker] || 0;
+  }
+
   function v21LoadAgenda() {
     try {
       var list = getEl('v21-agenda-list');
       if (!list) return;
+
+      // v2.6: rebuild cache de qtd a cada render
+      _qtdCache = null;
+      _buildQtdCache();
 
       var divs = [];
       try { divs = JSON.parse(localStorage.getItem('g20_dividendos')||'[]'); } catch(e){}
@@ -7962,22 +8021,44 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         var dataPag = (d.data||'').substring(0,10);
         if (!dataPag) return;
         var valorCota = getValorProvento(d);
-        var qtd = parseFloat(d.qtd||0);
+        var qtdCarteira2 = getQtdCarteira(d.ticker);
+        // v2.6: usar qtd da carteira se d.qtd for 0
+        var qtd = parseFloat(d.qtd||0) || qtdCarteira2;
         var total = parseFloat(d.total) || (valorCota * qtd);
-        // FIX v2.5: aceitar se tem valorCota OU total (futuros podem não ter qtd ainda)
+        // v2.6: aceitar se tem valorCota OU total
         if (!valorCota && !total) return;
 
-        if (dataPag.startsWith(anoAtual)) sumYTD += total;
-        if (dataPag.startsWith(mesAtual)) sumMes += total;
-        if (dataPag >= hoje && dataPag <= hoje7Str) sum7 += total;
+        // v2.6: converter USD pra BRL no summary (cotação do g20_precos ou fallback 5.00)
+        var moedaD = detectarMoeda(d.ticker, d.fonte);
+        var totalBRL = total;
+        if (moedaD === 'USD') {
+          var cotUSD = 5.00;
+          try {
+            var precos = JSON.parse(localStorage.getItem('g20_precos')||'{}');
+            var usdbrl = precos['USDBRL=X'] || precos['USD'] || precos['USDBRL'] || null;
+            if (usdbrl && usdbrl.price) cotUSD = parseFloat(usdbrl.price);
+          } catch(e){}
+          totalBRL = total * cotUSD;
+        }
+
+        if (dataPag.startsWith(anoAtual)) sumYTD += totalBRL;
+        if (dataPag.startsWith(mesAtual)) sumMes += totalBRL;
+        if (dataPag >= hoje && dataPag <= hoje7Str) sum7 += totalBRL;
         if (dataPag >= hoje) {
+          var moedaProv = detectarMoeda(d.ticker, d.fonte);
+          var qtdCarteira = getQtdCarteira(d.ticker);
+          var valorCotaReal = getValorProvento(d);
+          // v2.6: se total veio calculado usa ele; senão multiplica pela qtd da carteira
+          var totalReal = total > 0 ? total : (valorCotaReal * qtdCarteira);
           futuros.push({
             ticker: d.ticker,
             tipo: d.tipo || 'Dividendo',
             data: dataPag,
             datex: (d.ex_date||d.exDate||d.datex||dataPag).substring(0,10),
-            valorCota: getValorProvento(d),
-            total: total,
+            valorCota: valorCotaReal,
+            total: totalReal,
+            qtd: qtdCarteira,
+            moeda: moedaProv,
             isFII: d.ticker && /\d11$/.test(d.ticker)
           });
         }
@@ -8010,7 +8091,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
                       tipoUp.indexOf('REND') !== -1 ? 'RENDIMENTO' :
                       tipoUp.indexOf('COMPL') !== -1 ? 'DIV. COMPL.' : 'DIVIDENDO';
 
-        var unidade = p.isFII ? '/cota' : '/ação';
+        var unidade = p.isFII ? '/cota' : (p.moeda === 'USD' ? '/share' : '/ação');
 
         var dataExFmt = p.datex ? p.datex.substring(8,10)+'/'+p.datex.substring(5,7) : '—';
         var dataPagFmt = p.data.substring(8,10)+'/'+p.data.substring(5,7);
@@ -8031,8 +8112,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
             '<div></div>' +
           '</div>' +
           '<div class="v21-agenda-right">' +
-            '<div class="v21-agenda-value">'+(p.total > 0 ? fmtBRL(p.total) : '—')+'</div>' +
-            '<div class="v21-agenda-cota">R$ '+p.valorCota.toFixed(4).replace('.',',')+unidade+'</div>' +
+            '<div class="v21-agenda-value">'+(p.total > 0 ? fmtMoeda(p.total, p.moeda, 2) : '—')+'</div>' +
+            '<div class="v21-agenda-cota">'+(p.moeda === 'USD' ? 'US$ ' : 'R$ ')+p.valorCota.toFixed(4).replace('.',',')+unidade+'</div>' +
           '</div>' +
         '</div>';
       }).join('');
@@ -8141,7 +8222,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     v21ImportarProventos();
   };
 
-  console.log('%c[G20 v21] Etapa 1D v2.5 carregada (multi-field value)', 'color:#c9a961;font-weight:bold;font-size:14px');
+  console.log('%c[G20 v21] Etapa 1D v2.6 carregada (moeda + qtd real)', 'color:#c9a961;font-weight:bold;font-size:14px');
 
   // Error handler pra capturar erros no console com mais contexto
   if (!window._v21ErrorHandler) {
