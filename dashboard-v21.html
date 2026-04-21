@@ -11098,18 +11098,20 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     if (V21C.histLoading[series]) return;  // já tá buscando
     if (V21C.histCache[series]) { callback && callback(V21C.histCache[series]); return; }
 
-    var symbol, endpoint;
+    // Lista de símbolos pra tentar em ordem (fallback se o primeiro falhar)
+    var tentativas;
+    var endpoint;
     if (series === 'ibov') {
-      symbol = '^BVSP';
+      tentativas = ['^BVSP', 'IBOV', '%5EBVSP'];
       endpoint = '/api/history-br';
     } else if (series === 'sp500') {
-      symbol = '^GSPC';
+      tentativas = ['^GSPC', 'SPX', 'SPY', '%5EGSPC'];
       endpoint = '/api/history';
     } else {
       return;
     }
 
-    // Cache localStorage 24h (alinhado com outros endpoints do dashboard)
+    // Cache localStorage 24h
     var cacheKey = 'v21_hist_' + series;
     try {
       var cached = JSON.parse(localStorage.getItem(cacheKey)||'null');
@@ -11123,48 +11125,68 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
     V21C.histLoading[series] = true;
     var fromDate = new Date();
-    fromDate.setFullYear(fromDate.getFullYear() - 6);  // 6 anos de histórico (cobre 5A + Max)
+    fromDate.setFullYear(fromDate.getFullYear() - 6);
     var fromStr = fromDate.toISOString().substring(0,10);
 
-    var url = 'https://g20-proxy.vercel.app' + endpoint + '?symbol=' + encodeURIComponent(symbol) + '&from=' + fromStr;
-    console.log('[v21 hist] buscando ' + series + ' em ' + url);
-
-    fetch(url)
-      .then(function(r){ return r.ok ? r.json() : null; })
-      .then(function(data){
+    // Função que faz tentativa (i = índice na lista `tentativas`)
+    function tentarBusca(i) {
+      if (i >= tentativas.length) {
+        // Todas falharam
         V21C.histLoading[series] = false;
-        if (!data) { console.warn('[v21 hist] ' + series + ' retornou vazio'); return; }
+        console.warn('[v21 hist] ' + series + ' FALHOU — tentou ' + tentativas.join(', '));
+        v21LoadRentChart();  // re-render pra atualizar notice de "indisponível"
+        return;
+      }
+      var symbol = tentativas[i];
+      var url = 'https://g20-proxy.vercel.app' + endpoint + '?symbol=' + encodeURIComponent(symbol) + '&from=' + fromStr;
+      console.log('[v21 hist] tentando ' + series + ' com symbol=' + symbol);
 
-        // Normaliza: aceita vários formatos (array direto, .history, .data, .candles, etc)
-        var arr = Array.isArray(data) ? data : (data.history || data.data || data.candles || data.results || []);
-        if (!Array.isArray(arr) || arr.length === 0) {
-          console.warn('[v21 hist] ' + series + ' formato inesperado:', data);
-          return;
-        }
+      fetch(url)
+        .then(function(r){
+          if (!r.ok) {
+            console.warn('[v21 hist] ' + series + ' symbol=' + symbol + ' HTTP ' + r.status);
+            throw new Error('HTTP ' + r.status);
+          }
+          return r.json();
+        })
+        .then(function(data){
+          if (!data) throw new Error('resposta vazia');
 
-        var pontos = arr.map(function(p){
-          var d = (p.date || p.d || p.time || p.t || '').toString().substring(0,10);
-          var close = parseFloat(p.close || p.c || p.value || p.price || p.adjClose || 0);
-          return { d: d, close: close };
-        }).filter(function(p){ return p.d && p.close > 0; })
-          .sort(function(a,b){ return a.d.localeCompare(b.d); });
+          // Normaliza formato
+          var arr = Array.isArray(data) ? data : (data.history || data.data || data.candles || data.results || data.prices || data.quotes || []);
+          if (!Array.isArray(arr) || arr.length === 0) {
+            console.warn('[v21 hist] ' + series + ' symbol=' + symbol + ' formato inesperado. Keys:', Object.keys(data||{}));
+            throw new Error('formato inesperado');
+          }
 
-        if (pontos.length === 0) {
-          console.warn('[v21 hist] ' + series + ' nenhum ponto válido');
-          return;
-        }
+          var pontos = arr.map(function(p){
+            var d = (p.date || p.d || p.time || p.t || p.datetime || '').toString().substring(0,10);
+            var close = parseFloat(p.close || p.c || p.value || p.price || p.adjClose || p.adjusted_close || 0);
+            return { d: d, close: close };
+          }).filter(function(p){ return p.d && p.close > 0; })
+            .sort(function(a,b){ return a.d.localeCompare(b.d); });
 
-        var result = { pontos: pontos, loadedAt: Date.now() };
-        V21C.histCache[series] = result;
-        try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch(e){}
-        console.log('[v21 hist] ' + series + ' carregado ' + pontos.length + ' pontos');
+          if (pontos.length === 0) {
+            console.warn('[v21 hist] ' + series + ' symbol=' + symbol + ' — nenhum ponto válido. Sample:', arr[0]);
+            throw new Error('pontos vazios');
+          }
 
-        callback && callback(result);
-      })
-      .catch(function(err){
-        V21C.histLoading[series] = false;
-        console.warn('[v21 hist] ' + series + ' falhou:', err);
-      });
+          var result = { pontos: pontos, loadedAt: Date.now(), symbol: symbol };
+          V21C.histCache[series] = result;
+          V21C.histLoading[series] = false;
+          try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch(e){}
+          console.log('%c[v21 hist] ✓ ' + series + ' OK: ' + pontos.length + ' pontos (symbol=' + symbol + ')', 'color:#4ade80');
+
+          v21LoadRentChart();  // re-render COM os novos dados
+          callback && callback(result);
+        })
+        .catch(function(err){
+          console.warn('[v21 hist] ' + series + ' symbol=' + symbol + ' erro:', err.message || err);
+          tentarBusca(i + 1);  // próxima tentativa
+        });
+    }
+
+    tentarBusca(0);
   }
 
   // Interpola valor do histórico na data mais próxima (ou anterior)
