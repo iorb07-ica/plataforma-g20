@@ -11331,42 +11331,34 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       try { snap = JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]'); } catch(e){}
       if (snap.length < 2) return;
 
-      // Define índice de início conforme período
-      var last = snap.length - 1;
-      var idx = 0;
       var period = V21C.rentPeriod;
-      if (period === '1m') idx = Math.max(0, last - 30);
-      else if (period === '6m') idx = Math.max(0, last - 180);
-      else if (period === 'ytd') {
-        var anoStr = new Date().getFullYear() + '-01-01';
-        idx = snap.findIndex(function(s){ return s.d >= anoStr; });
-        if (idx === -1) idx = 0;
+      var hoje = new Date();
+      var fimStr = hoje.toISOString().substring(0,10);
+
+      // ───────────────────────────────────────────────────────────
+      // 1) Define a DATA DE INÍCIO baseada no período SOLICITADO,
+      //    não no que tem de snap. Se user clica 5A, eixo começa
+      //    há 5 anos, mesmo que só tenha 13 meses de patrimônio.
+      //    Os benchmarks (IBOV/SP500) preenchem os anteriores.
+      // ───────────────────────────────────────────────────────────
+      var inicioD = new Date(hoje);
+      if (period === '1m') inicioD.setMonth(inicioD.getMonth() - 1);
+      else if (period === '6m') inicioD.setMonth(inicioD.getMonth() - 6);
+      else if (period === 'ytd') inicioD = new Date(hoje.getFullYear(), 0, 1);
+      else if (period === '1a') inicioD.setFullYear(inicioD.getFullYear() - 1);
+      else if (period === '5a') inicioD.setFullYear(inicioD.getFullYear() - 5);
+      else { // max: usa o menor entre início dos benchmarks ou 5 anos
+        inicioD.setFullYear(inicioD.getFullYear() - 5);
       }
-      else if (period === '1a') idx = Math.max(0, last - 365);
-      else if (period === '5a') idx = Math.max(0, last - 365*5);
-      else idx = 0; // max
+      var inicioStr = inicioD.toISOString().substring(0,10);
 
-      var inicio = snap[idx];
-      var fim = snap[last];
-      if (!inicio || !fim) return;
-
-      // Monta séries normalizadas (tudo base 0%)
-      var labels = [];
-      var serieVoce = [];
-      var serieCdi = [];
-      var serieIbov = [];
-      var serieSp500 = [];
-
-      var baseT = inicio.t || 1;
-      var baseC = inicio.c || 1;
-
-      // IBOV e S&P500: primeiro tenta snap (caso exista), depois cache de API
+      // ───────────────────────────────────────────────────────────
+      // 2) Históricos IBOV e S&P500 (buscados via Stooq)
+      // ───────────────────────────────────────────────────────────
       var histIbov = V21C.histCache.ibov;
       var histSp500 = V21C.histCache.sp500;
-      var baseIbov = inicio.ibov || (histIbov ? _v21FindHistValue(histIbov.pontos, inicio.d) : null);
-      var baseSp500 = inicio.sp500 || (histSp500 ? _v21FindHistValue(histSp500.pontos, inicio.d) : null);
 
-      // Dispara fetch async se toggles ativos, ainda não carregou e NÃO falhou antes
+      // Dispara fetch async se toggles ativos
       if (V21C.rentSeries.ibov && !histIbov && !V21C.histLoading.ibov && !V21C.histFailed.ibov) {
         v21FetchHistorico('ibov');
       }
@@ -11374,49 +11366,126 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         v21FetchHistorico('sp500');
       }
 
-      // Downsample se muitos pontos (max 80 pontos pra fluidez)
-      var N = last - idx + 1;
-      var step = Math.max(1, Math.floor(N / 80));
+      // ───────────────────────────────────────────────────────────
+      // 3) DEFINE BASES: cada série tem sua própria data base
+      //    (o valor no `inicioStr` ou mais próximo posterior)
+      // ───────────────────────────────────────────────────────────
+      // Base do patrimônio: primeiro snap com d >= inicioStr (ou o primeiro se snap começou depois)
+      var idxSnapInicio = snap.findIndex(function(s){ return s.d >= inicioStr; });
+      if (idxSnapInicio === -1) idxSnapInicio = snap.length - 1;
+      var snapInicio = snap[idxSnapInicio];
+      var snapFim = snap[snap.length - 1];
+      var baseT = snapInicio && snapInicio.t > 0 ? snapInicio.t : null;
+      var baseC = snapInicio && snapInicio.c > 0 ? snapInicio.c : null;
+      var dataBaseVoce = snapInicio ? snapInicio.d : inicioStr;
 
-      for (var i = idx; i <= last; i++) {
-        if ((i - idx) % step !== 0 && i !== last) continue;
-        var p = snap[i];
-        labels.push(p.d || '');
-        serieVoce.push(p.t > 0 ? ((p.t / baseT) - 1) * 100 : null);
-        serieCdi.push(p.c > 0 ? ((p.c / baseC) - 1) * 100 : null);
+      // Base IBOV: primeiro ponto com d >= inicioStr
+      var baseIbov = null, baseIbovData = null;
+      if (histIbov && histIbov.pontos.length > 0) {
+        var idxIbovIni = histIbov.pontos.findIndex(function(p){ return p.d >= inicioStr; });
+        if (idxIbovIni === -1) idxIbovIni = 0;
+        baseIbov = histIbov.pontos[idxIbovIni].close;
+        baseIbovData = histIbov.pontos[idxIbovIni].d;
+      }
 
-        // IBOV: usa snap.ibov se existir, senão interpola do histórico API
+      // Base S&P500: mesma lógica
+      var baseSp500 = null, baseSp500Data = null;
+      if (histSp500 && histSp500.pontos.length > 0) {
+        var idxSp500Ini = histSp500.pontos.findIndex(function(p){ return p.d >= inicioStr; });
+        if (idxSp500Ini === -1) idxSp500Ini = 0;
+        baseSp500 = histSp500.pontos[idxSp500Ini].close;
+        baseSp500Data = histSp500.pontos[idxSp500Ini].d;
+      }
+
+      // ───────────────────────────────────────────────────────────
+      // 4) MONTA EIXO X como datas (intervalos semanais pra fluidez)
+      // ───────────────────────────────────────────────────────────
+      var eixoDatas = [];
+      var cursor = new Date(inicioD);
+      var intervalo;
+      if (period === '1m') intervalo = 1;          // daily
+      else if (period === '6m') intervalo = 3;     // cada 3 dias
+      else if (period === 'ytd' || period === '1a') intervalo = 4;  // cada 4 dias
+      else intervalo = 14;                          // 2 semanas pra 5A+
+
+      while (cursor <= hoje) {
+        eixoDatas.push(cursor.toISOString().substring(0,10));
+        cursor.setDate(cursor.getDate() + intervalo);
+      }
+      // Garante que o último ponto é hoje
+      if (eixoDatas[eixoDatas.length-1] !== fimStr) eixoDatas.push(fimStr);
+
+      // ───────────────────────────────────────────────────────────
+      // 5) PARA CADA DATA DO EIXO, preenche as 4 séries (ou null)
+      // ───────────────────────────────────────────────────────────
+      var serieVoce = [];
+      var serieCdi = [];
+      var serieIbov = [];
+      var serieSp500 = [];
+
+      eixoDatas.forEach(function(d){
+        // Você: só preenche se tem snap nessa data
+        var vVoce = null;
+        var vCdi = null;
+        if (baseT && d >= dataBaseVoce) {
+          // Acha último snap com data <= d
+          var snapAtual = null;
+          for (var j = snap.length - 1; j >= 0; j--) {
+            if (snap[j].d <= d) { snapAtual = snap[j]; break; }
+          }
+          if (snapAtual) {
+            if (snapAtual.t > 0 && baseT > 0) vVoce = ((snapAtual.t / baseT) - 1) * 100;
+            if (snapAtual.c > 0 && baseC > 0) vCdi = ((snapAtual.c / baseC) - 1) * 100;
+          }
+        }
+        serieVoce.push(vVoce);
+        serieCdi.push(vCdi);
+
+        // IBOV do histórico
         var vIbov = null;
-        if (p.ibov && baseIbov) vIbov = ((p.ibov / baseIbov) - 1) * 100;
-        else if (histIbov && baseIbov) {
-          var histVal = _v21FindHistValue(histIbov.pontos, p.d);
-          if (histVal > 0) vIbov = ((histVal / baseIbov) - 1) * 100;
+        if (histIbov && baseIbov && d >= baseIbovData) {
+          var valIbov = _v21FindHistValue(histIbov.pontos, d);
+          if (valIbov > 0) vIbov = ((valIbov / baseIbov) - 1) * 100;
         }
         serieIbov.push(vIbov);
 
-        // S&P500: mesma lógica
+        // S&P500 do histórico
         var vSp500 = null;
-        if (p.sp500 && baseSp500) vSp500 = ((p.sp500 / baseSp500) - 1) * 100;
-        else if (histSp500 && baseSp500) {
-          var histVal2 = _v21FindHistValue(histSp500.pontos, p.d);
-          if (histVal2 > 0) vSp500 = ((histVal2 / baseSp500) - 1) * 100;
+        if (histSp500 && baseSp500 && d >= baseSp500Data) {
+          var valSp500 = _v21FindHistValue(histSp500.pontos, d);
+          if (valSp500 > 0) vSp500 = ((valSp500 / baseSp500) - 1) * 100;
         }
         serieSp500.push(vSp500);
-      }
+      });
 
-      // Formata eixo X em meses
-      var labelsFmt = labels.map(function(d){
+      // ───────────────────────────────────────────────────────────
+      // 6) FORMATA EIXO X (mostra mês/ano em intervalos)
+      // ───────────────────────────────────────────────────────────
+      var meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+      var labelsFmt = eixoDatas.map(function(d){
         if (!d) return '';
         var data = new Date(d + 'T12:00:00');
-        var meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+        // Pra períodos >= 1A, inclui ano abreviado (ex: "Mar/24")
+        if (period === '5a' || period === 'max' || period === '1a') {
+          var anoStr = "'" + String(data.getFullYear()).substring(2);
+          return meses[data.getMonth()] + anoStr;
+        }
         return meses[data.getMonth()];
       });
 
-      // Valores finais (último ponto)
-      var finVoce = serieVoce[serieVoce.length-1];
-      var finCdi = serieCdi[serieCdi.length-1];
-      var finIbov = serieIbov[serieIbov.length-1];
-      var finSp500 = serieSp500[serieSp500.length-1];
+      // ───────────────────────────────────────────────────────────
+      // 7) Valores finais (último ponto com dado válido)
+      // ───────────────────────────────────────────────────────────
+      function ultimoValido(arr) {
+        for (var i = arr.length - 1; i >= 0; i--) {
+          if (arr[i] !== null && !isNaN(arr[i])) return arr[i];
+        }
+        return null;
+      }
+      var finVoce = ultimoValido(serieVoce);
+      var finCdi = ultimoValido(serieCdi);
+      var finIbov = ultimoValido(serieIbov);
+      var finSp500 = ultimoValido(serieSp500);
 
       // Atualiza summary
       var elVoce = document.getElementById('v21RentSumVoce');
@@ -11473,7 +11542,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         });
       }
 
-      // Feedback: loading / falha / ok para IBOV e S&P500 + aviso de período limitado
+      // Feedback: loading / falha / aviso de patrimônio limitado
       var noticeEl = document.getElementById('v21RentNotice');
       if (noticeEl) {
         var loadingMsgs = [];
@@ -11487,20 +11556,15 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           else if (V21C.histFailed.sp500) errorMsgs.push('S&P500');
         }
 
-        // Calcula período real disponível (primeiro snap até último)
+        // Aviso: Você e CDI só existem a partir do primeiro snap
+        // Só mostra aviso se o período esperado é MAIOR que o patrimônio disponível
         var aviso = '';
-        if (snap.length >= 2) {
-          var dIni = snap[idx] && snap[idx].d;
-          var dFim = snap[last] && snap[last].d;
-          if (dIni && dFim) {
-            var diasDisp = Math.floor((new Date(dFim) - new Date(dIni)) / (1000*60*60*24));
-            var mesesDisp = Math.round(diasDisp / 30);
-            var periodoEsperado = {'1m':30, '6m':180, 'ytd':0, '1a':365, '5a':365*5, 'max':0}[V21C.rentPeriod];
-            // Só avisa se o período esperado é MAIOR que os dados disponíveis (com tolerância de 15 dias)
-            if (periodoEsperado > 0 && diasDisp < (periodoEsperado - 15)) {
-              var lblPeriodo = {'1m':'1M', '6m':'6M', '1a':'1A', '5a':'5A'}[V21C.rentPeriod];
-              aviso = 'ℹ Período ' + lblPeriodo + ' solicitado, mas só há ' + mesesDisp + ' ' + (mesesDisp === 1 ? 'mês' : 'meses') + ' de histórico do seu patrimônio.';
-            }
+        if (V21C.rentSeries.voce && snap.length >= 2) {
+          var dIniSnap = snap[0].d;
+          if (dIniSnap > inicioStr) {
+            var diasSnap = Math.floor((new Date(fimStr) - new Date(dIniSnap)) / (1000*60*60*24));
+            var mesesSnap = Math.round(diasSnap / 30);
+            aviso = 'ℹ Sua linha (Você/CDI) começa em ' + dIniSnap.substring(5,7) + '/' + dIniSnap.substring(2,4) + ' (' + mesesSnap + (mesesSnap === 1 ? ' mês' : ' meses') + ' de histórico). IBOV e S&P500 mostram o período completo.';
           }
         }
 
@@ -12048,7 +12112,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-21-SPY ▸ S&P500 via SPY ETF (não CFD) + aviso de período', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-21-EIXO ▸ Eixo temporal + benchmarks com 5A completo (independente do snap)', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // Hook: controlar visibilidade do pontinho vermelho do sino
   // Aparece apenas quando existe notificação não lida
