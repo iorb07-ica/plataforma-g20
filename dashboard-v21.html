@@ -5200,11 +5200,14 @@ body.pat-hidden #v3GaugeVal{opacity:0}
   ════════════════════════════════════════════════════════ */
   .v21-kpis-row {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 14px;
     margin: 20px 0 24px 0;
   }
-  @media (max-width: 1100px) {
+  @media (max-width: 1400px) {
+    .v21-kpis-row { grid-template-columns: repeat(3, 1fr); }
+  }
+  @media (max-width: 900px) {
     .v21-kpis-row { grid-template-columns: repeat(2, 1fr); }
   }
   @media (max-width: 600px) {
@@ -5283,6 +5286,38 @@ body.pat-hidden #v3GaugeVal{opacity:0}
   .v21-kpi-value.is-pos { color: #2ecc71; }
   .v21-kpi-value.is-neg { color: #e63946; }
   .v21-kpi-value.is-neu { color: var(--v21-text, #e8e6e3); }
+
+  /* Beta da Carteira — layout 2 linhas compactas */
+  .v21-kpi-beta-dual {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 18px;
+  }
+  .v21-beta-line {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    justify-content: space-between;
+  }
+  .v21-beta-lbl {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    color: var(--v21-text-2, #9a958e);
+    font-family: 'DM Sans', sans-serif;
+    text-transform: uppercase;
+  }
+  .v21-beta-num {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    color: #e8e6e3;
+  }
+  .v21-beta-num.defensivo { color: #4ade80; }
+  .v21-beta-num.neutro { color: #e8c766; }
+  .v21-beta-num.agressivo { color: #f87171; }
 
   .v21-kpi-sub {
     font-family: 'DM Sans', sans-serif;
@@ -6330,6 +6365,27 @@ if(localStorage.getItem('g20_uid')){
         </div>
         <div class="v21-kpi-value" id="v21Kpi4Val">—</div>
         <div class="v21-kpi-sub" id="v21Kpi4Sub">Carregando...</div>
+      </div>
+
+      <div class="v21-kpi-card" id="v21Kpi5">
+        <div class="v21-kpi-head">
+          <div class="v21-kpi-icon"><i data-lucide="activity"></i></div>
+          <div class="v21-kpi-label">BETA DA CARTEIRA</div>
+        </div>
+        <div class="v21-kpi-value v21-kpi-beta-dual" id="v21Kpi5Val">
+          <span class="v21-beta-line"><span class="v21-beta-lbl">IBOV</span><span class="v21-beta-num" id="v21Kpi5IbovVal">—</span></span>
+          <span class="v21-beta-line"><span class="v21-beta-lbl">S&amp;P</span><span class="v21-beta-num" id="v21Kpi5SpVal">—</span></span>
+        </div>
+        <div class="v21-kpi-sub" id="v21Kpi5Sub">Aguardando 90d de histórico</div>
+      </div>
+
+      <div class="v21-kpi-card" id="v21Kpi6">
+        <div class="v21-kpi-head">
+          <div class="v21-kpi-icon"><i data-lucide="wallet"></i></div>
+          <div class="v21-kpi-label">RENDA PASSIVA/MÊS</div>
+        </div>
+        <div class="v21-kpi-value" id="v21Kpi6Val">—</div>
+        <div class="v21-kpi-sub" id="v21Kpi6Sub">Carregando...</div>
       </div>
     </div>
     <!-- FIM ETAPA 2B -->
@@ -11518,6 +11574,140 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         }
       }
 
+      // ─── Card 5: BETA DA CARTEIRA (vs IBOV e S&P500) ────────────────
+      // β = Cov(retornoCarteira, retornoBench) / Var(retornoBench)
+      // Janela: últimos 90 dias úteis (ou o que tiver disponível, mínimo 30)
+      try {
+        var patSnaps = snap.slice(); // já foi lido no topo
+        var jan = 90;
+        var ultimosSnaps = patSnaps.slice(-jan);
+
+        // Calcula retornos diários do patrimônio
+        var rCart = [];
+        for (var i = 1; i < ultimosSnaps.length; i++) {
+          var a = ultimosSnaps[i-1].t;
+          var b = ultimosSnaps[i].t;
+          if (a > 0 && b > 0) rCart.push((b/a) - 1);
+          else rCart.push(0);
+        }
+
+        function calcularBeta(histBench) {
+          if (!histBench || !histBench.pontos || histBench.pontos.length < 30) return null;
+          if (!ultimosSnaps || ultimosSnaps.length < 30) return null;
+
+          // Alinha datas: pra cada snap, pega fechamento do bench mesmo dia ou mais próximo anterior
+          var rBench = [];
+          for (var i = 1; i < ultimosSnaps.length; i++) {
+            var dAnt = ultimosSnaps[i-1].d;
+            var dAtu = ultimosSnaps[i].d;
+            var pAnt = null, pAtu = null;
+            for (var j = histBench.pontos.length - 1; j >= 0; j--) {
+              var d = histBench.pontos[j].d;
+              if (!pAtu && d <= dAtu) pAtu = histBench.pontos[j].close;
+              if (!pAnt && d <= dAnt) { pAnt = histBench.pontos[j].close; break; }
+            }
+            if (pAnt && pAtu && pAnt > 0) rBench.push((pAtu/pAnt) - 1);
+            else rBench.push(0);
+          }
+
+          // Cov e Var sobre os pares alinhados
+          var n = Math.min(rCart.length, rBench.length);
+          if (n < 30) return null;
+          var mC = 0, mB = 0;
+          for (var k = 0; k < n; k++) { mC += rCart[k]; mB += rBench[k]; }
+          mC /= n; mB /= n;
+          var cov = 0, varB = 0;
+          for (var k = 0; k < n; k++) {
+            cov += (rCart[k] - mC) * (rBench[k] - mB);
+            varB += (rBench[k] - mB) * (rBench[k] - mB);
+          }
+          if (varB === 0) return null;
+          return cov / varB;
+        }
+
+        var betaIbov = calcularBeta(V21C && V21C.histCache && V21C.histCache.ibov);
+        var betaSp = calcularBeta(V21C && V21C.histCache && V21C.histCache.sp500);
+
+        function classeBeta(b) {
+          if (b === null) return '';
+          if (b < 0.8) return 'defensivo';
+          if (b > 1.2) return 'agressivo';
+          return 'neutro';
+        }
+        function labelBeta(b) {
+          if (b === null) return '';
+          if (b < 0.8) return 'Defensivo';
+          if (b > 1.2) return 'Agressivo';
+          return 'Neutro';
+        }
+        function fmtBeta(b) {
+          if (b === null || isNaN(b)) return '—';
+          return b.toFixed(2).replace('.', ',');
+        }
+
+        var kpi5IbovEl = document.getElementById('v21Kpi5IbovVal');
+        var kpi5SpEl = document.getElementById('v21Kpi5SpVal');
+        var kpi5Sub = document.getElementById('v21Kpi5Sub');
+
+        if (kpi5IbovEl) {
+          kpi5IbovEl.textContent = fmtBeta(betaIbov);
+          kpi5IbovEl.className = 'v21-beta-num ' + classeBeta(betaIbov);
+        }
+        if (kpi5SpEl) {
+          kpi5SpEl.textContent = fmtBeta(betaSp);
+          kpi5SpEl.className = 'v21-beta-num ' + classeBeta(betaSp);
+        }
+        if (kpi5Sub) {
+          if (betaIbov === null && betaSp === null) {
+            kpi5Sub.textContent = 'Aguardando 30d de histórico';
+          } else {
+            var partes = [];
+            if (betaIbov !== null) partes.push(labelBeta(betaIbov) + ' vs IBOV');
+            if (betaSp !== null) partes.push(labelBeta(betaSp) + ' vs S&P');
+            kpi5Sub.textContent = partes.join(' · ');
+          }
+        }
+      } catch(e) { console.warn('[v21 kpi5 beta]:', e); }
+
+      // ─── Card 6: RENDA PASSIVA MENSAL PROJETADA (apenas GP) ──────
+      // Soma proventos últimos 12 meses / 12 = média mensal
+      // GP = todos os proventos (carteira pessoal consolidada, ignora origem CG20/GP do filtro)
+      try {
+        var dozeMesesAtras = new Date();
+        dozeMesesAtras.setMonth(dozeMesesAtras.getMonth() - 12);
+        var d12Str = dozeMesesAtras.toISOString().substring(0,10);
+
+        var totalProv12m = 0;
+        divs.forEach(function(d){
+          if (!d.fonte) return;
+          var dataPag = (d.data||'').substring(0,10);
+          if (dataPag < d12Str) return;
+          var total = parseFloat(d.total||0);
+          if (!total || total <= 0) return;
+          if (d.moeda === 'USD' && cotUSD) {
+            total = total * cotUSD;
+          }
+          totalProv12m += total;
+        });
+
+        var mediaMensal = totalProv12m / 12;
+        var projecaoAnual = mediaMensal * 12;
+
+        var kpi6Val = document.getElementById('v21Kpi6Val');
+        var kpi6Sub = document.getElementById('v21Kpi6Sub');
+        if (kpi6Val) {
+          kpi6Val.textContent = fmtBRL(mediaMensal);
+          setValClass(kpi6Val, mediaMensal > 0 ? 1 : 0);
+        }
+        if (kpi6Sub) {
+          if (totalProv12m > 0) {
+            kpi6Sub.innerHTML = 'Projeção: <span class="v21-kpi-sub-strong">' + fmtBRL(projecaoAnual) + '/ano</span> · 12m';
+          } else {
+            kpi6Sub.textContent = 'Sem proventos nos últimos 12m';
+          }
+        }
+      } catch(e) { console.warn('[v21 kpi6 renda]:', e); }
+
       // Re-render icons lucide
       if (window.lucide) lucide.createIcons();
 
@@ -11610,6 +11800,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch(e){}
       console.log('%c[v21 hist] ✓ ' + series + ' OK: ' + pontos.length + ' pontos (fonte=' + fonte + ')', 'color:#4ade80;font-weight:bold');
       v21LoadRentChart();
+      // Recalcula Beta também (depende de hist IBOV/S&P)
+      if (typeof v21LoadKpis === 'function') {
+        try { v21LoadKpis(); } catch(e){}
+      }
       callback && callback(result);
     }
     function fracasso() {
@@ -12745,7 +12939,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-21-BIG5 ▸ Scrollbar G20, Insights maior+branco, Rent card fonte 17/18, cache hist resiliente', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-21-KPI56 ▸ 2 novos KPIs: Beta Carteira (IBOV/S&P) e Renda Passiva Mensal GP', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // Hook: controlar visibilidade do pontinho vermelho do sino
   // Aparece apenas quando existe notificação não lida
