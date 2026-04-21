@@ -308,12 +308,24 @@ function _provLogoUrl(ticker){
     var tvUrl = window.TV_LOGOS.getUrl(ticker);
     if(tvUrl) return tvUrl;
   }
-  // === Heuristica original (fallback) ===
+  // === Heuristica (fallback) ===
   var t=ticker.replace(/\.SA$/i,'').toUpperCase();
   var isBr=/\d$/.test(t)||t.length===5||t.length===6;
   return isBr
     ? 'https://raw.githubusercontent.com/thefintz/icones-b3/main/icones/'+t+'.png'
-    : 'https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'--big.svg';
+    // US: FMP aceita ticker direto (mais confiável que TradingView pra tickers não-mapeados)
+    : 'https://financialmodelingprep.com/image-stock/'+t+'.png';
+}
+
+// Fallback secundário quando a 1ª URL falha (usado em onerror do img)
+function _provLogoFallback2(ticker){
+  var t=ticker.replace(/\.SA$/i,'').toUpperCase();
+  var isBr=/\d$/.test(t)||t.length===5||t.length===6;
+  // Pra US: tenta TradingView como segunda tentativa (muitas vezes funciona)
+  if(!isBr) return 'https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'--big.svg';
+  // Pra BR: tenta slug alternativo no icones-b3 (sem número no final)
+  var noNum = t.replace(/\d+$/,'');
+  return 'https://raw.githubusercontent.com/thefintz/icones-b3/main/icones/'+noNum+'.png';
 }
 function _fmtD(iso){ if(!iso) return ''; var p=iso.split('-'); return p[2]+'/'+p[1]; }
 
@@ -3155,7 +3167,7 @@ body.pat-hidden #v3GaugeVal{opacity:0}
   .v21-agenda-list {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
     flex: 1;
     min-height: 0;
     overflow-y: auto;
@@ -3169,7 +3181,7 @@ body.pat-hidden #v3GaugeVal{opacity:0}
     grid-template-columns: auto 32px 1fr auto;
     align-items: center;
     gap: 10px;
-    padding: 6px 4px;
+    padding: 3px 4px;
     border-bottom: 1px solid rgba(201,169,97,0.04);
     transition: background 0.2s;
     position: relative;
@@ -3181,9 +3193,9 @@ body.pat-hidden #v3GaugeVal{opacity:0}
   }
 
   .v21-agenda-date {
-    width: 38px;
-    height: 38px;
-    border-radius: 8px;
+    width: 36px;
+    height: 36px;
+    border-radius: 7px;
     background: linear-gradient(135deg, rgba(201,169,97,0.12), rgba(201,169,97,0.04));
     border: 1px solid rgba(201,169,97,0.2);
     display: flex;
@@ -10910,11 +10922,14 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         var dataExFmt = p.datex ? p.datex.substring(8,10)+'/'+p.datex.substring(5,7) : '—';
         var dataPagFmt = p.data.substring(8,10)+'/'+p.data.substring(5,7);
 
-        // Logo do TradingView (com fallback para 3 letras)
-        var logoUrlProv = (typeof _provLogoUrl === 'function') ? _provLogoUrl(p.ticker) : '';
+        // Logo: cascata TradingView → FMP → icones-b3 → texto
+        var logoUrl1 = (typeof _provLogoUrl === 'function') ? _provLogoUrl(p.ticker) : '';
+        var logoUrl2 = (typeof _provLogoFallback2 === 'function') ? _provLogoFallback2(p.ticker) : '';
         var logoFallback = p.ticker.substring(0,3);
-        var agendaLogoHTML = logoUrlProv
-          ? '<div class="v21-agenda-logo"><img src="'+logoUrlProv+'" alt="'+p.ticker+'" onerror="this.onerror=null;this.outerHTML=\'<span class=&quot;v21-agenda-logo-fb&quot;>'+logoFallback+'</span>\';"></div>'
+        var agendaLogoHTML = logoUrl1
+          ? '<div class="v21-agenda-logo"><img src="'+logoUrl1+'" alt="'+p.ticker+'" '
+            + 'onerror="if(this.dataset.fb!==\'1\'){this.dataset.fb=\'1\';this.src=\''+logoUrl2+'\';}else{this.onerror=null;this.outerHTML=\'<span class=&quot;v21-agenda-logo-fb&quot;>'+logoFallback+'</span>\';}">'
+            + '</div>'
           : '<div class="v21-agenda-logo"><span class="v21-agenda-logo-fb">'+logoFallback+'</span></div>';
 
         return '<div class="v21-agenda-row">' +
@@ -12428,14 +12443,15 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         if (!arr.length) return '<div class="v21-movers-empty">Nenhum ativo em ' + (tipo === 'up' ? 'alta' : 'queda') + ' hoje</div>';
         return arr.map(function(x, i){
           var sinal = x.p >= 0 ? '+' : '';
-          // Logo: reaproveita _provLogoUrl se existir, senão usa fallback com 3 letras
+          // Cascata: TradingView (mapa) → FMP/icones-b3 → texto
           var logoHTML;
           if (typeof _provLogoUrl === 'function') {
-            var logoUrl = _provLogoUrl(x.t);
+            var logoUrl1 = _provLogoUrl(x.t);
+            var logoUrl2 = (typeof _provLogoFallback2 === 'function') ? _provLogoFallback2(x.t) : '';
             var fallback = x.t.substring(0, 3);
             logoHTML = '<div class="v21-movers-logo">'
-                     + '<img src="' + logoUrl + '" alt="' + x.t + '" '
-                     + 'onerror="this.onerror=null;this.outerHTML=\'<span class=&quot;v21-movers-logo-fallback&quot;>' + fallback + '</span>\';">'
+                     + '<img src="' + logoUrl1 + '" alt="' + x.t + '" '
+                     + 'onerror="if(this.dataset.fb!==\'1\'){this.dataset.fb=\'1\';this.src=\''+logoUrl2+'\';}else{this.onerror=null;this.outerHTML=\'<span class=&quot;v21-movers-logo-fallback&quot;>' + fallback + '</span>\';}">'
                      + '</div>';
           } else {
             logoHTML = '<div class="v21-movers-logo"><span class="v21-movers-logo-fallback">' + x.t.substring(0,3) + '</span></div>';
@@ -12646,7 +12662,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-21-MOVERSXL ▸ Movers com logos 46px + fontes 17px', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-21-LOGOS2 ▸ Agenda compacta + FMP fallback logos (STNE, etc)', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // Hook: controlar visibilidade do pontinho vermelho do sino
   // Aparece apenas quando existe notificação não lida
