@@ -11107,19 +11107,22 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     if (series === 'ibov') {
       cfg = {
         yahooSymbol: '^BVSP',
-        stooqSymbol: '^bvsp'
+        stooqSymbol: '^bvsp'  // IBOV índice real no Stooq
       };
     } else if (series === 'sp500') {
       cfg = {
         yahooSymbol: '^GSPC',
-        stooqSymbol: '^spx'
+        stooqSymbol: 'spy.us'  // ETF SPY (tracka índice S&P 500 real, em USD, sem CFD)
       };
     } else {
       return;
     }
 
     // Cache localStorage 24h
-    var cacheKey = 'v21_hist_' + series;
+    // v2: cache key inclui versão pra invalidar dados com símbolo antigo (^spx → spy.us)
+    var cacheKey = 'v21_hist_' + series + '_v2';
+    // Limpa cache antigo (^spx CFD) se existir
+    try { localStorage.removeItem('v21_hist_' + series); } catch(e){}
     try {
       var cached = JSON.parse(localStorage.getItem(cacheKey)||'null');
       if (cached && cached.loadedAt && (Date.now() - cached.loadedAt) < 24*60*60*1000 && cached.pontos && cached.pontos.length > 0) {
@@ -11470,7 +11473,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         });
       }
 
-      // Feedback: loading / falha / ok para IBOV e S&P500
+      // Feedback: loading / falha / ok para IBOV e S&P500 + aviso de período limitado
       var noticeEl = document.getElementById('v21RentNotice');
       if (noticeEl) {
         var loadingMsgs = [];
@@ -11484,11 +11487,31 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           else if (V21C.histFailed.sp500) errorMsgs.push('S&P500');
         }
 
+        // Calcula período real disponível (primeiro snap até último)
+        var aviso = '';
+        if (snap.length >= 2) {
+          var dIni = snap[idx] && snap[idx].d;
+          var dFim = snap[last] && snap[last].d;
+          if (dIni && dFim) {
+            var diasDisp = Math.floor((new Date(dFim) - new Date(dIni)) / (1000*60*60*24));
+            var mesesDisp = Math.round(diasDisp / 30);
+            var periodoEsperado = {'1m':30, '6m':180, 'ytd':0, '1a':365, '5a':365*5, 'max':0}[V21C.rentPeriod];
+            // Só avisa se o período esperado é MAIOR que os dados disponíveis (com tolerância de 15 dias)
+            if (periodoEsperado > 0 && diasDisp < (periodoEsperado - 15)) {
+              var lblPeriodo = {'1m':'1M', '6m':'6M', '1a':'1A', '5a':'5A'}[V21C.rentPeriod];
+              aviso = 'ℹ Período ' + lblPeriodo + ' solicitado, mas só há ' + mesesDisp + ' ' + (mesesDisp === 1 ? 'mês' : 'meses') + ' de histórico do seu patrimônio.';
+            }
+          }
+        }
+
         if (loadingMsgs.length > 0) {
           noticeEl.textContent = '⟳ Buscando histórico de ' + loadingMsgs.join(' e ') + '...';
           noticeEl.style.display = 'block';
         } else if (errorMsgs.length > 0) {
           noticeEl.textContent = '⚠ ' + errorMsgs.join(' e ') + ': histórico diário indisponível no proxy atual';
+          noticeEl.style.display = 'block';
+        } else if (aviso) {
+          noticeEl.textContent = aviso;
           noticeEl.style.display = 'block';
         } else {
           noticeEl.style.display = 'none';
@@ -12025,7 +12048,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-21-STOOQ ▸ Fetch histórico: Stooq direto → Yahoo via corsproxy.io → Stooq via allOrigins', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-21-SPY ▸ S&P500 via SPY ETF (não CFD) + aviso de período', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // Hook: controlar visibilidade do pontinho vermelho do sino
   // Aparece apenas quando existe notificação não lida
