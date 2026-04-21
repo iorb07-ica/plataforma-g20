@@ -11083,8 +11083,102 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     provChart: null,
     rentPeriod: 'ytd',
     rentSeries: { voce: true, cdi: true, ibov: false, sp500: false },
-    compSource: 'gestao'  // 'gestao' (GP) ou 'cg20' (CG20)
+    compSource: 'gestao',  // 'gestao' (GP) ou 'cg20' (CG20)
+    histCache: {           // cache em memória dos históricos buscados
+      ibov: null,          // { pontos: [{d, close}], loadedAt }
+      sp500: null
+    },
+    histLoading: { ibov: false, sp500: false }
   };
+
+  // ─────────────────────────────────────────────────────
+  // Fetch histórico IBOV / S&P500 via proxy com cache 24h
+  // ─────────────────────────────────────────────────────
+  function v21FetchHistorico(series, callback) {
+    if (V21C.histLoading[series]) return;  // já tá buscando
+    if (V21C.histCache[series]) { callback && callback(V21C.histCache[series]); return; }
+
+    var symbol, endpoint;
+    if (series === 'ibov') {
+      symbol = '^BVSP';
+      endpoint = '/api/history-br';
+    } else if (series === 'sp500') {
+      symbol = '^GSPC';
+      endpoint = '/api/history';
+    } else {
+      return;
+    }
+
+    // Cache localStorage 24h (alinhado com outros endpoints do dashboard)
+    var cacheKey = 'v21_hist_' + series;
+    try {
+      var cached = JSON.parse(localStorage.getItem(cacheKey)||'null');
+      if (cached && cached.loadedAt && (Date.now() - cached.loadedAt) < 24*60*60*1000) {
+        V21C.histCache[series] = cached;
+        console.log('[v21 hist] ' + series + ' usando cache localStorage (' + cached.pontos.length + ' pontos)');
+        callback && callback(cached);
+        return;
+      }
+    } catch(e){}
+
+    V21C.histLoading[series] = true;
+    var fromDate = new Date();
+    fromDate.setFullYear(fromDate.getFullYear() - 6);  // 6 anos de histórico (cobre 5A + Max)
+    var fromStr = fromDate.toISOString().substring(0,10);
+
+    var url = 'https://g20-proxy.vercel.app' + endpoint + '?symbol=' + encodeURIComponent(symbol) + '&from=' + fromStr;
+    console.log('[v21 hist] buscando ' + series + ' em ' + url);
+
+    fetch(url)
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(data){
+        V21C.histLoading[series] = false;
+        if (!data) { console.warn('[v21 hist] ' + series + ' retornou vazio'); return; }
+
+        // Normaliza: aceita vários formatos (array direto, .history, .data, .candles, etc)
+        var arr = Array.isArray(data) ? data : (data.history || data.data || data.candles || data.results || []);
+        if (!Array.isArray(arr) || arr.length === 0) {
+          console.warn('[v21 hist] ' + series + ' formato inesperado:', data);
+          return;
+        }
+
+        var pontos = arr.map(function(p){
+          var d = (p.date || p.d || p.time || p.t || '').toString().substring(0,10);
+          var close = parseFloat(p.close || p.c || p.value || p.price || p.adjClose || 0);
+          return { d: d, close: close };
+        }).filter(function(p){ return p.d && p.close > 0; })
+          .sort(function(a,b){ return a.d.localeCompare(b.d); });
+
+        if (pontos.length === 0) {
+          console.warn('[v21 hist] ' + series + ' nenhum ponto válido');
+          return;
+        }
+
+        var result = { pontos: pontos, loadedAt: Date.now() };
+        V21C.histCache[series] = result;
+        try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch(e){}
+        console.log('[v21 hist] ' + series + ' carregado ' + pontos.length + ' pontos');
+
+        callback && callback(result);
+      })
+      .catch(function(err){
+        V21C.histLoading[series] = false;
+        console.warn('[v21 hist] ' + series + ' falhou:', err);
+      });
+  }
+
+  // Interpola valor do histórico na data mais próxima (ou anterior)
+  function _v21FindHistValue(pontos, targetDate) {
+    if (!pontos || pontos.length === 0) return null;
+    // Busca binária: último ponto com d <= targetDate
+    var lo = 0, hi = pontos.length - 1, best = -1;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      if (pontos[mid].d <= targetDate) { best = mid; lo = mid + 1; }
+      else { hi = mid - 1; }
+    }
+    return best >= 0 ? pontos[best].close : pontos[0].close;
+  }
 
   function _v21FmtBRLShort(v) {
     if (v === null || v === undefined || isNaN(v)) return '—';
@@ -11146,8 +11240,20 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
       var baseT = inicio.t || 1;
       var baseC = inicio.c || 1;
-      var baseIbov = inicio.ibov || null;
-      var baseSp500 = inicio.sp500 || null;
+
+      // IBOV e S&P500: primeiro tenta snap (caso exista), depois cache de API
+      var histIbov = V21C.histCache.ibov;
+      var histSp500 = V21C.histCache.sp500;
+      var baseIbov = inicio.ibov || (histIbov ? _v21FindHistValue(histIbov.pontos, inicio.d) : null);
+      var baseSp500 = inicio.sp500 || (histSp500 ? _v21FindHistValue(histSp500.pontos, inicio.d) : null);
+
+      // Dispara fetch async se toggles ativos e ainda não carregou
+      if (V21C.rentSeries.ibov && !histIbov && !V21C.histLoading.ibov) {
+        v21FetchHistorico('ibov', function(){ v21LoadRentChart(); });  // re-render quando chegar
+      }
+      if (V21C.rentSeries.sp500 && !histSp500 && !V21C.histLoading.sp500) {
+        v21FetchHistorico('sp500', function(){ v21LoadRentChart(); });
+      }
 
       // Downsample se muitos pontos (max 80 pontos pra fluidez)
       var N = last - idx + 1;
@@ -11159,8 +11265,24 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         labels.push(p.d || '');
         serieVoce.push(p.t > 0 ? ((p.t / baseT) - 1) * 100 : null);
         serieCdi.push(p.c > 0 ? ((p.c / baseC) - 1) * 100 : null);
-        serieIbov.push((p.ibov && baseIbov) ? ((p.ibov / baseIbov) - 1) * 100 : null);
-        serieSp500.push((p.sp500 && baseSp500) ? ((p.sp500 / baseSp500) - 1) * 100 : null);
+
+        // IBOV: usa snap.ibov se existir, senão interpola do histórico API
+        var vIbov = null;
+        if (p.ibov && baseIbov) vIbov = ((p.ibov / baseIbov) - 1) * 100;
+        else if (histIbov && baseIbov) {
+          var histVal = _v21FindHistValue(histIbov.pontos, p.d);
+          if (histVal > 0) vIbov = ((histVal / baseIbov) - 1) * 100;
+        }
+        serieIbov.push(vIbov);
+
+        // S&P500: mesma lógica
+        var vSp500 = null;
+        if (p.sp500 && baseSp500) vSp500 = ((p.sp500 / baseSp500) - 1) * 100;
+        else if (histSp500 && baseSp500) {
+          var histVal2 = _v21FindHistValue(histSp500.pontos, p.d);
+          if (histVal2 > 0) vSp500 = ((histVal2 / baseSp500) - 1) * 100;
+        }
+        serieSp500.push(vSp500);
       }
 
       // Formata eixo X em meses
@@ -11232,14 +11354,25 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         });
       }
 
-      // Feedback honesto: se usuário ativou IBOV/S&P500 mas não há dados no snapshot
+      // Feedback: loading ou falha ao buscar histórico de IBOV/S&P500
       var noticeEl = document.getElementById('v21RentNotice');
       if (noticeEl) {
-        var avisos = [];
-        if (V21C.rentSeries.ibov && finIbov === null) avisos.push('IBOV');
-        if (V21C.rentSeries.sp500 && finSp500 === null) avisos.push('S&P500');
-        if (avisos.length > 0) {
-          noticeEl.textContent = '⚠ ' + avisos.join(' e ') + ': histórico não disponível nos seus snapshots';
+        var loadingMsgs = [];
+        var errorMsgs = [];
+        if (V21C.rentSeries.ibov && finIbov === null) {
+          if (V21C.histLoading.ibov) loadingMsgs.push('IBOV');
+          else errorMsgs.push('IBOV');
+        }
+        if (V21C.rentSeries.sp500 && finSp500 === null) {
+          if (V21C.histLoading.sp500) loadingMsgs.push('S&P500');
+          else errorMsgs.push('S&P500');
+        }
+
+        if (loadingMsgs.length > 0) {
+          noticeEl.textContent = '⟳ Buscando histórico de ' + loadingMsgs.join(' e ') + '...';
+          noticeEl.style.display = 'block';
+        } else if (errorMsgs.length > 0) {
+          noticeEl.textContent = '⚠ ' + errorMsgs.join(' e ') + ': histórico indisponível';
           noticeEl.style.display = 'block';
         } else {
           noticeEl.style.display = 'none';
@@ -11695,8 +11828,18 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     v21LoadAgenda();
     v21LoadInsights();  // ETAPA 2A
     v21LoadKpis();      // ETAPA 2B
-    v21LoadChartsDebounced();  // ETAPA 2C — debounced pra evitar flicker
-    v21InstallChartHandlers();  // ETAPA 2C — handlers dos controles
+    // ETAPA 2C — gráficos: render ÚNICO 2s após init, quando dados já estabilizaram
+    // (não entra na cascata de retries do v21RefreshAll pra evitar flicker)
+    setTimeout(function(){
+      v21LoadCharts();
+      v21InstallChartHandlers();
+      // Pré-carrega históricos IBOV/S&P500 em background — cache localStorage 24h
+      // Assim quando o user clicar nos toggles, os dados já estarão prontos
+      setTimeout(function(){
+        v21FetchHistorico('ibov');
+        v21FetchHistorico('sp500');
+      }, 1500);
+    }, 2000);
     v21InstallThemeToggle();
     if (window.lucide) lucide.createIcons();
 
@@ -11718,6 +11861,9 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           console.log('%c[v21] Importação finalizada — re-renderizando agenda', 'color:#4ade80');
           // Re-renderiza a agenda depois da importação
           v21LoadAgenda();
+          // Re-renderiza APENAS o gráfico de proventos (que pode ter novos dados)
+          // Os outros 2 gráficos não mudam com novos proventos
+          v21LoadProvChart();
           // Também atualiza outros cards que dependem de proventos
           if (window.lucide) lucide.createIcons();
         });
@@ -11739,7 +11885,9 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     v21LoadAgenda();
     v21LoadInsights();  // ETAPA 2A
     v21LoadKpis();      // ETAPA 2B
-    v21LoadChartsDebounced();  // ETAPA 2C — debounced
+    // NOTA: gráficos (ETAPA 2C) NÃO são re-renderizados aqui.
+    // Eles renderizam apenas 1x no init + quando o usuário interage
+    // (período, toggles, fonte). Re-renderizar em cada retry causa flicker.
     if (window.lucide) lucide.createIcons();
   }
 
