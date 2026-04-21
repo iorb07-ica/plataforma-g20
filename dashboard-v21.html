@@ -1771,6 +1771,7 @@ body.pat-hidden #v3GaugeVal{opacity:0}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="assets/insights-engine.js?v=1"></script>
 <script src="assets/frases-diarias.js?v=1"></script>
+<script src="assets/market-hours.js?v=1"></script>
 
 
 <!-- ============================================================
@@ -3585,6 +3586,34 @@ body.pat-hidden #v3GaugeVal{opacity:0}
     fill: none !important;
   }
 </style>
+
+<!-- ============================================================
+     G20 Dashboard v21 - 2 Market Pills (B3 + NYSE)
+============================================================ -->
+<style id="g20-v21-market-pills">
+  .v21-market-pills {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    align-self: flex-end;
+    margin-bottom: 4px;
+  }
+  @media (min-width: 520px) {
+    .v21-market-pills {
+      flex-direction: row;
+      flex-wrap: wrap;
+    }
+  }
+  .v21-market-pill {
+    /* overrides pra garantir cada pill individual se comporta bem */
+    margin: 0;
+  }
+  .v21-market-pill .motivo {
+    opacity: 0.85;
+    font-weight: 500;
+    margin-left: 4px;
+  }
+</style>
 </head>
 <body>
 <!-- Loading overlay enquanto Firebase verifica -->
@@ -3766,9 +3795,15 @@ if(localStorage.getItem('g20_uid')){
         </div>
       </div>
 
-      <div class="v21-market-pill">
-        <span class="dot"></span>
-        <span id="v21-market-status">B3 ABERTA • IBOV +0,00%</span>
+      <div class="v21-market-pills">
+        <div class="v21-market-pill" id="v21-pill-b3">
+          <span class="dot"></span>
+          <span id="v21-market-status-b3">B3</span>
+        </div>
+        <div class="v21-market-pill" id="v21-pill-nyse">
+          <span class="dot"></span>
+          <span id="v21-market-status-nyse">NYSE</span>
+        </div>
       </div>
     </div>
 
@@ -7910,62 +7945,74 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         } catch(e) { console.warn('[v21] frase:', e); }
       }
 
-      // Market pill inteligente — B3 ABERTA/FECHADA
+      // v21.2 Market Pills — B3 + NYSE inteligentes com feriados e DST
       try {
-        var agoraBR = new Date();
-        var dow = agoraBR.getDay();      // 0=domingo, 6=sábado
-        var hora = agoraBR.getHours();
-        var min = agoraBR.getMinutes();
-        var minTotal = hora * 60 + min;
-
-        // Horário pregão B3: 10:00 às 17:55 (segunda a sexta)
-        var abertura = 10 * 60;        // 600
-        var fechamento = 17 * 60 + 55; // 1075
-        var isBusinessDay = (dow >= 1 && dow <= 5);
-        var isOpen = isBusinessDay && minTotal >= abertura && minTotal <= fechamento;
+        if (typeof MarketHours === 'undefined') {
+          console.warn('[v21] MarketHours não carregada');
+          return;
+        }
 
         var precos = {};
         try { precos = JSON.parse(localStorage.getItem('g20_precos')||'{}'); } catch(e) {}
-        var ibov = precos['^BVSP'] || precos['IBOV'] || null;
 
-        var pill = document.querySelector('.v21-market-pill');
-        var statusEl = getEl('v21-market-status');
+        function aplicarPill(pillEl, statusEl, resultado, tickerKey, tickerLabel) {
+          if (!pillEl || !statusEl) return;
 
-        if (!pill || !statusEl) return;
-
-        // Texto
-        var statusTxt = isOpen ? 'B3 ABERTA' : 'B3 FECHADA';
-        if (ibov && ibov.varPct !== undefined) {
-          var pct = parseFloat(ibov.varPct) || 0;
-          var sign = pct >= 0 ? '+' : '';
-          statusTxt += ' • IBOV ' + sign + pct.toFixed(2).replace('.',',') + '%';
-        } else {
-          statusTxt += ' • IBOV';
-        }
-        statusEl.textContent = statusTxt;
-
-        // Cores: aberta = verde, fechada = cinza/amarelo
-        if (isOpen) {
-          pill.style.background = 'rgba(74,222,128,0.1)';
-          pill.style.borderColor = 'rgba(74,222,128,0.25)';
-          pill.style.color = '#4ade80';
-          var dot = pill.querySelector('.dot');
-          if (dot) {
-            dot.style.background = '#4ade80';
-            dot.style.boxShadow = '0 0 6px rgba(74,222,128,0.6)';
+          // Texto
+          var txt = resultado.label;
+          var precoInd = precos[tickerKey] || null;
+          if (resultado.open && precoInd && precoInd.varPct !== undefined) {
+            var pct = parseFloat(precoInd.varPct) || 0;
+            var sign = pct >= 0 ? '+' : '';
+            txt += ' · ' + tickerLabel + ' ' + sign + pct.toFixed(2).replace('.',',') + '%';
           }
-        } else {
-          pill.style.background = 'rgba(201,169,97,0.08)';
-          pill.style.borderColor = 'rgba(201,169,97,0.25)';
-          pill.style.color = '#c9a961';
-          var dot = pill.querySelector('.dot');
-          if (dot) {
-            dot.style.background = '#c9a961';
-            dot.style.boxShadow = '0 0 6px rgba(201,169,97,0.4)';
-            dot.style.animation = 'none';  // sem pulso quando fechada
+          statusEl.textContent = txt;
+
+          var dot = pillEl.querySelector('.dot');
+
+          if (resultado.open) {
+            // Verde vibrante com dot pulsando
+            if (resultado.status === 'MEIA SESSÃO') {
+              // Laranja/amarelo pra meia sessão
+              pillEl.style.background = 'rgba(251,191,36,0.1)';
+              pillEl.style.borderColor = 'rgba(251,191,36,0.3)';
+              pillEl.style.color = '#fbbf24';
+              if (dot) {
+                dot.style.background = '#fbbf24';
+                dot.style.boxShadow = '0 0 6px rgba(251,191,36,0.6)';
+                dot.style.animation = '';
+              }
+            } else {
+              pillEl.style.background = 'rgba(74,222,128,0.1)';
+              pillEl.style.borderColor = 'rgba(74,222,128,0.25)';
+              pillEl.style.color = '#4ade80';
+              if (dot) {
+                dot.style.background = '#4ade80';
+                dot.style.boxShadow = '0 0 6px rgba(74,222,128,0.6)';
+                dot.style.animation = '';
+              }
+            }
+          } else {
+            // Fechada — dourado/cinza sem pulso
+            pillEl.style.background = 'rgba(201,169,97,0.08)';
+            pillEl.style.borderColor = 'rgba(201,169,97,0.25)';
+            pillEl.style.color = '#c9a961';
+            if (dot) {
+              dot.style.background = '#c9a961';
+              dot.style.boxShadow = '0 0 6px rgba(201,169,97,0.4)';
+              dot.style.animation = 'none';
+            }
           }
         }
-      } catch(e) { console.warn('[v21] market pill:', e); }
+
+        var agora = new Date();
+        var b3 = MarketHours.isB3Open(agora);
+        var nyse = MarketHours.isNYSEOpen(agora);
+
+        aplicarPill(getEl('v21-pill-b3'),   getEl('v21-market-status-b3'),   b3,   '^BVSP', 'IBOV');
+        aplicarPill(getEl('v21-pill-nyse'), getEl('v21-market-status-nyse'), nyse, '^GSPC', 'S&P');
+
+      } catch(e) { console.warn('[v21] market pills:', e); }
     } catch(e) { console.warn('[v21] header:', e); }
   }
 
@@ -8783,7 +8830,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     v21ImportarProventos();
   };
 
-  console.log('%c[G20 v21] Etapa 2A + topbar v3 (3 fixes aplicados)', 'color:#c9a961;font-weight:bold;font-size:14px');
+  console.log('%c[G20 v21] Etapa 2A + topbar v3 + MarketHours (B3+NYSE com feriados)', 'color:#c9a961;font-weight:bold;font-size:14px');
 
   // Stub da engrenagem — placeholder pra configurações futuras
   window.v21OpenSettings = function() {
