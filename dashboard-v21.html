@@ -11088,25 +11088,32 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       ibov: null,          // { pontos: [{d, close}], loadedAt }
       sp500: null
     },
-    histLoading: { ibov: false, sp500: false }
+    histLoading: { ibov: false, sp500: false },
+    histFailed: { ibov: false, sp500: false }  // se já tentou e falhou, não tenta de novo
   };
 
   // ─────────────────────────────────────────────────────
-  // Fetch histórico IBOV / S&P500 via proxy com cache 24h
+  // Fetch histórico IBOV / S&P500
+  // Cascata: Yahoo direto → Yahoo via allOrigins → Stooq CSV
+  // Cache localStorage 24h
   // ─────────────────────────────────────────────────────
   function v21FetchHistorico(series, callback) {
-    if (V21C.histLoading[series]) return;  // já tá buscando
+    if (V21C.histLoading[series]) return;
+    if (V21C.histFailed[series]) return;
     if (V21C.histCache[series]) { callback && callback(V21C.histCache[series]); return; }
 
-    // Lista de símbolos pra tentar em ordem (fallback se o primeiro falhar)
-    var tentativas;
-    var endpoint;
+    // Símbolos por fonte
+    var cfg;
     if (series === 'ibov') {
-      tentativas = ['^BVSP', 'IBOV', '%5EBVSP'];
-      endpoint = '/api/history-br';
+      cfg = {
+        yahooSymbol: '^BVSP',
+        stooqSymbol: '^bvsp'
+      };
     } else if (series === 'sp500') {
-      tentativas = ['^GSPC', 'SPX', 'SPY', '%5EGSPC'];
-      endpoint = '/api/history';
+      cfg = {
+        yahooSymbol: '^GSPC',
+        stooqSymbol: '^spx'
+      };
     } else {
       return;
     }
@@ -11115,78 +11122,163 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     var cacheKey = 'v21_hist_' + series;
     try {
       var cached = JSON.parse(localStorage.getItem(cacheKey)||'null');
-      if (cached && cached.loadedAt && (Date.now() - cached.loadedAt) < 24*60*60*1000) {
+      if (cached && cached.loadedAt && (Date.now() - cached.loadedAt) < 24*60*60*1000 && cached.pontos && cached.pontos.length > 0) {
         V21C.histCache[series] = cached;
-        console.log('[v21 hist] ' + series + ' usando cache localStorage (' + cached.pontos.length + ' pontos)');
+        console.log('[v21 hist] ' + series + ' usando cache localStorage (' + cached.pontos.length + ' pontos, fonte=' + cached.fonte + ')');
         callback && callback(cached);
         return;
       }
     } catch(e){}
 
     V21C.histLoading[series] = true;
-    var fromDate = new Date();
-    fromDate.setFullYear(fromDate.getFullYear() - 6);
-    var fromStr = fromDate.toISOString().substring(0,10);
 
-    // Função que faz tentativa (i = índice na lista `tentativas`)
-    function tentarBusca(i) {
-      if (i >= tentativas.length) {
-        // Todas falharam
-        V21C.histLoading[series] = false;
-        console.warn('[v21 hist] ' + series + ' FALHOU — tentou ' + tentativas.join(', '));
-        v21LoadRentChart();  // re-render pra atualizar notice de "indisponível"
-        return;
+    // Helper: promise com timeout (10s por tentativa)
+    function fetchComTimeout(url, opts) {
+      return Promise.race([
+        fetch(url, opts || {}),
+        new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('timeout')); }, 10000); })
+      ]);
+    }
+
+    // Quando tudo termina (sucesso ou fracasso), atualiza notice SEM chamar v21LoadRentChart de novo
+    // (evita loop). Mas se deu sucesso, CHAMA v21LoadRentChart uma vez pra desenhar com os dados novos.
+    function sucesso(pontos, fonte, symbol) {
+      var result = { pontos: pontos, loadedAt: Date.now(), fonte: fonte, symbol: symbol };
+      V21C.histCache[series] = result;
+      V21C.histLoading[series] = false;
+      try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch(e){}
+      console.log('%c[v21 hist] ✓ ' + series + ' OK: ' + pontos.length + ' pontos (fonte=' + fonte + ')', 'color:#4ade80;font-weight:bold');
+      v21LoadRentChart();
+      callback && callback(result);
+    }
+    function fracasso() {
+      V21C.histLoading[series] = false;
+      V21C.histFailed[series] = true;
+      console.warn('%c[v21 hist] ✗ ' + series + ' indisponível após todas as tentativas', 'color:#e63946');
+      // Atualiza notice direto no DOM sem re-render (evita loop)
+      var noticeEl = document.getElementById('v21RentNotice');
+      if (noticeEl) {
+        var faltando = [];
+        if (V21C.rentSeries.ibov && V21C.histFailed.ibov) faltando.push('IBOV');
+        if (V21C.rentSeries.sp500 && V21C.histFailed.sp500) faltando.push('S&P500');
+        if (faltando.length > 0) {
+          noticeEl.textContent = '⚠ ' + faltando.join(' e ') + ': histórico não carregou (CORS ou rede)';
+          noticeEl.style.display = 'block';
+        }
       }
-      var symbol = tentativas[i];
-      var url = 'https://g20-proxy.vercel.app' + endpoint + '?symbol=' + encodeURIComponent(symbol) + '&from=' + fromStr;
-      console.log('[v21 hist] tentando ' + series + ' com symbol=' + symbol);
+    }
 
-      fetch(url)
+    // ───── TENTATIVA 1: Yahoo Finance direto ─────
+    function tentarYahoo() {
+      var url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(cfg.yahooSymbol) + '?range=5y&interval=1d';
+      console.log('[v21 hist] ' + series + ' tentando Yahoo direto: ' + url);
+
+      return fetchComTimeout(url)
         .then(function(r){
-          if (!r.ok) {
-            console.warn('[v21 hist] ' + series + ' symbol=' + symbol + ' HTTP ' + r.status);
-            throw new Error('HTTP ' + r.status);
-          }
+          if (!r.ok) throw new Error('HTTP ' + r.status);
           return r.json();
         })
         .then(function(data){
-          if (!data) throw new Error('resposta vazia');
+          // Schema Yahoo: { chart: { result: [{ timestamp: [...], indicators: { quote: [{ close: [...] }] } }] } }
+          var result = data && data.chart && data.chart.result && data.chart.result[0];
+          if (!result) throw new Error('sem chart.result');
+          var timestamps = result.timestamp || [];
+          var closes = (result.indicators && result.indicators.quote && result.indicators.quote[0] && result.indicators.quote[0].close) || [];
+          if (timestamps.length === 0 || closes.length === 0) throw new Error('arrays vazios');
 
-          // Normaliza formato
-          var arr = Array.isArray(data) ? data : (data.history || data.data || data.candles || data.results || data.prices || data.quotes || []);
-          if (!Array.isArray(arr) || arr.length === 0) {
-            console.warn('[v21 hist] ' + series + ' symbol=' + symbol + ' formato inesperado. Keys:', Object.keys(data||{}));
-            throw new Error('formato inesperado');
+          var pontos = [];
+          for (var i = 0; i < timestamps.length; i++) {
+            var close = parseFloat(closes[i]);
+            if (isNaN(close) || close <= 0) continue;
+            var d = new Date(timestamps[i] * 1000).toISOString().substring(0, 10);
+            pontos.push({ d: d, close: close });
           }
-
-          var pontos = arr.map(function(p){
-            var d = (p.date || p.d || p.time || p.t || p.datetime || '').toString().substring(0,10);
-            var close = parseFloat(p.close || p.c || p.value || p.price || p.adjClose || p.adjusted_close || 0);
-            return { d: d, close: close };
-          }).filter(function(p){ return p.d && p.close > 0; })
-            .sort(function(a,b){ return a.d.localeCompare(b.d); });
-
-          if (pontos.length === 0) {
-            console.warn('[v21 hist] ' + series + ' symbol=' + symbol + ' — nenhum ponto válido. Sample:', arr[0]);
-            throw new Error('pontos vazios');
-          }
-
-          var result = { pontos: pontos, loadedAt: Date.now(), symbol: symbol };
-          V21C.histCache[series] = result;
-          V21C.histLoading[series] = false;
-          try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch(e){}
-          console.log('%c[v21 hist] ✓ ' + series + ' OK: ' + pontos.length + ' pontos (symbol=' + symbol + ')', 'color:#4ade80');
-
-          v21LoadRentChart();  // re-render COM os novos dados
-          callback && callback(result);
-        })
-        .catch(function(err){
-          console.warn('[v21 hist] ' + series + ' symbol=' + symbol + ' erro:', err.message || err);
-          tentarBusca(i + 1);  // próxima tentativa
+          if (pontos.length === 0) throw new Error('sem pontos válidos');
+          sucesso(pontos, 'yahoo', cfg.yahooSymbol);
         });
     }
 
-    tentarBusca(0);
+    // ───── TENTATIVA 2: Yahoo via allOrigins (proxy CORS) ─────
+    function tentarYahooProxy() {
+      var yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(cfg.yahooSymbol) + '?range=5y&interval=1d';
+      var url = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(yahooUrl);
+      console.log('[v21 hist] ' + series + ' tentando Yahoo via allOrigins');
+
+      return fetchComTimeout(url)
+        .then(function(r){
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function(data){
+          var result = data && data.chart && data.chart.result && data.chart.result[0];
+          if (!result) throw new Error('sem chart.result');
+          var timestamps = result.timestamp || [];
+          var closes = (result.indicators && result.indicators.quote && result.indicators.quote[0] && result.indicators.quote[0].close) || [];
+          if (timestamps.length === 0 || closes.length === 0) throw new Error('arrays vazios');
+
+          var pontos = [];
+          for (var i = 0; i < timestamps.length; i++) {
+            var close = parseFloat(closes[i]);
+            if (isNaN(close) || close <= 0) continue;
+            var d = new Date(timestamps[i] * 1000).toISOString().substring(0, 10);
+            pontos.push({ d: d, close: close });
+          }
+          if (pontos.length === 0) throw new Error('sem pontos válidos');
+          sucesso(pontos, 'yahoo-proxy', cfg.yahooSymbol);
+        });
+    }
+
+    // ───── TENTATIVA 3: Stooq CSV ─────
+    function tentarStooq() {
+      // Stooq usa formato: symbol minúsculo, d1 = data início YYYYMMDD, i=d (daily)
+      var d = new Date();
+      d.setFullYear(d.getFullYear() - 5);
+      var d1 = d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+      var stooqUrl = 'https://stooq.com/q/d/l/?s=' + encodeURIComponent(cfg.stooqSymbol) + '&i=d&d1=' + d1;
+      var url = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(stooqUrl);
+      console.log('[v21 hist] ' + series + ' tentando Stooq CSV: ' + cfg.stooqSymbol);
+
+      return fetchComTimeout(url)
+        .then(function(r){
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.text();
+        })
+        .then(function(csv){
+          // CSV format: Date,Open,High,Low,Close,Volume
+          var lines = csv.trim().split('\n');
+          if (lines.length < 2) throw new Error('csv muito curto');
+          var header = lines[0].toLowerCase().split(',');
+          var idxDate = header.indexOf('date');
+          var idxClose = header.indexOf('close');
+          if (idxDate < 0 || idxClose < 0) throw new Error('csv sem colunas Date/Close');
+
+          var pontos = [];
+          for (var i = 1; i < lines.length; i++) {
+            var cols = lines[i].split(',');
+            var d = cols[idxDate];
+            var close = parseFloat(cols[idxClose]);
+            if (!d || isNaN(close) || close <= 0) continue;
+            pontos.push({ d: d, close: close });
+          }
+          if (pontos.length === 0) throw new Error('sem pontos válidos');
+          sucesso(pontos, 'stooq', cfg.stooqSymbol);
+        });
+    }
+
+    // Executa em cascata: Yahoo → YahooProxy → Stooq → fracasso
+    tentarYahoo()
+      .catch(function(err){
+        console.warn('[v21 hist] ' + series + ' Yahoo direto falhou: ' + (err.message||err));
+        return tentarYahooProxy();
+      })
+      .catch(function(err){
+        console.warn('[v21 hist] ' + series + ' Yahoo via proxy falhou: ' + (err.message||err));
+        return tentarStooq();
+      })
+      .catch(function(err){
+        console.warn('[v21 hist] ' + series + ' Stooq falhou: ' + (err.message||err));
+        fracasso();
+      });
   }
 
   // Interpola valor do histórico na data mais próxima (ou anterior)
@@ -11269,12 +11361,12 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var baseIbov = inicio.ibov || (histIbov ? _v21FindHistValue(histIbov.pontos, inicio.d) : null);
       var baseSp500 = inicio.sp500 || (histSp500 ? _v21FindHistValue(histSp500.pontos, inicio.d) : null);
 
-      // Dispara fetch async se toggles ativos e ainda não carregou
-      if (V21C.rentSeries.ibov && !histIbov && !V21C.histLoading.ibov) {
-        v21FetchHistorico('ibov', function(){ v21LoadRentChart(); });  // re-render quando chegar
+      // Dispara fetch async se toggles ativos, ainda não carregou e NÃO falhou antes
+      if (V21C.rentSeries.ibov && !histIbov && !V21C.histLoading.ibov && !V21C.histFailed.ibov) {
+        v21FetchHistorico('ibov');
       }
-      if (V21C.rentSeries.sp500 && !histSp500 && !V21C.histLoading.sp500) {
-        v21FetchHistorico('sp500', function(){ v21LoadRentChart(); });
+      if (V21C.rentSeries.sp500 && !histSp500 && !V21C.histLoading.sp500 && !V21C.histFailed.sp500) {
+        v21FetchHistorico('sp500');
       }
 
       // Downsample se muitos pontos (max 80 pontos pra fluidez)
@@ -11376,25 +11468,25 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         });
       }
 
-      // Feedback: loading ou falha ao buscar histórico de IBOV/S&P500
+      // Feedback: loading / falha / ok para IBOV e S&P500
       var noticeEl = document.getElementById('v21RentNotice');
       if (noticeEl) {
         var loadingMsgs = [];
         var errorMsgs = [];
         if (V21C.rentSeries.ibov && finIbov === null) {
           if (V21C.histLoading.ibov) loadingMsgs.push('IBOV');
-          else errorMsgs.push('IBOV');
+          else if (V21C.histFailed.ibov) errorMsgs.push('IBOV');
         }
         if (V21C.rentSeries.sp500 && finSp500 === null) {
           if (V21C.histLoading.sp500) loadingMsgs.push('S&P500');
-          else errorMsgs.push('S&P500');
+          else if (V21C.histFailed.sp500) errorMsgs.push('S&P500');
         }
 
         if (loadingMsgs.length > 0) {
           noticeEl.textContent = '⟳ Buscando histórico de ' + loadingMsgs.join(' e ') + '...';
           noticeEl.style.display = 'block';
         } else if (errorMsgs.length > 0) {
-          noticeEl.textContent = '⚠ ' + errorMsgs.join(' e ') + ': histórico indisponível';
+          noticeEl.textContent = '⚠ ' + errorMsgs.join(' e ') + ': histórico diário indisponível no proxy atual';
           noticeEl.style.display = 'block';
         } else {
           noticeEl.style.display = 'none';
@@ -11855,12 +11947,6 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     setTimeout(function(){
       v21LoadCharts();
       v21InstallChartHandlers();
-      // Pré-carrega históricos IBOV/S&P500 em background — cache localStorage 24h
-      // Assim quando o user clicar nos toggles, os dados já estarão prontos
-      setTimeout(function(){
-        v21FetchHistorico('ibov');
-        v21FetchHistorico('sp500');
-      }, 1500);
     }, 2000);
     v21InstallThemeToggle();
     if (window.lucide) lucide.createIcons();
