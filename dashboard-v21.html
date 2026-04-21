@@ -11168,75 +11168,13 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       }
     }
 
-    // ───── TENTATIVA 1: Yahoo Finance direto ─────
-    function tentarYahoo() {
-      var url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(cfg.yahooSymbol) + '?range=5y&interval=1d';
-      console.log('[v21 hist] ' + series + ' tentando Yahoo direto: ' + url);
-
-      return fetchComTimeout(url)
-        .then(function(r){
-          if (!r.ok) throw new Error('HTTP ' + r.status);
-          return r.json();
-        })
-        .then(function(data){
-          // Schema Yahoo: { chart: { result: [{ timestamp: [...], indicators: { quote: [{ close: [...] }] } }] } }
-          var result = data && data.chart && data.chart.result && data.chart.result[0];
-          if (!result) throw new Error('sem chart.result');
-          var timestamps = result.timestamp || [];
-          var closes = (result.indicators && result.indicators.quote && result.indicators.quote[0] && result.indicators.quote[0].close) || [];
-          if (timestamps.length === 0 || closes.length === 0) throw new Error('arrays vazios');
-
-          var pontos = [];
-          for (var i = 0; i < timestamps.length; i++) {
-            var close = parseFloat(closes[i]);
-            if (isNaN(close) || close <= 0) continue;
-            var d = new Date(timestamps[i] * 1000).toISOString().substring(0, 10);
-            pontos.push({ d: d, close: close });
-          }
-          if (pontos.length === 0) throw new Error('sem pontos válidos');
-          sucesso(pontos, 'yahoo', cfg.yahooSymbol);
-        });
-    }
-
-    // ───── TENTATIVA 2: Yahoo via allOrigins (proxy CORS) ─────
-    function tentarYahooProxy() {
-      var yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(cfg.yahooSymbol) + '?range=5y&interval=1d';
-      var url = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(yahooUrl);
-      console.log('[v21 hist] ' + series + ' tentando Yahoo via allOrigins');
-
-      return fetchComTimeout(url)
-        .then(function(r){
-          if (!r.ok) throw new Error('HTTP ' + r.status);
-          return r.json();
-        })
-        .then(function(data){
-          var result = data && data.chart && data.chart.result && data.chart.result[0];
-          if (!result) throw new Error('sem chart.result');
-          var timestamps = result.timestamp || [];
-          var closes = (result.indicators && result.indicators.quote && result.indicators.quote[0] && result.indicators.quote[0].close) || [];
-          if (timestamps.length === 0 || closes.length === 0) throw new Error('arrays vazios');
-
-          var pontos = [];
-          for (var i = 0; i < timestamps.length; i++) {
-            var close = parseFloat(closes[i]);
-            if (isNaN(close) || close <= 0) continue;
-            var d = new Date(timestamps[i] * 1000).toISOString().substring(0, 10);
-            pontos.push({ d: d, close: close });
-          }
-          if (pontos.length === 0) throw new Error('sem pontos válidos');
-          sucesso(pontos, 'yahoo-proxy', cfg.yahooSymbol);
-        });
-    }
-
-    // ───── TENTATIVA 3: Stooq CSV ─────
-    function tentarStooq() {
-      // Stooq usa formato: symbol minúsculo, d1 = data início YYYYMMDD, i=d (daily)
+    // ───── TENTATIVA 1: Stooq DIRETO (CORS liberado na origem) ─────
+    function tentarStooqDireto() {
       var d = new Date();
       d.setFullYear(d.getFullYear() - 5);
       var d1 = d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
-      var stooqUrl = 'https://stooq.com/q/d/l/?s=' + encodeURIComponent(cfg.stooqSymbol) + '&i=d&d1=' + d1;
-      var url = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(stooqUrl);
-      console.log('[v21 hist] ' + series + ' tentando Stooq CSV: ' + cfg.stooqSymbol);
+      var url = 'https://stooq.com/q/d/l/?s=' + encodeURIComponent(cfg.stooqSymbol) + '&i=d&d1=' + d1;
+      console.log('[v21 hist] ' + series + ' tentando Stooq DIRETO (sem proxy): ' + cfg.stooqSymbol);
 
       return fetchComTimeout(url)
         .then(function(r){
@@ -11244,7 +11182,6 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           return r.text();
         })
         .then(function(csv){
-          // CSV format: Date,Open,High,Low,Close,Volume
           var lines = csv.trim().split('\n');
           if (lines.length < 2) throw new Error('csv muito curto');
           var header = lines[0].toLowerCase().split(',');
@@ -11255,28 +11192,93 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           var pontos = [];
           for (var i = 1; i < lines.length; i++) {
             var cols = lines[i].split(',');
-            var d = cols[idxDate];
+            var d2 = cols[idxDate];
             var close = parseFloat(cols[idxClose]);
-            if (!d || isNaN(close) || close <= 0) continue;
-            pontos.push({ d: d, close: close });
+            if (!d2 || isNaN(close) || close <= 0) continue;
+            pontos.push({ d: d2, close: close });
           }
           if (pontos.length === 0) throw new Error('sem pontos válidos');
-          sucesso(pontos, 'stooq', cfg.stooqSymbol);
+          sucesso(pontos, 'stooq-direto', cfg.stooqSymbol);
         });
     }
 
-    // Executa em cascata: Yahoo → YahooProxy → Stooq → fracasso
-    tentarYahoo()
+    // ───── TENTATIVA 2: Yahoo via corsproxy.io (mais rápido e estável que allOrigins) ─────
+    function tentarYahooCorsproxy() {
+      var yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(cfg.yahooSymbol) + '?range=5y&interval=1d';
+      var url = 'https://corsproxy.io/?' + encodeURIComponent(yahooUrl);
+      console.log('[v21 hist] ' + series + ' tentando Yahoo via corsproxy.io');
+
+      return fetchComTimeout(url)
+        .then(function(r){
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function(data){
+          var result = data && data.chart && data.chart.result && data.chart.result[0];
+          if (!result) throw new Error('sem chart.result');
+          var timestamps = result.timestamp || [];
+          var closes = (result.indicators && result.indicators.quote && result.indicators.quote[0] && result.indicators.quote[0].close) || [];
+          if (timestamps.length === 0 || closes.length === 0) throw new Error('arrays vazios');
+
+          var pontos = [];
+          for (var i = 0; i < timestamps.length; i++) {
+            var close = parseFloat(closes[i]);
+            if (isNaN(close) || close <= 0) continue;
+            var d2 = new Date(timestamps[i] * 1000).toISOString().substring(0, 10);
+            pontos.push({ d: d2, close: close });
+          }
+          if (pontos.length === 0) throw new Error('sem pontos válidos');
+          sucesso(pontos, 'yahoo-corsproxy', cfg.yahooSymbol);
+        });
+    }
+
+    // ───── TENTATIVA 3: Stooq via allOrigins (backup do backup) ─────
+    function tentarStooqAllOrigins() {
+      var d = new Date();
+      d.setFullYear(d.getFullYear() - 5);
+      var d1 = d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+      var stooqUrl = 'https://stooq.com/q/d/l/?s=' + encodeURIComponent(cfg.stooqSymbol) + '&i=d&d1=' + d1;
+      var url = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(stooqUrl);
+      console.log('[v21 hist] ' + series + ' tentando Stooq via allOrigins: ' + cfg.stooqSymbol);
+
+      return fetchComTimeout(url)
+        .then(function(r){
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.text();
+        })
+        .then(function(csv){
+          var lines = csv.trim().split('\n');
+          if (lines.length < 2) throw new Error('csv muito curto');
+          var header = lines[0].toLowerCase().split(',');
+          var idxDate = header.indexOf('date');
+          var idxClose = header.indexOf('close');
+          if (idxDate < 0 || idxClose < 0) throw new Error('csv sem colunas Date/Close');
+
+          var pontos = [];
+          for (var i = 1; i < lines.length; i++) {
+            var cols = lines[i].split(',');
+            var d2 = cols[idxDate];
+            var close = parseFloat(cols[idxClose]);
+            if (!d2 || isNaN(close) || close <= 0) continue;
+            pontos.push({ d: d2, close: close });
+          }
+          if (pontos.length === 0) throw new Error('sem pontos válidos');
+          sucesso(pontos, 'stooq-allorigins', cfg.stooqSymbol);
+        });
+    }
+
+    // Executa em cascata: Stooq direto → Yahoo via corsproxy → Stooq via allOrigins → fracasso
+    tentarStooqDireto()
       .catch(function(err){
-        console.warn('[v21 hist] ' + series + ' Yahoo direto falhou: ' + (err.message||err));
-        return tentarYahooProxy();
+        console.warn('[v21 hist] ' + series + ' Stooq direto falhou: ' + (err.message||err));
+        return tentarYahooCorsproxy();
       })
       .catch(function(err){
-        console.warn('[v21 hist] ' + series + ' Yahoo via proxy falhou: ' + (err.message||err));
-        return tentarStooq();
+        console.warn('[v21 hist] ' + series + ' Yahoo via corsproxy falhou: ' + (err.message||err));
+        return tentarStooqAllOrigins();
       })
       .catch(function(err){
-        console.warn('[v21 hist] ' + series + ' Stooq falhou: ' + (err.message||err));
+        console.warn('[v21 hist] ' + series + ' Stooq via allOrigins falhou: ' + (err.message||err));
         fracasso();
       });
   }
@@ -12023,7 +12025,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-21-YAHOO ▸ Fetch histórico: Yahoo → allOrigins → Stooq', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-21-STOOQ ▸ Fetch histórico: Stooq direto → Yahoo via corsproxy.io → Stooq via allOrigins', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // Hook: controlar visibilidade do pontinho vermelho do sino
   // Aparece apenas quando existe notificação não lida
