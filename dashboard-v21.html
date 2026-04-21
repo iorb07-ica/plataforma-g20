@@ -7924,12 +7924,26 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         return;
       }
 
+      // FIX v2.2: Filtros mais robustos pra acomodar fontes 'auto', 'Auto-B3', 'Auto-Polygon'
+      // GP = qualquer fonte de auto-import (user-owned, incluindo stocks via Polygon)
+      // CG20 = importação automática da Carteira G20
       var filtered;
       if (V21.provSource === 'gestao') {
-        filtered = divs.filter(function(d){ return d.fonte === 'auto' && d.valorCota > 0 && d.qtd > 0; });
+        // GP: todos com fonte de auto-import e valorCota > 0 (qtd pode ser 0 em futuros)
+        filtered = divs.filter(function(d){
+          if (!d.fonte) return false;
+          var f = String(d.fonte).toLowerCase();
+          var isAutoFonte = (f === 'auto' || f.indexOf('auto-') === 0);
+          var temValor = parseFloat(d.valorCota||0) > 0;
+          return isAutoFonte && temValor;
+        });
       } else {
-        filtered = divs.filter(function(d){ return d.fonte && d.fonte.indexOf('Auto-') === 0; });
+        // CG20: só fontes começando com 'Auto-' (não 'auto' puro)
+        filtered = divs.filter(function(d){
+          return d.fonte && d.fonte.indexOf('Auto-') === 0 && parseFloat(d.valorCota||0) > 0;
+        });
       }
+      console.log('[v21 agenda] fonte=', V21.provSource, 'filtrados=', filtered.length, 'de', divs.length);
 
       var hoje = new Date().toISOString().substring(0,10);
       var hoje7 = new Date();
@@ -7944,8 +7958,11 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       filtered.forEach(function(d){
         var dataPag = (d.data||'').substring(0,10);
         if (!dataPag) return;
-        var total = parseFloat(d.total) || (parseFloat(d.valorCota||0) * parseFloat(d.qtd||0));
-        if (total <= 0) return;
+        var valorCota = parseFloat(d.valorCota||0);
+        var qtd = parseFloat(d.qtd||0);
+        var total = parseFloat(d.total) || (valorCota * qtd);
+        // FIX v2.2: aceitar mesmo sem total calculado (futuros podem não ter qtd ainda)
+        if (!valorCota) return;
 
         if (dataPag.startsWith(anoAtual)) sumYTD += total;
         if (dataPag.startsWith(mesAtual)) sumMes += total;
@@ -8011,7 +8028,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
             '<div></div>' +
           '</div>' +
           '<div class="v21-agenda-right">' +
-            '<div class="v21-agenda-value">'+fmtBRL(p.total)+'</div>' +
+            '<div class="v21-agenda-value">'+(p.total > 0 ? fmtBRL(p.total) : '—')+'</div>' +
             '<div class="v21-agenda-cota">R$ '+p.valorCota.toFixed(4).replace('.',',')+unidade+'</div>' +
           '</div>' +
         '</div>';
@@ -8086,7 +8103,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
   window.V21 = { refresh: v21RefreshAll, state: V21 };
 
-  console.log('%c[G20 v21] Etapa 1D v2.1 carregada (fixes aplicados)', 'color:#c9a961;font-weight:bold;font-size:14px');
+  console.log('%c[G20 v21] Etapa 1D v2.2 carregada (agenda corrigida)', 'color:#c9a961;font-weight:bold;font-size:14px');
 
   // Error handler pra capturar erros no console com mais contexto
   if (!window._v21ErrorHandler) {
