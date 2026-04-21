@@ -3611,9 +3611,14 @@ if(localStorage.getItem('g20_uid')){
           <div class="v21-card-label">
             <i data-lucide="calendar-days"></i>Agenda de Proventos
           </div>
-          <button class="v21-src-filter" onclick="v21ToggleProvSource()">
-            <span id="v21-prov-src-label">GP</span> ▾
-          </button>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button class="v21-src-filter" onclick="v21RefreshProventos()" title="Atualizar proventos">
+              <i data-lucide="refresh-cw" style="width:11px;height:11px;vertical-align:middle"></i>
+            </button>
+            <button class="v21-src-filter" onclick="v21ToggleProvSource()">
+              <span id="v21-prov-src-label">GP</span> ▾
+            </button>
+          </div>
         </div>
 
         <div class="v21-agenda-summary">
@@ -8074,6 +8079,37 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     v21LoadAgenda();
     v21InstallThemeToggle();
     if (window.lucide) lucide.createIcons();
+
+    // v2.3: Força re-importação de proventos (Statusinvest + B3 + Polygon)
+    v21ImportarProventos();
+  }
+
+  // v2.3: Chama a função existente _importarTodosProventosBackground do dashboard
+  function v21ImportarProventos() {
+    try {
+      var list = getEl('v21-agenda-list');
+      if (list) {
+        list.innerHTML = '<div class="v21-agenda-empty"><span style="color:#c9a961">⟳</span> Buscando proventos futuros no Statusinvest/B3/Polygon...<br><span style="font-size:10px;opacity:0.7">Isso pode levar 10-20 seg na primeira vez</span></div>';
+      }
+
+      if (typeof _importarTodosProventosBackground === 'function') {
+        console.log('%c[v21] Disparando importação de proventos...', 'color:#c9a961');
+        _importarTodosProventosBackground(function() {
+          console.log('%c[v21] Importação finalizada — re-renderizando agenda', 'color:#4ade80');
+          // Re-renderiza a agenda depois da importação
+          v21LoadAgenda();
+          // Também atualiza outros cards que dependem de proventos
+          if (window.lucide) lucide.createIcons();
+        });
+      } else {
+        console.warn('[v21] _importarTodosProventosBackground não disponível — usando cache');
+        // Fallback: só usa dados do localStorage
+        v21LoadAgenda();
+      }
+    } catch(e) {
+      console.warn('[v21] erro na importação:', e);
+      v21LoadAgenda();
+    }
   }
 
   function v21RefreshAll() {
@@ -8102,8 +8138,12 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   });
 
   window.V21 = { refresh: v21RefreshAll, state: V21 };
+  window.v21RefreshProventos = function() {
+    console.log('%c[v21] Refresh manual disparado pelo usuário', 'color:#c9a961;font-weight:bold');
+    v21ImportarProventos();
+  };
 
-  console.log('%c[G20 v21] Etapa 1D v2.2 carregada (agenda corrigida)', 'color:#c9a961;font-weight:bold;font-size:14px');
+  console.log('%c[G20 v21] Etapa 1D v2.3 carregada (import automático de proventos)', 'color:#c9a961;font-weight:bold;font-size:14px');
 
   // Error handler pra capturar erros no console com mais contexto
   if (!window._v21ErrorHandler) {
