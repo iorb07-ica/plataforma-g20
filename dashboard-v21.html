@@ -3193,19 +3193,25 @@ body.pat-hidden #v3GaugeVal{opacity:0}
     gap: 2px;
     flex: 1;
     min-height: 0;
+    overflow-y: hidden; /* default: sem scroll quando cabe */
+    padding-right: 0;
+    margin-right: 0;
+  }
+  /* Scroll só aparece quando JS adiciona a classe .has-scroll (>4 proventos) */
+  .v21-agenda-list.has-scroll {
     overflow-y: auto;
     padding-right: 6px;
     margin-right: -6px;
     scrollbar-width: thin;
     scrollbar-color: rgba(201,169,97,0.35) rgba(201,169,97,0.05);
   }
-  .v21-agenda-list::-webkit-scrollbar { width: 6px; }
-  .v21-agenda-list::-webkit-scrollbar-track { background: rgba(201,169,97,0.04); border-radius: 3px; }
-  .v21-agenda-list::-webkit-scrollbar-thumb {
+  .v21-agenda-list.has-scroll::-webkit-scrollbar { width: 6px; }
+  .v21-agenda-list.has-scroll::-webkit-scrollbar-track { background: rgba(201,169,97,0.04); border-radius: 3px; }
+  .v21-agenda-list.has-scroll::-webkit-scrollbar-thumb {
     background: linear-gradient(180deg, #c9a961, #b89751);
     border-radius: 3px;
   }
-  .v21-agenda-list::-webkit-scrollbar-thumb:hover {
+  .v21-agenda-list.has-scroll::-webkit-scrollbar-thumb:hover {
     background: linear-gradient(180deg, #e8c766, #c9a961);
   }
 
@@ -5222,6 +5228,8 @@ body.pat-hidden #v3GaugeVal{opacity:0}
     display: flex;
     flex-direction: column;
     gap: 10px;
+    align-items: center;
+    text-align: center;
     box-shadow: 0 6px 20px rgba(0,0,0,0.35), 0 2px 6px rgba(0,0,0,0.25);
     transition: all 0.25s ease;
     position: relative;
@@ -5243,7 +5251,9 @@ body.pat-hidden #v3GaugeVal{opacity:0}
   .v21-kpi-head {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
+    width: 100%;
   }
   .v21-kpi-icon {
     width: 28px;
@@ -5293,12 +5303,14 @@ body.pat-hidden #v3GaugeVal{opacity:0}
     flex-direction: column;
     gap: 4px;
     font-size: 18px;
+    width: 100%;
   }
   .v21-beta-line {
     display: flex;
     align-items: baseline;
     gap: 10px;
     justify-content: space-between;
+    width: 100%;
   }
   .v21-beta-lbl {
     font-size: 11px;
@@ -10902,6 +10914,40 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     return _qtdCache[ticker] || 0;
   }
 
+  // v21: Calcula posição HISTÓRICA na data especificada (regra da data-com/record date).
+  // Soma compras e subtrai vendas cuja data <= dataRef (formato 'YYYY-MM-DD').
+  // Usa a mesma base de dados que _buildQtdCache (g20_rvAportes + g20_aportes).
+  function getQtdCarteiraNaData(ticker, dataRef) {
+    if (!ticker || !dataRef) return 0;
+    var refStr = String(dataRef).substring(0,10);
+    var total = 0;
+    try {
+      var rvAp = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
+      rvAp.forEach(function(a){
+        if (a.ticker !== ticker) return;
+        var dataAporte = String(a.data||'').substring(0,10);
+        if (!dataAporte || dataAporte > refStr) return; // ignora aportes posteriores à data-com
+        var qtd = parseFloat(a.qtd) || 0;
+        var tipo = (a.tipo||'').toLowerCase();
+        if (tipo === 'venda') qtd = -qtd;
+        total += qtd;
+      });
+    } catch(e){}
+    try {
+      var apBR = JSON.parse(localStorage.getItem('g20_aportes')||'[]');
+      apBR.forEach(function(a){
+        if (a.ticker !== ticker) return;
+        var dataAporte = String(a.data||'').substring(0,10);
+        if (!dataAporte || dataAporte > refStr) return;
+        var qtd = parseFloat(a.qtd) || 0;
+        var tipo = (a.tipo||'').toLowerCase();
+        if (tipo === 'venda') qtd = -qtd;
+        total += qtd;
+      });
+    } catch(e){}
+    return Math.max(0, total); // se posição zerou/foi short em algum momento, considera 0
+  }
+
   function v21LoadAgenda() {
     try {
       var list = getEl('v21-agenda-list');
@@ -10977,18 +11023,22 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         if (dataPag >= hoje && dataPag <= hoje7Str) sum7 += totalBRL;
         if (dataPag >= hoje) {
           var moedaProv = detectarMoeda(d.ticker, d.fonte);
-          var qtdCarteira = getQtdCarteira(d.ticker);
+          // v21: REGRA DE MERCADO — direito ao provento é definido pela posição na DATA-COM (record date).
+          // Se comprou antes e vendeu depois, ainda tem direito.
+          // Se nunca teve, ou vendeu antes da data-com, NÃO tem direito.
+          var datexStr = (d.ex_date||d.exDate||d.datex||dataPag).substring(0,10);
+          var qtdNaDataCom = getQtdCarteiraNaData(d.ticker, datexStr);
+          if (!qtdNaDataCom || qtdNaDataCom <= 0) return;
           var valorCotaReal = getValorProvento(d);
-          // v2.6: se total veio calculado usa ele; senão multiplica pela qtd da carteira
-          var totalReal = total > 0 ? total : (valorCotaReal * qtdCarteira);
+          var totalReal = total > 0 ? total : (valorCotaReal * qtdNaDataCom);
           futuros.push({
             ticker: d.ticker,
             tipo: d.tipo || 'Dividendo',
             data: dataPag,
-            datex: (d.ex_date||d.exDate||d.datex||dataPag).substring(0,10),
+            datex: datexStr,
             valorCota: valorCotaReal,
             total: totalReal,
-            qtd: qtdCarteira,
+            qtd: qtdNaDataCom,
             moeda: moedaProv,
             isFII: d.ticker && /\d11$/.test(d.ticker)
           });
@@ -11000,7 +11050,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       setText('v21-prov-ytd', fmtBRL(sumYTD));
 
       futuros.sort(function(a,b){ return a.data.localeCompare(b.data); });
-      var proximos = futuros.slice(0, 4);
+      // v21: mostra TODOS os futuros (não apenas 4) — o scroll só aparece quando passa de 4
+      var proximos = futuros;
 
       if (!proximos.length) {
         list.innerHTML = '<div class="v21-agenda-empty">Sem proventos futuros na fonte <strong style="color:#c9a961">' + (V21.provSource === 'gestao' ? 'GP' : 'CG20') + '</strong>.<br><span style="font-size:10px;opacity:0.7">Clique no botão acima pra trocar de fonte</span></div>';
@@ -11059,6 +11110,12 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       }).join('');
 
       list.innerHTML = html;
+      // Scroll só quando passa de 4 proventos
+      if (proximos.length > 4) {
+        list.classList.add('has-scroll');
+      } else {
+        list.classList.remove('has-scroll');
+      }
     } catch(e) { console.warn('[v21] agenda:', e); }
   }
 
@@ -11527,7 +11584,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var kpi3Sub = document.getElementById('v21Kpi3Sub');
       if (kpi3Val) {
         kpi3Val.textContent = fmtBRL(sumProvMes);
-        setValClass(kpi3Val, sumProvMes > 0 ? 1 : 0);
+        setValClass(kpi3Val, 0); // branco neutro — não confundir com performance
       }
       if (kpi3Sub) {
         if (ativosPag > 0) {
@@ -11561,7 +11618,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var kpi4Sub = document.getElementById('v21Kpi4Sub');
       if (kpi4Val) {
         kpi4Val.textContent = fmtBRL(aportesAno);
-        setValClass(kpi4Val, aportesAno > 0 ? 1 : 0);
+        setValClass(kpi4Val, 0); // branco neutro
       }
       if (kpi4Sub) {
         if (qtdMesesAno > 0) {
@@ -11697,7 +11754,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         var kpi6Sub = document.getElementById('v21Kpi6Sub');
         if (kpi6Val) {
           kpi6Val.textContent = fmtBRL(mediaMensal);
-          setValClass(kpi6Val, mediaMensal > 0 ? 1 : 0);
+          setValClass(kpi6Val, 0); // branco neutro
         }
         if (kpi6Sub) {
           if (totalProv12m > 0) {
@@ -11799,11 +11856,19 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       V21C.histLoading[series] = false;
       try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch(e){}
       console.log('%c[v21 hist] ✓ ' + series + ' OK: ' + pontos.length + ' pontos (fonte=' + fonte + ')', 'color:#4ade80;font-weight:bold');
-      v21LoadRentChart();
-      // Recalcula Beta também (depende de hist IBOV/S&P)
-      if (typeof v21LoadKpis === 'function') {
-        try { v21LoadKpis(); } catch(e){}
+      // Chama render apenas se Chart.js e canvas existem (senão agenda pra depois)
+      function tentaRender(tentativa) {
+        tentativa = tentativa || 0;
+        if (typeof Chart !== 'undefined' && document.getElementById('v21RentChart')) {
+          v21LoadRentChart();
+          if (typeof v21LoadKpis === 'function') {
+            try { v21LoadKpis(); } catch(e){}
+          }
+        } else if (tentativa < 10) {
+          setTimeout(function(){ tentaRender(tentativa+1); }, 400);
+        }
       }
+      tentaRender();
       callback && callback(result);
     }
     function fracasso() {
@@ -12259,12 +12324,12 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           },
           scales: {
             x: {
-              ticks: { color: '#6b6862', font: { size: 10, family: 'DM Sans' }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 },
+              ticks: { color: '#b8b0a4', font: { size: 12, family: 'DM Sans', weight: '600' }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 },
               grid: { display: false }
             },
             y: {
-              ticks: { color: '#6b6862', font: { size: 10, family: 'DM Sans' }, callback: function(v){ return (v>=0?'+':'') + v.toFixed(0) + '%'; } },
-              grid: { color: 'rgba(201,169,97,0.05)', drawBorder: false }
+              ticks: { color: '#b8b0a4', font: { size: 12, family: 'DM Sans', weight: '600' }, callback: function(v){ return (v>=0?'+':'') + v.toFixed(0) + '%'; } },
+              grid: { color: 'rgba(201,169,97,0.08)', drawBorder: false }
             }
           }
         }
@@ -12620,12 +12685,12 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           },
           scales: {
             x: {
-              ticks: { color: '#6b6862', font: { size: 10, family: 'DM Sans' } },
+              ticks: { color: '#b8b0a4', font: { size: 12, family: 'DM Sans', weight: '600' } },
               grid: { display: false }
             },
             y: {
-              ticks: { color: '#6b6862', font: { size: 10, family: 'DM Sans' }, callback: function(v){ return _v21FmtBRLShort(v); } },
-              grid: { color: 'rgba(201,169,97,0.05)', drawBorder: false }
+              ticks: { color: '#b8b0a4', font: { size: 12, family: 'DM Sans', weight: '600' }, callback: function(v){ return _v21FmtBRLShort(v); } },
+              grid: { color: 'rgba(201,169,97,0.08)', drawBorder: false }
             }
           }
         }
@@ -12860,6 +12925,14 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     v21LoadKpis();      // ETAPA 2B
     // ETAPA 2C — gráficos: render ÚNICO 2s após init, quando dados já estabilizaram
     // (não entra na cascata de retries do v21RefreshAll pra evitar flicker)
+    // v21-fix: pré-busca IBOV e S&P500 JÁ, em paralelo, pra chegarem antes do render
+    setTimeout(function(){
+      console.log('%c[v21] Pré-fetch histórico IBOV/S&P500 iniciando…', 'color:#c9a961');
+      if (typeof v21FetchHistorico === 'function') {
+        v21FetchHistorico('ibov');
+        v21FetchHistorico('sp500');
+      }
+    }, 300);
     setTimeout(function(){
       v21LoadCharts();
       v21InstallChartHandlers();
@@ -12939,7 +13012,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-21-KPI56 ▸ 2 novos KPIs: Beta Carteira (IBOV/S&P) e Renda Passiva Mensal GP', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-21-DATACOM ▸ Regra data-com: direito ao provento pela posição na record date', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // Hook: controlar visibilidade do pontinho vermelho do sino
   // Aparece apenas quando existe notificação não lida
