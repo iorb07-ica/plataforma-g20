@@ -10986,29 +10986,67 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     return {abs: delta, pct: pct};
   }
 
+  // Helper: acha o primeiro snap com data >= alvoStr (busca cronológica real, não por slots)
+  // UNIFICADO: usado em v21LoadRent (card embaixo) + calcRentRange (bench em cima)
+  // pra garantir que ambos os cards mostrem MESMOS valores pro mesmo período
+  function _v21SnapFromDate(snap, alvoStr) {
+    for (var i = 0; i < snap.length; i++) {
+      if (snap[i].d >= alvoStr) return { idx: i, snap: snap[i] };
+    }
+    return null;
+  }
+
+  // Calcula rentabilidade de um período por DATA REAL (não por slots do array)
+  // Retorna { abs: delta R$, pct: rentabilidade % }
+  function _v21CalcRentPorData(snap, inicioStr) {
+    if (!snap || snap.length < 2) return { abs: 0, pct: 0 };
+    var found = _v21SnapFromDate(snap, inicioStr);
+    // Se inicioStr > última data (período muito curto), usa o último vs penúltimo
+    var idx = found ? found.idx : 0;
+    var fim = snap[snap.length - 1];
+    // Se achou o mesmo snap do fim (período zero dias), volta 1 slot
+    if (idx === snap.length - 1) idx = Math.max(0, idx - 1);
+    var inicio = snap[idx];
+    var tIni = inicio.t || 0;
+    var tFim = fim.t || 0;
+    var delta = tFim - tIni;
+    var pct = tIni > 0 ? (delta / tIni) * 100 : 0;
+    return { abs: delta, pct: pct };
+  }
+
   function v21LoadRent() {
     try {
       var snap = [];
       try { snap = JSON.parse(localStorage.getItem('g20_patSnapshots') || '[]'); } catch(e){}
       if (snap.length < 2) return;
 
-      var hoje = calcRent(snap, 1);
-      var semana = calcRent(snap, 7);
-      var mes = calcRent(snap, 30);
-
-      // YTD — acha o primeiro snapshot do ano atual
       var hojeD = new Date();
-      var anoStr = hojeD.getFullYear() + '-01-01';
-      var idxYTD = snap.findIndex(function(s){ return s.d >= anoStr; });
-      if (idxYTD === -1) idxYTD = 0;
-      var ytdDias = Math.max(1, snap.length - 1 - idxYTD);
-      var ytd = calcRent(snap, ytdDias);
 
-      // 5A (5 anos)
-      var cincoA = calcRent(snap, 365 * 5);
+      // HOJE: 1 dia atrás (ou snap anterior disponível)
+      var hojeAlvo = new Date(hojeD); hojeAlvo.setDate(hojeAlvo.getDate() - 1);
+      var hoje = _v21CalcRentPorData(snap, hojeAlvo.toISOString().substring(0,10));
 
-      // Total (desde o primeiro)
-      var total = calcRent(snap, snap.length - 1);
+      // SEMANA: 7 dias atrás
+      var semAlvo = new Date(hojeD); semAlvo.setDate(semAlvo.getDate() - 7);
+      var semana = _v21CalcRentPorData(snap, semAlvo.toISOString().substring(0,10));
+
+      // MÊS: 1 mês atrás (data real, respeita meses de 28/30/31 dias)
+      var mesAlvo = new Date(hojeD); mesAlvo.setMonth(mesAlvo.getMonth() - 1);
+      var mes = _v21CalcRentPorData(snap, mesAlvo.toISOString().substring(0,10));
+
+      // YTD: 1º de janeiro do ano corrente
+      var ytd = _v21CalcRentPorData(snap, hojeD.getFullYear() + '-01-01');
+
+      // 5A: 5 anos atrás (data real)
+      var cincoAAlvo = new Date(hojeD); cincoAAlvo.setFullYear(cincoAAlvo.getFullYear() - 5);
+      var cincoA = _v21CalcRentPorData(snap, cincoAAlvo.toISOString().substring(0,10));
+
+      // TOTAL (desde o primeiro snap disponível)
+      var inicioTot = snap[0];
+      var fimTot = snap[snap.length - 1];
+      var totAbs = (fimTot.t || 0) - (inicioTot.t || 0);
+      var totPct = inicioTot.t > 0 ? (totAbs / inicioTot.t) * 100 : 0;
+      var total = { abs: totAbs, pct: totPct };
 
       function setRow(id, r) {
         var absEl = getEl('v21-rent-' + id + '-abs');
@@ -11034,19 +11072,31 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   // ==================== CARD 3 — BENCHMARKS COM BARRAS ====================
   function calcRentRange(snap, period) {
     if (!snap || snap.length < 2) return null;
-    var idx;
     var last = snap.length - 1;
-    if (period === '1m') idx = Math.max(0, last - 30);
-    else if (period === '6m') idx = Math.max(0, last - 180);
-    else if (period === 'ytd') {
-      var anoStr = new Date().getFullYear() + '-01-01';
-      idx = snap.findIndex(function(s){ return s.d >= anoStr; });
-      if (idx === -1) idx = 0;
+    var hoje = new Date();
+    var inicioD = new Date(hoje);
+    // ═══ Data de início baseada em DIAS/MESES/ANOS REAIS (não em slots do array) ═══
+    if (period === '1m') inicioD.setMonth(inicioD.getMonth() - 1);
+    else if (period === '6m') inicioD.setMonth(inicioD.getMonth() - 6);
+    else if (period === 'ytd') inicioD = new Date(hoje.getFullYear(), 0, 1);
+    else if (period === '1a') inicioD.setFullYear(inicioD.getFullYear() - 1);
+    else if (period === '5a') inicioD.setFullYear(inicioD.getFullYear() - 5);
+    else {
+      // max: usa o primeiro snap disponível
+      var inicioMax = snap[0];
+      var fimMax = snap[last];
+      if (!inicioMax || !fimMax) return null;
+      return {
+        you: inicioMax.t > 0 ? ((fimMax.t / inicioMax.t) - 1) * 100 : 0,
+        cdi: inicioMax.c > 0 ? ((fimMax.c / inicioMax.c) - 1) * 100 : 0,
+        ibov: (inicioMax.ibov && inicioMax.ibov > 0) ? ((fimMax.ibov / inicioMax.ibov) - 1) * 100 : null
+      };
     }
-    else if (period === '5a') idx = Math.max(0, last - 365*5);
-    else idx = 0; // max
 
-    var inicio = snap[idx];
+    var inicioStr = inicioD.toISOString().substring(0,10);
+    var found = _v21SnapFromDate(snap, inicioStr);
+    // Se não achou snap nessa data (carteira nova), usa o primeiro disponível
+    var inicio = found ? found.snap : snap[0];
     var fim = snap[last];
     if (!inicio || !fim) return null;
     return {
@@ -13895,7 +13945,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-21-R24 ▸ Movers pct com pill verde/vermelho (sem setinha)', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-21-R25 ▸ CORREÇÃO CRÍTICA: Rent/Bench agora usam DATA REAL (não slots) — valores coerentes entre cards', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // Hook: controlar visibilidade do pontinho vermelho do sino
   // Aparece apenas quando existe notificação não lida
