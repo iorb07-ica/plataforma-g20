@@ -6743,7 +6743,7 @@ window.addEventListener('load', function(){
         <div class="v21-2d-head">
           <h3 class="v21-2d-title"><span class="v21-2d-ico">🏆</span>MOVERS</h3>
           <div style="display:flex;gap:6px;align-items:center;margin-left:auto">
-            <span class="v21-2d-hint" style="margin-right:4px">Hoje</span>
+            <span class="v21-2d-hint" id="v21-movers-hint" style="margin-right:4px">Hoje</span>
             <button class="v21-src-filter" onclick="v21ToggleMoversSource()" id="v21-movers-src-btn" title="Fonte: Gestão Patrimonial (clique pra alternar)">
               <span id="v21-movers-src-label">GP</span> ▾
             </button>
@@ -13162,8 +13162,11 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     };
     var lbl = document.getElementById('v21-movers-src-label');
     var btn = document.getElementById('v21-movers-src-btn');
+    var hint = document.getElementById('v21-movers-hint');
     if (lbl) lbl.textContent = labels[V21Movers.source];
     if (btn) btn.title = titles[V21Movers.source];
+    // Hint inicial: mostra "Hoje" pra GP/CG20; IBOV atualiza depois com data do pregão
+    if (hint && V21Movers.source !== 'ibov') hint.textContent = 'Hoje';
     console.log('[v21 movers] fonte alterada para:', V21Movers.source);
     v21LoadMovers();
   }
@@ -13188,15 +13191,48 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     function parseResponse(json) {
       try {
         var quotes = (json && json.quoteResponse && json.quoteResponse.result) || [];
-        var data = quotes.map(function(q){
-          return {
-            t: (q.symbol || '').replace('.SA',''),
-            p: typeof q.regularMarketChangePercent === 'number' ? q.regularMarketChangePercent : null
-          };
-        }).filter(function(x){ return x.p !== null; });
-        V21Movers.ibovCache = { data: data, loadedAt: Date.now() };
+        console.log('[v21 ibov] Yahoo retornou', quotes.length, 'quotes. Amostra:', quotes[0]);
+
+        var data = [];
+        var dataPregaoRef = null;  // timestamp do último pregão
+
+        quotes.forEach(function(q){
+          if (!q || !q.symbol) return;
+          var ticker = (q.symbol || '').replace('.SA','');
+          var pct = null;
+
+          // Estratégia 1: campo regularMarketChangePercent (normal)
+          if (typeof q.regularMarketChangePercent === 'number' && !isNaN(q.regularMarketChangePercent)) {
+            pct = q.regularMarketChangePercent;
+          }
+          // Estratégia 2: calcular a partir de preço atual + previous close (funciona em dias sem pregão)
+          else if (typeof q.regularMarketPrice === 'number' && typeof q.regularMarketPreviousClose === 'number' && q.regularMarketPreviousClose > 0) {
+            pct = ((q.regularMarketPrice / q.regularMarketPreviousClose) - 1) * 100;
+          }
+          // Estratégia 3: se nada disso existir, tentar change (valor absoluto) / previousClose
+          else if (typeof q.regularMarketChange === 'number' && typeof q.regularMarketPreviousClose === 'number' && q.regularMarketPreviousClose > 0) {
+            pct = (q.regularMarketChange / q.regularMarketPreviousClose) * 100;
+          }
+
+          if (pct !== null && !isNaN(pct)) {
+            data.push({ t: ticker, p: pct });
+          }
+
+          // Guarda o timestamp do último pregão disponível (pra mostrar no label)
+          if (q.regularMarketTime && (!dataPregaoRef || q.regularMarketTime > dataPregaoRef)) {
+            dataPregaoRef = q.regularMarketTime;
+          }
+        });
+
+        V21Movers.ibovCache = { data: data, loadedAt: Date.now(), pregaoTs: dataPregaoRef };
         V21Movers.ibovLoading = false;
-        console.log('%c[v21 ibov] ✓ ' + data.length + ' tickers carregados do Yahoo', 'color:#4ade80;font-weight:bold');
+        console.log('%c[v21 ibov] ✓ ' + data.length + ' tickers carregados do Yahoo (último pregão: ' +
+          (dataPregaoRef ? new Date(dataPregaoRef * 1000).toLocaleDateString('pt-BR') : 'desconhecido') +
+          ')', 'color:#4ade80;font-weight:bold');
+
+        if (data.length === 0) {
+          console.warn('[v21 ibov] 0 tickers válidos — possível problema com a resposta. Amostra:', quotes.slice(0,3));
+        }
         cb(data);
       } catch(e) {
         V21Movers.ibovLoading = false;
@@ -13239,17 +13275,23 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         if (!V21Movers.ibovCache) {
           altasEl.innerHTML = '<div class="v21-movers-empty">Buscando cotações do IBOV…</div>';
           baixasEl.innerHTML = '<div class="v21-movers-empty">Buscando cotações do IBOV…</div>';
+          var hintEl0 = document.getElementById('v21-movers-hint');
+          if (hintEl0) hintEl0.textContent = 'Carregando…';
           v21FetchIbov(function(data){
-            if (!data) {
+            if (!data || data.length === 0) {
               altasEl.innerHTML = '<div class="v21-movers-empty">Não foi possível carregar IBOV agora</div>';
               baixasEl.innerHTML = '<div class="v21-movers-empty">Tente novamente em instantes</div>';
+              var hintErr = document.getElementById('v21-movers-hint');
+              if (hintErr) hintErr.textContent = 'IBOV';
               return;
             }
             _renderMovers(data, altasEl, baixasEl);
+            _updateIbovHint();
           });
           return;
         }
         _renderMovers(V21Movers.ibovCache.data, altasEl, baixasEl);
+        _updateIbovHint();
         return;
       }
 
@@ -13295,6 +13337,29 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     }
   }
   window.v21LoadMovers = v21LoadMovers;
+
+  // Atualiza o label "Hoje" / "Pregão DD/MM" baseado no timestamp do pregão IBOV
+  function _updateIbovHint() {
+    var hintEl = document.getElementById('v21-movers-hint');
+    if (!hintEl || !V21Movers.ibovCache) return;
+    var ts = V21Movers.ibovCache.pregaoTs;
+    if (!ts) { hintEl.textContent = 'IBOV'; return; }
+    var pregaoDate = new Date(ts * 1000);
+    var hoje = new Date();
+    // Mesmo dia calendário?
+    var isToday = pregaoDate.getFullYear() === hoje.getFullYear() &&
+                  pregaoDate.getMonth() === hoje.getMonth() &&
+                  pregaoDate.getDate() === hoje.getDate();
+    if (isToday) {
+      hintEl.textContent = 'Hoje';
+      hintEl.title = 'Variação do pregão de hoje';
+    } else {
+      var dd = String(pregaoDate.getDate()).padStart(2,'0');
+      var mm = String(pregaoDate.getMonth()+1).padStart(2,'0');
+      hintEl.textContent = 'Pregão ' + dd + '/' + mm;
+      hintEl.title = 'Bolsa fechada hoje — mostrando último pregão disponível (' + dd + '/' + mm + ')';
+    }
+  }
 
   // Renderer compartilhado — recebe array de {t, p}, renderiza top 10 altas + top 10 baixas
   function _renderMovers(tickers, altasEl, baixasEl) {
@@ -13564,7 +13629,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-21-R8 ▸ Loader 5s GARANTIDO (minDuration default + logs + guards contra múltiplos hides)', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-21-IBOV-HOLIDAY ▸ IBOV fallback p/ último pregão em feriados + label dinâmico "Pregão DD/MM"', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // Hook: controlar visibilidade do pontinho vermelho do sino
   // Aparece apenas quando existe notificação não lida
