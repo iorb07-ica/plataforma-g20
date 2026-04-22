@@ -14791,7 +14791,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
               t: t,
               p: (typeof varPct === 'number' && !isNaN(varPct)) ? varPct : null,
               price: (typeof cot.preco === 'number' && cot.preco > 0) ? cot.preco : null,
-              isUS: !!cot.isUS
+              isUS: !!cot.isUS,
+              qtd: posGP[t].qtd   // R55: qtd pra delta R$ da carteira
             };
           })
           .filter(function(x){ return x.p !== null; });
@@ -14848,6 +14849,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
             baixasEl.innerHTML = '<div class="v21-movers-empty">Tente novamente em instantes</div>';
             return;
           }
+          // R55: Injeta qtd na carteira pra calcular delta R$ da posição (não unitário)
+          data.forEach(function(x){
+            x.qtd = (posCG[x.t] && posCG[x.t].qtd) || 0;
+          });
           _renderMovers(data, altasEl, baixasEl);
         });
         return;
@@ -14901,15 +14906,35 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           priceHTML = '<span class="v21-movers-price">—</span>';
         }
 
-        // Delta em R$ UNITÁRIO (quanto o preço variou hoje por unidade do ativo)
-        // Ex: AAPL US$ 224 com +0,90% → preço anterior = 224/1.009 ≈ 222, delta = +2
+        // Delta da CARTEIRA — R56: respeita moeda nativa (USD pra ativos US, BRL pra BR).
+        // Se objeto tem qtd (CG20/GP), usa qtd × variação unitária.
+        // Senão (IBOV), usa delta unitário (variação por ação).
         var deltaHTML = '';
         if (typeof x.price === 'number' && x.price > 0 && typeof x.p === 'number') {
           var priceAnt = x.price / (1 + x.p / 100);
-          var delta = x.price - priceAnt;
-          var deltaSinal = delta >= 0 ? '+' : '';
-          var deltaFmt = Math.abs(delta).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-          deltaHTML = '<span class="v21-movers-delta ' + tipo + '">' + deltaSinal + (delta < 0 ? '-' : '') + deltaFmt + '</span>';
+          var deltaUnit = x.price - priceAnt;   // variação por unidade, na moeda nativa
+
+          var delta;
+          if (typeof x.qtd === 'number' && x.qtd > 0) {
+            // DELTA DA CARTEIRA (na moeda nativa do ativo, sem conversão)
+            delta = deltaUnit * x.qtd;
+          } else {
+            // DELTA UNITÁRIO (IBOV)
+            delta = deltaUnit;
+          }
+
+          var deltaSinal = delta >= 0 ? '+' : '−';
+          var deltaAbs = Math.abs(delta);
+          // Prefixo de moeda: US$ pra ativos US, R$ pra BR
+          var moedaPref = x.isUS ? 'US$ ' : 'R$ ';
+          // Formato: sem decimais pra >= 100, com 2 decimais pra menores
+          var deltaFmt;
+          if (deltaAbs >= 100) {
+            deltaFmt = moedaPref + Math.round(deltaAbs).toLocaleString('pt-BR');
+          } else {
+            deltaFmt = moedaPref + deltaAbs.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          }
+          deltaHTML = '<span class="v21-movers-delta ' + tipo + '">' + deltaSinal + deltaFmt + '</span>';
         }
 
         // Barra 52w — TODO: high52/low52 do proxy. Por enquanto usa o % do dia como proxy visual
@@ -15194,7 +15219,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-22-R54 ▸ Top 10 Movers redesign V2: logo | ticker+preço(sem símbolo moeda) sobre barra gradiente vermelho→amarelo→verde com ponteiro dourado glow | %+delta R$ unitário. Grid 5 ativos visíveis + scroll pros demais. TODO: barra atualmente usa %dia como proxy visual — substituir por posição real nas 52w quando proxy expor high52/low52.', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-22-R56 ▸ Top 10 Movers: delta em R$ respeita moeda nativa — ativos US agora mostram US$ (sem conversão pra BRL), ativos BR mostram R$. Ex: AAPL 50qtd × +2 USD = +US$ 100 (não converte). PETR4 1500qtd × +1,20 BRL = +R$ 1.800.', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // ════════════════════════════════════════════════════════
   // ETAPA 2E — META INDEPENDÊNCIA FINANCEIRA (R38)
