@@ -2990,7 +2990,7 @@ body.pat-hidden #v3GaugeVal{opacity:0}
     gap: 16px;
     flex: 1;
     justify-content: flex-start;
-    padding-top: 14px;
+    padding-top: 32px;
   }
   .v21-rent-row {
     display: grid;
@@ -3088,7 +3088,7 @@ body.pat-hidden #v3GaugeVal{opacity:0}
     gap: 16px;
     flex: 1;
     justify-content: flex-start;
-    padding-top: 14px;
+    padding-top: 32px;
   }
   .v21-bench-row {
     display: grid;
@@ -3114,7 +3114,7 @@ body.pat-hidden #v3GaugeVal{opacity:0}
   .v21-bench-bar-fill {
     height: 100%;
     border-radius: 7px;
-    transition: width 0.6s ease;
+    transition: width 1.1s cubic-bezier(0.22, 0.61, 0.36, 1);
   }
   .v21-bench-bar-fill.voce {
     background: linear-gradient(90deg, #c9a961, #e8c766);
@@ -5880,9 +5880,9 @@ body.pat-hidden #v3GaugeVal{opacity:0}
   }
   .v21-movers-row {
     display: grid;
-    grid-template-columns: 16px 38px 1fr auto;
+    grid-template-columns: 22px 38px minmax(0, 1fr) auto auto;
     align-items: center;
-    gap: 11px;
+    gap: 10px;
     padding: 7px 10px;
     border-radius: 8px;
     transition: background .15s ease;
@@ -5890,10 +5890,11 @@ body.pat-hidden #v3GaugeVal{opacity:0}
   }
   .v21-movers-row:hover { background: rgba(232,184,75,.04); }
   .v21-movers-rank {
-    font-size: 11px;
+    font-size: 14px;
     font-weight: 700;
     color: var(--v21-text-2, #9a958e);
     text-align: right;
+    font-family: 'JetBrains Mono', monospace;
   }
   .v21-movers-logo {
     width: 38px;
@@ -5924,17 +5925,28 @@ body.pat-hidden #v3GaugeVal{opacity:0}
     color: var(--v21-text-1, #e8e4de);
     letter-spacing: 0.3px;
     font-family: 'DM Sans', system-ui, sans-serif;
-    font-size: 18px;
+    font-size: 16px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .v21-movers-price {
+    font-size: 13px;
+    font-weight: 600;
+    color: #9a958e;
+    font-family: 'JetBrains Mono', monospace;
+    white-space: nowrap;
+    letter-spacing: -0.2px;
+    padding-right: 4px;
+  }
   .v21-movers-pct {
     font-weight: 700;
     font-variant-numeric: tabular-nums;
-    font-size: 18px;
+    font-size: 16px;
     font-family: 'JetBrains Mono', monospace;
     letter-spacing: -0.2px;
+    min-width: 68px;
+    text-align: right;
   }
   .v21-movers-pct.up { color: #2ecc71; }
   .v21-movers-pct.down { color: #e63946; }
@@ -11092,13 +11104,22 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         valEl.textContent = fmtPct(val);
         valEl.className = 'v21-bench-val ' + (val >= 0 ? 'up' : 'down');
         var pctWidth = Math.min(100, Math.abs(val) / (maxAbsRef || 1) * 100);
-        barEl.style.width = pctWidth + '%';
-        // Cores: negativas sempre vermelhas, positivas por benchmark (you=dourado, cdi=cinza, ibov=azul, spx=roxo)
+        // Cores: negativas sempre vermelhas, positivas por benchmark
         if (val < 0) {
           barEl.className = 'v21-bench-bar-fill negative';
         } else {
           barEl.className = 'v21-bench-bar-fill ' + prefix;
         }
+        // Animação: zera, força reflow, depois aplica largura final (transição CSS roda de 0→valor)
+        barEl.style.width = '0%';
+        // eslint-disable-next-line no-unused-expressions
+        barEl.offsetWidth;  // força reflow — sem isso o browser pode pular a transição
+        // Pequeno delay + requestAnimationFrame pra garantir que o 0% pinte primeiro
+        requestAnimationFrame(function(){
+          requestAnimationFrame(function(){
+            barEl.style.width = pctWidth + '%';
+          });
+        });
       }
 
       // ═══ Pré-calcula IBOV e S&P500 INDEPENDENTE de snapshots (sempre disponível via histCache) ═══
@@ -13219,7 +13240,13 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
                 pct = ((d.price / d.previousClose) - 1) * 100;
               }
             }
-            if (!isNaN(pct)) results[t] = pct;
+            if (!isNaN(pct)) {
+              results[t] = {
+                p: pct,
+                price: (typeof d.price === 'number' && d.price > 0) ? d.price : null,
+                isUS: !isBR
+              };
+            }
           }
         })
         .catch(function(err){
@@ -13230,7 +13257,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
     Promise.all(promises).then(function(){
       V21Movers.cg20Loading = false;
-      var data = Object.keys(results).map(function(t){ return { t: t, p: results[t] }; });
+      var data = Object.keys(results).map(function(t){
+        var r = results[t];
+        return { t: t, p: r.p, price: r.price, isUS: r.isUS };
+      });
       if (data.length === 0) {
         console.warn('%c[v21 cg20] ❌ Nenhuma cotação retornou', 'color:#e63946');
         cb(null);
@@ -13306,7 +13336,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           }
 
           if (pct !== null && !isNaN(pct)) {
-            data.push({ t: ticker, p: pct });
+            var price = (typeof q.regularMarketPrice === 'number' && q.regularMarketPrice > 0) ? q.regularMarketPrice : null;
+            data.push({ t: ticker, p: pct, price: price, isUS: false });
           }
 
           // Guarda o timestamp do último pregão disponível (pra mostrar no label)
@@ -13357,13 +13388,21 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
                 pct = ((d.price / d.previousClose) - 1) * 100;
               }
             }
-            if (!isNaN(pct)) results[t] = pct;
+            if (!isNaN(pct)) {
+              results[t] = {
+                p: pct,
+                price: (typeof d.price === 'number' && d.price > 0) ? d.price : null
+              };
+            }
           })
           .catch(function(){});
         });
 
         Promise.all(promises).then(function(){
-          var data = Object.keys(results).map(function(t){ return { t: t, p: results[t] }; });
+          var data = Object.keys(results).map(function(t){
+            var r = results[t];
+            return { t: t, p: r.p, price: r.price, isUS: false };
+          });
           if (data.length === 0) {
             console.warn('[v21 ibov] batch retornou 0 — nenhuma próxima estratégia disponível');
             V21Movers.ibovLoading = false;
@@ -13476,8 +13515,14 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         var tickersGP = Object.keys(window._dashRVCot)
           .filter(function(t){ return posGP[t] && posGP[t].qtd > 0.001; })
           .map(function(t){
-            var varPct = window._dashRVCot[t].varPct;
-            return { t: t, p: (typeof varPct === 'number' && !isNaN(varPct)) ? varPct : null };
+            var cot = window._dashRVCot[t];
+            var varPct = cot.varPct;
+            return {
+              t: t,
+              p: (typeof varPct === 'number' && !isNaN(varPct)) ? varPct : null,
+              price: (typeof cot.preco === 'number' && cot.preco > 0) ? cot.preco : null,
+              isUS: !!cot.isUS
+            };
           })
           .filter(function(x){ return x.p !== null; });
 
@@ -13574,10 +13619,20 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         } else {
           logoHTML = '<div class="v21-movers-logo"><span class="v21-movers-logo-fallback">' + x.t.substring(0,3) + '</span></div>';
         }
+        // Preço formatado: US$ pra americanos, R$ pra brasileiros
+        var priceHTML = '';
+        if (typeof x.price === 'number' && x.price > 0) {
+          var moeda = x.isUS ? 'US$' : 'R$';
+          var priceFmt = x.price.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          priceHTML = '<span class="v21-movers-price">' + moeda + ' ' + priceFmt + '</span>';
+        } else {
+          priceHTML = '<span class="v21-movers-price"></span>';
+        }
         return '<div class="v21-movers-row">'
              + '<span class="v21-movers-rank">' + (i+1) + '</span>'
              + logoHTML
              + '<span class="v21-movers-ticker">' + x.t + '</span>'
+             + priceHTML
              + '<span class="v21-movers-pct ' + tipo + '">' + sinal + x.p.toFixed(2) + '%</span>'
              + '</div>';
       }).join('');
@@ -13833,7 +13888,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-21-R18 ▸ Respiro título→miolo em Rent/Bench (padding-top 14px)', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-21-R20 ▸ Respiro 32px Rent/Bench + animação barras 0→valor (1.1s)', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // Hook: controlar visibilidade do pontinho vermelho do sino
   // Aparece apenas quando existe notificação não lida
