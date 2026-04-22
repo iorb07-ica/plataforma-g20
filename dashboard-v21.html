@@ -6592,8 +6592,9 @@ body.pat-hidden .v21-change-extra::after{
     display: flex;
     flex-direction: column;
     gap: 4px;
-    /* Limita altura a 6 linhas exatas (cada linha ~56px: logo 38px + padding 7×2 + gap 4) */
-    max-height: 340px;
+    /* R54: Limita altura a 5 linhas exatas (cada linha ~68px: logo 42px + padding 10×2 + body 2 linhas + barra).
+       Os outros 5 ativos aparecem via scroll vertical */
+    max-height: 360px;
     overflow-y: auto;
     padding-right: 6px;
     margin-right: -6px;
@@ -6613,27 +6614,22 @@ body.pat-hidden .v21-change-extra::after{
   .v21-movers-list.has-scroll {
     overflow-y: auto;
   }
+  /* R54: Layout V2 — logo | body (ticker+price+barra) | right (pct+delta)
+     Barra com gradiente vermelho→amarelo→verde + ponteiro dourado brilhante */
   .v21-movers-row {
     display: grid;
-    grid-template-columns: 22px 38px 1fr 90px auto;
+    grid-template-columns: 42px 1fr auto;
     align-items: center;
     gap: 10px;
-    padding: 7px 10px;
+    padding: 10px 8px;
     border-radius: 8px;
     transition: background .15s ease;
     min-width: 0;
   }
   .v21-movers-row:hover { background: rgba(232,184,75,.04); }
-  .v21-movers-rank {
-    font-size: 14px;
-    font-weight: 700;
-    color: var(--v21-text-2, #9a958e);
-    text-align: right;
-    font-family: 'JetBrains Mono', monospace;
-  }
   .v21-movers-logo {
-    width: 38px;
-    height: 38px;
+    width: 42px;
+    height: 42px;
     border-radius: 8px;
     background: rgba(201,169,97,0.06);
     border: 1px solid rgba(201,169,97,0.12);
@@ -6655,6 +6651,20 @@ body.pat-hidden .v21-change-extra::after{
     color: #9a958e;
     font-family: 'JetBrains Mono', monospace;
   }
+  /* Body: ticker+price na linha de cima, barra embaixo */
+  .v21-movers-body {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+  }
+  .v21-movers-body-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
   .v21-movers-ticker {
     font-weight: 700;
     color: var(--v21-text-1, #e8e4de);
@@ -6666,13 +6676,44 @@ body.pat-hidden .v21-change-extra::after{
     text-overflow: ellipsis;
   }
   .v21-movers-price {
-    font-size: 16px;
+    font-size: 12px;
     font-weight: 600;
-    color: #d4cdbf;
+    color: #9a958e;
     font-family: 'JetBrains Mono', monospace;
     white-space: nowrap;
     letter-spacing: -0.2px;
-    text-align: left;
+    flex-shrink: 0;
+  }
+  /* Barra 52w com gradiente vermelho→amarelo→verde */
+  .v21-movers-bar-wrap {
+    position: relative;
+    height: 5px;
+    background: linear-gradient(90deg,
+                  rgba(248,113,113,0.18) 0%,
+                  rgba(234,179,8,0.18) 50%,
+                  rgba(74,222,128,0.18) 100%);
+    border-radius: 3px;
+    overflow: visible;
+  }
+  /* Ponteiro dourado brilhante com glow */
+  .v21-movers-bar-pointer {
+    position: absolute;
+    top: -3px;
+    width: 3px;
+    height: 11px;
+    background: #f0d079;
+    border-radius: 2px;
+    transform: translateX(-1.5px);
+    box-shadow: 0 0 8px rgba(240,208,121,0.9);
+    transition: left .6s cubic-bezier(.22,.61,.36,1);
+  }
+  /* Coluna direita: pct grande + delta R$ unitário embaixo */
+  .v21-movers-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+    min-width: 74px;
   }
   .v21-movers-pct {
     font-weight: 700;
@@ -6681,9 +6722,8 @@ body.pat-hidden .v21-change-extra::after{
     font-family: 'JetBrains Mono', monospace;
     letter-spacing: -0.2px;
     text-align: center;
-    padding: 5px 10px;
-    border-radius: 8px;
-    justify-self: end;
+    padding: 4px 8px;
+    border-radius: 6px;
     min-width: 72px;
   }
   .v21-movers-pct.up {
@@ -6694,6 +6734,16 @@ body.pat-hidden .v21-change-extra::after{
     color: #f87171;
     background: rgba(248,113,113,0.15);
   }
+  /* Delta em R$ unitário abaixo do % */
+  .v21-movers-delta {
+    font-size: 11px;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: -0.1px;
+    opacity: 0.85;
+  }
+  .v21-movers-delta.up { color: #4ade80; }
+  .v21-movers-delta.down { color: #f87171; }
   .v21-movers-empty {
     padding: 18px 10px;
     text-align: center;
@@ -14827,6 +14877,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       if (!arr.length) return '<div class="v21-movers-empty">Nenhum ativo em ' + (tipo === 'up' ? 'alta' : 'queda') + ' hoje</div>';
       return arr.map(function(x, i){
         var sinal = x.p >= 0 ? '+' : '';
+
+        // Logo
         var logoHTML;
         if (typeof _provLogoUrl === 'function') {
           var logoUrl1 = _provLogoUrl(x.t);
@@ -14839,20 +14891,46 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         } else {
           logoHTML = '<div class="v21-movers-logo"><span class="v21-movers-logo-fallback">' + x.t.substring(0,3) + '</span></div>';
         }
-        // Preço formatado (sem símbolo de moeda)
+
+        // Preço formatado SEM símbolo de moeda (R$/US$ removido conforme pedido do Israel)
         var priceHTML = '';
         if (typeof x.price === 'number' && x.price > 0) {
           var priceFmt = x.price.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
           priceHTML = '<span class="v21-movers-price">' + priceFmt + '</span>';
         } else {
-          priceHTML = '<span class="v21-movers-price"></span>';
+          priceHTML = '<span class="v21-movers-price">—</span>';
         }
+
+        // Delta em R$ UNITÁRIO (quanto o preço variou hoje por unidade do ativo)
+        // Ex: AAPL US$ 224 com +0,90% → preço anterior = 224/1.009 ≈ 222, delta = +2
+        var deltaHTML = '';
+        if (typeof x.price === 'number' && x.price > 0 && typeof x.p === 'number') {
+          var priceAnt = x.price / (1 + x.p / 100);
+          var delta = x.price - priceAnt;
+          var deltaSinal = delta >= 0 ? '+' : '';
+          var deltaFmt = Math.abs(delta).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          deltaHTML = '<span class="v21-movers-delta ' + tipo + '">' + deltaSinal + (delta < 0 ? '-' : '') + deltaFmt + '</span>';
+        }
+
+        // Barra 52w — TODO: high52/low52 do proxy. Por enquanto usa o % do dia como proxy visual
+        // Mapeamento: -3% ou menos → 10% da barra; 0% → 50%; +3% ou mais → 90%
+        var barPct = 50 + Math.max(-40, Math.min(40, x.p * 13));
+
         return '<div class="v21-movers-row">'
-             + '<span class="v21-movers-rank">' + (i+1) + '</span>'
              + logoHTML
-             + '<span class="v21-movers-ticker">' + x.t + '</span>'
-             + priceHTML
-             + '<span class="v21-movers-pct ' + tipo + '">' + sinal + x.p.toFixed(2) + '%</span>'
+             + '<div class="v21-movers-body">'
+             +   '<div class="v21-movers-body-top">'
+             +     '<span class="v21-movers-ticker">' + x.t + '</span>'
+             +     priceHTML
+             +   '</div>'
+             +   '<div class="v21-movers-bar-wrap">'
+             +     '<div class="v21-movers-bar-pointer" style="left:' + barPct.toFixed(1) + '%"></div>'
+             +   '</div>'
+             + '</div>'
+             + '<div class="v21-movers-right">'
+             +   '<span class="v21-movers-pct ' + tipo + '">' + sinal + x.p.toFixed(2) + '%</span>'
+             +   deltaHTML
+             + '</div>'
              + '</div>';
       }).join('');
     }
@@ -15116,7 +15194,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-22-R53 ▸ Page header reestrutura: grid 5 colunas [data+saudação | divider | frase | SPACER(1fr) | pills]. Frase agora cola LITERALMENTE ao lado da data (com apenas gap 22px). Todo o excesso de largura em telas grandes vai pro spacer entre frase e pills.', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-22-R54 ▸ Top 10 Movers redesign V2: logo | ticker+preço(sem símbolo moeda) sobre barra gradiente vermelho→amarelo→verde com ponteiro dourado glow | %+delta R$ unitário. Grid 5 ativos visíveis + scroll pros demais. TODO: barra atualmente usa %dia como proxy visual — substituir por posição real nas 52w quando proxy expor high52/low52.', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // ════════════════════════════════════════════════════════
   // ETAPA 2E — META INDEPENDÊNCIA FINANCEIRA (R38)
