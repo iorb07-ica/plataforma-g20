@@ -8987,7 +8987,7 @@ function _buscarCotacoesEAtualizarRV(){
       fetch(PROXY+'/api/quote?symbol='+encodeURIComponent(ticker+'.SA'))
         .then(function(r){return r.json();})
         .then(function(d){
-          if(d&&d.price>0) _dashRVCot[ticker]={preco:d.price,var1d:parseFloat(d.change||0),varPct:parseFloat(d.changePercent||0)};
+          if(d&&d.price>0) _dashRVCot[ticker]={preco:d.price,var1d:parseFloat(d.change||0),varPct:parseFloat(d.changePercent||0),high52:d.high52||null,low52:d.low52||null};
         }).catch(function(){})
     );
   });
@@ -9005,7 +9005,7 @@ function _buscarCotacoesEAtualizarRV(){
                 var item=d[t]||d[t.replace('.L','')]||d[t.toUpperCase()];
                 if(item&&item.price>0){
                   var tk=t.replace('.L','');
-                  _dashRVCot[tk]={preco:item.price,var1d:parseFloat(item.change||0),varPct:parseFloat(item.changePercent||0),isUS:true};
+                  _dashRVCot[tk]={preco:item.price,var1d:parseFloat(item.change||0),varPct:parseFloat(item.changePercent||0),isUS:true,high52:item.high52||null,low52:item.low52||null};
                 }
               });
             }).catch(function(){})
@@ -14514,7 +14514,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
               results[t] = {
                 p: pct,
                 price: (typeof d.price === 'number' && d.price > 0) ? d.price : null,
-                isUS: !isBR
+                isUS: !isBR,
+                // R57: 52 semanas do proxy (Yahoo)
+                high52: (typeof d.high52 === 'number' && d.high52 > 0) ? d.high52 : null,
+                low52:  (typeof d.low52  === 'number' && d.low52  > 0) ? d.low52  : null
               };
             }
           }
@@ -14529,7 +14532,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       V21Movers.cg20Loading = false;
       var data = Object.keys(results).map(function(t){
         var r = results[t];
-        return { t: t, p: r.p, price: r.price, isUS: r.isUS };
+        return { t: t, p: r.p, price: r.price, isUS: r.isUS, high52: r.high52, low52: r.low52 };
       });
       if (data.length === 0) {
         console.warn('%c[v21 cg20] ❌ Nenhuma cotação retornou', 'color:#e63946');
@@ -14661,7 +14664,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
             if (!isNaN(pct)) {
               results[t] = {
                 p: pct,
-                price: (typeof d.price === 'number' && d.price > 0) ? d.price : null
+                price: (typeof d.price === 'number' && d.price > 0) ? d.price : null,
+                // R57: 52 semanas do proxy (Yahoo)
+                high52: (typeof d.high52 === 'number' && d.high52 > 0) ? d.high52 : null,
+                low52:  (typeof d.low52  === 'number' && d.low52  > 0) ? d.low52  : null
               };
             }
           })
@@ -14671,7 +14677,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         Promise.all(promises).then(function(){
           var data = Object.keys(results).map(function(t){
             var r = results[t];
-            return { t: t, p: r.p, price: r.price, isUS: false };
+            return { t: t, p: r.p, price: r.price, isUS: false, high52: r.high52, low52: r.low52 };
           });
           if (data.length === 0) {
             console.warn('[v21 ibov] batch retornou 0 — nenhuma próxima estratégia disponível');
@@ -14792,7 +14798,9 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
               p: (typeof varPct === 'number' && !isNaN(varPct)) ? varPct : null,
               price: (typeof cot.preco === 'number' && cot.preco > 0) ? cot.preco : null,
               isUS: !!cot.isUS,
-              qtd: posGP[t].qtd   // R55: qtd pra delta R$ da carteira
+              qtd: posGP[t].qtd,  // R55: qtd pra delta R$ da carteira
+              high52: cot.high52 || null,  // R57: 52w pra barra
+              low52: cot.low52 || null
             };
           })
           .filter(function(x){ return x.p !== null; });
@@ -14937,9 +14945,29 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           deltaHTML = '<span class="v21-movers-delta ' + tipo + '">' + deltaSinal + deltaFmt + '</span>';
         }
 
-        // Barra 52w — TODO: high52/low52 do proxy. Por enquanto usa o % do dia como proxy visual
-        // Mapeamento: -3% ou menos → 10% da barra; 0% → 50%; +3% ou mais → 90%
-        var barPct = 50 + Math.max(-40, Math.min(40, x.p * 13));
+        // Barra 52w — R57: usa high52/low52 reais do proxy (Yahoo). Fallback pro %dia se ausente.
+        var barPct;
+        if (typeof x.high52 === 'number' && typeof x.low52 === 'number'
+            && x.high52 > x.low52 && typeof x.price === 'number' && x.price > 0) {
+          // POSIÇÃO REAL NAS 52 SEMANAS
+          barPct = ((x.price - x.low52) / (x.high52 - x.low52)) * 100;
+          // Clamp 0-100 (preço pode estar ligeiramente fora do range se high52/low52 desatualizados)
+          barPct = Math.max(0, Math.min(100, barPct));
+        } else {
+          // Fallback: %dia como proxy visual (-3% → 10%, 0% → 50%, +3% → 90%)
+          barPct = 50 + Math.max(-40, Math.min(40, x.p * 13));
+        }
+
+        // Tooltip da barra — se tiver 52w real, mostra faixa; senão, info genérica
+        var barTitle;
+        if (typeof x.high52 === 'number' && typeof x.low52 === 'number' && x.high52 > x.low52) {
+          var moedaSym = x.isUS ? 'US$ ' : 'R$ ';
+          barTitle = 'Posição nas 52 semanas: ' + barPct.toFixed(0) + '% · '
+                   + moedaSym + x.low52.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})
+                   + ' ↔ ' + moedaSym + x.high52.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        } else {
+          barTitle = 'Variação do dia (52w indisponível)';
+        }
 
         return '<div class="v21-movers-row">'
              + logoHTML
@@ -14948,7 +14976,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
              +     '<span class="v21-movers-ticker">' + x.t + '</span>'
              +     priceHTML
              +   '</div>'
-             +   '<div class="v21-movers-bar-wrap">'
+             +   '<div class="v21-movers-bar-wrap" title="' + barTitle + '">'
              +     '<div class="v21-movers-bar-pointer" style="left:' + barPct.toFixed(1) + '%"></div>'
              +   '</div>'
              + '</div>'
@@ -15219,7 +15247,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-22-R56 ▸ Top 10 Movers: delta em R$ respeita moeda nativa — ativos US agora mostram US$ (sem conversão pra BRL), ativos BR mostram R$. Ex: AAPL 50qtd × +2 USD = +US$ 100 (não converte). PETR4 1500qtd × +1,20 BRL = +R$ 1.800.', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-22-R57 ▸ Top 10 Movers: barra 52 semanas REAL ativa! Posição calculada como (price - low52) / (high52 - low52). Proxy Vercel agora retorna high52/low52 do Yahoo. Tooltip no hover mostra range: "86%% · R$ 28,86 ↔ R$ 50,69". Se ticker não tiver 52w, cai no fallback do %dia.', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // ════════════════════════════════════════════════════════
   // ETAPA 2E — META INDEPENDÊNCIA FINANCEIRA (R38)
