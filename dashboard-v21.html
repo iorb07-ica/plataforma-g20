@@ -5832,6 +5832,23 @@ body.pat-hidden #v3GaugeVal{opacity:0}
     gap: 4px;
     overflow: hidden;
   }
+  /* has-scroll: adicionada via JS quando mais de 5 ativos na lista */
+  .v21-movers-list.has-scroll {
+    overflow-y: auto;
+    padding-right: 6px;
+    margin-right: -6px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(201,169,97,0.35) rgba(201,169,97,0.05);
+  }
+  .v21-movers-list.has-scroll::-webkit-scrollbar { width: 6px; }
+  .v21-movers-list.has-scroll::-webkit-scrollbar-track { background: rgba(201,169,97,0.04); border-radius: 3px; }
+  .v21-movers-list.has-scroll::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #c9a961, #b89751);
+    border-radius: 3px;
+  }
+  .v21-movers-list.has-scroll::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #e8c766, #c9a961);
+  }
   .v21-movers-row {
     display: grid;
     grid-template-columns: 16px 38px 1fr auto;
@@ -5878,7 +5895,7 @@ body.pat-hidden #v3GaugeVal{opacity:0}
     color: var(--v21-text-1, #e8e4de);
     letter-spacing: 0.3px;
     font-family: 'DM Sans', system-ui, sans-serif;
-    font-size: 15px;
+    font-size: 18px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -5886,7 +5903,7 @@ body.pat-hidden #v3GaugeVal{opacity:0}
   .v21-movers-pct {
     font-weight: 700;
     font-variant-numeric: tabular-nums;
-    font-size: 15px;
+    font-size: 18px;
     font-family: 'JetBrains Mono', monospace;
     letter-spacing: -0.2px;
   }
@@ -6696,8 +6713,13 @@ window.addEventListener('load', function(){
       <!-- Card 1: Movers (TOP Altas / TOP Baixas) -->
       <div class="v21-card-2d v21-movers-card">
         <div class="v21-2d-head">
-          <h3 class="v21-2d-title"><span class="v21-2d-ico">🏆</span>MOVERS DA CARTEIRA</h3>
-          <span class="v21-2d-hint" id="v21MoversHint">Hoje</span>
+          <h3 class="v21-2d-title"><span class="v21-2d-ico">🏆</span>MOVERS</h3>
+          <div style="display:flex;gap:6px;align-items:center;margin-left:auto">
+            <span class="v21-2d-hint" style="margin-right:4px">Hoje</span>
+            <button class="v21-src-filter" onclick="v21ToggleMoversSource()" id="v21-movers-src-btn" title="Fonte: Gestão Patrimonial (clique pra alternar)">
+              <span id="v21-movers-src-label">GP</span> ▾
+            </button>
+          </div>
         </div>
 
         <div class="v21-movers-grid">
@@ -13012,34 +13034,157 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   // ==========================================================
   // ETAPA 2D — MOVERS + G20CAST
   // ==========================================================
+  // Estado do filtro de Movers (persistido em localStorage pra manter entre reloads)
+  var V21Movers = {
+    source: (function(){
+      try { return localStorage.getItem('v21_movers_source') || 'gestao'; } catch(e){ return 'gestao'; }
+    })(),
+    ibovCache: null,        // { data: [...], loadedAt: ts }
+    ibovLoading: false
+  };
+
+  // Lista oficial dos tickers do IBOV (atualização trimestral; 85 tickers em 2026)
+  // Fonte: B3 (composição do Ibovespa)
+  var IBOV_TICKERS = [
+    'ALOS3','ABEV3','ASAI3','AURE3','AZUL4','AZZA3','B3SA3','BBSE3','BBDC3','BBDC4',
+    'BRAP4','BBAS3','BRKM5','BRFS3','BPAC11','CXSE3','CRFB3','CCRO3','CMIG4','COGN3',
+    'CPLE6','CSAN3','CPFE3','CMIN3','CVCB3','CYRE3','ELET3','ELET6','EMBR3','ENGI11',
+    'ENEV3','EGIE3','EQTL3','FLRY3','GGBR4','GOAU4','NTCO3','HAPV3','HYPE3','IGTI11',
+    'IRBR3','ITSA4','ITUB4','JBSS3','KLBN11','RENT3','LREN3','MGLU3','MRFG3','BEEF3',
+    'MRVE3','MULT3','PCAR3','PETR3','PETR4','RECV3','PRIO3','PETZ3','PSSA3','RADL3',
+    'RAIZ4','RDOR3','RAIL3','SBSP3','SANB11','STBP3','SMTO3','CSNA3','SLCE3','SUZB3',
+    'TAEE11','VIVT3','TIMS3','TOTS3','UGPA3','USIM5','VALE3','VAMO3','VBBR3','WEGE3',
+    'YDUQ3','RAPT4','CEAB3','AGRO3','MDIA3'
+  ];
+
+  function v21ToggleMoversSource() {
+    var order = ['gestao', 'cg20', 'ibov'];
+    var idx = order.indexOf(V21Movers.source);
+    V21Movers.source = order[(idx + 1) % order.length];
+    try { localStorage.setItem('v21_movers_source', V21Movers.source); } catch(e){}
+    var labels = { gestao: 'GP', cg20: 'CG20', ibov: 'IBOV' };
+    var titles = {
+      gestao: 'Fonte: Gestão Patrimonial (clique pra alternar)',
+      cg20:   'Fonte: Carteira G20 (clique pra alternar)',
+      ibov:   'Fonte: Ibovespa — todas as ações do índice (clique pra alternar)'
+    };
+    var lbl = document.getElementById('v21-movers-src-label');
+    var btn = document.getElementById('v21-movers-src-btn');
+    if (lbl) lbl.textContent = labels[V21Movers.source];
+    if (btn) btn.title = titles[V21Movers.source];
+    console.log('[v21 movers] fonte alterada para:', V21Movers.source);
+    v21LoadMovers();
+  }
+  window.v21ToggleMoversSource = v21ToggleMoversSource;
+
+  // Busca IBOV via Yahoo Finance (lazy, só quando usuário escolhe IBOV)
+  function v21FetchIbov(cb) {
+    // Cache 10min
+    if (V21Movers.ibovCache && (Date.now() - V21Movers.ibovCache.loadedAt) < 600000) {
+      cb(V21Movers.ibovCache.data);
+      return;
+    }
+    if (V21Movers.ibovLoading) return;
+    V21Movers.ibovLoading = true;
+
+    // Yahoo aceita vários tickers no mesmo fetch — até ~100 na URL
+    var symbols = IBOV_TICKERS.map(function(t){ return t + '.SA'; }).join(',');
+    var url = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + encodeURIComponent(symbols);
+    // Tenta via allOrigins (contorna CORS). Fallback: corsproxy.io
+    var wrapped = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+
+    function parseResponse(json) {
+      try {
+        var quotes = (json && json.quoteResponse && json.quoteResponse.result) || [];
+        var data = quotes.map(function(q){
+          return {
+            t: (q.symbol || '').replace('.SA',''),
+            p: typeof q.regularMarketChangePercent === 'number' ? q.regularMarketChangePercent : null
+          };
+        }).filter(function(x){ return x.p !== null; });
+        V21Movers.ibovCache = { data: data, loadedAt: Date.now() };
+        V21Movers.ibovLoading = false;
+        console.log('%c[v21 ibov] ✓ ' + data.length + ' tickers carregados do Yahoo', 'color:#4ade80;font-weight:bold');
+        cb(data);
+      } catch(e) {
+        V21Movers.ibovLoading = false;
+        console.warn('[v21 ibov] erro parse:', e);
+        cb(null);
+      }
+    }
+
+    fetch(wrapped)
+      .then(function(r){ return r.json(); })
+      .then(parseResponse)
+      .catch(function(err){
+        console.warn('[v21 ibov] allOrigins falhou, tentando corsproxy.io:', err);
+        fetch('https://corsproxy.io/?' + encodeURIComponent(url))
+          .then(function(r){ return r.json(); })
+          .then(parseResponse)
+          .catch(function(err2){
+            V21Movers.ibovLoading = false;
+            console.warn('[v21 ibov] corsproxy também falhou:', err2);
+            cb(null);
+          });
+      });
+  }
+
   function v21LoadMovers() {
     try {
       var altasEl = document.getElementById('v21MoversAltas');
       var baixasEl = document.getElementById('v21MoversBaixas');
       if (!altasEl || !baixasEl) return;
 
-      // Depende de window._dashRVCot (cotações diárias) + g20_rvAportes (posições GP)
+      var src = V21Movers.source;
+
+      // ═══ FONTE IBOV: fetch lazy via Yahoo ═══
+      if (src === 'ibov') {
+        if (V21Movers.ibovLoading) {
+          altasEl.innerHTML = '<div class="v21-movers-empty">Buscando cotações do IBOV…</div>';
+          baixasEl.innerHTML = '<div class="v21-movers-empty">Buscando cotações do IBOV…</div>';
+          return;
+        }
+        if (!V21Movers.ibovCache) {
+          altasEl.innerHTML = '<div class="v21-movers-empty">Buscando cotações do IBOV…</div>';
+          baixasEl.innerHTML = '<div class="v21-movers-empty">Buscando cotações do IBOV…</div>';
+          v21FetchIbov(function(data){
+            if (!data) {
+              altasEl.innerHTML = '<div class="v21-movers-empty">Não foi possível carregar IBOV agora</div>';
+              baixasEl.innerHTML = '<div class="v21-movers-empty">Tente novamente em instantes</div>';
+              return;
+            }
+            _renderMovers(data, altasEl, baixasEl);
+          });
+          return;
+        }
+        _renderMovers(V21Movers.ibovCache.data, altasEl, baixasEl);
+        return;
+      }
+
+      // ═══ FONTE GP ou CG20: dados locais + cotações ═══
       if (!window._dashRVCot) {
         altasEl.innerHTML = '<div class="v21-movers-empty">Aguardando cotações…</div>';
         baixasEl.innerHTML = '<div class="v21-movers-empty">Aguardando cotações…</div>';
         return;
       }
 
-      // Calcula posições abertas da Gestão Patrimonial
-      var posGP = {};
+      var storageKey = src === 'cg20' ? 'g20_aportes' : 'g20_rvAportes';
+      var emptyLabel = src === 'cg20' ? 'CG20' : 'GP';
+
+      // Calcula posições abertas
+      var pos = {};
       try {
-        var aportes = JSON.parse(localStorage.getItem('g20_rvAportes') || '[]');
+        var aportes = JSON.parse(localStorage.getItem(storageKey) || '[]');
         if (!Array.isArray(aportes)) aportes = [];
         aportes.sort(function(a,b){ return (a.data||'').localeCompare(b.data||''); }).forEach(function(a){
           if (!a || !a.ticker) return;
-          if (!posGP[a.ticker]) posGP[a.ticker] = { qtd: 0 };
-          posGP[a.ticker].qtd += (a.op === 'C' ? 1 : -1) * (a.qtd || 0);
+          if (!pos[a.ticker]) pos[a.ticker] = { qtd: 0 };
+          pos[a.ticker].qtd += (a.op === 'C' ? 1 : -1) * (a.qtd || 0);
         });
       } catch(e) {}
 
-      // Filtra só os ativos com posição > 0 e com variação válida
       var tickers = Object.keys(window._dashRVCot)
-        .filter(function(t){ return posGP[t] && posGP[t].qtd > 0.001; })
+        .filter(function(t){ return pos[t] && pos[t].qtd > 0.001; })
         .map(function(t){
           var varPct = window._dashRVCot[t].varPct;
           return { t: t, p: (typeof varPct === 'number' && !isNaN(varPct)) ? varPct : null };
@@ -13047,47 +13192,59 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         .filter(function(x){ return x.p !== null; });
 
       if (tickers.length === 0) {
-        altasEl.innerHTML = '<div class="v21-movers-empty">Sem posições na GP</div>';
-        baixasEl.innerHTML = '<div class="v21-movers-empty">Sem posições na GP</div>';
+        altasEl.innerHTML = '<div class="v21-movers-empty">Sem posições na ' + emptyLabel + '</div>';
+        baixasEl.innerHTML = '<div class="v21-movers-empty">Sem posições na ' + emptyLabel + '</div>';
         return;
       }
 
-      var altas = tickers.filter(function(x){ return x.p > 0; })
-                         .sort(function(a,b){ return b.p - a.p; }).slice(0, 5);
-      var baixas = tickers.filter(function(x){ return x.p < 0; })
-                           .sort(function(a,b){ return a.p - b.p; }).slice(0, 5);
-
-      function renderList(arr, tipo) {
-        if (!arr.length) return '<div class="v21-movers-empty">Nenhum ativo em ' + (tipo === 'up' ? 'alta' : 'queda') + ' hoje</div>';
-        return arr.map(function(x, i){
-          var sinal = x.p >= 0 ? '+' : '';
-          // Cascata: TradingView (mapa) → FMP/icones-b3 → texto
-          var logoHTML;
-          if (typeof _provLogoUrl === 'function') {
-            var logoUrl1 = _provLogoUrl(x.t);
-            var logoUrl2 = (typeof _provLogoFallback2 === 'function') ? _provLogoFallback2(x.t) : '';
-            var fallback = x.t.substring(0, 3);
-            logoHTML = '<div class="v21-movers-logo">'
-                     + '<img src="' + logoUrl1 + '" alt="' + x.t + '" '
-                     + 'onerror="if(this.dataset.fb!==\'1\'){this.dataset.fb=\'1\';this.src=\''+logoUrl2+'\';}else{this.onerror=null;this.outerHTML=\'<span class=&quot;v21-movers-logo-fallback&quot;>' + fallback + '</span>\';}">'
-                     + '</div>';
-          } else {
-            logoHTML = '<div class="v21-movers-logo"><span class="v21-movers-logo-fallback">' + x.t.substring(0,3) + '</span></div>';
-          }
-          return '<div class="v21-movers-row">'
-               + '<span class="v21-movers-rank">' + (i+1) + '</span>'
-               + logoHTML
-               + '<span class="v21-movers-ticker">' + x.t + '</span>'
-               + '<span class="v21-movers-pct ' + tipo + '">' + sinal + x.p.toFixed(2) + '%</span>'
-               + '</div>';
-        }).join('');
-      }
-
-      altasEl.innerHTML = renderList(altas, 'up');
-      baixasEl.innerHTML = renderList(baixas, 'down');
+      _renderMovers(tickers, altasEl, baixasEl);
     } catch(e) {
       console.warn('[v21 movers]', e);
     }
+  }
+  window.v21LoadMovers = v21LoadMovers;
+
+  // Renderer compartilhado — recebe array de {t, p}, renderiza top 10 altas + top 10 baixas
+  function _renderMovers(tickers, altasEl, baixasEl) {
+    // Top 10 de cada (card mostra 5, scroll revela os outros 5)
+    var altas = tickers.filter(function(x){ return x.p > 0; })
+                       .sort(function(a,b){ return b.p - a.p; }).slice(0, 10);
+    var baixas = tickers.filter(function(x){ return x.p < 0; })
+                         .sort(function(a,b){ return a.p - b.p; }).slice(0, 10);
+
+    function renderList(arr, tipo) {
+      if (!arr.length) return '<div class="v21-movers-empty">Nenhum ativo em ' + (tipo === 'up' ? 'alta' : 'queda') + ' hoje</div>';
+      return arr.map(function(x, i){
+        var sinal = x.p >= 0 ? '+' : '';
+        var logoHTML;
+        if (typeof _provLogoUrl === 'function') {
+          var logoUrl1 = _provLogoUrl(x.t);
+          var logoUrl2 = (typeof _provLogoFallback2 === 'function') ? _provLogoFallback2(x.t) : '';
+          var fallback = x.t.substring(0, 3);
+          logoHTML = '<div class="v21-movers-logo">'
+                   + '<img src="' + logoUrl1 + '" alt="' + x.t + '" '
+                   + 'onerror="if(this.dataset.fb!==\'1\'){this.dataset.fb=\'1\';this.src=\''+logoUrl2+'\';}else{this.onerror=null;this.outerHTML=\'<span class=&quot;v21-movers-logo-fallback&quot;>' + fallback + '</span>\';}">'
+                   + '</div>';
+        } else {
+          logoHTML = '<div class="v21-movers-logo"><span class="v21-movers-logo-fallback">' + x.t.substring(0,3) + '</span></div>';
+        }
+        return '<div class="v21-movers-row">'
+             + '<span class="v21-movers-rank">' + (i+1) + '</span>'
+             + logoHTML
+             + '<span class="v21-movers-ticker">' + x.t + '</span>'
+             + '<span class="v21-movers-pct ' + tipo + '">' + sinal + x.p.toFixed(2) + '%</span>'
+             + '</div>';
+      }).join('');
+    }
+
+    altasEl.innerHTML = renderList(altas, 'up');
+    baixasEl.innerHTML = renderList(baixas, 'down');
+
+    // Adiciona classe has-scroll se tiver mais de 5 (mostra scrollbar dourado G20)
+    if (altas.length > 5) altasEl.classList.add('has-scroll');
+    else altasEl.classList.remove('has-scroll');
+    if (baixas.length > 5) baixasEl.classList.add('has-scroll');
+    else baixasEl.classList.remove('has-scroll');
   }
 
   function v21LoadCast() {
@@ -13315,7 +13472,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-21-GP-BENCH ▸ GP fontes 46px brancas, Bench sem IVVB11, S&P500 calculado, Alpha 20px', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-21-MOVERS3 ▸ 3 fontes (GP/CG20/IBOV lazy) + top 10 com scroll G20 + ticker/% 18px', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // Hook: controlar visibilidade do pontinho vermelho do sino
   // Aparece apenas quando existe notificação não lida
