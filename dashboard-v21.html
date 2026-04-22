@@ -5285,7 +5285,7 @@ body.pat-hidden #v3GaugeVal{opacity:0}
     justify-content: center;
     gap: 8px;
     width: 100%;
-    margin-bottom: 2px;
+    margin-bottom: 8px;
   }
   .v21-kpi-icon {
     width: 28px;
@@ -5317,7 +5317,7 @@ body.pat-hidden #v3GaugeVal{opacity:0}
 
   .v21-kpi-value {
     font-family: 'JetBrains Mono', 'Courier New', monospace;
-    font-size: 30px;
+    font-size: 27px;
     font-weight: 700;
     letter-spacing: -0.5px;
     line-height: 1.1;
@@ -5355,7 +5355,7 @@ body.pat-hidden #v3GaugeVal{opacity:0}
   }
   .v21-beta-num {
     font-family: 'JetBrains Mono', 'Courier New', monospace;
-    font-size: 22px;
+    font-size: 20px;
     font-weight: 700;
     letter-spacing: -0.3px;
     color: #e8e6e3;
@@ -5369,7 +5369,7 @@ body.pat-hidden #v3GaugeVal{opacity:0}
     font-size: 13px;
     color: #d4cdbf;
     line-height: 1.4;
-    margin-top: auto;
+    margin-top: 10px;
     font-weight: 500;
   }
   .v21-kpi-sub .v21-kpi-sub-strong {
@@ -5856,8 +5856,8 @@ body.pat-hidden #v3GaugeVal{opacity:0}
     display: flex;
     flex-direction: column;
     gap: 4px;
-    /* Limita altura a 5 linhas exatas (cada linha ~47px: padding 7×2 + logo 32px + margem) */
-    max-height: 245px;
+    /* Limita altura a 5 linhas exatas (cada linha ~56px: logo 38px + padding 7×2 + gap 4) */
+    max-height: 284px;
     overflow-y: auto;
     padding-right: 6px;
     margin-right: -6px;
@@ -7930,6 +7930,7 @@ function _buscarCotacoesEAtualizarRV(){
     try{ if(typeof renderNotifBadge==='function'){ renderNotifBadge(); renderNotifList(); } }catch(e){}
     try{ if(typeof renderDailyBrief==='function') renderDailyBrief(); }catch(e){}
     // Etapa 2D: atualiza movers quando cotações chegam
+    try{ if(typeof v21SyncMoversLabel==='function') v21SyncMoversLabel(); }catch(e){}
     try{ if(typeof v21LoadMovers==='function') v21LoadMovers(); }catch(e){}
   });
 }
@@ -13158,11 +13159,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     'YDUQ3','RAPT4','CEAB3','AGRO3','MDIA3'
   ];
 
-  function v21ToggleMoversSource() {
-    var order = ['gestao', 'cg20', 'ibov'];
-    var idx = order.indexOf(V21Movers.source);
-    V21Movers.source = order[(idx + 1) % order.length];
-    try { localStorage.setItem('v21_movers_source', V21Movers.source); } catch(e){}
+  // Sincroniza o botão-label com V21Movers.source (usado no init e no toggle)
+  function v21SyncMoversLabel() {
     var labels = { gestao: 'GP', cg20: 'CG20', ibov: 'IBOV' };
     var titles = {
       gestao: 'Fonte: Gestão Patrimonial (clique pra alternar)',
@@ -13172,10 +13170,18 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     var lbl = document.getElementById('v21-movers-src-label');
     var btn = document.getElementById('v21-movers-src-btn');
     var hint = document.getElementById('v21-movers-hint');
-    if (lbl) lbl.textContent = labels[V21Movers.source];
-    if (btn) btn.title = titles[V21Movers.source];
-    // Hint sempre "Hoje" — visual consistente entre as 3 fontes
+    if (lbl) lbl.textContent = labels[V21Movers.source] || 'GP';
+    if (btn) btn.title = titles[V21Movers.source] || titles.gestao;
     if (hint) hint.textContent = 'Hoje';
+  }
+  window.v21SyncMoversLabel = v21SyncMoversLabel;
+
+  function v21ToggleMoversSource() {
+    var order = ['gestao', 'cg20', 'ibov'];
+    var idx = order.indexOf(V21Movers.source);
+    V21Movers.source = order[(idx + 1) % order.length];
+    try { localStorage.setItem('v21_movers_source', V21Movers.source); } catch(e){}
+    v21SyncMoversLabel();
     console.log('[v21 movers] fonte alterada para:', V21Movers.source);
     v21LoadMovers();
   }
@@ -13439,7 +13445,6 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         return;
       }
 
-      // ═══ FONTE GP ou CG20: dados locais + cotações ═══
       // ═══ FONTE GP: usa _dashRVCot legacy (já populado pelo dashboard) ═══
       if (src === 'gestao') {
         if (!window._dashRVCot) {
@@ -13459,6 +13464,14 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           });
         } catch(e) {}
 
+        // 🔍 DIAGNÓSTICO: mostra EXATAMENTE o que está na GP e no cache de cotações
+        var tickersDashRV = Object.keys(window._dashRVCot || {});
+        var tickersPosGP = Object.keys(posGP).filter(function(t){ return posGP[t].qtd > 0.001; });
+        console.log('%c[v21 movers GP] DIAGNÓSTICO:', 'background:#c9a961;color:#1a191e;padding:2px 6px;font-weight:bold');
+        console.log('  📦 _dashRVCot tem cotações de:', tickersDashRV);
+        console.log('  💼 posGP (g20_rvAportes aberto > 0):', tickersPosGP);
+        console.log('  🔍 Aportes brutos (g20_rvAportes):', apGP);
+
         var tickersGP = Object.keys(window._dashRVCot)
           .filter(function(t){ return posGP[t] && posGP[t].qtd > 0.001; })
           .map(function(t){
@@ -13466,6 +13479,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
             return { t: t, p: (typeof varPct === 'number' && !isNaN(varPct)) ? varPct : null };
           })
           .filter(function(x){ return x.p !== null; });
+
+        console.log('  ✅ tickersGP filtrados (vão pro card):', tickersGP);
 
         if (tickersGP.length === 0) {
           altasEl.innerHTML = '<div class="v21-movers-empty">Sem posições na GP</div>';
@@ -13661,6 +13676,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     v21LoadCompChart();
     v21LoadProvChart();
     // Etapa 2D
+    v21SyncMoversLabel();  // sincroniza label GP/CG20/IBOV com V21Movers.source (do localStorage)
     v21LoadMovers();
     v21LoadCast();
   }
@@ -13816,7 +13832,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-21-R14 ▸ TOP 10 Movers + scroll 5 linhas + Hoje sempre + títulos alinhados top', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-21-R17 ▸ Movers scroll 5 linhas completas (284px) + sync label na init', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // Hook: controlar visibilidade do pontinho vermelho do sino
   // Aparece apenas quando existe notificação não lida
