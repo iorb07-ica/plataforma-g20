@@ -6335,6 +6335,44 @@ body.pat-hidden #v21ProvChart{filter:blur(6px)}
     background: rgba(201, 169, 97, 0.08) !important;
   }
 
+  /* ============================================================
+     STICKY HEADER — R29
+     Congela topbar + ticker tape no topo ao rolar (como congelar
+     painel no Excel). Topbar já era sticky top:0. Ticker tape
+     passa a ser sticky também, posicionado logo abaixo da topbar.
+     Altura efetiva da topbar é dinâmica por causa de vários overrides
+     — uso CSS var --v21-topbar-h medida via JS no init (fallback 72px).
+     ============================================================ */
+  :root {
+    --v21-topbar-h: 72px; /* fallback; JS atualiza com altura real após load */
+  }
+
+  /* Garante topbar no topo com z-index alto e fundo 100% opaco ao rolar */
+  .topbar {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 100 !important;
+  }
+
+  /* Ticker tape fica colado logo abaixo da topbar */
+  .ticker-tape-wrap {
+    position: sticky !important;
+    top: var(--v21-topbar-h) !important;
+    z-index: 90 !important;
+    /* fundo opaco pra não vazar conteúdo atrás ao rolar */
+    background: #1a191e !important;
+  }
+  /* Override pro redesign visual da ticker-tape (R27) — mantém aparência
+     de cards individuais com fundo sutil, mas garante opacidade 100%
+     quando o container rola */
+  .ticker-tape-wrap::before,
+  .ticker-tape-wrap::after {
+    background: linear-gradient(to right, #1a191e 0%, rgba(26,25,30,0.85) 60%, transparent) !important;
+  }
+  .ticker-tape-wrap::after {
+    background: linear-gradient(to left, #1a191e 0%, rgba(26,25,30,0.85) 60%, transparent) !important;
+  }
+
 </style>
 </head>
 <body>
@@ -14241,7 +14279,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-22-R28 ▸ pat-hidden cirúrgico (não pega Beta, pega só .v21-change-extra em vez do container, ::after com justify-content correto) + ícones topbar dourados', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-22-R29 ▸ sticky header (topbar + ticker tape congelados no topo ao rolar), altura medida via JS em runtime', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // Hook: controlar visibilidade do pontinho vermelho do sino
   // Aparece apenas quando existe notificação não lida
@@ -14286,6 +14324,38 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       }
     });
   }
+
+  // ════════════════════════════════════════════════════════
+  // STICKY HEADER (R29) — mede altura real da topbar e seta CSS var
+  // --v21-topbar-h pra o ticker-tape grudar logo abaixo
+  // ════════════════════════════════════════════════════════
+  (function(){
+    function updateTopbarHeight(){
+      try {
+        var tb = document.querySelector('.topbar');
+        if (!tb) return;
+        var h = Math.round(tb.getBoundingClientRect().height);
+        if (h > 0) {
+          document.documentElement.style.setProperty('--v21-topbar-h', h + 'px');
+        }
+      } catch(e){}
+    }
+    // Roda no load e em cada resize
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', updateTopbarHeight);
+    } else {
+      updateTopbarHeight();
+    }
+    window.addEventListener('load', updateTopbarHeight);
+    window.addEventListener('resize', function(){
+      // debounce simples
+      if (window._v21TopbarResizeTimer) clearTimeout(window._v21TopbarResizeTimer);
+      window._v21TopbarResizeTimer = setTimeout(updateTopbarHeight, 120);
+    });
+    // Fallback extra: roda 500ms após load (casos de fonte tardia)
+    setTimeout(updateTopbarHeight, 500);
+    setTimeout(updateTopbarHeight, 1500);
+  })();
 
 })();
 </script>
