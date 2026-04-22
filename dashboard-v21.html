@@ -12136,6 +12136,9 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     histLoading: { ibov: false, sp500: false },
     histFailed: { ibov: false, sp500: false }  // se já tentou e falhou, não tenta de novo
   };
+  // CRITICAL FIX v21-R10: exporta pro window pra que v21LoadBench e outras funções
+  // em outros escopos possam ler o histCache sem gerar duas instâncias diferentes
+  window.V21C = V21C;
 
   // ─────────────────────────────────────────────────────
   // Fetch histórico IBOV / S&P500
@@ -12174,6 +12177,13 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       if (cached && cached.loadedAt && (Date.now() - cached.loadedAt) < 24*60*60*1000 && cached.pontos && cached.pontos.length >= 10) {
         V21C.histCache[series] = cached;
         console.log('[v21 hist] ' + series + ' usando cache localStorage (' + cached.pontos.length + ' pontos, fonte=' + cached.fonte + ')');
+        // CRITICAL FIX v21-R10: também re-renderiza bench/rent/kpis quando vem do cache LS
+        // Antes só acontecia no path de fetch de rede
+        setTimeout(function(){
+          try { if (typeof v21LoadRentChart === 'function') v21LoadRentChart(); } catch(e){}
+          try { if (typeof v21LoadKpis === 'function') v21LoadKpis(); } catch(e){}
+          try { if (typeof v21LoadBench === 'function') v21LoadBench(); } catch(e){}
+        }, 100);
         callback && callback(cached);
         return;
       }
@@ -13627,7 +13637,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-21-R9 ▸ Pré-fetch IMEDIATO + logs diagnóstico + TOTAL/ALPHA dourados', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-21-R10 ▸ FIX CRÍTICO: V21C exportado pro window + cache LS dispara re-render', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // Hook: controlar visibilidade do pontinho vermelho do sino
   // Aparece apenas quando existe notificação não lida
