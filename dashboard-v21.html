@@ -12925,14 +12925,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     }, 2200);
     v21InstallThemeToggle();
     if (window.lucide) lucide.createIcons();
-
-    // R64: v21ImportarProventos SEMPRE dispara no boot (mesmo se algo acima falhar).
-    // Usa setTimeout pra sair do stack atual e blindar contra qualquer erro silencioso
-    // em funções anteriores que pudessem impedir a chamada.
-    setTimeout(function(){
-      try { v21ImportarProventos(); }
-      catch(e){ console.error('[v21 init] v21ImportarProventos falhou:', e); }
-    }, 1000);
+    // R65: v21ImportarProventos agora é disparado FORA de v21Init (após DOMContentLoaded)
+    // pra garantir que rode mesmo se algo anterior quebrar silenciosamente.
   }
 
   // v2.3: Chama a função existente _importarTodosProventosBackground do dashboard
@@ -12952,6 +12946,16 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       if (typeof _importarTodosProventosBackground === 'function') {
         console.log('%c[v21] Disparando importação de proventos...', 'color:#c9a961');
         _importarTodosProventosBackground(function() {
+          // R65: MARCA O TIMESTAMP DA ÚLTIMA IMPORTAÇÃO (bug crítico corrigido).
+          // Sem isso, _provDeveReimportar() sempre retorna true ou false errado
+          // e o TTL de 24h não funciona corretamente.
+          try {
+            if (typeof _provMarcarImportado === 'function') {
+              _provMarcarImportado();
+              console.log('%c[v21] TTL atualizado:', 'color:#c9a961', localStorage.getItem('g20_prov_last_import'));
+            }
+          } catch(e) { console.warn('[v21] erro ao marcar TTL:', e); }
+
           console.log('%c[v21] Importação finalizada — re-renderizando agenda', 'color:#4ade80');
           // Re-renderiza a agenda depois da importação
           v21LoadAgenda();
@@ -13004,6 +13008,20 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     v21Init();
   }
 
+  // R65: Dispara import AUTOMÁTICO de proventos INDEPENDENTE do v21Init.
+  // Esse setTimeout roda sempre, mesmo que v21Init falhe silenciosamente
+  // em qualquer ponto. Garante que proventos sejam atualizados no boot.
+  setTimeout(function(){
+    console.log('%c[v21 boot] Auto-import de proventos (independente)', 'color:#c9a961;font-weight:bold');
+    try {
+      if (typeof v21ImportarProventos === 'function') {
+        v21ImportarProventos();
+      } else {
+        console.warn('[v21 boot] v21ImportarProventos ainda não definida');
+      }
+    } catch(e){ console.error('[v21 boot] erro:', e); }
+  }, 2500);
+
   [1500, 3000, 5000, 8000, 12000, 20000].forEach(function(delay){
     setTimeout(v21RefreshAll, delay);
   });
@@ -13026,7 +13044,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-22-R64 ▸ FIX auto-import de proventos: v21ImportarProventos agora dispara SEMPRE no boot (via setTimeout blindado contra falhas anteriores). No modo automático, não mostra "Buscando..." na UI — mantém agenda com cache visível e atualiza silenciosamente quando o import termina. Manual: mostra loader como antes.', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-22-R65 ▸ FIX definitivo proventos: (1) callback do import agora chama _provMarcarImportado() pra atualizar TTL (bug crítico — sem isso o TTL travava no tempo). (2) Auto-import disparado FORA do v21Init (blindado contra falhas anteriores). Deve aparecer no console: "[v21 boot] Auto-import de proventos (independente)" seguido de "[v21] Disparando importação..." e "[v21] TTL atualizado: 2026-04-22..."', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // ════════════════════════════════════════════════════════
   // ETAPA 2E — META INDEPENDÊNCIA FINANCEIRA (R38)
