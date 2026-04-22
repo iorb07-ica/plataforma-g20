@@ -6398,53 +6398,39 @@ body.pat-hidden .v21-change-extra::after{
   }
 
   /* ============================================================
-     STICKY HEADER — R29
-     Congela topbar + ticker tape no topo ao rolar (como congelar
-     painel no Excel). Topbar já era sticky top:0. Ticker tape
-     passa a ser sticky também, posicionado logo abaixo da topbar.
-     Altura efetiva da topbar é dinâmica por causa de vários overrides
-     — uso CSS var --v21-topbar-h medida via JS no init (fallback 72px).
+     STICKY HEADER — R29 + R35
+     R29: topbar e ticker sticky no topo.
+     R35: ticker-tape é movido via JS pra ser irmão direto da topbar
+     (fora do .content) — corrige o gap causado por .content ser
+     scroll container próprio (overflow-x:hidden). Agora topbar e
+     ticker compartilham o mesmo scroll container (.main).
      ============================================================ */
   :root {
     --v21-topbar-h: 72px; /* fallback; JS atualiza com altura real após load */
   }
 
-  /* Garante topbar no topo com z-index alto e fundo 100% opaco ao rolar */
+  /* Topbar sticky no topo */
   .topbar {
     position: sticky !important;
     top: 0 !important;
     z-index: 100 !important;
   }
 
-  /* Content sem padding-top — ticker tape cola diretamente embaixo da topbar */
-  .main > .content {
-    padding-top: 0 !important;
-  }
-
-  /* Ticker tape cola direto na topbar — sem border-radius, sem border-top,
-     sem margin-top, zero gap visual. Fica como "extensão" da topbar. */
-  .ticker-tape-wrap {
+  /* Ticker tape cola DIRETO na topbar, sem gap.
+     Como agora é filho direto de .main (irmão da topbar), o sticky top
+     é relativo ao .main — o mesmo scroll container da topbar. */
+  .main > .ticker-tape-wrap {
     position: sticky !important;
     top: var(--v21-topbar-h) !important;
     z-index: 90 !important;
     background: #1a191e !important;
     margin: 0 !important;
-    margin-bottom: 10px !important;
     border-radius: 0 !important;
     border-top: 0 !important;
     border-left: 0 !important;
     border-right: 0 !important;
     border-bottom: 1px solid rgba(201, 169, 97, 0.08) !important;
     box-shadow: 0 2px 8px rgba(0,0,0,0.25) !important;
-    /* estende lateralmente até bordas do content (compensa padding lateral) */
-    margin-left: -16px !important;
-    margin-right: -16px !important;
-  }
-  @media (min-width: 768px) {
-    .ticker-tape-wrap {
-      margin-left: -28px !important;
-      margin-right: -28px !important;
-    }
   }
   /* Override pro redesign visual da ticker-tape (R27) — mantém aparência
      de cards individuais com fundo sutil, mas garante opacidade 100%
@@ -14363,7 +14349,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-22-R34 ▸ v21-kpi-sub com visibility:hidden (pega filhos com cor), ticker tape cola na topbar sem gap (estende lateralmente, sem border-radius)', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-22-R35 ▸ ticker-tape movido via JS pra fora do .content (irmão direto da topbar) — corrige gap causado por .content ser scroll container próprio', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // Hook: controlar visibilidade do pontinho vermelho do sino
   // Aparece apenas quando existe notificação não lida
@@ -14410,10 +14396,37 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   }
 
   // ════════════════════════════════════════════════════════
-  // STICKY HEADER (R29) — mede altura real da topbar e seta CSS var
-  // --v21-topbar-h pra o ticker-tape grudar logo abaixo
+  // STICKY HEADER (R29 + R35) — 2 jobs:
+  // 1) Move o ticker-tape pra fora do .content (filho direto de .main),
+  //    virando irmão da topbar. Isso é crítico pro sticky funcionar:
+  //    como .content tem overflow-x:hidden, ele vira scroll container
+  //    próprio e o sticky fica relativo a ele (causa o "gap" visual).
+  //    Movendo pra fora, tanto topbar quanto ticker ficam ancorados
+  //    no mesmo scroll container (.main), sem gap.
+  // 2) Mede altura real da topbar e seta CSS var --v21-topbar-h pra
+  //    o ticker-tape sticky grudar logo abaixo.
   // ════════════════════════════════════════════════════════
   (function(){
+    // Job 1: mover ticker pra fora do .content
+    function moveTickerOutOfContent(){
+      try {
+        var ticker = document.getElementById('tickerTapeWrap');
+        var topbar = document.querySelector('.main > .topbar');
+        if (!ticker || !topbar) return;
+        // Se já está no lugar certo (irmão da topbar), não mexe
+        if (ticker.parentElement === topbar.parentElement &&
+            ticker.previousElementSibling === topbar) {
+          return;
+        }
+        // Insere logo depois da topbar
+        topbar.parentElement.insertBefore(ticker, topbar.nextSibling);
+        console.log('[v21 R35] ticker-tape movido pra fora do .content (irmão da topbar)');
+      } catch(e){
+        console.warn('[v21 R35] erro movendo ticker:', e);
+      }
+    }
+
+    // Job 2: medir altura da topbar
     function updateTopbarHeight(){
       try {
         var tb = document.querySelector('.topbar');
@@ -14424,20 +14437,26 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         }
       } catch(e){}
     }
-    // Roda no load e em cada resize
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', updateTopbarHeight);
-    } else {
+
+    function initAll(){
+      moveTickerOutOfContent();
       updateTopbarHeight();
     }
-    window.addEventListener('load', updateTopbarHeight);
+
+    // Roda no load e em cada resize
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initAll);
+    } else {
+      initAll();
+    }
+    window.addEventListener('load', initAll);
     window.addEventListener('resize', function(){
       // debounce simples
       if (window._v21TopbarResizeTimer) clearTimeout(window._v21TopbarResizeTimer);
       window._v21TopbarResizeTimer = setTimeout(updateTopbarHeight, 120);
     });
     // Fallback extra: roda 500ms após load (casos de fonte tardia)
-    setTimeout(updateTopbarHeight, 500);
+    setTimeout(initAll, 500);
     setTimeout(updateTopbarHeight, 1500);
   })();
 
