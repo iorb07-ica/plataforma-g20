@@ -3115,15 +3115,27 @@ body.pat-hidden #v3GaugeVal{opacity:0}
     border-radius: 7px;
     transition: width 0.6s ease;
   }
-  .v21-bench-bar-fill.you {
+  .v21-bench-bar-fill.voce {
     background: linear-gradient(90deg, #c9a961, #e8c766);
     box-shadow: 0 0 8px rgba(201,169,97,0.4);
   }
+  .v21-bench-bar-fill.cdi {
+    background: rgba(180,180,180,0.35);
+  }
+  .v21-bench-bar-fill.ibov {
+    background: linear-gradient(90deg, #3b82f6, #60a5fa);
+    box-shadow: 0 0 6px rgba(59,130,246,0.3);
+  }
+  .v21-bench-bar-fill.spx {
+    background: linear-gradient(90deg, #a78bfa, #c4b5fd);
+    box-shadow: 0 0 6px rgba(167,139,250,0.3);
+  }
   .v21-bench-bar-fill.other {
-    background: rgba(180,180,180,0.4);
+    background: rgba(180,180,180,0.35);
   }
   .v21-bench-bar-fill.negative {
-    background: rgba(248,113,113,0.5);
+    background: linear-gradient(90deg, #ef4444, #f87171);
+    box-shadow: 0 0 6px rgba(239,68,68,0.3);
   }
   .v21-bench-val {
     color: #ffffff;
@@ -6165,7 +6177,7 @@ window.G20Loader = (function(){
   var msg = document.getElementById('g20LoaderMsg');
   var hideTimer = null;
   var shownAt = Date.now();  // tempo que foi mostrado (já visível no boot)
-  var minDuration = 5000;    // 5s mínimo no boot — garante animação completa antes de esconder
+  var minDuration = 6000;    // 6s mínimo no boot — garante animação completa antes de esconder
   var deferredShow = null;   // timer pra showAfter
   var pendingHide = null;    // se hide foi chamado antes do minDuration, agenda
   var isHidden = false;      // flag: loader já escondeu?
@@ -6228,11 +6240,11 @@ window.G20Loader = (function(){
     }
   };
 })();
-// Esconde loader automaticamente 5.5s após tudo carregar (fallback defensivo)
+// Esconde loader automaticamente 7s após tudo carregar (fallback defensivo)
 window.addEventListener('load', function(){
   setTimeout(function(){
     if (window.G20Loader) window.G20Loader.hide();
-  }, 5500);
+  }, 7000);
 });
 
 // Carrega badge Infinity do cache imediatamente
@@ -11077,12 +11089,11 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         valEl.className = 'v21-bench-val ' + (val >= 0 ? 'up' : 'down');
         var pctWidth = Math.min(100, Math.abs(val) / (maxAbsRef || 1) * 100);
         barEl.style.width = pctWidth + '%';
+        // Cores: negativas sempre vermelhas, positivas por benchmark (you=dourado, cdi=cinza, ibov=azul, spx=roxo)
         if (val < 0) {
           barEl.className = 'v21-bench-bar-fill negative';
-        } else if (prefix === 'voce') {
-          barEl.className = 'v21-bench-bar-fill you';
         } else {
-          barEl.className = 'v21-bench-bar-fill other';
+          barEl.className = 'v21-bench-bar-fill ' + prefix;
         }
       }
 
@@ -13126,7 +13137,9 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       try { return localStorage.getItem('v21_movers_source') || 'gestao'; } catch(e){ return 'gestao'; }
     })(),
     ibovCache: null,        // { data: [...], loadedAt: ts }
-    ibovLoading: false
+    ibovLoading: false,
+    cg20Cache: null,        // { data: [...], loadedAt: ts }
+    cg20Loading: false
   };
 
   // Lista oficial dos tickers do IBOV (atualização trimestral; 85 tickers em 2026)
@@ -13166,6 +13179,60 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   }
   window.v21ToggleMoversSource = v21ToggleMoversSource;
 
+  // Busca cotações dos ativos da CG20 via proxy G20 Vercel (batch em paralelo)
+  // Lazy: só quando o usuário clica no filtro CG20
+  function v21FetchCG20Quotes(tickers, cb) {
+    if (V21Movers.cg20Loading) return;
+    V21Movers.cg20Loading = true;
+    console.log('%c[v21 cg20] → Buscando cotações de ' + tickers.length + ' tickers via proxy G20', 'color:#c9a961');
+
+    var PROXY = 'https://g20-proxy.vercel.app';
+    var results = {};
+    var promises = [];
+
+    tickers.forEach(function(t){
+      // BR: ticker 4-6 chars terminando em dígito (PETR4, ITUB4, TAEE11)
+      // US: ticker 1-5 chars sem dígito no fim (AAPL, PLD)
+      var isBR = /\d$/.test(t);
+      var sym = isBR ? t + '.SA' : t;
+      promises.push(
+        Promise.race([
+          fetch(PROXY + '/api/quote?symbol=' + encodeURIComponent(sym)),
+          new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('timeout')); }, 6000); })
+        ])
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if (d && typeof d.changePercent !== 'undefined') {
+            var pct = parseFloat(d.changePercent);
+            // Se changePercent não tiver, tenta calcular de change/previousClose
+            if (isNaN(pct) || pct === 0) {
+              if (typeof d.price === 'number' && typeof d.previousClose === 'number' && d.previousClose > 0) {
+                pct = ((d.price / d.previousClose) - 1) * 100;
+              }
+            }
+            if (!isNaN(pct)) results[t] = pct;
+          }
+        })
+        .catch(function(err){
+          // Silently ignora falhas de ticker individual (proxy pode não ter algum)
+        })
+      );
+    });
+
+    Promise.all(promises).then(function(){
+      V21Movers.cg20Loading = false;
+      var data = Object.keys(results).map(function(t){ return { t: t, p: results[t] }; });
+      if (data.length === 0) {
+        console.warn('%c[v21 cg20] ❌ Nenhuma cotação retornou', 'color:#e63946');
+        cb(null);
+        return;
+      }
+      V21Movers.cg20Cache = { data: data, loadedAt: Date.now() };
+      console.log('%c[v21 cg20] ✓ ' + data.length + '/' + tickers.length + ' cotações OK', 'color:#4ade80;font-weight:bold');
+      cb(data);
+    });
+  }
+
   // Busca IBOV via Yahoo Finance (lazy, só quando usuário escolhe IBOV)
   function v21FetchIbov(cb) {
     // Cache 10min
@@ -13178,9 +13245,30 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
     // Yahoo aceita vários tickers no mesmo fetch — até ~100 na URL
     var symbols = IBOV_TICKERS.map(function(t){ return t + '.SA'; }).join(',');
-    var url = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + encodeURIComponent(symbols);
-    // Tenta via allOrigins (contorna CORS). Fallback: corsproxy.io
-    var wrapped = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+    var yahooUrl = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + encodeURIComponent(symbols);
+
+    // Cascata de estratégias — a que funcionar primeiro retorna os dados:
+    // 1. allOrigins (CORS público — chamada única com todos os 85 tickers)
+    // 2. corsproxy.io (CORS público — chamada única)
+    // 3. Proxy G20 /api/quote em batch paralelo (85 chamadas — fallback mais lento mas confiável)
+    var estrategias = [
+      {
+        nome: 'allOrigins',
+        url: 'https://api.allorigins.win/raw?url=' + encodeURIComponent(yahooUrl),
+        parser: parseResponse,
+        tipo: 'single'
+      },
+      {
+        nome: 'corsproxy.io',
+        url: 'https://corsproxy.io/?' + encodeURIComponent(yahooUrl),
+        parser: parseResponse,
+        tipo: 'single'
+      },
+      {
+        nome: 'g20-proxy batch (85 chamadas)',
+        tipo: 'batch'  // estratégia especial: itera tickers um a um pelo proxy G20
+      }
+    ];
 
     function parseResponse(json) {
       try {
@@ -13218,38 +13306,97 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           }
         });
 
-        V21Movers.ibovCache = { data: data, loadedAt: Date.now(), pregaoTs: dataPregaoRef };
-        V21Movers.ibovLoading = false;
-        console.log('%c[v21 ibov] ✓ ' + data.length + ' tickers carregados do Yahoo (último pregão: ' +
-          (dataPregaoRef ? new Date(dataPregaoRef * 1000).toLocaleDateString('pt-BR') : 'desconhecido') +
-          ')', 'color:#4ade80;font-weight:bold');
-
         if (data.length === 0) {
           console.warn('[v21 ibov] 0 tickers válidos — possível problema com a resposta. Amostra:', quotes.slice(0,3));
+          return { ok: false, data: [] };
         }
-        cb(data);
+        console.log('[v21 ibov] parse OK: ' + data.length + ' tickers (último pregão: ' +
+          (dataPregaoRef ? new Date(dataPregaoRef * 1000).toLocaleDateString('pt-BR') : 'desconhecido') + ')');
+        return { ok: true, data: data, pregaoTs: dataPregaoRef };
       } catch(e) {
-        V21Movers.ibovLoading = false;
         console.warn('[v21 ibov] erro parse:', e);
-        cb(null);
+        return { ok: false, data: [] };
       }
     }
 
-    fetch(wrapped)
-      .then(function(r){ return r.json(); })
-      .then(parseResponse)
-      .catch(function(err){
-        console.warn('[v21 ibov] allOrigins falhou, tentando corsproxy.io:', err);
-        fetch('https://corsproxy.io/?' + encodeURIComponent(url))
+    // Tenta cada estratégia em cascata até uma retornar dados válidos
+    function tentaEstrategia(idx) {
+      if (idx >= estrategias.length) {
+        V21Movers.ibovLoading = false;
+        console.warn('%c[v21 ibov] ❌ TODAS as estratégias falharam', 'color:#e63946;font-weight:bold');
+        cb(null);
+        return;
+      }
+      var est = estrategias[idx];
+      console.log('%c[v21 ibov] → Tentando estratégia ' + (idx+1) + '/' + estrategias.length + ': ' + est.nome, 'color:#c9a961');
+
+      // Estratégia BATCH: faz 85 chamadas paralelas no proxy G20
+      if (est.tipo === 'batch') {
+        var PROXY = 'https://g20-proxy.vercel.app';
+        var results = {};
+        var promises = IBOV_TICKERS.map(function(t){
+          return Promise.race([
+            fetch(PROXY + '/api/quote?symbol=' + encodeURIComponent(t + '.SA')),
+            new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('timeout')); }, 8000); })
+          ])
           .then(function(r){ return r.json(); })
-          .then(parseResponse)
-          .catch(function(err2){
+          .then(function(d){
+            if (!d) return;
+            var pct = parseFloat(d.changePercent);
+            if (isNaN(pct) || pct === 0) {
+              if (typeof d.price === 'number' && typeof d.previousClose === 'number' && d.previousClose > 0) {
+                pct = ((d.price / d.previousClose) - 1) * 100;
+              }
+            }
+            if (!isNaN(pct)) results[t] = pct;
+          })
+          .catch(function(){});
+        });
+
+        Promise.all(promises).then(function(){
+          var data = Object.keys(results).map(function(t){ return { t: t, p: results[t] }; });
+          if (data.length === 0) {
+            console.warn('[v21 ibov] batch retornou 0 — nenhuma próxima estratégia disponível');
             V21Movers.ibovLoading = false;
-            console.warn('[v21 ibov] corsproxy também falhou:', err2);
             cb(null);
-          });
+            return;
+          }
+          V21Movers.ibovCache = { data: data, loadedAt: Date.now(), pregaoTs: null };
+          V21Movers.ibovLoading = false;
+          console.log('%c[v21 ibov] ✓ ' + data.length + '/' + IBOV_TICKERS.length + ' tickers via ' + est.nome, 'color:#4ade80;font-weight:bold');
+          cb(data);
+        });
+        return;
+      }
+
+      // Estratégia SINGLE: uma única chamada HTTP
+      Promise.race([
+        fetch(est.url),
+        new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('timeout 8s')); }, 8000); })
+      ])
+      .then(function(r){
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(json){
+        var result = est.parser(json);
+        if (result.ok) {
+          V21Movers.ibovCache = { data: result.data, loadedAt: Date.now(), pregaoTs: result.pregaoTs };
+          V21Movers.ibovLoading = false;
+          console.log('%c[v21 ibov] ✓ ' + result.data.length + ' tickers via ' + est.nome, 'color:#4ade80;font-weight:bold');
+          cb(result.data);
+        } else {
+          console.warn('[v21 ibov] ' + est.nome + ' retornou vazio, tentando próxima…');
+          tentaEstrategia(idx + 1);
+        }
+      })
+      .catch(function(err){
+        console.warn('[v21 ibov] ' + est.nome + ' falhou:', err.message);
+        tentaEstrategia(idx + 1);
       });
-  }
+    }
+
+    tentaEstrategia(0);
 
   function v21LoadMovers() {
     try {
@@ -13290,42 +13437,87 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       }
 
       // ═══ FONTE GP ou CG20: dados locais + cotações ═══
-      if (!window._dashRVCot) {
-        altasEl.innerHTML = '<div class="v21-movers-empty">Aguardando cotações…</div>';
-        baixasEl.innerHTML = '<div class="v21-movers-empty">Aguardando cotações…</div>';
+      // ═══ FONTE GP: usa _dashRVCot legacy (já populado pelo dashboard) ═══
+      if (src === 'gestao') {
+        if (!window._dashRVCot) {
+          altasEl.innerHTML = '<div class="v21-movers-empty">Aguardando cotações…</div>';
+          baixasEl.innerHTML = '<div class="v21-movers-empty">Aguardando cotações…</div>';
+          return;
+        }
+
+        var posGP = {};
+        try {
+          var apGP = JSON.parse(localStorage.getItem('g20_rvAportes') || '[]');
+          if (!Array.isArray(apGP)) apGP = [];
+          apGP.sort(function(a,b){ return (a.data||'').localeCompare(b.data||''); }).forEach(function(a){
+            if (!a || !a.ticker) return;
+            if (!posGP[a.ticker]) posGP[a.ticker] = { qtd: 0 };
+            posGP[a.ticker].qtd += (a.op === 'C' ? 1 : -1) * (a.qtd || 0);
+          });
+        } catch(e) {}
+
+        var tickersGP = Object.keys(window._dashRVCot)
+          .filter(function(t){ return posGP[t] && posGP[t].qtd > 0.001; })
+          .map(function(t){
+            var varPct = window._dashRVCot[t].varPct;
+            return { t: t, p: (typeof varPct === 'number' && !isNaN(varPct)) ? varPct : null };
+          })
+          .filter(function(x){ return x.p !== null; });
+
+        if (tickersGP.length === 0) {
+          altasEl.innerHTML = '<div class="v21-movers-empty">Sem posições na GP</div>';
+          baixasEl.innerHTML = '<div class="v21-movers-empty">Sem posições na GP</div>';
+          return;
+        }
+        _renderMovers(tickersGP, altasEl, baixasEl);
         return;
       }
 
-      var storageKey = src === 'cg20' ? 'g20_aportes' : 'g20_rvAportes';
-      var emptyLabel = src === 'cg20' ? 'CG20' : 'GP';
+      // ═══ FONTE CG20: busca cotações próprias via proxy G20 (lazy) ═══
+      if (src === 'cg20') {
+        // Calcula posições abertas da CG20
+        var posCG = {};
+        try {
+          var apCG = JSON.parse(localStorage.getItem('g20_aportes') || '[]');
+          if (!Array.isArray(apCG)) apCG = [];
+          apCG.sort(function(a,b){ return (a.data||'').localeCompare(b.data||''); }).forEach(function(a){
+            if (!a || !a.ticker) return;
+            if (!posCG[a.ticker]) posCG[a.ticker] = { qtd: 0 };
+            posCG[a.ticker].qtd += (a.op === 'C' ? 1 : -1) * (a.qtd || 0);
+          });
+        } catch(e) {}
 
-      // Calcula posições abertas
-      var pos = {};
-      try {
-        var aportes = JSON.parse(localStorage.getItem(storageKey) || '[]');
-        if (!Array.isArray(aportes)) aportes = [];
-        aportes.sort(function(a,b){ return (a.data||'').localeCompare(b.data||''); }).forEach(function(a){
-          if (!a || !a.ticker) return;
-          if (!pos[a.ticker]) pos[a.ticker] = { qtd: 0 };
-          pos[a.ticker].qtd += (a.op === 'C' ? 1 : -1) * (a.qtd || 0);
+        var tickersCG20 = Object.keys(posCG).filter(function(t){ return posCG[t].qtd > 0.001; });
+        if (tickersCG20.length === 0) {
+          altasEl.innerHTML = '<div class="v21-movers-empty">Sem posições na CG20</div>';
+          baixasEl.innerHTML = '<div class="v21-movers-empty">Sem posições na CG20</div>';
+          return;
+        }
+
+        // Cache 10min
+        if (V21Movers.cg20Cache && (Date.now() - V21Movers.cg20Cache.loadedAt) < 600000) {
+          _renderMovers(V21Movers.cg20Cache.data, altasEl, baixasEl);
+          return;
+        }
+
+        if (V21Movers.cg20Loading) {
+          altasEl.innerHTML = '<div class="v21-movers-empty">Buscando cotações da CG20…</div>';
+          baixasEl.innerHTML = '<div class="v21-movers-empty">Buscando cotações da CG20…</div>';
+          return;
+        }
+
+        altasEl.innerHTML = '<div class="v21-movers-empty">Buscando cotações da CG20…</div>';
+        baixasEl.innerHTML = '<div class="v21-movers-empty">Buscando cotações da CG20…</div>';
+        v21FetchCG20Quotes(tickersCG20, function(data){
+          if (!data || data.length === 0) {
+            altasEl.innerHTML = '<div class="v21-movers-empty">Não foi possível carregar cotações</div>';
+            baixasEl.innerHTML = '<div class="v21-movers-empty">Tente novamente em instantes</div>';
+            return;
+          }
+          _renderMovers(data, altasEl, baixasEl);
         });
-      } catch(e) {}
-
-      var tickers = Object.keys(window._dashRVCot)
-        .filter(function(t){ return pos[t] && pos[t].qtd > 0.001; })
-        .map(function(t){
-          var varPct = window._dashRVCot[t].varPct;
-          return { t: t, p: (typeof varPct === 'number' && !isNaN(varPct)) ? varPct : null };
-        })
-        .filter(function(x){ return x.p !== null; });
-
-      if (tickers.length === 0) {
-        altasEl.innerHTML = '<div class="v21-movers-empty">Sem posições na ' + emptyLabel + '</div>';
-        baixasEl.innerHTML = '<div class="v21-movers-empty">Sem posições na ' + emptyLabel + '</div>';
         return;
       }
-
-      _renderMovers(tickers, altasEl, baixasEl);
     } catch(e) {
       console.warn('[v21 movers]', e);
     }
@@ -13501,7 +13693,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     // ==================== INIT + RETRIES ====================
   function v21Init() {
     if (window.G20Loader) {
-      window.G20Loader.setMinDuration(5000);  // garante 5s mínimo de exibição no boot (visual bonito + tempo pra renderizar tudo)
+      window.G20Loader.setMinDuration(6000);  // 6s mínimo — garante visual bonito + todos os fetches terminando
       window.G20Loader.msg('Carregando seu dashboard G20…');
     }
     v21LoadHeader();
@@ -13637,7 +13829,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-21-R10 ▸ FIX CRÍTICO: V21C exportado pro window + cache LS dispara re-render', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-21-R12 ▸ Movers IBOV/CG20 via proxy G20 batch + bench barras coloridas', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // Hook: controlar visibilidade do pontinho vermelho do sino
   // Aparece apenas quando existe notificação não lida
