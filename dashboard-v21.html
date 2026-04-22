@@ -12926,16 +12926,27 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     v21InstallThemeToggle();
     if (window.lucide) lucide.createIcons();
 
-    // v2.3: Força re-importação de proventos (Statusinvest + B3 + Polygon)
-    v21ImportarProventos();
+    // R64: v21ImportarProventos SEMPRE dispara no boot (mesmo se algo acima falhar).
+    // Usa setTimeout pra sair do stack atual e blindar contra qualquer erro silencioso
+    // em funções anteriores que pudessem impedir a chamada.
+    setTimeout(function(){
+      try { v21ImportarProventos(); }
+      catch(e){ console.error('[v21 init] v21ImportarProventos falhou:', e); }
+    }, 1000);
   }
 
   // v2.3: Chama a função existente _importarTodosProventosBackground do dashboard
-  function v21ImportarProventos() {
+  function v21ImportarProventos(opts) {
+    opts = opts || {};
+    var isManual = opts.manual === true; // true = clique do usuário
     try {
-      var list = getEl('v21-agenda-list');
-      if (list) {
-        list.innerHTML = '<div class="v21-agenda-empty"><span style="color:#c9a961">⟳</span> Buscando proventos futuros no Statusinvest/B3/Polygon...<br><span style="font-size:10px;opacity:0.7">Isso pode levar 10-20 seg na primeira vez</span></div>';
+      // R64: só mostra "Buscando..." na UI se for refresh manual.
+      // No boot automático, mantém agenda com dados cacheados aparecendo.
+      if (isManual) {
+        var list = getEl('v21-agenda-list');
+        if (list) {
+          list.innerHTML = '<div class="v21-agenda-empty"><span style="color:#c9a961">⟳</span> Buscando proventos futuros no Statusinvest/B3/Polygon...<br><span style="font-size:10px;opacity:0.7">Isso pode levar 10-20 seg na primeira vez</span></div>';
+        }
       }
 
       if (typeof _importarTodosProventosBackground === 'function') {
@@ -13011,11 +13022,11 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     if (window.G20Loader) {
       window.G20Loader.showAfter('Atualizando proventos…', 1000);
     }
-    v21ImportarProventos();
+    v21ImportarProventos({ manual: true });
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-22-R63 ▸ Busca ⌘K: largura aumentada (560px → 720px, +28%), altura (70vh → 78vh), scrollbar customizada com tema dourado v21 (webkit-scrollbar + firefox thin scrollbar-color).', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-22-R64 ▸ FIX auto-import de proventos: v21ImportarProventos agora dispara SEMPRE no boot (via setTimeout blindado contra falhas anteriores). No modo automático, não mostra "Buscando..." na UI — mantém agenda com cache visível e atualiza silenciosamente quando o import termina. Manual: mostra loader como antes.', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // ════════════════════════════════════════════════════════
   // ETAPA 2E — META INDEPENDÊNCIA FINANCEIRA (R38)
