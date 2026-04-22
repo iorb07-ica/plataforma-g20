@@ -3038,7 +3038,7 @@ body.pat-hidden #v3GaugeVal{opacity:0}
     font-size: 18px;
   }
   .v21-rent-row.total .v21-rent-lbl {
-    color: #d4cdbf;
+    color: #c9a961;
     font-size: 14px;
     font-weight: 700;
     letter-spacing: 1px;
@@ -3147,7 +3147,7 @@ body.pat-hidden #v3GaugeVal{opacity:0}
     font-size: 18px;
   }
   .v21-bench-alpha-lbl {
-    color: #d4cdbf;
+    color: #c9a961;
     font-size: 14px;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -13504,13 +13504,27 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     // ETAPA 2C — gráficos: render ÚNICO 2s após init, quando dados já estabilizaram
     // (não entra na cascata de retries do v21RefreshAll pra evitar flicker)
     // v21-fix: pré-busca IBOV e S&P500 JÁ, em paralelo, pra chegarem antes do render
-    setTimeout(function(){
-      console.log('%c[v21] Pré-fetch histórico IBOV/S&P500 iniciando…', 'color:#c9a961');
-      if (window.G20Loader) window.G20Loader.msg('Buscando históricos de mercado…');
+
+    // DIAGNÓSTICO: verifica imediatamente se a função existe
+    console.log('%c[v21 init] Verificando v21FetchHistorico...', 'color:#c9a961;font-weight:bold');
+    console.log('  typeof v21FetchHistorico:', typeof v21FetchHistorico);
+    console.log('  window.V21C existe:', typeof window.V21C !== 'undefined');
+
+    // Dispara pré-fetch IMEDIATAMENTE (sem setTimeout 800ms)
+    (function disparaFetchAgora() {
       if (typeof v21FetchHistorico === 'function') {
-        v21FetchHistorico('ibov');
-        v21FetchHistorico('sp500');
+        console.log('%c[v21 init] → Disparando fetch IBOV agora', 'color:#4ade80;font-weight:bold');
+        try { v21FetchHistorico('ibov'); } catch(e) { console.error('[v21 init] erro fetch IBOV:', e); }
+        console.log('%c[v21 init] → Disparando fetch SP500 agora', 'color:#4ade80;font-weight:bold');
+        try { v21FetchHistorico('sp500'); } catch(e) { console.error('[v21 init] erro fetch SP500:', e); }
+      } else {
+        console.warn('%c[v21 init] ⚠ v21FetchHistorico NÃO ESTÁ DEFINIDA — agendando retry em 500ms', 'color:#e63946;font-weight:bold');
+        setTimeout(disparaFetchAgora, 500);
       }
+    })();
+
+    setTimeout(function(){
+      if (window.G20Loader) window.G20Loader.msg('Buscando históricos de mercado…');
     }, 800);
     setTimeout(function(){
       if (window.G20Loader) window.G20Loader.msg('Renderizando gráficos e análises…');
@@ -13613,7 +13627,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-21-BENCH-FIX ▸ Bench IBOV/SP500 independe de snapshots (usa histCache direto)', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-21-R9 ▸ Pré-fetch IMEDIATO + logs diagnóstico + TOTAL/ALPHA dourados', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // Hook: controlar visibilidade do pontinho vermelho do sino
   // Aparece apenas quando existe notificação não lida
