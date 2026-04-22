@@ -5856,24 +5856,26 @@ body.pat-hidden #v3GaugeVal{opacity:0}
     display: flex;
     flex-direction: column;
     gap: 4px;
-    overflow: hidden;
-  }
-  /* has-scroll: adicionada via JS quando mais de 5 ativos na lista */
-  .v21-movers-list.has-scroll {
+    /* Limita altura a 5 linhas exatas (cada linha ~47px: padding 7×2 + logo 32px + margem) */
+    max-height: 245px;
     overflow-y: auto;
     padding-right: 6px;
     margin-right: -6px;
     scrollbar-width: thin;
     scrollbar-color: rgba(201,169,97,0.35) rgba(201,169,97,0.05);
   }
-  .v21-movers-list.has-scroll::-webkit-scrollbar { width: 6px; }
-  .v21-movers-list.has-scroll::-webkit-scrollbar-track { background: rgba(201,169,97,0.04); border-radius: 3px; }
-  .v21-movers-list.has-scroll::-webkit-scrollbar-thumb {
+  .v21-movers-list::-webkit-scrollbar { width: 6px; }
+  .v21-movers-list::-webkit-scrollbar-track { background: rgba(201,169,97,0.04); border-radius: 3px; }
+  .v21-movers-list::-webkit-scrollbar-thumb {
     background: linear-gradient(180deg, #c9a961, #b89751);
     border-radius: 3px;
   }
-  .v21-movers-list.has-scroll::-webkit-scrollbar-thumb:hover {
+  .v21-movers-list::-webkit-scrollbar-thumb:hover {
     background: linear-gradient(180deg, #e8c766, #c9a961);
+  }
+  /* has-scroll: mantém compatibilidade com JS (legado) — mesma aparência */
+  .v21-movers-list.has-scroll {
+    overflow-y: auto;
   }
   .v21-movers-row {
     display: grid;
@@ -6491,8 +6493,8 @@ window.addEventListener('load', function(){
 
       <!-- CARD 3: VS BENCHMARKS -->
       <div class="v21-card">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-          <div class="v21-card-label">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+          <div class="v21-card-label" style="padding-top:2px">
             <i data-lucide="award"></i>vs Benchmarks
           </div>
           <div class="v21-bench-filters" id="v21-bench-filters">
@@ -6753,7 +6755,7 @@ window.addEventListener('load', function(){
       <!-- Card 1: Movers (TOP Altas / TOP Baixas) -->
       <div class="v21-card-2d v21-movers-card">
         <div class="v21-2d-head">
-          <h3 class="v21-2d-title"><span class="v21-2d-ico">🏆</span>MOVERS</h3>
+          <h3 class="v21-2d-title"><span class="v21-2d-ico">🏆</span>TOP 10 MOVERS</h3>
           <div style="display:flex;gap:6px;align-items:center;margin-left:auto">
             <span class="v21-2d-hint" id="v21-movers-hint" style="margin-right:4px">Hoje</span>
             <button class="v21-src-filter" onclick="v21ToggleMoversSource()" id="v21-movers-src-btn" title="Fonte: Gestão Patrimonial (clique pra alternar)">
@@ -13172,8 +13174,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     var hint = document.getElementById('v21-movers-hint');
     if (lbl) lbl.textContent = labels[V21Movers.source];
     if (btn) btn.title = titles[V21Movers.source];
-    // Hint inicial: mostra "Hoje" pra GP/CG20; IBOV atualiza depois com data do pregão
-    if (hint && V21Movers.source !== 'ibov') hint.textContent = 'Hoje';
+    // Hint sempre "Hoje" — visual consistente entre as 3 fontes
+    if (hint) hint.textContent = 'Hoje';
     console.log('[v21 movers] fonte alterada para:', V21Movers.source);
     v21LoadMovers();
   }
@@ -13526,26 +13528,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   window.v21LoadMovers = v21LoadMovers;
 
   // Atualiza o label "Hoje" / "Pregão DD/MM" baseado no timestamp do pregão IBOV
+  // _updateIbovHint: hoje desativado — hint fica sempre "Hoje" pra consistência visual
   function _updateIbovHint() {
     var hintEl = document.getElementById('v21-movers-hint');
-    if (!hintEl || !V21Movers.ibovCache) return;
-    var ts = V21Movers.ibovCache.pregaoTs;
-    if (!ts) { hintEl.textContent = 'IBOV'; return; }
-    var pregaoDate = new Date(ts * 1000);
-    var hoje = new Date();
-    // Mesmo dia calendário?
-    var isToday = pregaoDate.getFullYear() === hoje.getFullYear() &&
-                  pregaoDate.getMonth() === hoje.getMonth() &&
-                  pregaoDate.getDate() === hoje.getDate();
-    if (isToday) {
-      hintEl.textContent = 'Hoje';
-      hintEl.title = 'Variação do pregão de hoje';
-    } else {
-      var dd = String(pregaoDate.getDate()).padStart(2,'0');
-      var mm = String(pregaoDate.getMonth()+1).padStart(2,'0');
-      hintEl.textContent = 'Pregão ' + dd + '/' + mm;
-      hintEl.title = 'Bolsa fechada hoje — mostrando último pregão disponível (' + dd + '/' + mm + ')';
-    }
+    if (hintEl) hintEl.textContent = 'Hoje';
   }
 
   // Renderer compartilhado — recebe array de {t, p}, renderiza top 10 altas + top 10 baixas
@@ -13830,7 +13816,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-21-R13 ▸ Bench/Rent padronizados (17px linhas, 18px valores) + Alpha/Total margin-top auto pra alinhar bottom', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-21-R14 ▸ TOP 10 Movers + scroll 5 linhas + Hoje sempre + títulos alinhados top', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // Hook: controlar visibilidade do pontinho vermelho do sino
   // Aparece apenas quando existe notificação não lida
