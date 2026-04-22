@@ -6165,20 +6165,23 @@ window.G20Loader = (function(){
   var msg = document.getElementById('g20LoaderMsg');
   var hideTimer = null;
   var shownAt = Date.now();  // tempo que foi mostrado (já visível no boot)
-  var minDuration = 0;       // duração mínima em ms (0 = sem mínimo)
+  var minDuration = 5000;    // 5s mínimo no boot — garante animação completa antes de esconder
   var deferredShow = null;   // timer pra showAfter
+  var pendingHide = null;    // se hide foi chamado antes do minDuration, agenda
+  var isHidden = false;      // flag: loader já escondeu?
   return {
     show: function(text){
       if (!el) return;
       if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+      if (pendingHide) { clearTimeout(pendingHide); pendingHide = null; }
       if (deferredShow) { clearTimeout(deferredShow); deferredShow = null; }
       if (msg && text) msg.textContent = text;
       el.classList.remove('is-hiding');
       el.style.display = 'flex';
       shownAt = Date.now();
+      isHidden = false;
     },
     // Só mostra o loader se a operação demorar > threshold (padrão 1000ms)
-    // Uso: var tok = G20Loader.showAfter('Processando…', 1000); ... G20Loader.cancel(tok);
     showAfter: function(text, thresholdMs){
       var self = this;
       if (deferredShow) { clearTimeout(deferredShow); deferredShow = null; }
@@ -6192,16 +6195,27 @@ window.G20Loader = (function(){
     cancel: function(){
       if (deferredShow) { clearTimeout(deferredShow); deferredShow = null; }
     },
+    // NÃO reseta shownAt: o loader já tá visível desde o carregamento do script,
+    // duração deve contar a partir daí
     setMinDuration: function(ms){
       minDuration = ms || 0;
-      shownAt = Date.now();
+      console.log('%c[G20Loader] minDuration ajustado para ' + minDuration + 'ms (shownAt há ' + (Date.now() - shownAt) + 'ms)', 'color:#c9a961');
     },
     hide: function(){
-      if (!el) return;
+      if (!el || isHidden) return;
       if (deferredShow) { clearTimeout(deferredShow); deferredShow = null; }
+      // Se já tem hide pendente, ignora segunda chamada
+      if (pendingHide) {
+        console.log('[G20Loader] hide() já agendado, ignorando');
+        return;
+      }
       var elapsed = Date.now() - shownAt;
       var wait = Math.max(0, minDuration - elapsed);
-      setTimeout(function(){
+      console.log('%c[G20Loader] hide() chamado — elapsed=' + elapsed + 'ms, minDuration=' + minDuration + 'ms, aguardando ' + wait + 'ms antes de esconder', 'color:#e8c766');
+      pendingHide = setTimeout(function(){
+        pendingHide = null;
+        isHidden = true;
+        console.log('%c[G20Loader] ⏻ Escondendo agora (total exibido: ' + (Date.now() - shownAt) + 'ms)', 'color:#4ade80');
         el.classList.add('is-hiding');
         hideTimer = setTimeout(function(){
           el.style.display = 'none';
@@ -13550,7 +13564,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-21-R7 ▸ GP 36px + pill/sub 13px + IBOV/SP500 retry + logs defensivos', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-21-R8 ▸ Loader 5s GARANTIDO (minDuration default + logs + guards contra múltiplos hides)', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // Hook: controlar visibilidade do pontinho vermelho do sino
   // Aparece apenas quando existe notificação não lida
