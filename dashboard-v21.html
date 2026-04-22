@@ -3231,21 +3231,29 @@ body.pat-hidden .v21-change-extra::after{
     padding-top: 32px;
   }
   .v21-rent-row {
+    /* R51: 4 colunas — label | sparkline (1fr flexível) | R$ | % */
     display: grid;
-    grid-template-columns: 80px 1fr auto;
-    gap: 36px;
+    grid-template-columns: 70px 1fr auto auto;
+    gap: 14px;
     align-items: center;
     padding: 0;
     font-size: 17px;
     font-family: 'JetBrains Mono', monospace;
   }
+  .v21-rent-spark {
+    width: 100%;
+    height: 24px;
+    overflow: visible;
+    display: block;
+  }
+  .v21-rent-spark-placeholder { display: block; }
   .v21-rent-row:last-child {
     /* TOTAL usa .v21-rent-row.total pra border/padding — remove duplicação */
   }
   .v21-rent-lbl {
     color: #b8b0a4;
     font-weight: 700;
-    font-size: 16px;
+    font-size: 14px;
     text-transform: uppercase;
     letter-spacing: 1px;
   }
@@ -3253,9 +3261,10 @@ body.pat-hidden .v21-change-extra::after{
   .v21-rent-abs {
     color: #ffffff !important;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 18px;
+    font-size: 15px;
     font-weight: 700;
     text-align: right;
+    min-width: 95px;
   }
   .v21-rent-abs.up,
   .v21-rent-abs.down {
@@ -3263,9 +3272,9 @@ body.pat-hidden .v21-change-extra::after{
   }
   .v21-rent-pct {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 18px;
+    font-size: 15px;
     font-weight: 700;
-    min-width: 80px;
+    min-width: 72px;
     text-align: right;
   }
   .v21-rent-pct.up { color: #4ade80; }
@@ -3284,12 +3293,12 @@ body.pat-hidden .v21-change-extra::after{
     text-transform: uppercase;
   }
   .v21-rent-row.total .v21-rent-abs {
-    font-size: 20px;
+    font-size: 17px;
     color: #ffffff !important;
     font-weight: 700;
   }
   .v21-rent-row.total .v21-rent-pct {
-    font-size: 20px;
+    font-size: 17px;
     font-weight: 700;
   }
 
@@ -7400,31 +7409,37 @@ window.addEventListener('load', function(){
         <div class="v21-rent-list" id="v21-rent-list">
           <div class="v21-rent-row">
             <span class="v21-rent-lbl">Hoje</span>
+            <svg class="v21-rent-spark" id="v21-rent-hoje-spark" viewBox="0 0 100 24" preserveAspectRatio="none"></svg>
             <span class="v21-rent-abs" id="v21-rent-hoje-abs">—</span>
             <span class="v21-rent-pct" id="v21-rent-hoje-pct">—</span>
           </div>
           <div class="v21-rent-row">
             <span class="v21-rent-lbl">Semana</span>
+            <svg class="v21-rent-spark" id="v21-rent-semana-spark" viewBox="0 0 100 24" preserveAspectRatio="none"></svg>
             <span class="v21-rent-abs" id="v21-rent-semana-abs">—</span>
             <span class="v21-rent-pct" id="v21-rent-semana-pct">—</span>
           </div>
           <div class="v21-rent-row">
             <span class="v21-rent-lbl">Mês</span>
+            <svg class="v21-rent-spark" id="v21-rent-mes-spark" viewBox="0 0 100 24" preserveAspectRatio="none"></svg>
             <span class="v21-rent-abs" id="v21-rent-mes-abs">—</span>
             <span class="v21-rent-pct" id="v21-rent-mes-pct">—</span>
           </div>
           <div class="v21-rent-row">
             <span class="v21-rent-lbl">YTD</span>
+            <svg class="v21-rent-spark" id="v21-rent-ytd-spark" viewBox="0 0 100 24" preserveAspectRatio="none"></svg>
             <span class="v21-rent-abs" id="v21-rent-ytd-abs">—</span>
             <span class="v21-rent-pct" id="v21-rent-ytd-pct">—</span>
           </div>
           <div class="v21-rent-row">
             <span class="v21-rent-lbl">5A</span>
+            <svg class="v21-rent-spark" id="v21-rent-5a-spark" viewBox="0 0 100 24" preserveAspectRatio="none"></svg>
             <span class="v21-rent-abs" id="v21-rent-5a-abs">—</span>
             <span class="v21-rent-pct" id="v21-rent-5a-pct">—</span>
           </div>
           <div class="v21-rent-row total">
             <span class="v21-rent-lbl">Total</span>
+            <span class="v21-rent-spark-placeholder"></span>
             <span class="v21-rent-abs" id="v21-rent-total-abs">—</span>
             <span class="v21-rent-pct" id="v21-rent-total-pct">—</span>
           </div>
@@ -12087,6 +12102,52 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     return { abs: delta, pct: pct };
   }
 
+  // R51: Desenha sparkline SVG do slice snap[fromIdx..toIdx].
+  // pct é a variação do período (vermelho se negativo, verde se positivo).
+  function _v21Sparkline(svgId, snap, fromIdx, pct) {
+    var svg = document.getElementById(svgId);
+    if (!svg) return;
+
+    // Limpa
+    svg.innerHTML = '';
+
+    if (!snap || snap.length < 2 || fromIdx == null || fromIdx < 0) return;
+
+    var toIdx = snap.length - 1;
+    if (fromIdx >= toIdx) fromIdx = Math.max(0, toIdx - 1);
+
+    // Extrai série de patrimônio total (campo .t de cada snap)
+    var serie = [];
+    for (var i = fromIdx; i <= toIdx; i++) {
+      var v = snap[i] && snap[i].t ? snap[i].t : 0;
+      if (isFinite(v) && v > 0) serie.push(v);
+    }
+    if (serie.length < 2) return;
+
+    // Normaliza pra viewbox 100x24 (com 2px de margem vertical)
+    var min = Math.min.apply(null, serie);
+    var max = Math.max.apply(null, serie);
+    var range = (max - min) || 1;
+
+    var coords = serie.map(function(v, i){
+      var x = (i / (serie.length - 1)) * 100;
+      var y = 22 - ((v - min) / range) * 20;
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    });
+
+    // Cor baseada na variação
+    var cor = (pct >= 0) ? '#4ade80' : '#f87171';
+    var corBG = (pct >= 0) ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)';
+
+    // Monta área (polígono fechado no rodapé) + linha por cima
+    var areaPts = '0,24 ' + coords.join(' ') + ' 100,24';
+    var linePts = coords.join(' ');
+
+    svg.innerHTML =
+      '<polygon points="' + areaPts + '" fill="' + corBG + '"/>' +
+      '<polyline points="' + linePts + '" fill="none" stroke="' + cor + '" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>';
+  }
+
   function v21LoadRent() {
     try {
       var snap = [];
@@ -12139,6 +12200,18 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       setRow('ytd', ytd);
       setRow('5a', cincoA);
       setRow('total', total);
+
+      // R51: Sparklines — desenha linha do período até hoje em cada row.
+      // Calcula o índice de cada data no array de snaps.
+      function _idxFor(dateStr) {
+        var f = _v21SnapFromDate(snap, dateStr);
+        return f ? f.idx : 0;
+      }
+      _v21Sparkline('v21-rent-hoje-spark',   snap, _idxFor(hojeAlvo.toISOString().substring(0,10)),   hoje.pct);
+      _v21Sparkline('v21-rent-semana-spark', snap, _idxFor(semAlvo.toISOString().substring(0,10)),    semana.pct);
+      _v21Sparkline('v21-rent-mes-spark',    snap, _idxFor(mesAlvo.toISOString().substring(0,10)),    mes.pct);
+      _v21Sparkline('v21-rent-ytd-spark',    snap, _idxFor(hojeD.getFullYear() + '-01-01'),            ytd.pct);
+      _v21Sparkline('v21-rent-5a-spark',     snap, _idxFor(cincoAAlvo.toISOString().substring(0,10)), cincoA.pct);
     } catch(e) { console.warn('[v21] rent:', e); }
   }
 
@@ -15043,7 +15116,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-22-R50 ▸ Page header reestruturado: data+saudação num bloco vertical à esquerda + divider dourado vertical ALTO (2 linhas) + frase em 2 linhas ocupando toda altura (fonte 13→15px). Data fonte 10→11px. Meta IF: Meta mini desce (10→16px margin) + label 9→10px + valor 13→15px.', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-22-R51 ▸ Card Rentabilidade agora com SPARKLINES inline: cada linha (HOJE/SEMANA/MÊS/YTD/5A) tem mini-gráfico SVG mostrando trajetória do patrimônio naquele período. Cor dinâmica (verde/vermelho) + área suave. Layout grid 4 colunas: label | spark | R$ | %.', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // ════════════════════════════════════════════════════════
   // ETAPA 2E — META INDEPENDÊNCIA FINANCEIRA (R38)
