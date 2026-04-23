@@ -1615,6 +1615,7 @@ body.pat-hidden .v21-change-extra::after{
     border-right: 1px solid rgba(201,169,97,0.08) !important;
     box-shadow: 4px 0 32px rgba(0,0,0,0.4) !important;
     transition: width 0.4s cubic-bezier(.4,0,.2,1), min-width 0.4s cubic-bezier(.4,0,.2,1) !important;
+    overflow: hidden !important;
   }
 
   /* === SIDEBAR COLLAPSED === */
@@ -9344,91 +9345,31 @@ function csm(){ if(window.innerWidth<=768) closeSidebar(); }
 function toggleSidebarCollapse(){
   var sb=document.getElementById('sidebar');
   var main=document.querySelector('.main');
-  var collapsed=sb.classList.toggle('sidebar-collapsed');
-  document.body.classList.toggle('sidebar-collapsed', collapsed);
-  localStorage.setItem('g20_sidebar_collapsed', collapsed?'1':'0');
-  if(main){ main.style.marginLeft = ''; }
+  var DURATION=400;
 
-  // Animação dos ícones via JS — garante que CSS externo não interfere
-  // garantir que textos estão wrappados antes de animar
-  g20InitSidebarTexts();
-  var icos = sb.querySelectorAll('.nav-item .ico');
-  var texts = sb.querySelectorAll('.nav-item-text');
-  var labels = sb.querySelectorAll('.nav-label');
-
-  if(collapsed){
-    // RECOLHENDO — sequência exata da demo
-
-    // 1. Labels somem INSTANTANEAMENTE
-    labels.forEach(function(l){
-      l.style.transition = 'none';
-      l.style.opacity = '0';
-      l.style.visibility = 'hidden';
-      l.style.maxWidth = '0';
-      l.style.overflow = 'hidden';
-      l.style.padding = '0';
-    });
-
-    // 2. User text some rápido
-    var utxt = sb.querySelector('.user-info, .user-name-text, .utxt, [class*="user-info"]');
-    if(utxt){
-      utxt.style.transition = 'max-width 0.2s ease, opacity 0.15s ease';
-      utxt.style.maxWidth = '0';
-      utxt.style.opacity = '0';
-      utxt.style.overflow = 'hidden';
+  if(!sb.classList.contains('sidebar-collapsed')){
+    // RECOLHENDO: animar width primeiro, só depois adicionar classe
+    sb.style.transition='width '+DURATION+'ms cubic-bezier(.4,0,.2,1)';
+    sb.style.width='68px';
+    if(main){
+      main.style.transition='margin-left '+DURATION+'ms cubic-bezier(.4,0,.2,1)';
+      main.style.marginLeft='68px';
     }
-
-    // 3. Textos dos itens somem com fade
-    texts.forEach(function(t){
-      t.style.transition = 'max-width 0.25s ease, opacity 0.2s ease';
-      t.style.maxWidth = '0';
-      t.style.opacity = '0';
-      t.style.overflow = 'hidden';
-    });
-
-    // 4. Ícones crescem depois dos textos sumirem
     setTimeout(function(){
-      icos.forEach(function(ico){
-        ico.style.transition = 'font-size 0.35s cubic-bezier(.34,1.56,.64,1)';
-        ico.style.fontSize = '26px';
-      });
-    }, 200);
+      sb.style.width='';
+      sb.style.transition='';
+      if(main){ main.style.transition=''; main.style.marginLeft=''; }
+      sb.classList.add('sidebar-collapsed');
+      document.body.classList.add('sidebar-collapsed');
+      localStorage.setItem('g20_sidebar_collapsed','1');
+    }, DURATION);
 
   } else {
-    // EXPANDINDO — sequência exata da demo
-
-    // 1. Ícones diminuem
-    icos.forEach(function(ico){
-      ico.style.transition = 'font-size 0.3s cubic-bezier(.4,0,.2,1)';
-      ico.style.fontSize = '24px';
-    });
-
-    // 2. Textos aparecem com delay
-    setTimeout(function(){
-      texts.forEach(function(t){
-        t.style.transition = 'max-width 0.35s cubic-bezier(.4,0,.2,1), opacity 0.3s ease';
-        t.style.maxWidth = '160px';
-        t.style.opacity = '1';
-      });
-      var utxt = sb.querySelector('.user-info, .user-name-text, .utxt, [class*="user-info"]');
-      if(utxt){
-        utxt.style.transition = 'max-width 0.35s ease, opacity 0.3s ease';
-        utxt.style.maxWidth = '120px';
-        utxt.style.opacity = '1';
-      }
-    }, 120);
-
-    // 3. Labels aparecem por último
-    setTimeout(function(){
-      labels.forEach(function(l){
-        l.style.visibility = 'visible';
-        l.style.maxWidth = '';
-        l.style.overflow = '';
-        l.style.padding = '';
-        l.style.transition = 'opacity 0.25s ease';
-        l.style.opacity = '0.65';
-      });
-    }, 220);
+    // EXPANDINDO: remover classe imediatamente, textos aparecem com a sidebar abrindo
+    sb.classList.remove('sidebar-collapsed');
+    document.body.classList.remove('sidebar-collapsed');
+    localStorage.setItem('g20_sidebar_collapsed','0');
+    if(main){ main.style.marginLeft=''; }
   }
 }
 // Wrapper de textos da sidebar — roda imediatamente ao carregar
@@ -9442,14 +9383,7 @@ function g20InitSidebarTexts(){
         var span = document.createElement('span');
         span.className = 'nav-item-text';
         span.textContent = node.textContent;
-        if(isCollapsed){
-          span.style.maxWidth = '0';
-          span.style.opacity = '0';
-          span.style.overflow = 'hidden';
-        } else {
-          span.style.maxWidth = '160px';
-          span.style.opacity = '1';
-        }
+        span.style.whiteSpace = 'nowrap';
         item.replaceChild(span, node);
       }
     });
@@ -13578,7 +13512,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-23-R123 ▸ FIX definitivo proventos: (1) callback do import agora chama _provMarcarImportado() pra atualizar TTL (bug crítico — sem isso o TTL travava no tempo). (2) Auto-import disparado FORA do v21Init (blindado contra falhas anteriores). Deve aparecer no console: "[v21 boot] Auto-import de proventos (independente)" seguido de "[v21] Disparando importação..." e "[v21] TTL atualizado: 2026-04-22..."', 'color:#4ade80;font-weight:bold;font-size:13px');
+  console.log('%c[G20 v21] BUILD 2026-04-23-R126 ▸ FIX definitivo proventos: (1) callback do import agora chama _provMarcarImportado() pra atualizar TTL (bug crítico — sem isso o TTL travava no tempo). (2) Auto-import disparado FORA do v21Init (blindado contra falhas anteriores). Deve aparecer no console: "[v21 boot] Auto-import de proventos (independente)" seguido de "[v21] Disparando importação..." e "[v21] TTL atualizado: 2026-04-22..."', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // ════════════════════════════════════════════════════════
   // ETAPA 2E — META INDEPENDÊNCIA FINANCEIRA (R38)
@@ -14084,6 +14018,7 @@ html body nav#sidebar .nav-item .ico {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
+  transition: none !important;
 }
 html body nav#sidebar .nav-label {
   height: 30px !important;
@@ -14113,10 +14048,11 @@ html body.sidebar-collapsed nav#sidebar .nav-item {
   overflow: visible !important;
 }
 html body.sidebar-collapsed nav#sidebar .nav-item .ico {
-  font-size: 26px !important;
-  width: auto !important;
-  min-width: auto !important;
-  filter: saturate(1.5) brightness(1.15) !important;
+  font-size: 24px !important;
+  width: 30px !important;
+  min-width: 30px !important;
+  filter: saturate(1.4) brightness(1.1) !important;
+  transition: none !important;
 }
 html body.sidebar-collapsed nav#sidebar .nav-label {
   height: 30px !important;
