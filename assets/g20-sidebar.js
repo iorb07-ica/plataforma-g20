@@ -13,15 +13,15 @@
     if (isDesktop && saved !== '0') {
       earlyStyle = document.createElement('style');
       earlyStyle.id = 'g20-sidebar-early';
-      // earlyStyle: apenas width/margin para evitar flash de layout.
-      // NAO define nada em nav-item — o g20-sidebar-final no dashboard cuida disso.
       earlyStyle.textContent =
         '.sidebar{width:68px !important;transition:none !important}' +
         '.main{margin-left:68px !important;transition:none !important}' +
-        '.nav-label{visibility:hidden !important;opacity:0 !important}' +
+        '.nav-label{display:none !important}' +
         '.user-info,.user-edit-ico,.badge-infinity{display:none !important}' +
         '.sidebar-footer-links{display:none !important}' +
+        '.btn-logout{padding:10px 0 !important;justify-content:center !important;display:flex !important;align-items:center !important}' +
         '.btn-logout .logout-text{display:none !important}' +
+        '.btn-logout .logout-ico{display:inline-block !important;width:22px !important;height:22px !important}' +
         '.logo-ball-wrap{padding:16px 8px 14px !important}' +
         '.logo-ball{width:44px !important;height:44px !important}' +
         '.sidebar-user{justify-content:center !important;padding:14px 0 !important}';
@@ -32,12 +32,15 @@
   function aplicarEstado(){
     if (!isDesktop) return;
     var saved = localStorage.getItem(COLLAPSED_KEY);
+    var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
     if (saved !== '0') {
       document.body.classList.add('sidebar-collapsed');
+      if (sb) sb.classList.add('sidebar-collapsed');
     } else {
       document.body.classList.remove('sidebar-collapsed');
+      if (sb) sb.classList.remove('sidebar-collapsed');
     }
-    // Remove o style de emergência — agora body.sidebar-collapsed cuida de tudo
+    // Remove o style de emergência
     if (earlyStyle && earlyStyle.parentNode) {
       earlyStyle.parentNode.removeChild(earlyStyle);
       earlyStyle = null;
@@ -52,20 +55,20 @@
     btn.title = txt;
     btn.setAttribute('aria-label', txt);
   }
-  // Expor para o dashboard chamar após animar o toggle
-  window._g20AtualizarLegendaBtn = atualizarLegendaBtn;
 
-  // toggleSidebarCollapse é definido pelo dashboard-v21.html (com animação).
-  // O g20-sidebar.js NÃO sobrescreve — apenas define fallback se não existir.
+  // fallback — o dashboard define a versão animada antes deste script
   if (!window.toggleSidebarCollapse) {
     window.toggleSidebarCollapse = function(){
       if (window.innerWidth <= 768) return;
+      var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
       var collapsed = !document.body.classList.contains('sidebar-collapsed');
       try { localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0'); } catch(e) {}
       if (collapsed) {
         document.body.classList.add('sidebar-collapsed');
+        if (sb) sb.classList.add('sidebar-collapsed');
       } else {
         document.body.classList.remove('sidebar-collapsed');
+        if (sb) sb.classList.remove('sidebar-collapsed');
       }
       atualizarLegendaBtn();
     };
