@@ -17,7 +17,8 @@
       earlyStyle.id = 'g20-sidebar-early';
       earlyStyle.textContent =
         '.sidebar{width:68px !important;transition:none !important;overflow:visible !important}' +
-        '.main{margin-left:68px !important;transition:none !important}';
+        '.main{margin-left:68px !important;transition:none !important}' +
+        '.nav{overflow-x:hidden !important}';
       document.head.appendChild(earlyStyle);
     }
   } catch(e) {}
