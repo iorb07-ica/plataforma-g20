@@ -7,6 +7,8 @@
 
   // 1) Injeta <style> bloqueante ANTES do render para evitar qualquer flash.
   //    Se colapsada, sidebar=68px e main margin=68px SEM transição.
+  // earlyStyle: só fixa width/margin ANTES do render para evitar flash de layout
+  // Não toca em nav-items — o CSS do dashboard cuida disso
   var earlyStyle = null;
   try {
     var saved = localStorage.getItem(COLLAPSED_KEY);
@@ -14,22 +16,13 @@
       earlyStyle = document.createElement('style');
       earlyStyle.id = 'g20-sidebar-early';
       earlyStyle.textContent =
-        '.sidebar{width:68px !important;transition:none !important}' +
-        '.main{margin-left:68px !important;transition:none !important}' +
-        '.nav-label{display:none !important}' +
-        '.user-info,.user-edit-ico,.badge-infinity{display:none !important}' +
-        '.sidebar-footer-links{display:none !important}' +
-        '.btn-logout{padding:10px 0 !important;justify-content:center !important;display:flex !important;align-items:center !important}' +
-        '.btn-logout .logout-text{display:none !important}' +
-        '.btn-logout .logout-ico{display:inline-block !important;width:22px !important;height:22px !important}' +
-        '.logo-ball-wrap{padding:16px 8px 14px !important}' +
-        '.logo-ball{width:44px !important;height:44px !important}' +
-        '.sidebar-user{justify-content:center !important;padding:14px 0 !important}';
+        '.sidebar{width:68px !important;transition:none !important;overflow:visible !important}' +
+        '.main{margin-left:68px !important;transition:none !important}';
       document.head.appendChild(earlyStyle);
     }
   } catch(e) {}
 
-  function aplicarEstado(){
+    function aplicarEstado(){
     if (!isDesktop) return;
     var saved = localStorage.getItem(COLLAPSED_KEY);
     var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
@@ -40,7 +33,6 @@
       document.body.classList.remove('sidebar-collapsed');
       if (sb) sb.classList.remove('sidebar-collapsed');
     }
-    // Remove o style de emergência
     if (earlyStyle && earlyStyle.parentNode) {
       earlyStyle.parentNode.removeChild(earlyStyle);
       earlyStyle = null;
@@ -56,14 +48,14 @@
     btn.setAttribute('aria-label', txt);
   }
 
-  // fallback — o dashboard define a versão animada antes deste script
+  // dashboard define toggleSidebarCollapse — este é fallback para outras páginas
   if (!window.toggleSidebarCollapse) {
     window.toggleSidebarCollapse = function(){
       if (window.innerWidth <= 768) return;
       var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
-      var collapsed = !document.body.classList.contains('sidebar-collapsed');
-      try { localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0'); } catch(e) {}
-      if (collapsed) {
+      var collapsed = sb ? sb.classList.contains('sidebar-collapsed') : document.body.classList.contains('sidebar-collapsed');
+      try { localStorage.setItem(COLLAPSED_KEY, collapsed ? '0' : '1'); } catch(e) {}
+      if (!collapsed) {
         document.body.classList.add('sidebar-collapsed');
         if (sb) sb.classList.add('sidebar-collapsed');
       } else {
