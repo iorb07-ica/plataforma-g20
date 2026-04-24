@@ -18,7 +18,7 @@
         '.main{margin-left:68px !important;transition:none !important}' +
         '.nav-label{display:none !important}' +
         '.user-info,.user-edit-ico,.badge-infinity{display:none !important}' +
-        '.nav-item{justify-content:center !important;padding:12px 0 !important;font-size:0 !important}' +
+        '.nav-item{justify-content:center !important;padding:0 !important;height:46px !important;font-size:0 !important}' +
         '.nav-item span:not(.ico){display:none !important}' +
         '.nav-item .ico{font-size:20px !important}' +
         '.sidebar-footer-links{display:none !important}' +
@@ -55,18 +55,24 @@
     btn.title = txt;
     btn.setAttribute('aria-label', txt);
   }
+  // Expor para o dashboard chamar após animar o toggle
+  window._g20AtualizarLegendaBtn = atualizarLegendaBtn;
 
-  window.toggleSidebarCollapse = function(){
-    if (window.innerWidth <= 768) return;
-    var collapsed = !document.body.classList.contains('sidebar-collapsed');
-    try { localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0'); } catch(e) {}
-    if (collapsed) {
-      document.body.classList.add('sidebar-collapsed');
-    } else {
-      document.body.classList.remove('sidebar-collapsed');
-    }
-    atualizarLegendaBtn();
-  };
+  // toggleSidebarCollapse é definido pelo dashboard-v21.html (com animação).
+  // O g20-sidebar.js NÃO sobrescreve — apenas define fallback se não existir.
+  if (!window.toggleSidebarCollapse) {
+    window.toggleSidebarCollapse = function(){
+      if (window.innerWidth <= 768) return;
+      var collapsed = !document.body.classList.contains('sidebar-collapsed');
+      try { localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0'); } catch(e) {}
+      if (collapsed) {
+        document.body.classList.add('sidebar-collapsed');
+      } else {
+        document.body.classList.remove('sidebar-collapsed');
+      }
+      atualizarLegendaBtn();
+    };
+  }
 
   function injectCollapseBtn(){
     var sidebar = document.querySelector('.sidebar');
