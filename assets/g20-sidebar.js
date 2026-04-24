@@ -13,18 +13,15 @@
     if (isDesktop && saved !== '0') {
       earlyStyle = document.createElement('style');
       earlyStyle.id = 'g20-sidebar-early';
+      // earlyStyle: apenas width/margin para evitar flash de layout.
+      // NAO define nada em nav-item — o g20-sidebar-final no dashboard cuida disso.
       earlyStyle.textContent =
         '.sidebar{width:68px !important;transition:none !important}' +
         '.main{margin-left:68px !important;transition:none !important}' +
-        '.nav-label{display:none !important}' +
+        '.nav-label{visibility:hidden !important;opacity:0 !important}' +
         '.user-info,.user-edit-ico,.badge-infinity{display:none !important}' +
-        '.nav-item{justify-content:center !important;padding:0 !important;height:46px !important;font-size:0 !important}' +
-        '.nav-item span:not(.ico){display:none !important}' +
-        '.nav-item .ico{font-size:20px !important}' +
         '.sidebar-footer-links{display:none !important}' +
-        '.btn-logout{padding:10px 0 !important;justify-content:center !important;display:flex !important;align-items:center !important}' +
         '.btn-logout .logout-text{display:none !important}' +
-        '.btn-logout .logout-ico{display:inline-block !important;width:22px !important;height:22px !important}' +
         '.logo-ball-wrap{padding:16px 8px 14px !important}' +
         '.logo-ball{width:44px !important;height:44px !important}' +
         '.sidebar-user{justify-content:center !important;padding:14px 0 !important}';
