@@ -5,35 +5,59 @@
   var COLLAPSED_KEY = 'g20_sidebar_collapsed';
   var isDesktop = window.innerWidth > 768;
 
-  // 1) Injeta <style> bloqueante ANTES do render para evitar qualquer flash.
-  //    Se colapsada, sidebar=68px e main margin=68px SEM transição.
+  // 1) Aplicar estado collapsed o MAIS CEDO POSSÍVEL pra evitar flash.
+  //    - Adiciona classe no <html> (já existe quando o script roda)
+  //    - <body> ainda não existe nesse ponto, então usamos MutationObserver pra adicionar
+  //      a classe assim que ele aparecer no DOM.
+  //    - Injeta <style> com transition:none pra bloquear qualquer animação durante o boot.
   var earlyStyle = null;
-  try {
-    var saved = localStorage.getItem(COLLAPSED_KEY);
-    if (isDesktop && saved !== '0') {
+  var saved = null;
+  try { saved = localStorage.getItem(COLLAPSED_KEY); } catch(e) {}
+  var shouldCollapse = isDesktop && saved !== '0';
+
+  if (shouldCollapse) {
+    try {
+      // Adiciona classe no <html> (sempre disponível)
+      document.documentElement.classList.add('sidebar-collapsed');
+
+      // Tenta adicionar no body (pode ainda não existir)
+      if (document.body) {
+        document.body.classList.add('sidebar-collapsed');
+      } else {
+        // body ainda não existe — observa o DOM até ele aparecer
+        var bodyObs = new MutationObserver(function(mutations, obs){
+          if (document.body) {
+            document.body.classList.add('sidebar-collapsed');
+            obs.disconnect();
+          }
+        });
+        bodyObs.observe(document.documentElement, { childList: true });
+      }
+
+      // Style early — bloqueia transition durante o boot
       earlyStyle = document.createElement('style');
       earlyStyle.id = 'g20-sidebar-early';
-      // Apenas fixa largura — o restante é gerenciado pelo CSS via body.sidebar-collapsed.
-      // Nenhuma regra que mexa em nav-item, ícone ou padding aqui — evita salto no boot.
       earlyStyle.textContent =
-        '.sidebar{width:68px !important;transition:none !important}' +
-        '.main{margin-left:68px !important;transition:none !important}';
+        'html.sidebar-collapsed .sidebar,html.sidebar-collapsed .main{transition:none !important}' +
+        'body.sidebar-collapsed .sidebar,body.sidebar-collapsed .main{transition:none !important}';
       document.head.appendChild(earlyStyle);
-    }
-  } catch(e) {}
+    } catch(e) {}
+  }
 
   function aplicarEstado(){
     if (!isDesktop) return;
     var saved = localStorage.getItem(COLLAPSED_KEY);
     var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
     if (saved !== '0') {
+      document.documentElement.classList.add('sidebar-collapsed');
       document.body.classList.add('sidebar-collapsed');
       if (sb) sb.classList.add('sidebar-collapsed');
     } else {
+      document.documentElement.classList.remove('sidebar-collapsed');
       document.body.classList.remove('sidebar-collapsed');
       if (sb) sb.classList.remove('sidebar-collapsed');
     }
-    // Remove o style de emergência — agora body.sidebar-collapsed cuida de tudo
+    // Remove o style de emergência (bloqueava transitions no boot)
     if (earlyStyle && earlyStyle.parentNode) {
       earlyStyle.parentNode.removeChild(earlyStyle);
       earlyStyle = null;
@@ -57,9 +81,11 @@
       var collapsed = !document.body.classList.contains('sidebar-collapsed');
       try { localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0'); } catch(e) {}
       if (collapsed) {
+        document.documentElement.classList.add('sidebar-collapsed');
         document.body.classList.add('sidebar-collapsed');
         if (sb) sb.classList.add('sidebar-collapsed');
       } else {
+        document.documentElement.classList.remove('sidebar-collapsed');
         document.body.classList.remove('sidebar-collapsed');
         if (sb) sb.classList.remove('sidebar-collapsed');
       }
