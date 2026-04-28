@@ -266,6 +266,85 @@ a{text-decoration:none;color:inherit}
   letter-spacing:.5px;
 }
 
+/* Macro setores (visão zoom-out) */
+.cc-treemap-macro{
+  cursor:pointer;
+  transition:filter .2s ease, transform .2s ease;
+}
+.cc-treemap-macro:hover{
+  filter:brightness(1.15);
+}
+.cc-treemap-macro .macro-label{
+  font-size:18px;
+  font-weight:800;
+  letter-spacing:.8px;
+  fill:#fff;
+}
+.cc-treemap-macro .macro-meta{
+  font-size:11px;
+  fill:rgba(255,255,255,0.75);
+  font-weight:500;
+}
+.cc-treemap-macro .macro-pct{
+  font-size:24px;
+  font-weight:800;
+  fill:#fff;
+}
+.cc-treemap-macro.small .macro-label{font-size:13px}
+.cc-treemap-macro.small .macro-meta{font-size:9.5px}
+.cc-treemap-macro.small .macro-pct{font-size:16px}
+.cc-treemap-macro.tiny .macro-label{font-size:11px}
+.cc-treemap-macro.tiny .macro-meta{display:none}
+.cc-treemap-macro.tiny .macro-pct{font-size:13px}
+
+/* Header de drill-down */
+.cc-drill-header{
+  display:none;
+  align-items:center;
+  gap:14px;
+  padding:10px 14px;
+  background:rgba(201,169,97,0.08);
+  border:1px solid var(--gold-border);
+  border-radius:8px;
+  margin-bottom:10px;
+  font-family:'JetBrains Mono',monospace;
+}
+.cc-drill-header.active{display:flex}
+.cc-drill-back{
+  background:transparent;
+  color:var(--gold);
+  border:1px solid var(--gold-border);
+  border-radius:6px;
+  padding:6px 12px;
+  font-family:inherit;
+  font-size:12px;
+  font-weight:700;
+  cursor:pointer;
+  transition:background .15s
+}
+.cc-drill-back:hover{background:rgba(201,169,97,0.15)}
+.cc-drill-title{
+  flex:1;
+  display:flex;align-items:center;gap:12px;
+  font-size:13px;font-weight:700;
+  color:var(--text);letter-spacing:.5px
+}
+.cc-drill-title b{color:var(--gold);font-weight:800}
+.cc-drill-meta{
+  font-size:11px;color:var(--text2);font-weight:500;letter-spacing:.5px
+}
+
+/* Animação suave de transição zoom */
+.cc-heatmap svg.fading{
+  opacity:0;
+  transition:opacity .25s ease
+}
+.cc-heatmap svg.entering{
+  opacity:0;
+  animation:ccFadeIn .25s ease forwards
+}
+@keyframes ccFadeIn{to{opacity:1}}
+
 .cc-loading{
   display:flex;align-items:center;justify-content:center;
   min-height:260px;color:var(--text3);font-size:13px;
@@ -583,6 +662,15 @@ a{text-decoration:none;color:inherit}
           <span class="cc-legend-tile" style="background:#1a7d3f"></span>
           <span>+5%</span>
         </div>
+      </div>
+      <!-- Drill-down header (aparece só quando entra num setor do S&P) -->
+      <div class="cc-drill-header" id="ccDrillHeader">
+        <button class="cc-drill-back" id="ccDrillBack">← Voltar</button>
+        <div class="cc-drill-title">
+          <span>SETOR:</span>
+          <b id="ccDrillSector">–</b>
+        </div>
+        <div class="cc-drill-meta" id="ccDrillMeta">–</div>
       </div>
       <div class="cc-heatmap" id="ccHeatmap">
         <div class="cc-loading"><div class="cc-spin"></div>Carregando ativos…</div>
@@ -1571,11 +1659,28 @@ function renderTreemap(positions, quotes){
 // RENDER TREEMAP SETORIAL (estilo Finviz) — para S&P 500
 // Agrupa ativos por setor com headers, mantém squarify dentro
 // ════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════
+// RENDER TREEMAP SETORIAL — Macro + Drill-down
+// (usado APENAS pelo S&P 500)
+//
+// Modo MACRO (default): 11 tiles grandes dos setores
+//   - Tamanho proporcional ao peso oficial S&P
+//   - Cor pela média ponderada da variação do dia
+//   - Click abre drill-down
+//
+// Modo DRILL: ativos do setor escolhido
+//   - Cada tile = uma ação, tamanho pelo peso oficial
+//   - Tooltip mostra peso S&P + peso dentro do setor
+//   - Botão Voltar + click fora retornam pra macro
+// ════════════════════════════════════════════════════════
+var _ccCurrentSector = null;       // null = macro; nome do setor = drill-down
+var _ccLastSectorsData = null;     // dados dos setores guardados pra drill
+var _ccLastQuotes = null;
+
 function renderTreemapSectors(positions, quotes){
   var el = document.getElementById('ccHeatmap');
   if(!el) return;
 
-  // Filtra ativos com cotação E peso > 0
   var withData = positions.filter(function(p){
     return quotes[p.ticker] && p.peso > 0;
   });
@@ -1585,12 +1690,7 @@ function renderTreemapSectors(positions, quotes){
     return;
   }
 
-  el.innerHTML = '';
-  var width = el.clientWidth;
-  var height = el.clientHeight;
-  if(width <= 0 || height <= 0) return;
-
-  // Agrupa por setor — preserva o sector da posicao
+  // Agrupa por setor
   var setoresMap = {};
   withData.forEach(function(p){
     var setor = p.setor || 'OUTROS';
@@ -1599,137 +1699,322 @@ function renderTreemapSectors(positions, quotes){
       ticker: p.ticker,
       nome: quotes[p.ticker].nome || p.nome || p.ticker,
       setor: setor,
-      peso: p.peso,
+      pesoSP: p.peso,        // peso no S&P 500 inteiro
       chgPct: quotes[p.ticker].chgPct,
-      preco: quotes[p.ticker].preco,
-      value: p.peso
+      preco: quotes[p.ticker].preco
     });
   });
 
-  // Hierarchy estruturado: root → setores → ativos
-  var children = Object.keys(setoresMap).map(function(setor){
+  // Calcula totais e média ponderada por setor
+  var sectorsData = Object.keys(setoresMap).map(function(setor){
+    var ativos = setoresMap[setor];
+    var totalPeso = 0;
+    var weightedChg = 0;
+    ativos.forEach(function(a){
+      totalPeso += a.pesoSP;
+      weightedChg += a.pesoSP * (a.chgPct || 0);
+    });
+    var avgChg = totalPeso > 0 ? (weightedChg / totalPeso) : 0;
+    // adiciona peso dentro do setor a cada ativo
+    ativos.forEach(function(a){
+      a.pesoSetor = totalPeso > 0 ? (a.pesoSP / totalPeso) * 100 : 0;
+    });
     return {
-      name: setor,
-      children: setoresMap[setor]
+      setor: setor,
+      pesoTotal: totalPeso,
+      chgMedio: avgChg,
+      ativos: ativos
     };
   });
-  // Ordena setores por peso total desc
-  children.forEach(function(s){
-    s.totalPeso = s.children.reduce(function(sum, a){ return sum + a.peso; }, 0);
-  });
-  children.sort(function(a,b){ return b.totalPeso - a.totalPeso; });
+  sectorsData.sort(function(a,b){ return b.pesoTotal - a.pesoTotal; });
 
-  var data = { name: 'root', children: children };
+  // Guarda pro drill-down
+  _ccLastSectorsData = sectorsData;
+  _ccLastQuotes = quotes;
 
-  // Reservar espaço pra label do setor
-  var SECTOR_HEADER_PX = 18;
-
-  var root = d3.hierarchy(data)
-    .sum(function(d){ return d.value; })
-    .sort(function(a,b){ return b.value - a.value; });
-
-  d3.treemap()
-    .size([width, height])
-    .paddingOuter(2)
-    .paddingTop(SECTOR_HEADER_PX + 2)  // espaço pra header do setor
-    .paddingInner(2)
-    .tile(d3.treemapSquarify)
-    .round(true)(root);
-
-  var svg = d3.select(el).append('svg')
-    .attr('viewBox', '0 0 ' + width + ' ' + height)
-    .attr('preserveAspectRatio', 'none');
-
-  var tooltip = document.getElementById('ccTooltip');
-
-  // === Setor headers (parent nodes — depth=1) ===
-  var sectors = svg.selectAll('g.sector')
-    .data(root.children || [])
-    .enter()
-    .append('g')
-    .attr('class', 'cc-treemap-tile sector-header')
-    .attr('transform', function(d){ return 'translate(' + d.x0 + ',' + d.y0 + ')'; });
-
-  sectors.append('rect')
-    .attr('width', function(d){ return d.x1 - d.x0; })
-    .attr('height', function(d){ return d.y1 - d.y0; })
-    .attr('rx', 4);
-
-  // Label do setor (TOP)
-  sectors.append('text')
-    .attr('class', 'cc-sector-label')
-    .attr('x', 8)
-    .attr('y', 13)
-    .text(function(d){ return d.data.name; });
-
-  // Peso total do setor (lado direito do header)
-  sectors.append('text')
-    .attr('class', 'cc-sector-pct')
-    .attr('x', function(d){ return (d.x1 - d.x0) - 8; })
-    .attr('y', 13)
-    .attr('text-anchor', 'end')
-    .text(function(d){ return d.data.totalPeso.toFixed(2) + '%'; });
-
-  // === Ativos (folhas — depth=2) ===
-  var tiles = svg.selectAll('g.leaf')
-    .data(root.leaves())
-    .enter()
-    .append('g')
-    .attr('class', function(d){
-      var w = d.x1 - d.x0;
-      var h = d.y1 - d.y0;
-      if(w < 50 || h < 30) return 'cc-treemap-tile tiny';
-      if(w < 90 || h < 50) return 'cc-treemap-tile small';
-      return 'cc-treemap-tile';
-    })
-    .attr('transform', function(d){ return 'translate(' + d.x0 + ',' + d.y0 + ')'; });
-
-  tiles.append('rect')
-    .attr('width', function(d){ return d.x1 - d.x0; })
-    .attr('height', function(d){ return d.y1 - d.y0; })
-    .attr('fill', function(d){ return tileColor(d.data.chgPct); })
-    .attr('rx', 3);
-
-  tiles.append('text')
-    .attr('class', 'tile-ticker')
-    .attr('x', 8)
-    .attr('y', 22)
-    .text(function(d){ return d.data.ticker; });
-
-  tiles.append('text')
-    .attr('class', 'tile-pct')
-    .attr('x', 8)
-    .attr('y', function(d){ return (d.y1 - d.y0) - 8; })
-    .text(function(d){ return fmtPct(d.data.chgPct); });
-
-  // Tooltip on hover (mesma lógica do renderTreemap)
-  tiles
-    .on('mousemove', function(event, d){
-      if(!tooltip) return;
-      var chgClass = d.data.chgPct >= 0 ? 'up' : 'dn';
-      tooltip.innerHTML =
-        '<b>' + d.data.ticker + '</b> · ' + (d.data.nome || '') +
-        '<div class="tt-line">Setor: <b>' + (d.data.setor || '–') + '</b></div>' +
-        '<div class="tt-line">Peso S&P 500: <b>' + d.data.peso.toFixed(3) + '%</b></div>' +
-        '<div class="tt-line">Cotação: <b>' + (d.data.preco ? '$ ' + d.data.preco.toFixed(2) : '–') + '</b></div>' +
-        '<div class="tt-pct ' + chgClass + '">' + fmtPct(d.data.chgPct) + '</div>';
-      tooltip.style.display = 'block';
-      var rect = el.getBoundingClientRect();
-      var ttW = tooltip.offsetWidth || 240;
-      var ttH = tooltip.offsetHeight || 110;
-      var left = event.clientX - rect.left + 6;
-      var top  = event.clientY - rect.top  + 6;
-      if(left + ttW > rect.width)  left = event.clientX - rect.left - ttW - 6;
-      if(top  + ttH > rect.height) top  = event.clientY - rect.top  - ttH - 6;
-      if(left < 4) left = 4;
-      if(top  < 4) top  = 4;
-      tooltip.style.left = left + 'px';
-      tooltip.style.top  = top  + 'px';
-    })
-    .on('mouseleave', function(){
-      if(tooltip) tooltip.style.display = 'none';
-    });
+  // Roteamento: macro ou drill
+  if(_ccCurrentSector){
+    _renderDrillSector(_ccCurrentSector);
+  } else {
+    _renderMacroSectors(sectorsData);
+  }
 }
+
+function _renderMacroSectors(sectorsData){
+  var el = document.getElementById('ccHeatmap');
+  if(!el) return;
+
+  // Esconde header drill
+  var dh = document.getElementById('ccDrillHeader');
+  if(dh) dh.classList.remove('active');
+
+  // Fade-out anterior
+  var oldSvg = el.querySelector('svg');
+  if(oldSvg){ oldSvg.classList.add('fading'); }
+
+  setTimeout(function(){
+    el.innerHTML = '';
+    var width = el.clientWidth;
+    var height = el.clientHeight;
+    if(width <= 0 || height <= 0) return;
+
+    var data = {
+      name: 'root',
+      children: sectorsData.map(function(s){
+        return { name: s.setor, value: s.pesoTotal, sectorData: s };
+      })
+    };
+
+    var root = d3.hierarchy(data)
+      .sum(function(d){ return d.value; })
+      .sort(function(a,b){ return b.value - a.value; });
+
+    d3.treemap()
+      .size([width, height])
+      .paddingInner(3)
+      .tile(d3.treemapSquarify)
+      .round(true)(root);
+
+    var svg = d3.select(el).append('svg')
+      .attr('viewBox', '0 0 ' + width + ' ' + height)
+      .attr('preserveAspectRatio', 'none')
+      .classed('entering', true);
+
+    var tooltip = document.getElementById('ccTooltip');
+
+    var tiles = svg.selectAll('g')
+      .data(root.leaves())
+      .enter()
+      .append('g')
+      .attr('class', function(d){
+        var w = d.x1 - d.x0;
+        var h = d.y1 - d.y0;
+        if(w < 90 || h < 60) return 'cc-treemap-macro tiny';
+        if(w < 160 || h < 100) return 'cc-treemap-macro small';
+        return 'cc-treemap-macro';
+      })
+      .attr('transform', function(d){ return 'translate(' + d.x0 + ',' + d.y0 + ')'; })
+      .on('click', function(event, d){
+        _enterSector(d.data.name);
+      });
+
+    tiles.append('rect')
+      .attr('width', function(d){ return d.x1 - d.x0; })
+      .attr('height', function(d){ return d.y1 - d.y0; })
+      .attr('fill', function(d){ return tileColor(d.data.sectorData.chgMedio); })
+      .attr('rx', 6);
+
+    // Label do setor
+    tiles.append('text')
+      .attr('class', 'macro-label')
+      .attr('x', 14)
+      .attr('y', 28)
+      .text(function(d){ return d.data.name; });
+
+    // Meta (n ações · peso%)
+    tiles.append('text')
+      .attr('class', 'macro-meta')
+      .attr('x', 14)
+      .attr('y', 46)
+      .text(function(d){
+        var sd = d.data.sectorData;
+        return sd.ativos.length + ' ações · ' + sd.pesoTotal.toFixed(2) + '%';
+      });
+
+    // Variação média grande
+    tiles.append('text')
+      .attr('class', 'macro-pct')
+      .attr('x', 14)
+      .attr('y', function(d){ return (d.y1 - d.y0) - 14; })
+      .text(function(d){ return fmtPct(d.data.sectorData.chgMedio); });
+
+    // Tooltip rica com top 5 do setor
+    tiles
+      .on('mousemove', function(event, d){
+        if(!tooltip) return;
+        var sd = d.data.sectorData;
+        var chgClass = sd.chgMedio >= 0 ? 'up' : 'dn';
+        var top5 = sd.ativos.slice(0, 5);
+        var top5Html = top5.map(function(a){
+          var c = a.chgPct >= 0 ? 'up' : 'dn';
+          return '<div style="display:flex;justify-content:space-between;gap:14px;font-family:JetBrains Mono,monospace;font-size:10px;margin-top:2px">' +
+                 '<span><b>' + a.ticker + '</b> ' + a.pesoSP.toFixed(2) + '%</span>' +
+                 '<span class="tt-pct ' + c + '" style="font-size:10px;padding:0">' + fmtPct(a.chgPct) + '</span>' +
+                 '</div>';
+        }).join('');
+        tooltip.innerHTML =
+          '<b>' + d.data.name + '</b>' +
+          '<div class="tt-line">' + sd.ativos.length + ' ações · peso ' + sd.pesoTotal.toFixed(2) + '% do S&P 500</div>' +
+          '<div class="tt-pct ' + chgClass + '">' + fmtPct(sd.chgMedio) + ' (média ponderada)</div>' +
+          '<div class="tt-line" style="margin-top:8px;font-size:10px">Top 5 do setor:</div>' +
+          top5Html +
+          '<div class="tt-line" style="margin-top:8px;color:var(--gold);font-size:10px">→ click pra ver todos</div>';
+        tooltip.style.display = 'block';
+        var rect = el.getBoundingClientRect();
+        var ttW = tooltip.offsetWidth || 260;
+        var ttH = tooltip.offsetHeight || 200;
+        var left = event.clientX - rect.left + 6;
+        var top  = event.clientY - rect.top  + 6;
+        if(left + ttW > rect.width)  left = event.clientX - rect.left - ttW - 6;
+        if(top  + ttH > rect.height) top  = event.clientY - rect.top  - ttH - 6;
+        if(left < 4) left = 4;
+        if(top  < 4) top  = 4;
+        tooltip.style.left = left + 'px';
+        tooltip.style.top  = top  + 'px';
+      })
+      .on('mouseleave', function(){
+        if(tooltip) tooltip.style.display = 'none';
+      });
+  }, oldSvg ? 200 : 0);
+}
+
+function _enterSector(setorNome){
+  _ccCurrentSector = setorNome;
+  _renderDrillSector(setorNome);
+}
+
+function _exitSector(){
+  _ccCurrentSector = null;
+  if(_ccLastSectorsData){
+    _renderMacroSectors(_ccLastSectorsData);
+  }
+}
+
+function _renderDrillSector(setorNome){
+  var el = document.getElementById('ccHeatmap');
+  if(!el || !_ccLastSectorsData) return;
+
+  var sectorData = _ccLastSectorsData.find(function(s){ return s.setor === setorNome; });
+  if(!sectorData){ _exitSector(); return; }
+
+  // Mostra header drill
+  var dh = document.getElementById('ccDrillHeader');
+  var dhSector = document.getElementById('ccDrillSector');
+  var dhMeta = document.getElementById('ccDrillMeta');
+  if(dh) dh.classList.add('active');
+  if(dhSector) dhSector.textContent = setorNome;
+  if(dhMeta){
+    var c = sectorData.chgMedio >= 0 ? 'up' : 'dn';
+    dhMeta.innerHTML = sectorData.ativos.length + ' ações · ' + sectorData.pesoTotal.toFixed(2) + '% S&P · <span style="color:' + (c === 'up' ? 'var(--green)' : 'var(--red)') + ';font-weight:700">' + fmtPct(sectorData.chgMedio) + '</span>';
+  }
+
+  // Fade-out anterior
+  var oldSvg = el.querySelector('svg');
+  if(oldSvg){ oldSvg.classList.add('fading'); }
+
+  setTimeout(function(){
+    el.innerHTML = '';
+    var width = el.clientWidth;
+    var height = el.clientHeight;
+    if(width <= 0 || height <= 0) return;
+
+    var data = {
+      name: setorNome,
+      children: sectorData.ativos.map(function(a){
+        return { ticker: a.ticker, nome: a.nome, pesoSP: a.pesoSP, pesoSetor: a.pesoSetor,
+                 chgPct: a.chgPct, preco: a.preco, value: a.pesoSP };
+      })
+    };
+
+    var root = d3.hierarchy(data)
+      .sum(function(d){ return d.value; })
+      .sort(function(a,b){ return b.value - a.value; });
+
+    d3.treemap()
+      .size([width, height])
+      .paddingInner(2)
+      .tile(d3.treemapSquarify)
+      .round(true)(root);
+
+    var svg = d3.select(el).append('svg')
+      .attr('viewBox', '0 0 ' + width + ' ' + height)
+      .attr('preserveAspectRatio', 'none')
+      .classed('entering', true);
+
+    // Click fora dos tiles → volta
+    svg.on('click', function(event){
+      if(event.target.tagName === 'svg' || event.target === svg.node()){
+        _exitSector();
+      }
+    });
+
+    var tooltip = document.getElementById('ccTooltip');
+
+    var tiles = svg.selectAll('g')
+      .data(root.leaves())
+      .enter()
+      .append('g')
+      .attr('class', function(d){
+        var w = d.x1 - d.x0;
+        var h = d.y1 - d.y0;
+        if(w < 50 || h < 30) return 'cc-treemap-tile tiny';
+        if(w < 90 || h < 50) return 'cc-treemap-tile small';
+        return 'cc-treemap-tile';
+      })
+      .attr('transform', function(d){ return 'translate(' + d.x0 + ',' + d.y0 + ')'; });
+
+    tiles.append('rect')
+      .attr('width', function(d){ return d.x1 - d.x0; })
+      .attr('height', function(d){ return d.y1 - d.y0; })
+      .attr('fill', function(d){ return tileColor(d.data.chgPct); })
+      .attr('rx', 3);
+
+    tiles.append('text')
+      .attr('class', 'tile-ticker')
+      .attr('x', 8)
+      .attr('y', 22)
+      .text(function(d){ return d.data.ticker; });
+
+    tiles.append('text')
+      .attr('class', 'tile-peso')
+      .attr('x', 8)
+      .attr('y', 37)
+      .text(function(d){
+        return d.data.pesoSP.toFixed(2) + '% S&P · ' + d.data.pesoSetor.toFixed(1) + '% setor';
+      });
+
+    tiles.append('text')
+      .attr('class', 'tile-pct')
+      .attr('x', 8)
+      .attr('y', function(d){ return (d.y1 - d.y0) - 8; })
+      .text(function(d){ return fmtPct(d.data.chgPct); });
+
+    // Tooltip detalhada
+    tiles
+      .on('mousemove', function(event, d){
+        if(!tooltip) return;
+        var chgClass = d.data.chgPct >= 0 ? 'up' : 'dn';
+        tooltip.innerHTML =
+          '<b>' + d.data.ticker + '</b> · ' + (d.data.nome || '') +
+          '<div class="tt-line">Setor: <b>' + setorNome + '</b></div>' +
+          '<div class="tt-line">Peso S&P 500: <b>' + d.data.pesoSP.toFixed(3) + '%</b></div>' +
+          '<div class="tt-line">Peso no setor: <b>' + d.data.pesoSetor.toFixed(2) + '%</b></div>' +
+          '<div class="tt-line">Cotação: <b>' + (d.data.preco ? '$ ' + d.data.preco.toFixed(2) : '–') + '</b></div>' +
+          '<div class="tt-pct ' + chgClass + '">' + fmtPct(d.data.chgPct) + '</div>';
+        tooltip.style.display = 'block';
+        var rect = el.getBoundingClientRect();
+        var ttW = tooltip.offsetWidth || 260;
+        var ttH = tooltip.offsetHeight || 130;
+        var left = event.clientX - rect.left + 6;
+        var top  = event.clientY - rect.top  + 6;
+        if(left + ttW > rect.width)  left = event.clientX - rect.left - ttW - 6;
+        if(top  + ttH > rect.height) top  = event.clientY - rect.top  - ttH - 6;
+        if(left < 4) left = 4;
+        if(top  < 4) top  = 4;
+        tooltip.style.left = left + 'px';
+        tooltip.style.top  = top  + 'px';
+      })
+      .on('mouseleave', function(){
+        if(tooltip) tooltip.style.display = 'none';
+      });
+  }, oldSvg ? 200 : 0);
+}
+
+// Botão Voltar
+document.addEventListener('DOMContentLoaded', function(){
+  var btn = document.getElementById('ccDrillBack');
+  if(btn) btn.addEventListener('click', _exitSector);
+});
 
 // ════════════════════════════════════════════════════════
 // RENDER GAINERS / LOSERS
@@ -1776,6 +2061,10 @@ function renderGainersLosers(positions, quotes){
 // ════════════════════════════════════════════════════════
 function loadUniverse(uniKey){
   currentUniverse = uniKey;
+  // Reset drill-down quando troca de universo
+  _ccCurrentSector = null;
+  var dh = document.getElementById('ccDrillHeader');
+  if(dh) dh.classList.remove('active');
   var uni = UNIVERSES[uniKey];
   if(!uni) return;
 
@@ -2166,6 +2455,9 @@ document.querySelectorAll('.cc-pill').forEach(function(p){
 // ════════════════════════════════════════════════════════
 function init(){
   if (window.lucide && lucide.createIcons) lucide.createIcons();
+  // Bind do botão Voltar do drill-down
+  var ccBackBtn = document.getElementById('ccDrillBack');
+  if (ccBackBtn) ccBackBtn.addEventListener('click', _exitSector);
   atualizarSession();
   atualizarLiveTime();
   atualizarStatusBar();
