@@ -171,9 +171,9 @@ a{text-decoration:none;color:inherit}
   width:100%;
   height:520px;
   background:rgba(0,0,0,0.15);
-  border-radius:8px
+  border-radius:8px;
+  overflow:hidden
 }
-.cc-heatmap > svg{border-radius:8px;overflow:hidden}
 @media(max-width:1100px){.cc-heatmap{height:600px}}
 @media(max-width:768px){.cc-heatmap{height:700px}}
 
@@ -221,7 +221,7 @@ a{text-decoration:none;color:inherit}
 .cc-treemap-tile.tiny .tile-pct{display:none}
 
 .cc-treemap-tooltip{
-  position:absolute;
+  position:fixed;
   background:rgba(15,14,20,0.96);
   border:1px solid var(--gold-border);
   border-radius:8px;
@@ -230,7 +230,7 @@ a{text-decoration:none;color:inherit}
   font-size:11.5px;
   color:var(--text);
   pointer-events:none;
-  z-index:100;
+  z-index:9999;
   white-space:nowrap;
   box-shadow:0 8px 24px rgba(0,0,0,0.5);
   display:none
@@ -298,8 +298,8 @@ a{text-decoration:none;color:inherit}
   letter-spacing:-.3px;
 }
 .cc-treemap-tile .tile-pesos{
-  font-weight:500;
-  fill:rgba(255,255,255,0.55);
+  font-weight:600;
+  fill:rgba(255,255,255,0.78);
   letter-spacing:.3px;
 }
 .cc-treemap-tile .tile-pct-big{
@@ -818,8 +818,8 @@ a{text-decoration:none;color:inherit}
       </div>
       <div class="cc-heatmap" id="ccHeatmap">
         <div class="cc-loading"><div class="cc-spin"></div>Carregando ativos…</div>
-        <div class="cc-treemap-tooltip" id="ccTooltip"></div>
       </div>
+      <div class="cc-treemap-tooltip" id="ccTooltip"></div>
     </div>
 
     <!-- GAINERS / LOSERS -->
@@ -1817,28 +1817,30 @@ function _ccFontScale(w, h, scale, minPx, maxPx){
 }
 
 // Helper global: posiciona tooltip COLADO no mouse com flip inteligente nas bordas
+// Tooltip é position:fixed, então usamos clientX/Y direto (relativo à viewport)
 function _ccPositionTooltip(tooltip, el, event, offset){
-  if(!tooltip || !el) return;
+  if(!tooltip) return;
   offset = (offset === undefined) ? 4 : offset;
-  // Mede o tooltip JÁ RENDERIZADO (pra não cair no offsetWidth=0)
+  // Mede o tooltip JÁ RENDERIZADO (precisa display:block antes)
   var ttW = tooltip.offsetWidth;
   var ttH = tooltip.offsetHeight;
-  // Fallback razoável só se ainda 0 (primeira renderização)
-  if(!ttW) ttW = 200;
+  if(!ttW) ttW = 240;
   if(!ttH) ttH = 80;
 
-  var rect = el.getBoundingClientRect();
-  // Posição preferida: à direita + abaixo do mouse
-  var left = event.clientX - rect.left + offset;
-  var top  = event.clientY - rect.top  + offset;
+  var vpW = window.innerWidth;
+  var vpH = window.innerHeight;
 
-  // Flip horizontal se estourar a direita
-  if(left + ttW > rect.width - 4){
-    left = event.clientX - rect.left - ttW - offset;
+  // Posição preferida: à direita + abaixo do mouse (na viewport)
+  var left = event.clientX + offset;
+  var top  = event.clientY + offset;
+
+  // Flip horizontal se estourar a direita da viewport
+  if(left + ttW > vpW - 8){
+    left = event.clientX - ttW - offset;
   }
-  // Flip vertical se estourar embaixo
-  if(top + ttH > rect.height - 4){
-    top = event.clientY - rect.top - ttH - offset;
+  // Flip vertical se estourar embaixo da viewport
+  if(top + ttH > vpH - 8){
+    top = event.clientY - ttH - offset;
   }
   // Garantia: não vaza pela esquerda/topo
   if(left < 4) left = 4;
@@ -2177,14 +2179,15 @@ function _renderDrillSector(setorNome){
       })
       .attr('text-anchor', 'middle')
       .attr('font-size', function(d){
-        return _ccFontScale(d.x1-d.x0, d.y1-d.y0, 0.06, 7, 13) + 'px';
+        // Pesos entre 9px e 15px (aumentado pra ler melhor)
+        return _ccFontScale(d.x1-d.x0, d.y1-d.y0, 0.08, 9, 15) + 'px';
       })
       .attr('opacity', function(d){
         // Esconde pesos em tiles muito pequenos
-        return Math.min(d.x1-d.x0, d.y1-d.y0) < 55 ? 0 : 1;
+        return Math.min(d.x1-d.x0, d.y1-d.y0) < 65 ? 0 : 1;
       })
       .text(function(d){
-        return d.data.pesoSP.toFixed(2) + '% · ' + d.data.pesoSetor.toFixed(1) + '%';
+        return 'S&P ' + d.data.pesoSP.toFixed(2) + '% · setor ' + d.data.pesoSetor.toFixed(1) + '%';
       });
 
     // Variação % central — abaixo dos pesos
@@ -2194,7 +2197,7 @@ function _renderDrillSector(setorNome){
       .attr('y', function(d){
         var h = d.y1 - d.y0;
         var fsTicker = _ccFontScale(d.x1-d.x0, h, 0.28, 9, 56);
-        var hidePesos = Math.min(d.x1-d.x0, h) < 55;
+        var hidePesos = Math.min(d.x1-d.x0, h) < 65;
         // Se pesos escondidos, pct fica logo abaixo do ticker
         return hidePesos ? (h / 2 + fsTicker * 0.55) : (h / 2 + fsTicker * 1.05);
       })
