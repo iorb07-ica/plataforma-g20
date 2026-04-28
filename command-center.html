@@ -267,7 +267,7 @@ a{text-decoration:none;color:inherit}
   letter-spacing:.5px;
 }
 
-/* Macro setores (visão zoom-out) */
+/* Macro setores (visão zoom-out) — estilo Finviz */
 .cc-treemap-macro{
   cursor:pointer;
   transition:filter .2s ease, transform .2s ease;
@@ -276,27 +276,54 @@ a{text-decoration:none;color:inherit}
   filter:brightness(1.15);
 }
 .cc-treemap-macro .macro-label{
-  font-size:18px;
+  font-size:16px;
   font-weight:800;
-  letter-spacing:.8px;
+  letter-spacing:1.2px;
   fill:#fff;
 }
 .cc-treemap-macro .macro-meta{
-  font-size:11px;
-  fill:rgba(255,255,255,0.75);
+  font-size:10px;
+  fill:rgba(255,255,255,0.65);
   font-weight:500;
+  letter-spacing:.3px;
 }
 .cc-treemap-macro .macro-pct{
-  font-size:24px;
+  font-size:48px;
   font-weight:800;
   fill:#fff;
+  letter-spacing:-.5px;
 }
-.cc-treemap-macro.small .macro-label{font-size:13px}
-.cc-treemap-macro.small .macro-meta{font-size:9.5px}
-.cc-treemap-macro.small .macro-pct{font-size:16px}
-.cc-treemap-macro.tiny .macro-label{font-size:11px}
+.cc-treemap-macro.small .macro-label{font-size:13px;letter-spacing:.8px}
+.cc-treemap-macro.small .macro-meta{font-size:9px}
+.cc-treemap-macro.small .macro-pct{font-size:30px}
+.cc-treemap-macro.tiny .macro-label{font-size:11px;letter-spacing:.4px}
 .cc-treemap-macro.tiny .macro-meta{display:none}
-.cc-treemap-macro.tiny .macro-pct{font-size:13px}
+.cc-treemap-macro.tiny .macro-pct{font-size:18px}
+
+/* Drill-down (ações dentro do setor) — Finviz puro com pesos discretos */
+.cc-treemap-tile .tile-ticker-big{
+  font-size:30px;
+  font-weight:800;
+  fill:#fff;
+  letter-spacing:-.3px;
+}
+.cc-treemap-tile .tile-pesos{
+  font-size:9px;
+  font-weight:500;
+  fill:rgba(255,255,255,0.55);
+  letter-spacing:.3px;
+}
+.cc-treemap-tile .tile-pct-big{
+  font-size:18px;
+  font-weight:700;
+  fill:#fff;
+}
+.cc-treemap-tile.small .tile-ticker-big{font-size:20px}
+.cc-treemap-tile.small .tile-pesos{font-size:8px}
+.cc-treemap-tile.small .tile-pct-big{font-size:13px}
+.cc-treemap-tile.tiny .tile-ticker-big{font-size:13px;letter-spacing:0}
+.cc-treemap-tile.tiny .tile-pesos{display:none}
+.cc-treemap-tile.tiny .tile-pct-big{font-size:10px}
 
 /* Header de drill-down */
 .cc-drill-header{
@@ -1769,21 +1796,7 @@ function renderTreemap(positions, quotes){
         '<div class="tt-line">Cotação: <b>' + (d.data.preco ? fmtBRL(d.data.preco) : '–') + '</b></div>' +
         '<div class="tt-pct ' + chgClass + '">' + fmtPct(d.data.chgPct) + '</div>';
       tooltip.style.display = 'block';
-      var rect = el.getBoundingClientRect();
-      // Tooltip colado no mouse — offset menor (6px)
-      var ttW = tooltip.offsetWidth || 220;
-      var ttH = tooltip.offsetHeight || 90;
-      var left = event.clientX - rect.left + 6;
-      var top  = event.clientY - rect.top  + 6;
-      // Se estourar à direita, mostra à esquerda do mouse
-      if(left + ttW > rect.width)  left = event.clientX - rect.left - ttW - 6;
-      // Se estourar embaixo, mostra acima do mouse
-      if(top  + ttH > rect.height) top  = event.clientY - rect.top  - ttH - 6;
-      // Garante que não sai pelas bordas superior/esquerda
-      if(left < 4) left = 4;
-      if(top  < 4) top  = 4;
-      tooltip.style.left = left + 'px';
-      tooltip.style.top  = top  + 'px';
+      _ccPositionTooltip(tooltip, el, event, 4);
     })
     .on('mouseleave', function(){
       if(tooltip) tooltip.style.display = 'none';
@@ -1811,6 +1824,39 @@ function renderTreemap(positions, quotes){
 var _ccCurrentSector = null;       // null = macro; nome do setor = drill-down
 var _ccLastSectorsData = null;     // dados dos setores guardados pra drill
 var _ccLastQuotes = null;
+
+// Helper global: posiciona tooltip COLADO no mouse com flip inteligente nas bordas
+// Aceita offset configurável (padrão 4px) e respeita viewport
+function _ccPositionTooltip(tooltip, el, event, offset){
+  if(!tooltip || !el) return;
+  offset = (offset === undefined) ? 4 : offset;
+  // Mede o tooltip JÁ RENDERIZADO (pra não cair no offsetWidth=0)
+  var ttW = tooltip.offsetWidth;
+  var ttH = tooltip.offsetHeight;
+  // Fallback razoável só se ainda 0 (primeira renderização)
+  if(!ttW) ttW = 200;
+  if(!ttH) ttH = 80;
+
+  var rect = el.getBoundingClientRect();
+  // Posição preferida: à direita + abaixo do mouse
+  var left = event.clientX - rect.left + offset;
+  var top  = event.clientY - rect.top  + offset;
+
+  // Flip horizontal se estourar a direita
+  if(left + ttW > rect.width - 4){
+    left = event.clientX - rect.left - ttW - offset;
+  }
+  // Flip vertical se estourar embaixo
+  if(top + ttH > rect.height - 4){
+    top = event.clientY - rect.top - ttH - offset;
+  }
+  // Garantia: não vaza pela esquerda/topo
+  if(left < 4) left = 4;
+  if(top  < 4) top  = 4;
+
+  tooltip.style.left = left + 'px';
+  tooltip.style.top  = top  + 'px';
+}
 
 function renderTreemapSectors(positions, quotes){
   var el = document.getElementById('ccHeatmap');
@@ -1939,29 +1985,32 @@ function _renderMacroSectors(sectorsData){
       .attr('fill', function(d){ return tileColor(d.data.sectorData.chgMedio); })
       .attr('rx', 6);
 
-    // Label do setor
+    // Label do setor (TOPO, centralizado)
     tiles.append('text')
       .attr('class', 'macro-label')
-      .attr('x', 14)
+      .attr('x', function(d){ return (d.x1 - d.x0) / 2; })
       .attr('y', 28)
+      .attr('text-anchor', 'middle')
       .text(function(d){ return d.data.name; });
 
-    // Meta (n ações · peso%)
-    tiles.append('text')
-      .attr('class', 'macro-meta')
-      .attr('x', 14)
-      .attr('y', 46)
-      .text(function(d){
-        var sd = d.data.sectorData;
-        return sd.ativos.length + ' ações · ' + sd.pesoTotal.toFixed(2) + '%';
-      });
-
-    // Variação média grande
+    // Variação MEDIA PONDERADA — % GIGANTE no CENTRO do tile (estilo Finviz)
     tiles.append('text')
       .attr('class', 'macro-pct')
-      .attr('x', 14)
-      .attr('y', function(d){ return (d.y1 - d.y0) - 14; })
+      .attr('x', function(d){ return (d.x1 - d.x0) / 2; })
+      .attr('y', function(d){ return (d.y1 - d.y0) / 2 + 16; })
+      .attr('text-anchor', 'middle')
       .text(function(d){ return fmtPct(d.data.sectorData.chgMedio); });
+
+    // Meta (n ações · peso%) — RODAPÉ centralizado
+    tiles.append('text')
+      .attr('class', 'macro-meta')
+      .attr('x', function(d){ return (d.x1 - d.x0) / 2; })
+      .attr('y', function(d){ return (d.y1 - d.y0) - 14; })
+      .attr('text-anchor', 'middle')
+      .text(function(d){
+        var sd = d.data.sectorData;
+        return sd.ativos.length + ' ações · ' + sd.pesoTotal.toFixed(2) + '% S&P';
+      });
 
     // Tooltip rica com top 5 do setor
     tiles
@@ -1985,17 +2034,7 @@ function _renderMacroSectors(sectorsData){
           top5Html +
           '<div class="tt-line" style="margin-top:8px;color:var(--gold);font-size:10px">→ click pra ver todos</div>';
         tooltip.style.display = 'block';
-        var rect = el.getBoundingClientRect();
-        var ttW = tooltip.offsetWidth || 260;
-        var ttH = tooltip.offsetHeight || 200;
-        var left = event.clientX - rect.left + 6;
-        var top  = event.clientY - rect.top  + 6;
-        if(left + ttW > rect.width)  left = event.clientX - rect.left - ttW - 6;
-        if(top  + ttH > rect.height) top  = event.clientY - rect.top  - ttH - 6;
-        if(left < 4) left = 4;
-        if(top  < 4) top  = 4;
-        tooltip.style.left = left + 'px';
-        tooltip.style.top  = top  + 'px';
+        _ccPositionTooltip(tooltip, el, event, 4);
       })
       .on('mouseleave', function(){
         if(tooltip) tooltip.style.display = 'none';
@@ -2094,24 +2133,30 @@ function _renderDrillSector(setorNome){
       .attr('fill', function(d){ return tileColor(d.data.chgPct); })
       .attr('rx', 3);
 
+    // Ticker GIGANTE central (estilo Finviz)
     tiles.append('text')
-      .attr('class', 'tile-ticker')
-      .attr('x', 8)
-      .attr('y', 22)
+      .attr('class', 'tile-ticker-big')
+      .attr('x', function(d){ return (d.x1 - d.x0) / 2; })
+      .attr('y', function(d){ return (d.y1 - d.y0) / 2 - 4; })
+      .attr('text-anchor', 'middle')
       .text(function(d){ return d.data.ticker; });
 
+    // Pesos discretos (S&P + setor) abaixo do ticker
     tiles.append('text')
-      .attr('class', 'tile-peso')
-      .attr('x', 8)
-      .attr('y', 37)
+      .attr('class', 'tile-pesos')
+      .attr('x', function(d){ return (d.x1 - d.x0) / 2; })
+      .attr('y', function(d){ return (d.y1 - d.y0) / 2 + 12; })
+      .attr('text-anchor', 'middle')
       .text(function(d){
-        return d.data.pesoSP.toFixed(2) + '% S&P · ' + d.data.pesoSetor.toFixed(1) + '% setor';
+        return d.data.pesoSP.toFixed(2) + '% · ' + d.data.pesoSetor.toFixed(1) + '%';
       });
 
+    // Variação % central abaixo dos pesos
     tiles.append('text')
-      .attr('class', 'tile-pct')
-      .attr('x', 8)
-      .attr('y', function(d){ return (d.y1 - d.y0) - 8; })
+      .attr('class', 'tile-pct-big')
+      .attr('x', function(d){ return (d.x1 - d.x0) / 2; })
+      .attr('y', function(d){ return (d.y1 - d.y0) / 2 + 32; })
+      .attr('text-anchor', 'middle')
       .text(function(d){ return fmtPct(d.data.chgPct); });
 
     // Tooltip detalhada
@@ -2121,23 +2166,11 @@ function _renderDrillSector(setorNome){
         var chgClass = d.data.chgPct >= 0 ? 'up' : 'dn';
         tooltip.innerHTML =
           '<b>' + d.data.ticker + '</b> · ' + (d.data.nome || '') +
-          '<div class="tt-line">Setor: <b>' + setorNome + '</b></div>' +
-          '<div class="tt-line">Peso S&P 500: <b>' + d.data.pesoSP.toFixed(3) + '%</b></div>' +
-          '<div class="tt-line">Peso no setor: <b>' + d.data.pesoSetor.toFixed(2) + '%</b></div>' +
+          '<div class="tt-line">' + setorNome + ' · ' + d.data.pesoSP.toFixed(2) + '% S&P · ' + d.data.pesoSetor.toFixed(1) + '% setor</div>' +
           '<div class="tt-line">Cotação: <b>' + (d.data.preco ? '$ ' + d.data.preco.toFixed(2) : '–') + '</b></div>' +
           '<div class="tt-pct ' + chgClass + '">' + fmtPct(d.data.chgPct) + '</div>';
         tooltip.style.display = 'block';
-        var rect = el.getBoundingClientRect();
-        var ttW = tooltip.offsetWidth || 260;
-        var ttH = tooltip.offsetHeight || 130;
-        var left = event.clientX - rect.left + 6;
-        var top  = event.clientY - rect.top  + 6;
-        if(left + ttW > rect.width)  left = event.clientX - rect.left - ttW - 6;
-        if(top  + ttH > rect.height) top  = event.clientY - rect.top  - ttH - 6;
-        if(left < 4) left = 4;
-        if(top  < 4) top  = 4;
-        tooltip.style.left = left + 'px';
-        tooltip.style.top  = top  + 'px';
+        _ccPositionTooltip(tooltip, el, event, 4);
       })
       .on('mouseleave', function(){
         if(tooltip) tooltip.style.display = 'none';
