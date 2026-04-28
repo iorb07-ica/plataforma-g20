@@ -22,6 +22,7 @@
 <script src="assets/g20-sidebar.js?v=10"></script>
 <script src="assets/g20-search.js?v=10"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <style>
 :root{
   --bg:#1a191e;--bg2:#1f1e22;--bg3:#15141a;--bg-deep:#15141a;
@@ -165,39 +166,77 @@ a{text-decoration:none;color:inherit}
 }
 
 .cc-heatmap{
-  display:grid;grid-template-columns:repeat(6,1fr);gap:8px;
-  min-height:260px
+  position:relative;
+  width:100%;
+  height:520px;
+  background:rgba(0,0,0,0.15);
+  border-radius:8px;
+  overflow:hidden
 }
-@media(max-width:1100px){.cc-heatmap{grid-template-columns:repeat(4,1fr)}}
-@media(max-width:768px){.cc-heatmap{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:1100px){.cc-heatmap{height:600px}}
+@media(max-width:768px){.cc-heatmap{height:700px}}
 
-.cc-tile{
-  border-radius:8px;padding:14px 12px;
-  border:1px solid rgba(255,255,255,.05);
-  cursor:default;position:relative;overflow:hidden;
-  transition:transform .18s var(--ease),box-shadow .18s var(--ease);
-  display:flex;flex-direction:column;justify-content:space-between;
-  min-height:88px
+.cc-heatmap svg{display:block;width:100%;height:100%}
+
+/* Tile do treemap (criado via D3) */
+.cc-treemap-tile{
+  cursor:default;
+  transition:filter .15s ease;
 }
-.cc-tile:hover{
-  transform:translateY(-2px);
-  box-shadow:0 8px 20px rgba(0,0,0,.35);
-  border-color:rgba(201,169,97,.25);z-index:5
+.cc-treemap-tile:hover{
+  filter:brightness(1.18);
 }
-.cc-tile-ticker{
+.cc-treemap-tile rect{
+  stroke:rgba(0,0,0,0.3);
+  stroke-width:1;
+}
+.cc-treemap-tile text{
+  fill:#fff;
+  font-family:'JetBrains Mono','SF Mono',monospace;
+  font-weight:700;
+  pointer-events:none;
+  user-select:none;
+}
+.cc-treemap-tile .tile-ticker{
+  font-size:13px;
+  letter-spacing:.4px;
+}
+.cc-treemap-tile .tile-peso{
+  font-size:9.5px;
+  fill:rgba(255,255,255,0.65);
+  font-weight:500;
+}
+.cc-treemap-tile .tile-pct{
+  font-size:14px;
+  font-weight:700;
+}
+.cc-treemap-tile.small .tile-ticker{font-size:10px}
+.cc-treemap-tile.small .tile-peso{display:none}
+.cc-treemap-tile.small .tile-pct{font-size:9.5px}
+.cc-treemap-tile.tiny .tile-ticker{font-size:8px}
+.cc-treemap-tile.tiny .tile-peso{display:none}
+.cc-treemap-tile.tiny .tile-pct{display:none}
+
+.cc-treemap-tooltip{
+  position:absolute;
+  background:rgba(15,14,20,0.96);
+  border:1px solid var(--gold-border);
+  border-radius:8px;
+  padding:10px 14px;
   font-family:'JetBrains Mono',monospace;
-  font-size:13.5px;font-weight:700;color:#fff;
-  letter-spacing:.4px;line-height:1.1
+  font-size:11.5px;
+  color:var(--text);
+  pointer-events:none;
+  z-index:100;
+  white-space:nowrap;
+  box-shadow:0 8px 24px rgba(0,0,0,0.5);
+  display:none
 }
-.cc-tile-peso{
-  font-size:9.5px;color:rgba(255,255,255,.55);
-  font-weight:500;margin-top:1px;letter-spacing:.3px
-}
-.cc-tile-pct{
-  font-family:'JetBrains Mono',monospace;
-  font-size:18px;font-weight:700;color:#fff;
-  letter-spacing:.2px;line-height:1
-}
+.cc-treemap-tooltip b{color:var(--gold);font-weight:700}
+.cc-treemap-tooltip .tt-line{margin-top:4px;color:var(--text2)}
+.cc-treemap-tooltip .tt-pct{font-weight:700;font-size:13px;margin-top:6px}
+.cc-treemap-tooltip .tt-pct.up{color:var(--green)}
+.cc-treemap-tooltip .tt-pct.dn{color:var(--red)}
 
 .cc-loading{
   display:flex;align-items:center;justify-content:center;
@@ -490,7 +529,7 @@ a{text-decoration:none;color:inherit}
         <span class="pill-dot"></span>Gestão Patrimonial<span class="pill-count" id="cnt-gestao">–</span>
       </button>
       <button class="cc-pill" data-universe="ibov" role="tab">
-        <span class="pill-dot"></span>IBOV<span class="pill-count">Top 25</span>
+        <span class="pill-dot"></span>IBOV<span class="pill-count" id="cnt-ibov">83</span>
       </button>
       <button class="cc-pill" data-universe="sp500" role="tab">
         <span class="pill-dot"></span>S&P 500<span class="pill-count">Top 30</span>
@@ -502,7 +541,7 @@ a{text-decoration:none;color:inherit}
       <div class="cc-card-head">
         <div>
           <div class="cc-card-title">Heatmap — <b id="ccHeatmapUniverse">Carteira G20</b></div>
-          <div class="cc-card-sub">Variação do dia · Tamanho ponderado por peso na carteira</div>
+          <div class="cc-card-sub" id="ccHeatmapSub">Variação do dia · Tamanho proporcional ao peso na carteira</div>
         </div>
         <div class="cc-legend">
           <span class="cc-legend-tile" style="background:#7a1f24"></span>
@@ -520,6 +559,7 @@ a{text-decoration:none;color:inherit}
       <div class="cc-heatmap" id="ccHeatmap">
         <div class="cc-loading"><div class="cc-spin"></div>Carregando ativos…</div>
       </div>
+      <div class="cc-treemap-tooltip" id="ccTooltip"></div>
     </div>
 
     <!-- GAINERS / LOSERS -->
@@ -592,27 +632,125 @@ a{text-decoration:none;color:inherit}
 // ════════════════════════════════════════════════════════
 var PROXY_URL = 'https://g20-proxy.vercel.app';
 
+// ════════════════════════════════════════════════════════
+// IBOV — Carteira Teórica Oficial B3
+// Vigência: 05/01/2026 a 30/04/2026
+// Fonte: IBOVDia_28-04-26.csv (download oficial B3)
+// 83 ativos · soma 100,000% · pesos exatos da B3
+// PRÓXIMA ATUALIZAÇÃO: 05/05/2026 (carteira mai-ago/2026)
+// ════════════════════════════════════════════════════════
+var IBOV_CARTEIRA_DATA = '28/04/2026';
+var IBOV_CARTEIRA_VIGENCIA = 'jan-abr/2026';
+var IBOV_CARTEIRA = [
+  {ticker:'VALE3',nome:'VALE',peso:11.498},
+  {ticker:'ITUB4',nome:'ITAUUNIBANCO',peso:8.064},
+  {ticker:'PETR4',nome:'PETROBRAS',peso:7.617},
+  {ticker:'PETR3',nome:'PETROBRAS',peso:5.625},
+  {ticker:'AXIA3',nome:'AXIA ENERGIA',peso:4.43},
+  {ticker:'SBSP3',nome:'SABESP',peso:3.855},
+  {ticker:'BBDC4',nome:'BRADESCO',peso:3.673},
+  {ticker:'B3SA3',nome:'B3',peso:3.546},
+  {ticker:'BPAC11',nome:'BTGP BANCO',peso:3.099},
+  {ticker:'ITSA4',nome:'ITAUSA',peso:3.069},
+  {ticker:'WEGE3',nome:'WEG',peso:2.611},
+  {ticker:'BBAS3',nome:'BRASIL',peso:2.586},
+  {ticker:'EQTL3',nome:'EQUATORIAL',peso:2.367},
+  {ticker:'ABEV3',nome:'AMBEV S/A',peso:2.265},
+  {ticker:'RENT3',nome:'LOCALIZA',peso:2.025},
+  {ticker:'ELET3',nome:'ELETROBRAS',peso:1.857},
+  {ticker:'EMBR3',nome:'EMBRAER',peso:1.823},
+  {ticker:'PRIO3',nome:'PETRORIO',peso:1.629},
+  {ticker:'BBSE3',nome:'BBSEGURIDADE',peso:1.508},
+  {ticker:'SUZB3',nome:'SUZANO S.A.',peso:1.483},
+  {ticker:'RDOR3',nome:'REDE D OR',peso:1.433},
+  {ticker:'JBSS3',nome:'JBS',peso:1.43},
+  {ticker:'CMIG4',nome:'CEMIG',peso:1.286},
+  {ticker:'UGPA3',nome:'ULTRAPAR',peso:1.225},
+  {ticker:'ENEV3',nome:'ENEVA',peso:1.156},
+  {ticker:'VBBR3',nome:'VIBRA',peso:1.155},
+  {ticker:'CXSE3',nome:'CAIXA SEGURI',peso:1.014},
+  {ticker:'NTCO3',nome:'GRUPO NATURA',peso:1.001},
+  {ticker:'CPLE3',nome:'COPEL',peso:0.939},
+  {ticker:'KLBN11',nome:'KLABIN S/A',peso:0.937},
+  {ticker:'TIMS3',nome:'TIM',peso:0.93},
+  {ticker:'SANB11',nome:'SANTANDER BR',peso:0.928},
+  {ticker:'ELET6',nome:'ELETROBRAS',peso:0.892},
+  {ticker:'GGBR4',nome:'GERDAU',peso:0.86},
+  {ticker:'POMO4',nome:'MARCOPOLO',peso:0.812},
+  {ticker:'HAPV3',nome:'HAPVIDA',peso:0.799},
+  {ticker:'AURE3',nome:'AUREN ENERGIA',peso:0.74},
+  {ticker:'CRFB3',nome:'CARREFOUR BR',peso:0.737},
+  {ticker:'LREN3',nome:'LOJAS RENNER',peso:0.708},
+  {ticker:'MULT3',nome:'MULTIPLAN',peso:0.69},
+  {ticker:'CMIN3',nome:'CSNMINERACAO',peso:0.683},
+  {ticker:'CYRE3',nome:'CYRELA REALT',peso:0.673},
+  {ticker:'RADL3',nome:'RAIADROGASIL',peso:0.665},
+  {ticker:'TOTS3',nome:'TOTVS',peso:0.642},
+  {ticker:'RAIL3',nome:'RUMO S.A.',peso:0.638},
+  {ticker:'BRAV3',nome:'BRAVA',peso:0.632},
+  {ticker:'VIVT3',nome:'TELEF BRASIL',peso:0.624},
+  {ticker:'BRAP4',nome:'BRADESPAR',peso:0.62},
+  {ticker:'SMTO3',nome:'SAO MARTINHO',peso:0.572},
+  {ticker:'CSAN3',nome:'COSAN',peso:0.553},
+  {ticker:'ALOS3',nome:'ALLOS',peso:0.531},
+  {ticker:'ASAI3',nome:'ASSAI',peso:0.468},
+  {ticker:'TAEE11',nome:'TAESA',peso:0.464},
+  {ticker:'STBP3',nome:'SANTOS BRP',peso:0.441},
+  {ticker:'IGTI11',nome:'IGUATEMI S.A',peso:0.426},
+  {ticker:'BBDC3',nome:'BRADESCO',peso:0.41},
+  {ticker:'GOAU4',nome:'GERDAU MET',peso:0.391},
+  {ticker:'COGN3',nome:'COGNA ON',peso:0.354},
+  {ticker:'CSMG3',nome:'COPASA',peso:0.353},
+  {ticker:'ENGI11',nome:'ENERGISA',peso:0.331},
+  {ticker:'CSNA3',nome:'SID NACIONAL',peso:0.328},
+  {ticker:'ALPA4',nome:'ALPARGATAS',peso:0.291},
+  {ticker:'SLCE3',nome:'SLC AGRICOLA',peso:0.276},
+  {ticker:'POMO3',nome:'MARCOPOLO',peso:0.275},
+  {ticker:'PETZ3',nome:'PETZ',peso:0.246},
+  {ticker:'BHIA3',nome:'CASAS BAHIA',peso:0.235},
+  {ticker:'CVCB3',nome:'CVC BRASIL',peso:0.226},
+  {ticker:'AZZA3',nome:'AZZAS 2154',peso:0.222},
+  {ticker:'IRBR3',nome:'IRB(RE)',peso:0.219},
+  {ticker:'YDUQ3',nome:'YDUQS PART',peso:0.214},
+  {ticker:'MGLU3',nome:'MAGAZ LUIZA',peso:0.205},
+  {ticker:'EZTC3',nome:'EZTEC',peso:0.187},
+  {ticker:'MOTV3',nome:'MOTIVA',peso:0.181},
+  {ticker:'RAIZ4',nome:'RAIZEN',peso:0.179},
+  {ticker:'USIM5',nome:'USIMINAS',peso:0.151},
+  {ticker:'BRFS3',nome:'BRF SA',peso:0.146},
+  {ticker:'FLRY3',nome:'FLEURY',peso:0.135},
+  {ticker:'VIVA3',nome:'VIVARA S.A.',peso:0.114},
+  {ticker:'CPFE3',nome:'CPFL ENERGIA',peso:0.106},
+  {ticker:'YDUQ3',nome:'YDUQS PART',peso:0.096},
+  {ticker:'BRKM5',nome:'BRASKEM',peso:0.082},
+  {ticker:'VAMO3',nome:'VAMOS',peso:0.067},
+  {ticker:'RENT4',nome:'LOCALIZA',peso:0.063},
+  {ticker:'BEEF3',nome:'MINERVA',peso:0.063},
+  {ticker:'CYRE4',nome:'CYRELA REALT',peso:0.04}
+];
+
 // Universos pré-definidos
 var UNIVERSES = {
   'carteira-g20': {
     label: 'Carteira G20',
     storageKey: 'g20_aportes',
-    isUS: false,  // mistura BR + US, decidido por ticker
-    fallback: []  // se vazio, usa fallback
+    isUS: false,
+    fallback: [],
+    composicao: null  // calculada do localStorage
   },
   'gestao': {
     label: 'Gestão Patrimonial',
     storageKey: 'g20_rvAportes',
     isUS: false,
-    fallback: []
+    fallback: [],
+    composicao: null
   },
   'ibov': {
-    label: 'IBOV Top 25',
+    label: 'IBOV Top 25',  // sobrescrito ao carregar
     storageKey: null,
     isUS: false,
-    fallback: ['PETR4','VALE3','ITUB4','BBAS3','BBDC4','ABEV3','WEGE3','B3SA3','RENT3','SUZB3',
-               'JBSS3','MGLU3','LREN3','RADL3','HAPV3','PRIO3','EMBR3','GGBR4','CSAN3','BRFS3',
-               'TOTS3','EQTL3','CCRO3','RAIL3','ELET3']
+    fallback: [],
+    composicao: IBOV_CARTEIRA  // pesos OFICIAIS da B3
   },
   'sp500': {
     label: 'S&P 500 Top 30',
@@ -620,7 +758,8 @@ var UNIVERSES = {
     isUS: true,
     fallback: ['AAPL','MSFT','NVDA','GOOGL','AMZN','META','TSLA','BRK.B','LLY','AVGO',
                'V','JPM','WMT','XOM','UNH','MA','PG','JNJ','HD','COST',
-               'ORCL','BAC','MRK','ABBV','CVX','KO','AMD','PEP','CRM','TMO']
+               'ORCL','BAC','MRK','ABBV','CVX','KO','AMD','PEP','CRM','TMO'],
+    composicao: null
   }
 };
 
@@ -757,36 +896,128 @@ function fetchQuotes(tickers){
 }
 
 // ════════════════════════════════════════════════════════
-// RENDER HEATMAP
+// RENDER TREEMAP — Squarified D3
+// Cada tile com ÁREA proporcional ao peso (não só ordenação)
 // ════════════════════════════════════════════════════════
-function renderHeatmap(positions, quotes){
+function renderTreemap(positions, quotes){
   var el = document.getElementById('ccHeatmap');
   if(!el) return;
 
-  // Filtra só posições com cotação
-  var withQuotes = positions.filter(function(p){ return quotes[p.ticker]; });
+  // Filtra só posições com cotação E com peso > 0
+  var withData = positions.filter(function(p){
+    return quotes[p.ticker] && p.peso !== null && p.peso !== undefined && p.peso > 0;
+  });
 
-  if(withQuotes.length === 0){
+  if(withData.length === 0){
     el.innerHTML = '<div class="cc-empty">Nenhum ativo encontrado neste universo. Adicione aportes na Carteira G20 ou Gestão Patrimonial.</div>';
     return;
   }
 
-  // Limita ao top 24 por peso (cabe em 6x4)
-  var top = withQuotes.slice(0, 24);
+  // Limpa o container
+  el.innerHTML = '';
 
-  el.innerHTML = top.map(function(p){
-    var q = quotes[p.ticker];
-    var bg = tileColor(q.chgPct);
-    var pesoTxt = p.peso ? ('peso ' + p.peso.toFixed(1) + '%') : '—';
-    var pctTxt = fmtPct(q.chgPct);
-    return '<div class="cc-tile" style="background:'+bg+'" title="'+p.ticker+' · '+(q.nome||'')+'">' +
-           '<div>' +
-           '<div class="cc-tile-ticker">'+p.ticker+'</div>' +
-           '<div class="cc-tile-peso">'+pesoTxt+'</div>' +
-           '</div>' +
-           '<div class="cc-tile-pct">'+pctTxt+'</div>' +
-           '</div>';
-  }).join('');
+  var width = el.clientWidth;
+  var height = el.clientHeight;
+  if(width <= 0 || height <= 0) return;
+
+  // Hierarchy pro D3
+  var data = {
+    name: 'root',
+    children: withData.map(function(p){
+      return {
+        ticker: p.ticker,
+        nome: quotes[p.ticker].nome || p.ticker,
+        peso: p.peso,
+        chgPct: quotes[p.ticker].chgPct,
+        preco: quotes[p.ticker].preco,
+        value: p.peso  // valor pro treemap = peso
+      };
+    })
+  };
+
+  var root = d3.hierarchy(data)
+    .sum(function(d){ return d.value; })
+    .sort(function(a,b){ return b.value - a.value; });
+
+  d3.treemap()
+    .size([width, height])
+    .padding(2)
+    .tile(d3.treemapSquarify)
+    .round(true)(root);
+
+  // Cria SVG
+  var svg = d3.select(el).append('svg')
+    .attr('viewBox', '0 0 ' + width + ' ' + height)
+    .attr('preserveAspectRatio', 'none');
+
+  // Tooltip element
+  var tooltip = document.getElementById('ccTooltip');
+
+  // Cria os tiles
+  var tiles = svg.selectAll('g')
+    .data(root.leaves())
+    .enter()
+    .append('g')
+    .attr('class', function(d){
+      var w = d.x1 - d.x0;
+      var h = d.y1 - d.y0;
+      if(w < 50 || h < 30) return 'cc-treemap-tile tiny';
+      if(w < 90 || h < 50) return 'cc-treemap-tile small';
+      return 'cc-treemap-tile';
+    })
+    .attr('transform', function(d){ return 'translate(' + d.x0 + ',' + d.y0 + ')'; });
+
+  // Retângulo
+  tiles.append('rect')
+    .attr('width', function(d){ return d.x1 - d.x0; })
+    .attr('height', function(d){ return d.y1 - d.y0; })
+    .attr('fill', function(d){ return tileColor(d.data.chgPct); })
+    .attr('rx', 3);
+
+  // Texto: ticker (no topo esquerdo)
+  tiles.append('text')
+    .attr('class', 'tile-ticker')
+    .attr('x', 8)
+    .attr('y', 18)
+    .text(function(d){ return d.data.ticker; });
+
+  // Texto: peso (logo abaixo do ticker)
+  tiles.append('text')
+    .attr('class', 'tile-peso')
+    .attr('x', 8)
+    .attr('y', 31)
+    .text(function(d){ return 'peso ' + d.data.peso.toFixed(2) + '%'; });
+
+  // Texto: variação (no canto inferior esquerdo)
+  tiles.append('text')
+    .attr('class', 'tile-pct')
+    .attr('x', 8)
+    .attr('y', function(d){ return (d.y1 - d.y0) - 8; })
+    .text(function(d){ return fmtPct(d.data.chgPct); });
+
+  // Tooltip on hover
+  tiles
+    .on('mousemove', function(event, d){
+      if(!tooltip) return;
+      var chgClass = d.data.chgPct >= 0 ? 'up' : 'dn';
+      tooltip.innerHTML =
+        '<b>' + d.data.ticker + '</b> · ' + (d.data.nome || '') +
+        '<div class="tt-line">Peso na carteira: <b>' + d.data.peso.toFixed(3) + '%</b></div>' +
+        '<div class="tt-line">Cotação: <b>' + (d.data.preco ? fmtBRL(d.data.preco) : '–') + '</b></div>' +
+        '<div class="tt-pct ' + chgClass + '">' + fmtPct(d.data.chgPct) + '</div>';
+      tooltip.style.display = 'block';
+      var rect = el.getBoundingClientRect();
+      var left = event.clientX - rect.left + 14;
+      var top = event.clientY - rect.top + 14;
+      // Ajusta se estourar a borda
+      if(left + 240 > rect.width) left = event.clientX - rect.left - 250;
+      if(top + 100 > rect.height) top = event.clientY - rect.top - 110;
+      tooltip.style.left = left + 'px';
+      tooltip.style.top = top + 'px';
+    })
+    .on('mouseleave', function(){
+      if(tooltip) tooltip.style.display = 'none';
+    });
 }
 
 // ════════════════════════════════════════════════════════
@@ -843,6 +1074,18 @@ function loadUniverse(uniKey){
   });
   document.getElementById('ccHeatmapUniverse').textContent = uni.label;
 
+  // Atualiza subtítulo do heatmap
+  var subEl = document.getElementById('ccHeatmapSub');
+  if(subEl){
+    if(uniKey === 'ibov'){
+      subEl.innerHTML = 'Variação do dia · Tamanho proporcional ao peso oficial B3 · Carteira ' + IBOV_CARTEIRA_VIGENCIA + ' (atualizada ' + IBOV_CARTEIRA_DATA + ')';
+    } else if(uni.storageKey){
+      subEl.textContent = 'Variação do dia · Tamanho proporcional ao peso na sua carteira';
+    } else {
+      subEl.textContent = 'Variação do dia · Tamanho uniforme';
+    }
+  }
+
   // Heatmap em loading
   document.getElementById('ccHeatmap').innerHTML = '<div class="cc-loading"><div class="cc-spin"></div>Carregando '+uni.label+'…</div>';
   document.getElementById('ccGainers').innerHTML = '<div class="cc-empty">Carregando…</div>';
@@ -850,13 +1093,20 @@ function loadUniverse(uniKey){
 
   // Pega lista de ativos
   var positions = [];
-  if(uni.storageKey){
+  if(uni.composicao && uni.composicao.length > 0){
+    // Usa composição oficial (IBOV) com pesos exatos
+    positions = uni.composicao.map(function(item){
+      return {ticker:item.ticker, nome:item.nome, peso:item.peso};
+    });
+  } else if(uni.storageKey){
     positions = calcPosicoesFromStorage(uni.storageKey);
     if(positions.length === 0 && uni.fallback.length){
-      positions = uni.fallback.map(function(t){ return {ticker:t, peso:null}; });
+      // Fallback com peso uniforme
+      positions = uni.fallback.map(function(t){ return {ticker:t, peso:100/uni.fallback.length}; });
     }
   } else {
-    positions = uni.fallback.map(function(t){ return {ticker:t, peso:null}; });
+    // Fallback hardcoded (S&P 500) — peso uniforme
+    positions = uni.fallback.map(function(t){ return {ticker:t, peso:100/uni.fallback.length}; });
   }
 
   if(positions.length === 0){
@@ -869,7 +1119,13 @@ function loadUniverse(uniKey){
 
   var tickers = positions.map(function(p){ return p.ticker; });
   fetchQuotes(tickers).then(function(quotes){
-    renderHeatmap(positions, quotes);
+    // Mescla nome (se composicao tinha nome, usa ele)
+    positions.forEach(function(p){
+      if(quotes[p.ticker] && p.nome && !quotes[p.ticker].nome){
+        quotes[p.ticker].nome = p.nome;
+      }
+    });
+    renderTreemap(positions, quotes);
     renderGainersLosers(positions, quotes);
   });
 }
@@ -1200,6 +1456,15 @@ function init(){
     loadUniverse(currentUniverse);
     preencherStatusBar();
   }, 5 * 60 * 1000);
+
+  // Redraw do treemap em resize (debounced)
+  var _resizeTimer;
+  window.addEventListener('resize', function(){
+    if(_resizeTimer) clearTimeout(_resizeTimer);
+    _resizeTimer = setTimeout(function(){
+      loadUniverse(currentUniverse);
+    }, 250);
+  });
 }
 
 if (document.readyState === 'loading') {
