@@ -3145,15 +3145,20 @@ function buscarCotacaoCripto(ticker){
   return fetch(url)
     .then(function(r){ return r.json(); })
     .then(function(d){
-      if(d && d.price){
+      if(!d) return;
+      // Aceita AMBOS formatos do proxy: legado (price/changePercent/change) e atual (preco/chg/chgAbs)
+      var price = d.preco !== undefined ? d.preco : d.price;
+      var chgPct = d.chg !== undefined ? d.chg : d.changePercent;
+      var chgAbs = d.chgAbs !== undefined ? d.chgAbs : d.change;
+      if(price){
         cotacoes[ticker] = {
-          preco:    d.price * usdBRL,
-          var:      parseFloat(d.changePercent||0),
-          var1d:    parseFloat(d.change||0) * usdBRL,
-          nome:     d.name || ticker,
+          preco:    price * usdBRL,
+          var:      parseFloat(chgPct||0),
+          var1d:    parseFloat(chgAbs||0) * usdBRL,
+          nome:     d.nome || d.name || ticker,
           dy:       0,
           mkt:      'Cripto',
-          precoUSD: d.price,
+          precoUSD: price,
           fonte:    'Proxy-Cripto',
           ts:       Date.now()
         };
@@ -3410,21 +3415,26 @@ function buscarUSTickersBatch(tickers, erros){
       return fetch(url)
         .then(function(r){ return r.json(); })
         .then(function(d){
-          if(d && d.symbol && d.price !== undefined){
+          if(d && d.symbol && (d.price !== undefined || d.preco !== undefined)){
             var tmp={}; tmp[d.symbol]=d; d=tmp;
           }
           chunk.forEach(function(ticker){
             var apiTicker = ticker==='BRK.B'?'BRK-B':ticker;
             var item = d[ticker] || d[apiTicker] || d[ticker.toUpperCase()];
-            if(!item || item.error || !item.price) return;
+            if(!item || item.error) return;
+            // Aceita AMBOS formatos do proxy: legado (price/changePercent/change) e atual (preco/chg/chgAbs)
+            var price = item.preco !== undefined ? item.preco : item.price;
+            var chgPct = item.chg !== undefined ? item.chg : item.changePercent;
+            var chgAbs = item.chgAbs !== undefined ? item.chgAbs : item.change;
+            if(!price) return;
             cotacoes[ticker] = {
-              preco:    item.price,
-              var:      parseFloat(item.changePercent||0),
-              var1d:    parseFloat(item.change||0),
-              nome:     item.name||ticker,
+              preco:    price,
+              var:      parseFloat(chgPct||0),
+              var1d:    parseFloat(chgAbs||0),
+              nome:     item.nome||item.name||ticker,
               dy:       0,
               mkt:      'US',
-              precoUSD: item.price,
+              precoUSD: price,
               fonte:    'Proxy',
               ts:       Date.now()
             };
@@ -9743,7 +9753,8 @@ function aplBuscarCotacaoModal(rowId, ticker, tipo, data){
       .then(function(r){ return r.json(); })
       .then(function(d){
         if(_aplPrecoSource[rowId]==='edited') return;
-        var price = d && (d.price || d.regularMarketPrice);
+        // Aceita AMBOS formatos do proxy: legado (price) e atual (preco)
+        var price = d && (d.preco || d.price || d.regularMarketPrice);
         if(!price || price<=0) throw new Error('no price');
         // Para BR: preço já vem em BRL; para US: vem em USD
         var moeda = isUS ? 'USD' : 'BRL';
@@ -9764,7 +9775,8 @@ function aplBuscarCotacaoModal(rowId, ticker, tipo, data){
       .then(function(r){ return r.json(); })
       .then(function(d){
         if(_aplPrecoSource[rowId]==='edited') return;
-        var price = d && (d.close || d.price || d.adjClose);
+        // history-date pode retornar close, price, adjClose ou preco
+        var price = d && (d.close || d.preco || d.price || d.adjClose);
         if(!price || price<=0) throw new Error('no price');
         var moeda = isUS ? 'USD' : 'BRL';
         _aplPrecoSource[rowId] = 'historical';
