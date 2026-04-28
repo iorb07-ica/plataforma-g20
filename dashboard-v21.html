@@ -8310,6 +8310,24 @@ function editarPerfil(){
 var IND = {selic:null,cdi:null,ipca:null,igpm:null};
 var PROXY_URL = 'https://g20-proxy.vercel.app';
 
+// ── Helper global: normaliza leitura de cotações do proxy/localStorage ──
+// O proxy mudou o formato de {price, changePercent, change} para {preco, chg}.
+// Estas funções aceitam AMBOS os formatos (defensivo).
+function g20PriceOf(item){
+  if(!item) return null;
+  return item.preco !== undefined ? item.preco : (item.price !== undefined ? item.price : null);
+}
+function g20ChgPctOf(item){
+  if(!item) return 0;
+  var v = item.chg !== undefined ? item.chg : (item.changePercent !== undefined ? item.changePercent : 0);
+  return parseFloat(v) || 0;
+}
+function g20ChgAbsOf(item){
+  if(!item) return 0;
+  var v = item.chgAbs !== undefined ? item.chgAbs : (item.change !== undefined ? item.change : 0);
+  return parseFloat(v) || 0;
+}
+
 function loadData(k,d){try{var v=localStorage.getItem('g20_'+k);return v?JSON.parse(v):d;}catch(e){return d;}}
 
 // //  ENGINE DE CLCULO RF (espelho do gestao-patrimonial)
@@ -8421,7 +8439,11 @@ function _buscarCotacoesEAtualizarRV(){
       fetch(PROXY+'/api/quote?symbol='+encodeURIComponent(ticker+'.SA'))
         .then(function(r){return r.json();})
         .then(function(d){
-          if(d&&d.price>0) _dashRVCot[ticker]={preco:d.price,var1d:parseFloat(d.change||0),varPct:parseFloat(d.changePercent||0),high52:d.high52||null,low52:d.low52||null};
+          if(!d) return;
+          var price = (d.price !== undefined ? d.price : d.preco);
+          var chgPct = (d.changePercent !== undefined ? d.changePercent : d.chg);
+          var chgAbs = (d.change !== undefined ? d.change : d.chgAbs);
+          if(price>0) _dashRVCot[ticker]={preco:price,var1d:parseFloat(chgAbs||0),varPct:parseFloat(chgPct||0),high52:d.high52||null,low52:d.low52||null};
         }).catch(function(){})
     );
   });
@@ -8434,12 +8456,16 @@ function _buscarCotacoesEAtualizarRV(){
           fetch(PROXY+'/api/quote?symbol='+encodeURIComponent(chunk.join(',')))
             .then(function(r){return r.json();})
             .then(function(d){
-              if(d&&d.symbol&&d.price!==undefined){var tmp={};tmp[d.symbol]=d;d=tmp;}
+              if(d&&d.symbol&&(d.price!==undefined||d.preco!==undefined)){var tmp={};tmp[d.symbol]=d;d=tmp;}
               chunk.forEach(function(t){
                 var item=d[t]||d[t.replace('.L','')]||d[t.toUpperCase()];
-                if(item&&item.price>0){
+                if(!item) return;
+                var price = (item.price !== undefined ? item.price : item.preco);
+                var chgPct = (item.changePercent !== undefined ? item.changePercent : item.chg);
+                var chgAbs = (item.change !== undefined ? item.change : item.chgAbs);
+                if(price>0){
                   var tk=t.replace('.L','');
-                  _dashRVCot[tk]={preco:item.price,var1d:parseFloat(item.change||0),varPct:parseFloat(item.changePercent||0),isUS:true,high52:item.high52||null,low52:item.low52||null};
+                  _dashRVCot[tk]={preco:price,var1d:parseFloat(chgAbs||0),varPct:parseFloat(chgPct||0),isUS:true,high52:item.high52||null,low52:item.low52||null};
                 }
               });
             }).catch(function(){})
@@ -8548,10 +8574,11 @@ function buscarTape(){
   fetch(PROXY_URL+'/api/quote?symbol='+encodeURIComponent(symbols.join(',')))
     .then(function(r){return r.json();})
     .then(function(d){
-      if(d&&d.symbol&&d.price!==undefined){var tmp={};tmp[d.symbol]=d;d=tmp;}
+      // Se proxy retornou single quote (objeto plano com symbol+preco/price), wrappa em dict
+      if(d&&d.symbol&&(d.price!==undefined||d.preco!==undefined)){var tmp={};tmp[d.symbol]=d;d=tmp;}
       try{localStorage.setItem('g20_indMkt_cache',JSON.stringify({ts:Date.now(),data:d}));}catch(e){}
       renderTapeMkt(d);
-    }).catch(function(){});
+    }).catch(function(e){console.warn('[ticker] fetch /api/quote falhou:',e);});
 }
 
 // //  FRASE DO DIA: sinais PESSOAIS + 5 top / 5 flop da Gesto Patrimonial
@@ -8684,6 +8711,9 @@ function renderTapeStatic(){
 function renderTapeMkt(d){
   // Guarda dados de mercado para o daily brief
   try{ window._mktLast = d; renderDailyBrief(); }catch(e){}
+  // Helpers — aceitam ambos formatos do proxy (legado: price/changePercent, atual: preco/chg)
+  function getPrice(item){ return item ? (item.price !== undefined ? item.price : item.preco) : null; }
+  function getChg(item){ return item ? parseFloat(item.changePercent !== undefined ? item.changePercent : (item.chg || 0)) : 0; }
   var MAP = {
     'BTC-USD':  {val:'tt_btc',  chg:'tt_btc_chg',  fmt:function(v){return '$ '+Math.round(v).toLocaleString('pt-BR');}},
     'ETH-USD':  {val:'tt_eth',  chg:'tt_eth_chg',  fmt:function(v){return '$ '+Math.round(v).toLocaleString('pt-BR');}},
@@ -8695,15 +8725,15 @@ function renderTapeMkt(d){
     'GC=F':     {val:'tt_ouro', chg:'tt_ouro_chg',  fmt:function(v){return '$ '+Math.round(v).toLocaleString('pt-BR');}},
   };
   Object.keys(MAP).forEach(function(sym){
-    var item=d[sym]; if(!item||!item.price) return;
+    var item=d[sym]; var price=getPrice(item); if(!item||!price) return;
     var cfg=MAP[sym];
     // preenche original e clone
     ['', '2'].forEach(function(sfx){
       var vEl=document.getElementById(cfg.val+sfx);
       var cEl=cfg.chg ? document.getElementById(cfg.chg+sfx) : null;
-      if(vEl) vEl.textContent=cfg.fmt(item.price);
+      if(vEl) vEl.textContent=cfg.fmt(price);
       if(cEl){
-        var chg=parseFloat(item.changePercent||0);
+        var chg=getChg(item);
         cEl.textContent=(chg>=0?'+':'')+chg.toFixed(2)+'%';
         cEl.className='tt-chg '+(chg>=0?'up':'dn');
       }
@@ -8714,9 +8744,9 @@ function renderTapeMkt(d){
   var siMap = {'BRL=X':'si_usd','BTC-USD':'si_btc'};
   var fmtSide = {'BRL=X':function(v){return 'R$ '+v.toFixed(4);},'BTC-USD':function(v){return '$ '+v.toLocaleString('pt-BR',{maximumFractionDigits:0});}};
   Object.keys(siMap).forEach(function(sym){
-    var item=d[sym]; if(!item||!item.price) return;
+    var item=d[sym]; var price=getPrice(item); if(!item||!price) return;
     var el=document.getElementById(siMap[sym]);
-    if(el) el.textContent=fmtSide[sym](item.price);
+    if(el) el.textContent=fmtSide[sym](price);
   });
 }
 
@@ -10472,7 +10502,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           try {
             var precos = JSON.parse(localStorage.getItem('g20_precos')||'{}');
             var usdbrl = precos['USDBRL=X'] || precos['USD'] || precos['USDBRL'] || null;
-            if (usdbrl && usdbrl.price) cotUSD = parseFloat(usdbrl.price);
+            var _p = g20PriceOf(usdbrl);
+            if (_p) cotUSD = parseFloat(_p);
           } catch(e){}
           totalBRL = total * cotUSD;
         }
@@ -10717,7 +10748,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     Object.keys(posicoes).forEach(function(t){
       var qtd = posicoes[t];
       if (qtd <= 0) return;
-      var preco = (precos[t] && precos[t].price) ? parseFloat(precos[t].price) : 0;
+      var preco = parseFloat(g20PriceOf(precos[t])) || 0;
       if (!preco) return;
       var valor = qtd * preco;
       posList.push({ticker: t, valor: valor});
@@ -11023,7 +11054,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         if (ehStockUS) {
           var cotUSD = 5.00;
           var usdbrl = precos['USDBRL=X'] || precos['USD'] || precos['USDBRL'];
-          if (usdbrl && usdbrl.price) cotUSD = parseFloat(usdbrl.price);
+          var _p = g20PriceOf(usdbrl);
+          if (_p) cotUSD = parseFloat(_p);
           total = total * cotUSD;
         }
 
@@ -11868,7 +11900,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         if (p.moeda === 'USD' && cot > 0) {
           var usdbrl = precos['USDBRL=X'] || precos['USD'] || precos['USDBRL'];
           var fx = 5.00;
-          if (usdbrl && usdbrl.price) fx = parseFloat(usdbrl.price);
+          var _fx = g20PriceOf(usdbrl);
+          if (_fx) fx = parseFloat(_fx);
           cot = cot * fx;
         }
         if (!cot && p.qtd > 0) cot = p.valorAplicado / p.qtd;
@@ -12046,7 +12079,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       // Cotação USD→BRL
       var cotUSD = 5.00;
       var usdbrl = precos['USDBRL=X'] || precos['USD'] || precos['USDBRL'];
-      if (usdbrl && usdbrl.price) cotUSD = parseFloat(usdbrl.price);
+      var _p = g20PriceOf(usdbrl);
+      if (_p) cotUSD = parseFloat(_p);
 
       // Mapa de qtd carteira
       var qtdMap = {};
