@@ -1586,13 +1586,32 @@ function tileColor(pct){
 // CALC POSIÇÕES (estilo simplificado da Carteira G20)
 // Lê localStorage e devolve [{ticker, peso}]
 // ════════════════════════════════════════════════════════
+// Mapeia o campo 'tipo' do aporte (Acao/FII/Stock/etc) → nome da categoria pra exibição
+// Igual ao agrupamento por setor do S&P, mas pra carteiras que misturam classes de ativos
+var TIPO_TO_CATEGORIA = {
+  'Acao':   'AÇÕES BR',
+  'FII':    'FUNDOS IMOBILIÁRIOS',
+  'FIAGRO': 'FIAGRO',
+  'Stock':  'STOCKS US',
+  'REIT':   'REITs',
+  'ETF':    'ETFs INTERNACIONAIS',
+  'UCITs':  'UCITs',
+  'Cripto': 'CRIPTOATIVOS'
+};
+function tipoToCategoria(tipo){
+  if(!tipo) return 'OUTROS';
+  return TIPO_TO_CATEGORIA[tipo] || tipo.toUpperCase();
+}
+
 function calcPosicoesFromStorage(storageKey){
   try {
     var aportes = JSON.parse(localStorage.getItem(storageKey) || '[]');
     if(!Array.isArray(aportes) || aportes.length === 0) return [];
 
     // Agrupa por ticker, soma valores investidos (qtd * preco)
+    // Também guarda o 'tipo' (do último aporte de compra desse ticker)
     var totalsByTicker = {};
+    var tipoByTicker = {};
     aportes.forEach(function(a){
       if(!a.ticker || !a.qtd || !a.preco) return;
       var op = (a.op || 'C').toUpperCase();
@@ -1601,6 +1620,10 @@ function calcPosicoesFromStorage(storageKey){
       var valor = qtd * parseFloat(a.preco);
       var t = a.ticker.toUpperCase();
       totalsByTicker[t] = (totalsByTicker[t] || 0) + valor;
+      // Guarda o tipo (prioriza compras pra evitar tipo de venda errada)
+      if(a.tipo && (op === 'C' || !tipoByTicker[t])){
+        tipoByTicker[t] = a.tipo;
+      }
     });
 
     // Filtra só tickers com saldo positivo
@@ -1608,7 +1631,12 @@ function calcPosicoesFromStorage(storageKey){
     var positions = [];
     Object.keys(totalsByTicker).forEach(function(t){
       if(totalsByTicker[t] > 0){
-        positions.push({ticker:t, valor:totalsByTicker[t]});
+        positions.push({
+          ticker: t,
+          valor: totalsByTicker[t],
+          tipo: tipoByTicker[t] || '',
+          setor: tipoToCategoria(tipoByTicker[t])  // setor = categoria pra reaproveitar render setorial
+        });
         totalGeral += totalsByTicker[t];
       }
     });
@@ -1818,6 +1846,51 @@ var _ccCurrentSector = null;       // null = macro; nome do setor = drill-down
 var _ccLastSectorsData = null;     // dados dos setores guardados pra drill
 var _ccLastQuotes = null;
 
+// Helper: retorna labels do tooltip de acordo com o universo carregado
+// S&P 500 = "S&P 500" / "Setor" ; Carteira G20 / Gestão = "patrimônio" / "Categoria"
+function _ccTooltipLabels(){
+  var u = currentUniverse;
+  if(u === 'sp500'){
+    return {
+      groupLabel: 'Setor',
+      groupSing: 'setor',
+      universeLabel: 'do S&P 500',
+      pesoUniverseLabel: 'Peso no S&P 500',
+      pesoGroupLabel: 'Peso no setor',
+      assetsLabel: 'ações'
+    };
+  }
+  if(u === 'carteira-g20'){
+    return {
+      groupLabel: 'Categoria',
+      groupSing: 'categoria',
+      universeLabel: 'da Carteira G20',
+      pesoUniverseLabel: 'Peso na Carteira G20',
+      pesoGroupLabel: 'Peso na categoria',
+      assetsLabel: 'ativos'
+    };
+  }
+  if(u === 'gestao'){
+    return {
+      groupLabel: 'Categoria',
+      groupSing: 'categoria',
+      universeLabel: 'do patrimônio',
+      pesoUniverseLabel: 'Peso no patrimônio',
+      pesoGroupLabel: 'Peso na categoria',
+      assetsLabel: 'ativos'
+    };
+  }
+  // Fallback genérico
+  return {
+    groupLabel: 'Categoria',
+    groupSing: 'categoria',
+    universeLabel: 'do total',
+    pesoUniverseLabel: 'Peso no total',
+    pesoGroupLabel: 'Peso na categoria',
+    assetsLabel: 'ativos'
+  };
+}
+
 // Helper: calcula font-size proporcional ao tamanho do tile (estilo Finviz)
 // scale: fração de min(w,h) que vira font-size; clamp entre min e max
 function _ccFontScale(w, h, scale, minPx, maxPx){
@@ -1883,7 +1956,8 @@ function renderTreemapSectors(positions, quotes){
       ticker: p.ticker,
       nome: quotes[p.ticker].nome || p.nome || p.ticker,
       setor: setor,
-      pesoSP: p.peso,        // peso no S&P 500 inteiro
+      tipo: p.tipo || '',     // pra detectar BR/US no tooltip
+      pesoSP: p.peso,         // peso no UNIVERSO (S&P inteiro OU patrimônio inteiro)
       chgPct: quotes[p.ticker].chgPct,
       preco: quotes[p.ticker].preco
     });
@@ -2038,7 +2112,9 @@ function _renderMacroSectors(sectorsData){
       })
       .text(function(d){
         var sd = d.data.sectorData;
-        return sd.ativos.length + ' ações · ' + sd.pesoTotal.toFixed(2) + '% S&P';
+        var L = _ccTooltipLabels();
+        var unitLabel = (currentUniverse === 'sp500') ? 'S&P' : (currentUniverse === 'carteira-g20' ? 'CG20' : 'patrim.');
+        return sd.ativos.length + ' ' + L.assetsLabel + ' · ' + sd.pesoTotal.toFixed(2) + '% ' + unitLabel;
       });
 
     // Tooltip rica com top 5 do setor
@@ -2048,6 +2124,7 @@ function _renderMacroSectors(sectorsData){
         var sd = d.data.sectorData;
         var chgClass = sd.chgMedio >= 0 ? 'up' : 'dn';
         var top5 = sd.ativos.slice(0, 5);
+        var L = _ccTooltipLabels();
         var top5Html = top5.map(function(a){
           var c = a.chgPct >= 0 ? 'up' : 'dn';
           return '<div style="display:flex;justify-content:space-between;gap:14px;font-family:JetBrains Mono,monospace;font-size:10px;margin-top:2px">' +
@@ -2057,9 +2134,9 @@ function _renderMacroSectors(sectorsData){
         }).join('');
         tooltip.innerHTML =
           '<b>' + d.data.name + '</b>' +
-          '<div class="tt-line">' + sd.ativos.length + ' ações · peso ' + sd.pesoTotal.toFixed(2) + '% do S&P 500</div>' +
+          '<div class="tt-line">' + sd.ativos.length + ' ' + L.assetsLabel + ' · peso ' + sd.pesoTotal.toFixed(2) + '% ' + L.universeLabel + '</div>' +
           '<div class="tt-pct ' + chgClass + '">' + fmtPct(sd.chgMedio) + ' (média ponderada)</div>' +
-          '<div class="tt-line" style="margin-top:8px;font-size:10px">Top 5 do setor:</div>' +
+          '<div class="tt-line" style="margin-top:8px;font-size:10px">Top 5 da ' + L.groupSing + ':</div>' +
           top5Html +
           '<div class="tt-line" style="margin-top:8px;color:var(--gold);font-size:10px">→ click pra ver todos</div>';
         tooltip.style.display = 'block';
@@ -2098,7 +2175,9 @@ function _renderDrillSector(setorNome){
   if(dhSector) dhSector.textContent = setorNome;
   if(dhMeta){
     var c = sectorData.chgMedio >= 0 ? 'up' : 'dn';
-    dhMeta.innerHTML = sectorData.ativos.length + ' ações · ' + sectorData.pesoTotal.toFixed(2) + '% S&P · <span style="color:' + (c === 'up' ? 'var(--green)' : 'var(--red)') + ';font-weight:700">' + fmtPct(sectorData.chgMedio) + '</span>';
+    var L = _ccTooltipLabels();
+    var unitLabel = (currentUniverse === 'sp500') ? 'S&P' : (currentUniverse === 'carteira-g20' ? 'CG20' : 'patrim.');
+    dhMeta.innerHTML = sectorData.ativos.length + ' ' + L.assetsLabel + ' · ' + sectorData.pesoTotal.toFixed(2) + '% ' + unitLabel + ' · <span style="color:' + (c === 'up' ? 'var(--green)' : 'var(--red)') + ';font-weight:700">' + fmtPct(sectorData.chgMedio) + '</span>';
   }
 
   // Fade-out anterior
@@ -2114,7 +2193,7 @@ function _renderDrillSector(setorNome){
     var data = {
       name: setorNome,
       children: sectorData.ativos.map(function(a){
-        return { ticker: a.ticker, nome: a.nome, pesoSP: a.pesoSP, pesoSetor: a.pesoSetor,
+        return { ticker: a.ticker, nome: a.nome, tipo: a.tipo, pesoSP: a.pesoSP, pesoSetor: a.pesoSetor,
                  chgPct: a.chgPct, preco: a.preco, value: a.pesoSP };
       })
     };
@@ -2209,12 +2288,20 @@ function _renderDrillSector(setorNome){
       .on('mousemove', function(event, d){
         if(!tooltip) return;
         var chgClass = d.data.chgPct >= 0 ? 'up' : 'dn';
+        var L = _ccTooltipLabels();
+        // Cotação: pra ações BR/FII formata em BRL, demais em USD
+        var precoFmt = '–';
+        if(d.data.preco){
+          var ehBR = (currentUniverse === 'sp500') ? false :
+                     (d.data.tipo === 'Acao' || d.data.tipo === 'FII' || d.data.tipo === 'FIAGRO');
+          precoFmt = ehBR ? fmtBRL(d.data.preco) : ('$ ' + d.data.preco.toFixed(2));
+        }
         tooltip.innerHTML =
           '<b>' + d.data.ticker + '</b> · ' + (d.data.nome || '') +
-          '<div class="tt-line">Setor: <b>' + setorNome + '</b></div>' +
-          '<div class="tt-line">Peso no S&P 500: <b>' + d.data.pesoSP.toFixed(3) + '%</b></div>' +
-          '<div class="tt-line">Peso no setor: <b>' + d.data.pesoSetor.toFixed(2) + '%</b></div>' +
-          '<div class="tt-line">Cotação: <b>' + (d.data.preco ? '$ ' + d.data.preco.toFixed(2) : '–') + '</b></div>' +
+          '<div class="tt-line">' + L.groupLabel + ': <b>' + setorNome + '</b></div>' +
+          '<div class="tt-line">' + L.pesoUniverseLabel + ': <b>' + d.data.pesoSP.toFixed(3) + '%</b></div>' +
+          '<div class="tt-line">' + L.pesoGroupLabel + ': <b>' + d.data.pesoSetor.toFixed(2) + '%</b></div>' +
+          '<div class="tt-line">Cotação: <b>' + precoFmt + '</b></div>' +
           '<div class="tt-pct ' + chgClass + '">' + fmtPct(d.data.chgPct) + '</div>';
         tooltip.style.display = 'block';
         _ccPositionTooltip(tooltip, el, event, 4);
@@ -2350,8 +2437,10 @@ function loadUniverse(uniKey){
         quotes[p.ticker].nome = p.nome;
       }
     });
-    // Roteia: S&P 500 usa visão setorial (Finviz), outros usam squarified simples
-    if(uniKey === 'sp500'){
+    // Roteia visualização: macro setores + drill-down (S&P 500 = setores GICS;
+    // Carteira G20 / Gestão = tipos de ativo). IBOV continua squarified simples.
+    var useSectorial = (uniKey === 'sp500' || uniKey === 'carteira-g20' || uniKey === 'gestao');
+    if(useSectorial){
       renderTreemapSectors(positions, quotes);
     } else {
       renderTreemap(positions, quotes);
