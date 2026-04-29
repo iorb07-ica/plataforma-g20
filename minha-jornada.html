@@ -1704,75 +1704,217 @@ function mjRenderMarketBadge(){
 }
 
 // ════════════════════════════════════════════════════════
-// MINHA JORNADA — DADOS MOCK (cotações + carteira fallback)
+// MINHA JORNADA — CACHE DE COTAÇÕES (proxy Vercel)
 // ════════════════════════════════════════════════════════
-var MJ_MOCK_VARIACOES = {
-  'PETR4': { preco: 38.42, varPct: +3.20, nome: 'Petrobras' },
-  'VALE3': { preco: 67.15, varPct: +2.10, nome: 'Vale' },
-  'ITUB4': { preco: 34.80, varPct: +1.80, nome: 'Itaú Unibanco' },
-  'BBAS3': { preco: 28.14, varPct: +1.20, nome: 'Banco do Brasil' },
-  'WEGE3': { preco: 42.30, varPct: +0.95, nome: 'WEG' },
-  'MGLU3': { preco:  8.24, varPct: -4.50, nome: 'Magazine Luiza' },
-  'COGN3': { preco:  2.18, varPct: -2.20, nome: 'Cogna' },
-  'VIIA3': { preco:  1.92, varPct: -3.10, nome: 'Via Varejo' },
-  'TAEE11':{ preco: 35.60, varPct: +0.40, nome: 'Taesa' },
-  'BBSE3': { preco: 38.90, varPct: +0.80, nome: 'BB Seguridade' }
+var MJ_QUOTES = {};       // { ticker: {preco, varPct, nome, moeda} }
+var MJ_FX_USDBRL = 5.20;  // fallback caso ticker tape ainda não carregou
+var MJ_QUOTES_CACHE_KEY = 'g20_mj_quotes_cache';
+var MJ_QUOTES_CACHE_MS = 5 * 60 * 1000; // 5 min
+
+// Mapa simples ticker → nome curto (BR + US dos ativos do Israel hoje)
+var MJ_NOMES = {
+  // BR
+  'PETR4':'Petrobras','PETR3':'Petrobras','VALE3':'Vale','VULC3':'Vulcabras',
+  'ITUB4':'Itaú Unibanco','BBAS3':'Banco do Brasil','BBDC4':'Bradesco',
+  'MGLU3':'Magazine Luiza','VIIA3':'Via Varejo','COGN3':'Cogna','WEGE3':'WEG',
+  'ABEV3':'Ambev','RENT3':'Localiza','LREN3':'Lojas Renner','B3SA3':'B3',
+  'SUZB3':'Suzano','RAIL3':'Rumo','EMBR3':'Embraer','ELET3':'Eletrobras',
+  'TAEE11':'Taesa','BBSE3':'BB Seguridade','ITSA4':'Itaúsa','TOTS3':'Totvs',
+  // US
+  'AAPL':'Apple','MSFT':'Microsoft','GOOGL':'Alphabet','GOOG':'Alphabet',
+  'AMZN':'Amazon','META':'Meta','NVDA':'NVIDIA','TSLA':'Tesla',
+  'PLD':'Prologis','STNE':'StoneCo','MELI':'MercadoLibre','BABA':'Alibaba',
+  'KO':'Coca-Cola','JNJ':'Johnson&Johnson','DIS':'Disney','NFLX':'Netflix',
+  'PYPL':'PayPal','SBUX':'Starbucks','SHOP':'Shopify','XP':'XP Inc.'
 };
-var MJ_MOCK_APORTES = [
-  { ticker:'PETR4',  qtd: 4000, precoMedio: 32.10 },
-  { ticker:'VALE3',  qtd: 2200, precoMedio: 60.40 },
-  { ticker:'ITUB4',  qtd: 3500, precoMedio: 30.20 },
-  { ticker:'BBAS3',  qtd: 1800, precoMedio: 25.80 },
-  { ticker:'WEGE3',  qtd: 1200, precoMedio: 40.10 },
-  { ticker:'MGLU3',  qtd: 4500, precoMedio:  9.60 },
-  { ticker:'COGN3',  qtd: 3000, precoMedio:  2.90 },
-  { ticker:'VIIA3',  qtd: 2000, precoMedio:  2.40 },
-  { ticker:'TAEE11', qtd:  500, precoMedio: 33.20 },
-  { ticker:'BBSE3',  qtd:  900, precoMedio: 36.10 }
-];
 
 // ════════════════════════════════════════════════════════
-// MINHA JORNADA — CÁLCULOS
+// MINHA JORNADA — UTILS PARA TICKERS (BR vs US)
+// ════════════════════════════════════════════════════════
+function mjIsBR(aporte){
+  // BR: moeda BRL ou tipo Acao/FII (que sempre são B3)
+  if(aporte.moeda === 'BRL') return true;
+  if(aporte.moeda === 'USD') return false;
+  // Fallback heurístico: se ticker tem números no fim (PETR4, VALE3) é BR
+  return /\d/.test(aporte.ticker || '');
+}
+function mjTickerToSymbol(ticker, isBR){
+  if(!ticker) return '';
+  return isBR ? (ticker + '.SA') : ticker;
+}
+
+// ════════════════════════════════════════════════════════
+// MINHA JORNADA — BUSCA COTAÇÃO USD/BRL (do ticker tape cache)
+// ════════════════════════════════════════════════════════
+function mjAtualizarFxUsdBrl(){
+  try{
+    var c = JSON.parse(localStorage.getItem('g20_indMkt_cache') || 'null');
+    if(c && c.data){
+      var brl = c.data['BRL=X'] || c.data['BRL=X'.replace('=X','')];
+      if(brl){
+        var p = brl.preco !== undefined ? brl.preco : brl.price;
+        if(p && p > 0){ MJ_FX_USDBRL = p; }
+      }
+    }
+  }catch(e){}
+}
+
+// ════════════════════════════════════════════════════════
+// MINHA JORNADA — BUSCA COTAÇÕES via proxy Vercel
+// ════════════════════════════════════════════════════════
+function mjBuscarCotacoes(tickers, callback){
+  if(!tickers || !tickers.length){ callback({}); return; }
+
+  // 1. Tenta cache local fresh (< 5min)
+  try{
+    var c = JSON.parse(localStorage.getItem(MJ_QUOTES_CACHE_KEY) || 'null');
+    if(c && (Date.now() - c.ts) < MJ_QUOTES_CACHE_MS && c.data){
+      var todosBatem = tickers.every(function(t){ return c.data[t] !== undefined; });
+      if(todosBatem){
+        MJ_QUOTES = c.data;
+        callback(MJ_QUOTES);
+        return;
+      }
+    }
+  }catch(e){}
+
+  // 2. Monta lista de symbols pra requisitar
+  var symbols = [];
+  var tickerToSymbol = {};
+  tickers.forEach(function(item){
+    var t = item.ticker;
+    var sym = mjTickerToSymbol(t, item.isBR);
+    symbols.push(sym);
+    tickerToSymbol[t] = sym;
+  });
+
+  // 3. Chama proxy
+  var url = PROXY_URL + '/api/quote?symbol=' + encodeURIComponent(symbols.join(','));
+  fetch(url)
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      // Normaliza resposta — pode vir como object {SYM:{...}} ou single
+      if(d && d.symbol && (d.preco !== undefined || d.price !== undefined)){
+        var tmp = {}; tmp[d.symbol] = d; d = tmp;
+      }
+
+      var resultado = {};
+      tickers.forEach(function(item){
+        var t   = item.ticker;
+        var sym = tickerToSymbol[t];
+        var data = d[sym] || d[sym.replace('.SA','')] || d[t];
+        if(!data) return;
+        var preco  = data.preco !== undefined ? data.preco : data.price;
+        var chgPct = data.chg !== undefined ? data.chg : (data.changePercent !== undefined ? data.changePercent : 0);
+        if(preco && preco > 0){
+          resultado[t] = {
+            preco:  parseFloat(preco),
+            varPct: parseFloat(chgPct) || 0,
+            nome:   MJ_NOMES[t] || data.nome || data.name || t,
+            moeda:  item.isBR ? 'BRL' : 'USD'
+          };
+        }
+      });
+
+      MJ_QUOTES = resultado;
+      try{ localStorage.setItem(MJ_QUOTES_CACHE_KEY, JSON.stringify({ts:Date.now(), data:resultado})); }catch(e){}
+      callback(resultado);
+    })
+    .catch(function(e){
+      console.warn('[mj quotes] falhou:', e);
+      // Em caso de erro, usa cache stale se houver
+      try{
+        var cs = JSON.parse(localStorage.getItem(MJ_QUOTES_CACHE_KEY) || 'null');
+        if(cs && cs.data){ MJ_QUOTES = cs.data; callback(cs.data); return; }
+      }catch(_){}
+      callback({});
+    });
+}
+
+// ════════════════════════════════════════════════════════
+// MINHA JORNADA — CONSOLIDAR APORTES REAIS
+// (lê estrutura real: ticker, qtd, preco, tipo, moeda, fxRate, op, data)
 // ════════════════════════════════════════════════════════
 function mjConsolidarPosicoes(aportes){
   var map = {};
   (aportes || []).forEach(function(a){
     var t = a.ticker;
     if(!t) return;
-    if(!map[t]) map[t] = { ticker:t, qtd:0, custoTotal:0 };
-    map[t].qtd += Number(a.qtd) || 0;
-    map[t].custoTotal += (Number(a.qtd)||0) * (Number(a.precoMedio)||0);
+    // Filtra só compras (op === 'C') — vendas (op === 'V') ficam pra futuro
+    if(a.op && a.op !== 'C') return;
+    var qtd = Number(a.qtd) || 0;
+    if(qtd <= 0) return;
+    var preco = Number(a.preco) || 0; // campo real é "preco", não "precoMedio"
+    var isBR = mjIsBR(a);
+    if(!map[t]){
+      map[t] = {
+        ticker: t,
+        qtd: 0,
+        custoTotalNativo: 0,  // custo na moeda original
+        custoTotalBRL: 0,     // custo já convertido pra BRL (via fxRate do dia da compra)
+        moeda: isBR ? 'BRL' : 'USD',
+        isBR: isBR,
+        tipo: a.tipo || 'Acao'
+      };
+    }
+    var fx = Number(a.fxRate) || (isBR ? 1 : MJ_FX_USDBRL);
+    map[t].qtd += qtd;
+    map[t].custoTotalNativo += qtd * preco;
+    map[t].custoTotalBRL    += qtd * preco * fx;
   });
   return Object.values(map).filter(function(p){ return p.qtd > 0; });
 }
 
+// ════════════════════════════════════════════════════════
+// MINHA JORNADA — CALCULAR DIA com cotações REAIS
+// ════════════════════════════════════════════════════════
 function mjCalcularDia(posicoes){
   var enriched = [];
   posicoes.forEach(function(p){
-    var q = MJ_MOCK_VARIACOES[p.ticker];
-    if(!q) return;
-    var valorAtual = p.qtd * q.preco;
-    var precoOntem = q.preco / (1 + q.varPct/100);
-    var valorOntem = p.qtd * precoOntem;
+    var q = MJ_QUOTES[p.ticker];
+    if(!q || !q.preco){
+      // Sem cotação? Inclui com valor neutro pra não sumir do total
+      enriched.push({
+        ticker: p.ticker, qtd: p.qtd, preco: 0, nome: MJ_NOMES[p.ticker] || p.ticker,
+        varPct: 0, moeda: p.moeda, isBR: p.isBR,
+        valorAtualBRL: 0, valorOntemBRL: 0, impactoR$: 0,
+        semCotacao: true
+      });
+      return;
+    }
+    // Valor em moeda nativa
+    var valorAtualNativo = p.qtd * q.preco;
+    var precoOntemNativo = q.preco / (1 + q.varPct/100);
+    var valorOntemNativo = p.qtd * precoOntemNativo;
+
+    // Conversão pra BRL (US usa fx atual; BR é 1:1)
+    var fxAtual = p.isBR ? 1 : MJ_FX_USDBRL;
+    var valorAtualBRL = valorAtualNativo * fxAtual;
+    var valorOntemBRL = valorOntemNativo * fxAtual;
+
     enriched.push({
-      ticker:    p.ticker,
-      qtd:       p.qtd,
-      preco:     q.preco,
-      nome:      q.nome,
-      varPct:    q.varPct,
-      valorAtual: valorAtual,
-      valorOntem: valorOntem,
-      impactoR$: valorAtual - valorOntem
+      ticker:        p.ticker,
+      qtd:           p.qtd,
+      preco:         q.preco,
+      nome:          q.nome,
+      varPct:        q.varPct,
+      moeda:         p.moeda,
+      isBR:          p.isBR,
+      valorAtualBRL: valorAtualBRL,
+      valorOntemBRL: valorOntemBRL,
+      impactoR$:     valorAtualBRL - valorOntemBRL
     });
   });
 
-  var patrimonioAtual = enriched.reduce(function(s,p){ return s + p.valorAtual; }, 0);
-  var patrimonioOntem = enriched.reduce(function(s,p){ return s + p.valorOntem; }, 0);
+  var patrimonioAtual = enriched.reduce(function(s,p){ return s + (p.valorAtualBRL||0); }, 0);
+  var patrimonioOntem = enriched.reduce(function(s,p){ return s + (p.valorOntemBRL||0); }, 0);
   var variacaoR$  = patrimonioAtual - patrimonioOntem;
   var variacaoPct = patrimonioOntem > 0 ? (variacaoR$ / patrimonioOntem) * 100 : 0;
 
-  var positivos = enriched.filter(function(p){ return p.impactoR$ > 0; }).sort(function(a,b){ return b.impactoR$ - a.impactoR$; });
-  var negativos = enriched.filter(function(p){ return p.impactoR$ < 0; }).sort(function(a,b){ return a.impactoR$ - b.impactoR$; });
+  // Pra ranks: só posições com cotação real
+  var comCotacao = enriched.filter(function(p){ return !p.semCotacao; });
+  var positivos = comCotacao.filter(function(p){ return p.impactoR$ > 0; }).sort(function(a,b){ return b.impactoR$ - a.impactoR$; });
+  var negativos = comCotacao.filter(function(p){ return p.impactoR$ < 0; }).sort(function(a,b){ return a.impactoR$ - b.impactoR$; });
 
   return {
     posicoes: enriched, patrimonioAtual: patrimonioAtual, patrimonioOntem: patrimonioOntem,
@@ -1886,7 +2028,7 @@ var MJ_RADAR_AGENDA = [
 // MINHA JORNADA — RENDER FRASE DO DIA
 // ════════════════════════════════════════════════════════
 function mjRenderFraseDoDia(){
-  var aportes = MJ_STATE.aportes.length ? MJ_STATE.aportes : MJ_MOCK_APORTES;
+  var aportes = MJ_STATE.aportes || [];
   var pos     = mjConsolidarPosicoes(aportes);
   var snap    = mjCalcularDia(pos);
   var narr    = mjGerarNarrativaDia(snap);
@@ -2041,13 +2183,39 @@ function mjCarregarDados(){
 
 function mjAtualizarTudo(){
   mjCarregarDados();
+  mjAtualizarFxUsdBrl();
   mjRenderHeader();
+  mjRenderMarketBadge();
+
+  // Render inicial (sem cotações ainda — vai mostrar empty/zeros até proxy responder)
   mjRenderFraseDoDia();
   mjRenderTimeline();
   mjRenderRankBrilhou();
   mjRenderRankPesou();
   mjRenderRadar();
-  mjRenderMarketBadge();
+
+  // Se não há aportes, para por aqui
+  if(!MJ_STATE.aportes || !MJ_STATE.aportes.length) return;
+
+  // Lista de tickers únicos com flag isBR pra montar requisição
+  var tickersUnicos = {};
+  MJ_STATE.aportes.forEach(function(a){
+    if(!a.ticker) return;
+    if(a.op && a.op !== 'C') return;
+    if(!tickersUnicos[a.ticker]){
+      tickersUnicos[a.ticker] = { ticker: a.ticker, isBR: mjIsBR(a) };
+    }
+  });
+  var listaTickers = Object.values(tickersUnicos);
+
+  // Busca cotações reais via proxy e re-renderiza com dados frescos
+  mjBuscarCotacoes(listaTickers, function(quotes){
+    mjAtualizarFxUsdBrl(); // re-checa USD/BRL caso ticker tape tenha atualizado
+    mjRenderFraseDoDia();
+    mjRenderRankBrilhou();
+    mjRenderRankPesou();
+    console.log('[mj] cotações atualizadas:', Object.keys(quotes).length, 'de', listaTickers.length);
+  });
 }
 
 
