@@ -166,6 +166,69 @@ a{text-decoration:none;color:inherit}
   width:18px;height:14px;border-radius:3px;display:inline-block
 }
 
+/* Container do canto direito do header (toggle + legenda) */
+.cc-head-right{
+  display:flex;align-items:center;gap:18px;flex-wrap:wrap
+}
+
+/* Toggle Setores / Consolidado */
+.cc-view-toggle{
+  display:inline-flex;
+  background:rgba(0,0,0,0.25);
+  border:1px solid var(--gold-border);
+  border-radius:8px;
+  padding:3px;
+  gap:2px
+}
+.cc-view-btn{
+  background:transparent;
+  color:var(--text2);
+  border:none;
+  padding:6px 12px;
+  font-family:'JetBrains Mono',monospace;
+  font-size:11.5px;
+  font-weight:600;
+  letter-spacing:.4px;
+  cursor:pointer;
+  border-radius:5px;
+  transition:all .15s ease
+}
+.cc-view-btn:hover{ color:var(--text); background:rgba(201,169,97,0.08) }
+.cc-view-btn.active{
+  background:var(--gold);
+  color:#1a191e;
+  font-weight:700
+}
+
+/* Botão Reset Zoom — aparece flutuando quando zoomed in */
+.cc-reset-zoom{
+  position:absolute;
+  top:12px;
+  right:12px;
+  background:rgba(15,14,20,0.92);
+  color:var(--gold);
+  border:1px solid var(--gold-border);
+  border-radius:6px;
+  padding:7px 12px;
+  font-family:'JetBrains Mono',monospace;
+  font-size:11.5px;
+  font-weight:600;
+  cursor:pointer;
+  z-index:50;
+  display:none;
+  align-items:center;
+  gap:6px;
+  backdrop-filter:blur(4px);
+  transition:all .15s ease
+}
+.cc-reset-zoom:hover{
+  background:rgba(201,169,97,0.15);
+  color:#fff
+}
+/* Cursor de "grabbing" quando arrastando o SVG zoomed */
+.cc-heatmap svg{cursor:grab}
+.cc-heatmap svg:active{cursor:grabbing}
+
 .cc-heatmap{
   position:relative;
   width:100%;
@@ -805,17 +868,23 @@ a{text-decoration:none;color:inherit}
           <div class="cc-card-title">Heatmap — <b id="ccHeatmapUniverse">Carteira G20</b></div>
           <div class="cc-card-sub" id="ccHeatmapSub">Variação do dia · Tamanho proporcional ao peso na carteira</div>
         </div>
-        <div class="cc-legend">
-          <span class="cc-legend-tile" style="background:#7a1f24"></span>
-          <span>−5%</span>
-          <span class="cc-legend-tile" style="background:#4d2226"></span>
-          <span>−2%</span>
-          <span class="cc-legend-tile" style="background:#2d2a33"></span>
-          <span>0%</span>
-          <span class="cc-legend-tile" style="background:#1d4e30"></span>
-          <span>+2%</span>
-          <span class="cc-legend-tile" style="background:#1a7d3f"></span>
-          <span>+5%</span>
+        <div class="cc-head-right">
+          <div class="cc-view-toggle" id="ccViewToggle">
+            <button class="cc-view-btn active" data-view="sectors" onclick="ccSwitchView('sectors')" title="Visão por setor">Setores</button>
+            <button class="cc-view-btn" data-view="consolidated" onclick="ccSwitchView('consolidated')" title="Visão consolidada (todos os ativos juntos)">Consolidado</button>
+          </div>
+          <div class="cc-legend">
+            <span class="cc-legend-tile" style="background:#7a1f24"></span>
+            <span>−5%</span>
+            <span class="cc-legend-tile" style="background:#4d2226"></span>
+            <span>−2%</span>
+            <span class="cc-legend-tile" style="background:#2d2a33"></span>
+            <span>0%</span>
+            <span class="cc-legend-tile" style="background:#1d4e30"></span>
+            <span>+2%</span>
+            <span class="cc-legend-tile" style="background:#1a7d3f"></span>
+            <span>+5%</span>
+          </div>
         </div>
       </div>
       <!-- Drill-down header (aparece só quando entra num setor do S&P) -->
@@ -1785,25 +1854,53 @@ function renderTreemap(positions, quotes){
     .attr('fill', function(d){ return tileColor(d.data.chgPct); })
     .attr('rx', 3);
 
-  // Texto: ticker (no topo esquerdo)
+  var TILE_HIDE_CONSOL = 18;
+
+  // Ticker centralizado (estilo Finviz) — fonte adaptativa
   tiles.append('text')
-    .attr('class', 'tile-ticker')
-    .attr('x', 8)
-    .attr('y', 22)
+    .attr('class', 'tile-ticker-big')
+    .attr('x', function(d){ return (d.x1 - d.x0) / 2; })
+    .attr('y', function(d){
+      var w = d.x1 - d.x0;
+      var h = d.y1 - d.y0;
+      var sizes = _ccComputeTileSizes(d.data.ticker, fmtPct(d.data.chgPct), w, h);
+      if(sizes.showPct){
+        return h / 2 - sizes.ticker * 0.05;
+      }
+      return h / 2 + sizes.ticker * 0.35;
+    })
+    .attr('text-anchor', 'middle')
+    .attr('font-size', function(d){
+      var sizes = _ccComputeTileSizes(d.data.ticker, fmtPct(d.data.chgPct), d.x1-d.x0, d.y1-d.y0);
+      return sizes.ticker + 'px';
+    })
+    .attr('opacity', function(d){
+      return Math.min(d.x1-d.x0, d.y1-d.y0) < TILE_HIDE_CONSOL ? 0 : 1;
+    })
     .text(function(d){ return d.data.ticker; });
 
-  // Texto: peso (logo abaixo do ticker)
+  // % central abaixo do ticker (só se houver espaço)
   tiles.append('text')
-    .attr('class', 'tile-peso')
-    .attr('x', 8)
-    .attr('y', 37)
-    .text(function(d){ return 'peso ' + d.data.peso.toFixed(2) + '%'; });
-
-  // Texto: variação (no canto inferior esquerdo)
-  tiles.append('text')
-    .attr('class', 'tile-pct')
-    .attr('x', 8)
-    .attr('y', function(d){ return (d.y1 - d.y0) - 8; })
+    .attr('class', 'tile-pct-big')
+    .attr('x', function(d){ return (d.x1 - d.x0) / 2; })
+    .attr('y', function(d){
+      var w = d.x1 - d.x0;
+      var h = d.y1 - d.y0;
+      var sizes = _ccComputeTileSizes(d.data.ticker, fmtPct(d.data.chgPct), w, h);
+      return h / 2 + sizes.ticker * 0.65;
+    })
+    .attr('text-anchor', 'middle')
+    .attr('font-size', function(d){
+      var sizes = _ccComputeTileSizes(d.data.ticker, fmtPct(d.data.chgPct), d.x1-d.x0, d.y1-d.y0);
+      return sizes.pct + 'px';
+    })
+    .attr('opacity', function(d){
+      var w = d.x1 - d.x0;
+      var h = d.y1 - d.y0;
+      if(Math.min(w, h) < TILE_HIDE_CONSOL) return 0;
+      var sizes = _ccComputeTileSizes(d.data.ticker, fmtPct(d.data.chgPct), w, h);
+      return sizes.showPct ? 1 : 0;
+    })
     .text(function(d){ return fmtPct(d.data.chgPct); });
 
   // Tooltip on hover
@@ -1822,6 +1919,9 @@ function renderTreemap(positions, quotes){
     .on('mouseleave', function(){
       if(tooltip) tooltip.style.display = 'none';
     });
+
+  // Zoom + pan estilo Finviz
+  _ccAttachZoom(svg, el);
 }
 
 // ════════════════════════════════════════════════════════
@@ -1908,6 +2008,86 @@ function _ccFontScale(w, h, scale, minPx, maxPx){
   if(size < minPx) return minPx;
   if(size > maxPx) return maxPx;
   return Math.round(size);
+}
+
+// Helper: ajusta font-size pra texto CABER na largura disponível
+// Usa estimativa: monospace ≈ char × 0.6 × fontSize
+// padding = px de margem interna pro texto não colar nas bordas
+function _ccFitFontWidth(text, availableWidth, baseFontSize, minPx, padding){
+  if(!text) return baseFontSize;
+  padding = padding || 8;
+  var usableWidth = availableWidth - (padding * 2);
+  if(usableWidth <= 0) return minPx;
+  // Estimativa monospace: caractere ≈ 0.6 do fontSize
+  var estimatedTextWidth = text.length * baseFontSize * 0.6;
+  if(estimatedTextWidth <= usableWidth) return baseFontSize;
+  // Reduz proporcionalmente até caber
+  var fitSize = Math.floor(usableWidth / (text.length * 0.6));
+  return Math.max(minPx, fitSize);
+}
+
+// Helper: dado um tile w/h, retorna font-sizes seguros pro ticker e %
+// Garantia: ticker sempre cabe na largura, % só aparece se sobrar espaço
+function _ccComputeTileSizes(text, pctText, w, h){
+  // Ticker: usa scale 0.32 com min 7 (era 11) — pode ficar bem pequeno se necessário
+  var rawTicker = _ccFontScale(w, h, 0.32, 7, 72);
+  var fitTicker = _ccFitFontWidth(text, w, rawTicker, 6, 6);
+  // % só aparece se sobrar altura suficiente PRÓPRIA pro pct (>= 30% do ticker)
+  // E também precisa caber em largura
+  var rawPct = _ccFontScale(w, h, 0.18, 6, 36);
+  var fitPct = _ccFitFontWidth(pctText, w, rawPct, 5, 6);
+  // Esconde % se ficar menor que 7px ou se tile muito baixo
+  var showPct = (fitPct >= 7) && (h >= fitTicker * 1.6);
+  return {
+    ticker: fitTicker,
+    pct: fitPct,
+    showPct: showPct
+  };
+}
+
+// Helper: aplica zoom+pan estilo Finviz num SVG D3
+// Scroll do mouse = zoom in/out, click+arrastar = pan
+// Mostra botão Reset quando zoomed in
+function _ccAttachZoom(svgSel, container){
+  if(!svgSel || !container) return;
+  // Cria/recupera o grupo wrapper que recebe a transformação
+  var rootG = svgSel.select('g.cc-zoom-root');
+  if(rootG.empty()){
+    // Move todos os children pra dentro de um <g> wrapper
+    var nodes = svgSel.node().childNodes;
+    rootG = svgSel.append('g').attr('class', 'cc-zoom-root');
+    while(nodes.length > 1){  // > 1 pra não pegar o próprio <g> que acabamos de adicionar
+      rootG.node().appendChild(nodes[0]);
+    }
+  }
+
+  var zoom = d3.zoom()
+    .scaleExtent([1, 12])  // zoom in até 12x (Finviz vai a ~10x)
+    .on('zoom', function(event){
+      rootG.attr('transform', event.transform);
+      // Mostra botão reset se zoom > 1
+      var btn = container.querySelector('.cc-reset-zoom');
+      if(btn) btn.style.display = (event.transform.k > 1.05) ? 'flex' : 'none';
+    });
+
+  svgSel.call(zoom);
+  // Guarda referências pra reset
+  container._ccZoom = zoom;
+  container._ccZoomSvg = svgSel;
+
+  // Cria botão Reset Zoom (uma vez)
+  var btn = container.querySelector('.cc-reset-zoom');
+  if(!btn){
+    btn = document.createElement('button');
+    btn.className = 'cc-reset-zoom';
+    btn.innerHTML = '⟲ Reset Zoom';
+    btn.title = 'Voltar ao tamanho original';
+    btn.style.display = 'none';
+    btn.addEventListener('click', function(){
+      svgSel.transition().duration(300).call(zoom.transform, d3.zoomIdentity);
+    });
+    container.appendChild(btn);
+  }
 }
 
 // Helper global: posiciona tooltip COLADO no mouse com flip inteligente nas bordas
@@ -2159,6 +2339,9 @@ function _renderMacroSectors(sectorsData){
       .on('mouseleave', function(){
         if(tooltip) tooltip.style.display = 'none';
       });
+
+    // Zoom + pan estilo Finviz
+    _ccAttachZoom(svg, el);
   }, oldSvg ? 200 : 0);
 }
 
@@ -2255,45 +2438,53 @@ function _renderDrillSector(setorNome){
       .attr('fill', function(d){ return tileColor(d.data.chgPct); })
       .attr('rx', 3);
 
-    // Ticker GIGANTE central — proporcional, escondido em tiles minúsculos
-    var TILE_HIDE_THRESHOLD = 35;  // tiles abaixo disso = só cor + tooltip
+    // Ticker GIGANTE central — proporcional E garante que cabe na largura
+    var TILE_HIDE_THRESHOLD = 18;  // tiles abaixo disso = só cor + tooltip
 
     tiles.append('text')
       .attr('class', 'tile-ticker-big')
       .attr('x', function(d){ return (d.x1 - d.x0) / 2; })
       .attr('y', function(d){
+        var w = d.x1 - d.x0;
         var h = d.y1 - d.y0;
-        // Centralizado verticalmente, levemente acima pra abrir espaço pro %
-        var fs = _ccFontScale(d.x1-d.x0, h, 0.32, 11, 72);
-        return h / 2 - fs * 0.05;
+        var sizes = _ccComputeTileSizes(d.data.ticker, fmtPct(d.data.chgPct), w, h);
+        // Se mostra %, ticker fica acima do centro; senão fica centralizado
+        if(sizes.showPct){
+          return h / 2 - sizes.ticker * 0.05;
+        }
+        return h / 2 + sizes.ticker * 0.35;
       })
       .attr('text-anchor', 'middle')
       .attr('font-size', function(d){
-        // Ticker entre 11px (tile pequeno) e 72px (tile gigante)
-        return _ccFontScale(d.x1-d.x0, d.y1-d.y0, 0.32, 11, 72) + 'px';
+        var sizes = _ccComputeTileSizes(d.data.ticker, fmtPct(d.data.chgPct), d.x1-d.x0, d.y1-d.y0);
+        return sizes.ticker + 'px';
       })
       .attr('opacity', function(d){
-        // Esconde texto em tiles minúsculos — só cor + tooltip mostra info
         return Math.min(d.x1-d.x0, d.y1-d.y0) < TILE_HIDE_THRESHOLD ? 0 : 1;
       })
       .text(function(d){ return d.data.ticker; });
 
-    // Variação % — abaixo do ticker, proporcional
+    // Variação % — abaixo do ticker, só se houver espaço
     tiles.append('text')
       .attr('class', 'tile-pct-big')
       .attr('x', function(d){ return (d.x1 - d.x0) / 2; })
       .attr('y', function(d){
+        var w = d.x1 - d.x0;
         var h = d.y1 - d.y0;
-        var fsTicker = _ccFontScale(d.x1-d.x0, h, 0.32, 11, 72);
-        return h / 2 + fsTicker * 0.65;
+        var sizes = _ccComputeTileSizes(d.data.ticker, fmtPct(d.data.chgPct), w, h);
+        return h / 2 + sizes.ticker * 0.65;
       })
       .attr('text-anchor', 'middle')
       .attr('font-size', function(d){
-        // Pct entre 9px e 36px (proporcional)
-        return _ccFontScale(d.x1-d.x0, d.y1-d.y0, 0.18, 9, 36) + 'px';
+        var sizes = _ccComputeTileSizes(d.data.ticker, fmtPct(d.data.chgPct), d.x1-d.x0, d.y1-d.y0);
+        return sizes.pct + 'px';
       })
       .attr('opacity', function(d){
-        return Math.min(d.x1-d.x0, d.y1-d.y0) < TILE_HIDE_THRESHOLD ? 0 : 1;
+        var w = d.x1 - d.x0;
+        var h = d.y1 - d.y0;
+        if(Math.min(w, h) < TILE_HIDE_THRESHOLD) return 0;
+        var sizes = _ccComputeTileSizes(d.data.ticker, fmtPct(d.data.chgPct), w, h);
+        return sizes.showPct ? 1 : 0;
       })
       .text(function(d){ return fmtPct(d.data.chgPct); });
 
@@ -2325,6 +2516,9 @@ function _renderDrillSector(setorNome){
       .on('mouseleave', function(){
         if(tooltip) tooltip.style.display = 'none';
       });
+
+    // Zoom + pan estilo Finviz (útil pra ver tickers minúsculos)
+    _ccAttachZoom(svg, el);
   }, oldSvg ? 200 : 0);
 }
 
@@ -2392,6 +2586,12 @@ function loadUniverse(uniKey){
   });
   document.getElementById('ccHeatmapUniverse').textContent = uni.label;
 
+  // Sincroniza toggle Setores/Consolidado com a preferência salva pra esse universo
+  var savedMode = _ccGetViewMode(uniKey);
+  document.querySelectorAll('.cc-view-btn').forEach(function(b){
+    b.classList.toggle('active', b.dataset.view === savedMode);
+  });
+
   // Altura dinâmica do treemap — S&P 500 com 503 ativos precisa de mais espaço
   var heatmapEl = document.getElementById('ccHeatmap');
   if(heatmapEl){
@@ -2453,11 +2653,9 @@ function loadUniverse(uniKey){
         quotes[p.ticker].nome = p.nome;
       }
     });
-    // Roteia visualização: macro setores + drill-down
-    // S&P 500 = setores GICS oficiais (iShares)
-    // IBOV = setores B3 oficiais (Status Invest taxonomy)
-    // Carteira G20 / Gestão = tipos de ativo (Acao/FII/Stock/etc)
-    var useSectorial = (uniKey === 'sp500' || uniKey === 'ibov' || uniKey === 'carteira-g20' || uniKey === 'gestao');
+    // Roteia visualização: macro setores OU consolidado (toggle pelo usuário)
+    var hasSectorData = (uniKey === 'sp500' || uniKey === 'ibov' || uniKey === 'carteira-g20' || uniKey === 'gestao');
+    var useSectorial = hasSectorData && (_ccGetViewMode(uniKey) === 'sectors');
     if(useSectorial){
       renderTreemapSectors(positions, quotes);
     } else {
@@ -2466,6 +2664,38 @@ function loadUniverse(uniKey){
     renderGainersLosers(positions, quotes);
   });
 }
+
+// Estado do modo de visualização por universo (sectors / consolidated)
+// Persistido no localStorage; padrão = 'sectors' (mais informativo)
+function _ccGetViewMode(uniKey){
+  try {
+    var saved = localStorage.getItem('cc_viewmode_' + uniKey);
+    if(saved === 'sectors' || saved === 'consolidated') return saved;
+  } catch(e){}
+  return 'sectors';
+}
+function _ccSetViewMode(uniKey, mode){
+  try { localStorage.setItem('cc_viewmode_' + uniKey, mode); } catch(e){}
+}
+
+// Função pública chamada pelos botões do toggle Setores / Consolidado
+function ccSwitchView(mode){
+  if(mode !== 'sectors' && mode !== 'consolidated') return;
+  if(!currentUniverse) return;
+  // Salva preferência por universo
+  _ccSetViewMode(currentUniverse, mode);
+  // Sai do drill-down se estiver ativo (volta pra macro antes de trocar visão)
+  _ccCurrentSector = null;
+  var dh = document.getElementById('ccDrillHeader');
+  if(dh) dh.classList.remove('active');
+  // Atualiza UI dos botões
+  document.querySelectorAll('.cc-view-btn').forEach(function(b){
+    b.classList.toggle('active', b.dataset.view === mode);
+  });
+  // Recarrega o universo atual com a nova visão
+  loadUniverse(currentUniverse);
+}
+window.ccSwitchView = ccSwitchView;
 
 // ════════════════════════════════════════════════════════
 // CONTAGENS DAS PILLS
