@@ -237,8 +237,26 @@ a{text-decoration:none;color:inherit}
 .cc-fut-pct.dn{color:var(--red)}
 .cc-fut-pct.neu{color:var(--text2)}
 .cc-fut-meta{
-  font-size:9px;color:var(--text3);
-  font-style:italic;margin-left:8px
+  font-size:10px;color:var(--text3);
+  font-style:italic;margin-left:10px;
+  display:inline-flex;align-items:center;gap:8px
+}
+.cc-fut-meta > span{
+  color:#f4a261;
+  font-style:normal;font-weight:600;
+  letter-spacing:.3px;
+  cursor:help
+}
+.cc-fut-link{
+  color:var(--gold);text-decoration:none;
+  font-style:normal;font-weight:600;
+  padding:2px 8px;border-radius:8px;
+  border:1px solid var(--gold-border);
+  transition:all .15s
+}
+.cc-fut-link:hover{
+  background:var(--gold);color:#1a191e;
+  text-decoration:none
 }
 @media(max-width:700px){
   .cc-fut-meta{display:none}
@@ -1185,7 +1203,10 @@ a{text-decoration:none;color:inherit}
               <span class="cc-fut-price" id="ccFutNdxPrice">–</span>
               <span class="cc-fut-pct" id="ccFutNdxPct">–</span>
             </span>
-            <span class="cc-fut-meta">contratos E-mini · 24h</span>
+            <span class="cc-fut-meta">
+              <span title="Yahoo Finance tem delay de ~15 minutos pra futuros US">⏱ delay ~15min</span>
+              <a href="https://br.investing.com/indices/indices-futures" target="_blank" rel="noopener" class="cc-fut-link" title="Ver dados em tempo real no Investing.com">tempo real ↗</a>
+            </span>
           </div>
         </div>
         <div class="cc-head-right">
@@ -1990,6 +2011,59 @@ function fmtPct(v){
   if(v === null || v === undefined || isNaN(v)) return '–';
   return (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
 }
+
+// Helper: monta linha extra do tooltip pra after-hours / pre-market
+// Cobre 4 estados:
+//   - POST (rolando):       "🌙 After-hours: $X +Y%"
+//   - POSTPOST (encerrado): "🌙 Fechou after-hours em: $X +Y%"
+//   - PRE (rolando):        "🌅 Pre-market: $X +Y%"
+//   - PREPRE (madrugada):   nada (dado não confiável)
+//   - Outros (REGULAR/CLOSED): nada
+// Se não há dado válido (null/NaN), retorna string vazia.
+function _ccBuildExtendedTooltip(data){
+  if(!data) return '';
+  var ehUS = (data.currency === 'USD') || (currentUniverse === 'sp500');
+  if(!ehUS) return '';
+
+  var ms = data.marketState;
+  var html = '';
+
+  // POST ou POSTPOST: mostra last after-hours
+  if((ms === 'POST' || ms === 'POSTPOST') && typeof data.postMarketChangePercent === 'number'){
+    var postClass = data.postMarketChangePercent >= 0 ? 'up' : 'dn';
+    var postPriceFmt = data.postMarketPrice ? ('$ ' + data.postMarketPrice.toFixed(2)) : '–';
+    var postLabel = (ms === 'POSTPOST') ? 'Fechou after-hours em:' : 'After-hours:';
+    html =
+      '<div class="tt-extended">' +
+        '<div class="tt-line tt-ext-label">🌙 ' + postLabel + ' <b>' + postPriceFmt + '</b> ' +
+          '<span class="tt-pct-mini ' + postClass + '">' + fmtPct(data.postMarketChangePercent) + '</span>' +
+        '</div>' +
+      '</div>';
+  }
+  // PRE: mostra pre-market
+  else if(ms === 'PRE' && typeof data.preMarketChangePercent === 'number'){
+    var preClass = data.preMarketChangePercent >= 0 ? 'up' : 'dn';
+    var prePriceFmt = data.preMarketPrice ? ('$ ' + data.preMarketPrice.toFixed(2)) : '–';
+    html =
+      '<div class="tt-extended">' +
+        '<div class="tt-line tt-ext-label">🌅 Pre-market: <b>' + prePriceFmt + '</b> ' +
+          '<span class="tt-pct-mini ' + preClass + '">' + fmtPct(data.preMarketChangePercent) + '</span>' +
+        '</div>' +
+      '</div>';
+  }
+  // CLOSED com postMarketPrice ainda populado (Yahoo às vezes guarda no mesmo dia)
+  else if(ms === 'CLOSED' && typeof data.postMarketChangePercent === 'number' && data.postMarketPrice){
+    var closedClass = data.postMarketChangePercent >= 0 ? 'up' : 'dn';
+    var closedPriceFmt = '$ ' + data.postMarketPrice.toFixed(2);
+    html =
+      '<div class="tt-extended">' +
+        '<div class="tt-line tt-ext-label">🌙 Último after-hours: <b>' + closedPriceFmt + '</b> ' +
+          '<span class="tt-pct-mini ' + closedClass + '">' + fmtPct(data.postMarketChangePercent) + '</span>' +
+        '</div>' +
+      '</div>';
+  }
+  return html;
+}
 function fmtBRL(v, dec){
   if(v === null || v === undefined || isNaN(v)) return '–';
   return 'R$ ' + v.toLocaleString('pt-BR',{minimumFractionDigits:dec||2,maximumFractionDigits:dec||2});
@@ -2282,30 +2356,7 @@ function renderTreemap(positions, quotes){
       var chgClass = d.data.chgPct >= 0 ? 'up' : 'dn';
 
       // Pre/post-market — só pra ações US fora do horário regular
-      var ehUS = (currentUniverse === 'sp500') ||
-                 (d.data.currency === 'USD');
-      var extendedHtml = '';
-      if(ehUS && d.data.marketState && d.data.marketState !== 'REGULAR'){
-        if(d.data.marketState === 'POST' && typeof d.data.postMarketChangePercent === 'number'){
-          var postClass = d.data.postMarketChangePercent >= 0 ? 'up' : 'dn';
-          var postPriceFmt = d.data.postMarketPrice ? ('$ ' + d.data.postMarketPrice.toFixed(2)) : '–';
-          extendedHtml =
-            '<div class="tt-extended">' +
-              '<div class="tt-line tt-ext-label">🌙 After-hours: <b>' + postPriceFmt + '</b> ' +
-                '<span class="tt-pct-mini ' + postClass + '">' + fmtPct(d.data.postMarketChangePercent) + '</span>' +
-              '</div>' +
-            '</div>';
-        } else if(d.data.marketState === 'PRE' && typeof d.data.preMarketChangePercent === 'number'){
-          var preClass = d.data.preMarketChangePercent >= 0 ? 'up' : 'dn';
-          var prePriceFmt = d.data.preMarketPrice ? ('$ ' + d.data.preMarketPrice.toFixed(2)) : '–';
-          extendedHtml =
-            '<div class="tt-extended">' +
-              '<div class="tt-line tt-ext-label">🌅 Pre-market: <b>' + prePriceFmt + '</b> ' +
-                '<span class="tt-pct-mini ' + preClass + '">' + fmtPct(d.data.preMarketChangePercent) + '</span>' +
-              '</div>' +
-            '</div>';
-        }
-      }
+      var extendedHtml = _ccBuildExtendedTooltip(d.data);
 
       // Cotação: USD pra US, BRL pro resto
       var precoFmt = '–';
@@ -3112,28 +3163,7 @@ function _renderDrillSector(setorNome){
         }
 
         // Pre/post-market — só pra ações US fora do horário regular
-        var extendedHtml = '';
-        if(ehUS && d.data.marketState && d.data.marketState !== 'REGULAR'){
-          if(d.data.marketState === 'POST' && typeof d.data.postMarketChangePercent === 'number'){
-            var postClass = d.data.postMarketChangePercent >= 0 ? 'up' : 'dn';
-            var postPriceFmt = d.data.postMarketPrice ? ('$ ' + d.data.postMarketPrice.toFixed(2)) : '–';
-            extendedHtml =
-              '<div class="tt-extended">' +
-                '<div class="tt-line tt-ext-label">🌙 After-hours: <b>' + postPriceFmt + '</b> ' +
-                  '<span class="tt-pct-mini ' + postClass + '">' + fmtPct(d.data.postMarketChangePercent) + '</span>' +
-                '</div>' +
-              '</div>';
-          } else if(d.data.marketState === 'PRE' && typeof d.data.preMarketChangePercent === 'number'){
-            var preClass = d.data.preMarketChangePercent >= 0 ? 'up' : 'dn';
-            var prePriceFmt = d.data.preMarketPrice ? ('$ ' + d.data.preMarketPrice.toFixed(2)) : '–';
-            extendedHtml =
-              '<div class="tt-extended">' +
-                '<div class="tt-line tt-ext-label">🌅 Pre-market: <b>' + prePriceFmt + '</b> ' +
-                  '<span class="tt-pct-mini ' + preClass + '">' + fmtPct(d.data.preMarketChangePercent) + '</span>' +
-                '</div>' +
-              '</div>';
-          }
-        }
+        var extendedHtml = _ccBuildExtendedTooltip(d.data);
 
         tooltip.innerHTML =
           '<b>' + d.data.ticker + '</b> · ' + (d.data.nome || '') +
