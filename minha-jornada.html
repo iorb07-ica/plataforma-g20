@@ -1,0 +1,1310 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Minha Jornada · G20 Masterclass</title>
+<link rel="icon" type="image/png" href="assets/favicon.png">
+
+<!-- ========================================
+     FONTES — DM Sans (UI) + JetBrains Mono (números)
+     ======================================== -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!-- ========================================
+     FIREBASE v9.23.0 (compat) — Auth + Firestore
+     mesma versão usada no dashboard.html (padrão da plataforma)
+     ======================================== -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<style>
+/* ============================================================
+   PALETA DARK LUXURY G20 — confirmada Israel 19/04/26
+   ============================================================ */
+:root{
+  --bg:        #1a191e;
+  --bg-2:      #1f1e22;
+  --surface:   #27252c;
+  --surface-2: #2d2b33;
+  --surface-3: #34323b;
+  --border:    rgba(255,255,255,.06);
+  --border-2:  rgba(201,169,97,.18);
+
+  --gold:      #c9a961;
+  --gold-2:    #b8956a;
+  --gold-3:    #d4a574;
+  --gold-soft: rgba(201,169,97,.12);
+
+  --text:      #ece9e3;
+  --text-2:    #a8a29a;
+  --text-3:    #6c6862;
+
+  --green:     #4ade80;
+  --green-2:   #22c55e;
+  --green-soft:rgba(74,222,128,.12);
+  --red:       #ef4444;
+  --red-2:     #dc2626;
+  --red-soft:  rgba(239,68,68,.12);
+
+  --shadow-sm: 0 4px 12px rgba(0,0,0,.4);
+  --shadow-md: 0 12px 24px rgba(0,0,0,.5);
+  --shadow-lg: 0 24px 48px rgba(0,0,0,.6);
+  --shadow-xl: 0 32px 64px rgba(0,0,0,.7);
+
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+
+  --sidebar-w: 240px;
+  --topbar-h:  64px;
+  --tabnav-h:  56px;
+}
+
+/* ============================================================
+   RESET + BASE
+   ============================================================ */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif;
+  font-size:14px;
+  line-height:1.5;
+  min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+.mono{font-family:'JetBrains Mono',monospace;font-feature-settings:'tnum';letter-spacing:-.01em}
+a{color:inherit;text-decoration:none}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+::selection{background:var(--gold-soft);color:var(--gold-3)}
+
+/* Scrollbar dourada sutil */
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--surface-3);border-radius:8px;border:2px solid var(--bg)}
+::-webkit-scrollbar-thumb:hover{background:var(--gold-2)}
+
+/* ============================================================
+   LAYOUT GLOBAL — sidebar + main
+   ============================================================ */
+.app{
+  display:grid;
+  grid-template-columns:var(--sidebar-w) 1fr;
+  min-height:100vh;
+}
+
+/* ============================================================
+   SIDEBAR v21 — fixa, escura, com box-shadow lateral
+   ============================================================ */
+.sidebar{
+  background:var(--bg-2);
+  border-right:1px solid var(--border);
+  box-shadow:8px 0 24px rgba(0,0,0,.3);
+  position:sticky;
+  top:0;
+  height:100vh;
+  overflow-y:auto;
+  z-index:50;
+  display:flex;
+  flex-direction:column;
+}
+.sidebar-brand{
+  padding:24px 20px 20px;
+  border-bottom:1px solid var(--border);
+}
+.sidebar-brand .logo{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  font-weight:700;
+  font-size:20px;
+  letter-spacing:-.02em;
+}
+.sidebar-brand .logo-circle{
+  width:36px;height:36px;
+  border-radius:50%;
+  background:linear-gradient(135deg,var(--gold-3),var(--gold-2));
+  display:grid;place-items:center;
+  color:#1a191e;
+  font-weight:800;
+  box-shadow:0 4px 12px rgba(201,169,97,.3);
+}
+.sidebar-brand .tagline{
+  font-size:10px;
+  letter-spacing:.18em;
+  color:var(--text-3);
+  margin-top:6px;
+  text-transform:uppercase;
+}
+
+.sidebar-user{
+  margin:14px 14px 8px;
+  padding:12px 14px;
+  background:var(--surface);
+  border-radius:var(--r-md);
+  border:1px solid var(--border);
+  display:flex;align-items:center;gap:10px;
+  transition:all .18s ease;
+}
+.sidebar-user:hover{
+  background:var(--surface-2);
+  border-color:var(--border-2);
+}
+.sidebar-user .avatar{
+  width:32px;height:32px;
+  border-radius:50%;
+  background:linear-gradient(135deg,var(--gold),var(--gold-2));
+  display:grid;place-items:center;
+  font-weight:700;color:#1a191e;font-size:13px;
+  overflow:hidden;
+}
+.sidebar-user .avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.sidebar-user .who{flex:1;min-width:0}
+.sidebar-user .who .name{
+  font-weight:600;font-size:13px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  display:flex;align-items:center;gap:6px;
+}
+.sidebar-user .who .name .badge-infinity{
+  font-size:10px;
+  background:linear-gradient(135deg,var(--gold-3),var(--gold-2));
+  color:#1a191e;
+  padding:1px 6px;
+  border-radius:8px;
+  font-weight:700;
+  letter-spacing:.05em;
+}
+.sidebar-user .who .role{font-size:11px;color:var(--text-3)}
+.sidebar-user .who .role span:first-child{display:none}
+
+.sidebar-footer{
+  padding:12px;
+  border-top:1px solid var(--border);
+  margin-top:auto;
+}
+.sidebar-footer .btn-logout{
+  width:100%;
+  display:flex;align-items:center;gap:10px;
+  padding:10px 12px;
+  border-radius:var(--r-md);
+  background:transparent;
+  color:var(--text-3);
+  font-size:13px;
+  font-weight:500;
+  border:1px solid transparent;
+  transition:all .18s ease;
+  cursor:pointer;
+}
+.sidebar-footer .btn-logout:hover{
+  background:var(--red-soft);
+  color:var(--red);
+  border-color:rgba(239,68,68,.2);
+}
+
+.sidebar-nav{
+  padding:8px 10px;
+  flex:1;
+}
+.sidebar-nav .group-label{
+  font-size:10px;letter-spacing:.16em;
+  color:var(--text-3);
+  padding:14px 12px 8px;
+  text-transform:uppercase;
+}
+.sidebar-nav a.nav-item{
+  display:flex;align-items:center;gap:12px;
+  padding:10px 12px;
+  border-radius:var(--r-md);
+  color:var(--text-2);
+  font-size:13px;
+  font-weight:500;
+  transition:all .18s ease;
+  margin-bottom:2px;
+  border:1px solid transparent;
+}
+.sidebar-nav a.nav-item .ico{
+  width:18px;text-align:center;font-size:14px;
+}
+.sidebar-nav a.nav-item:hover{
+  background:var(--surface);
+  color:var(--text);
+}
+.sidebar-nav a.nav-item.active{
+  background:linear-gradient(135deg,rgba(201,169,97,.16),rgba(201,169,97,.06));
+  color:var(--gold-3);
+  border-color:var(--border-2);
+  font-weight:600;
+}
+
+/* ============================================================
+   MAIN
+   ============================================================ */
+.main{
+  display:flex;
+  flex-direction:column;
+  min-width:0;
+}
+
+/* ============================================================
+   TOPBAR STICKY v21 — busca + dark toggle + notif + config
+   (SEM ticker-tape conforme decisão Israel — só topbar)
+   ============================================================ */
+.topbar{
+  position:sticky;
+  top:0;
+  z-index:40;
+  height:var(--topbar-h);
+  background:rgba(26,25,30,.92);
+  backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;
+  padding:0 24px;
+  gap:16px;
+}
+.topbar .search{
+  flex:1;
+  max-width:720px;
+  height:40px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--r-md);
+  display:flex;align-items:center;
+  padding:0 14px;
+  gap:10px;
+  color:var(--text-3);
+  font-size:13px;
+  cursor:text;
+  transition:all .18s ease;
+}
+.topbar .search:hover{border-color:var(--border-2);color:var(--text-2)}
+.topbar .search .kbd{
+  margin-left:auto;
+  font-size:11px;
+  padding:3px 8px;
+  background:var(--surface-2);
+  border:1px solid var(--border);
+  border-radius:6px;
+  color:var(--text-3);
+  font-family:'JetBrains Mono',monospace;
+}
+.topbar .actions{display:flex;align-items:center;gap:8px}
+.topbar .icon-btn{
+  width:40px;height:40px;
+  border-radius:var(--r-md);
+  background:var(--surface);
+  border:1px solid var(--border);
+  display:grid;place-items:center;
+  color:var(--text-2);
+  font-size:14px;
+  transition:all .18s ease;
+  position:relative;
+}
+.topbar .icon-btn:hover{
+  background:var(--surface-2);
+  color:var(--gold-3);
+  border-color:var(--border-2);
+}
+.topbar .icon-btn .dot{
+  position:absolute;top:9px;right:10px;
+  width:7px;height:7px;
+  background:var(--gold);
+  border-radius:50%;
+  box-shadow:0 0 8px rgba(201,169,97,.6);
+}
+.topbar .theme-toggle{
+  display:flex;align-items:center;gap:8px;
+  padding:0 14px;height:40px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--r-md);
+  color:var(--gold-3);
+  font-size:13px;font-weight:500;
+}
+.topbar .theme-toggle:hover{border-color:var(--border-2)}
+
+/* ============================================================
+   TAB NAVIGATION (4 abas v21) — links reais entre .html
+   ============================================================ */
+.tab-nav{
+  background:var(--bg);
+  border-bottom:1px solid var(--border);
+  padding:0 24px;
+  display:flex;
+  gap:4px;
+  height:var(--tabnav-h);
+  align-items:center;
+  overflow-x:auto;
+}
+.tab-nav .tab{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 18px;
+  border-radius:var(--r-md);
+  font-size:13.5px;
+  font-weight:500;
+  color:var(--text-2);
+  transition:all .2s ease;
+  white-space:nowrap;
+  border:1px solid transparent;
+}
+.tab-nav .tab .ico{font-size:15px}
+.tab-nav .tab:hover{
+  background:var(--surface);
+  color:var(--text);
+}
+.tab-nav .tab.active{
+  background:linear-gradient(135deg,var(--gold),var(--gold-2));
+  color:#1a191e;
+  font-weight:700;
+  box-shadow:0 6px 18px rgba(201,169,97,.25);
+}
+
+/* ============================================================
+   PAGE HEADER — saudação + data + badge MARKET OPEN
+   ============================================================ */
+.page-wrap{
+  padding:32px 32px 48px;
+  max-width:1480px;
+  margin:0 auto;
+  width:100%;
+}
+.page-header{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:24px;
+  margin-bottom:28px;
+  flex-wrap:wrap;
+}
+.page-header .meta{
+  font-size:11px;letter-spacing:.22em;
+  color:var(--text-3);
+  text-transform:uppercase;
+  margin-bottom:10px;
+  font-weight:500;
+}
+.page-header h1{
+  font-size:32px;
+  font-weight:600;
+  letter-spacing:-.025em;
+  line-height:1.15;
+  color:var(--text);
+}
+.page-header h1 .nome{color:var(--gold-3)}
+.page-header .sub{
+  margin-top:8px;
+  font-size:14px;
+  color:var(--text-2);
+  font-style:italic;
+}
+.market-badge{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:8px 14px;
+  background:var(--surface);
+  border:1px solid var(--green-soft);
+  border-radius:999px;
+  font-size:11px;
+  letter-spacing:.18em;
+  color:var(--green);
+  font-weight:600;
+  text-transform:uppercase;
+}
+.market-badge .pulse{
+  width:8px;height:8px;
+  background:var(--green);
+  border-radius:50%;
+  box-shadow:0 0 12px var(--green);
+  animation:pulse 2s ease-in-out infinite;
+}
+.market-badge.closed{color:var(--text-3);border-color:var(--border)}
+.market-badge.closed .pulse{background:var(--text-3);box-shadow:none;animation:none}
+@keyframes pulse{
+  0%,100%{opacity:1;transform:scale(1)}
+  50%{opacity:.5;transform:scale(1.2)}
+}
+
+/* ============================================================
+   LAYOUT 65/35 — preparado pra Etapas 2-4
+   ============================================================ */
+.jornada-grid{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:20px;
+  margin-top:8px;
+}
+.jornada-grid > .col-main{display:flex;flex-direction:column;gap:20px}
+.jornada-grid > .col-side{display:flex;flex-direction:column;gap:20px}
+
+@media (min-width:1100px){
+  .jornada-grid{
+    grid-template-columns:1fr 380px;
+    gap:24px;
+  }
+}
+
+/* Card base (placeholder para Etapas 2-4) */
+.card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--r-xl);
+  padding:24px;
+  box-shadow:var(--shadow-lg);
+}
+.card-placeholder{
+  min-height:200px;
+  display:grid;place-items:center;
+  color:var(--text-3);
+  font-size:13px;
+  letter-spacing:.06em;
+  border:1px dashed var(--border);
+  background:transparent;
+  box-shadow:none;
+}
+
+/* ============================================================
+   BOX "O DIA EM UMA FRASE" — narrativa do patrimônio
+   ============================================================ */
+.frase-do-dia{
+  position:relative;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--r-xl);
+  padding:28px 32px 30px;
+  box-shadow:var(--shadow-lg);
+  overflow:hidden;
+}
+.frase-do-dia::before{
+  content:'';
+  position:absolute;
+  left:0;top:0;bottom:0;
+  width:4px;
+  background:linear-gradient(180deg,var(--gold-3),var(--gold-2));
+  border-radius:4px 0 0 4px;
+}
+.frase-do-dia .label{
+  display:flex;align-items:center;gap:10px;
+  font-size:11px;
+  letter-spacing:.22em;
+  color:var(--gold-3);
+  text-transform:uppercase;
+  font-weight:600;
+  margin-bottom:18px;
+}
+.frase-do-dia .label .diamond{
+  width:8px;height:8px;
+  background:var(--gold);
+  transform:rotate(45deg);
+  box-shadow:0 0 10px rgba(201,169,97,.5);
+}
+.frase-do-dia .text{
+  font-size:21px;
+  line-height:1.55;
+  color:var(--text);
+  font-weight:400;
+  letter-spacing:-.01em;
+}
+.frase-do-dia .text .v-up   { color:var(--green);  font-weight:600 }
+.frase-do-dia .text .v-down { color:var(--red);    font-weight:600 }
+.frase-do-dia .text .v-gold { color:var(--gold-3); font-weight:600 }
+.frase-do-dia .text .ticker{
+  font-family:'JetBrains Mono',monospace;
+  font-weight:600;
+  letter-spacing:0;
+}
+.frase-do-dia .meta-row{
+  margin-top:18px;
+  padding-top:16px;
+  border-top:1px solid var(--border);
+  display:flex;
+  gap:18px;
+  flex-wrap:wrap;
+  font-size:11px;
+  letter-spacing:.12em;
+  color:var(--text-3);
+  text-transform:uppercase;
+}
+.frase-do-dia .meta-row .item{
+  display:flex;align-items:center;gap:6px;
+}
+.frase-do-dia .meta-row .item b{
+  color:var(--text-2);
+  font-weight:600;
+  font-family:'JetBrains Mono',monospace;
+  letter-spacing:0;
+  text-transform:none;
+}
+.frase-do-dia.is-empty .text{
+  color:var(--text-3);
+  font-style:italic;
+  font-size:16px;
+}
+
+@media (max-width:600px){
+  .frase-do-dia{padding:22px 22px 24px}
+  .frase-do-dia .text{font-size:17px;line-height:1.5}
+}
+
+/* ============================================================
+   LOADING STATE
+   ============================================================ */
+.loading-screen{
+  position:fixed;inset:0;
+  background:var(--bg);
+  display:grid;place-items:center;
+  z-index:200;
+}
+.loading-screen.hidden{display:none}
+.loading-screen .spinner{
+  width:48px;height:48px;
+  border:3px solid var(--surface-3);
+  border-top-color:var(--gold);
+  border-radius:50%;
+  animation:spin 1s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ============================================================
+   RESPONSIVO MOBILE
+   ============================================================ */
+@media (max-width:900px){
+  .app{grid-template-columns:1fr}
+  .sidebar{
+    position:fixed;
+    left:-260px;
+    transition:left .25s ease;
+  }
+  .sidebar.open{left:0}
+  .topbar{padding:0 16px}
+  .topbar .search{font-size:12px}
+  .tab-nav{padding:0 12px}
+  .tab-nav .tab{padding:8px 14px;font-size:12.5px}
+  .page-wrap{padding:20px 16px 40px}
+  .page-header h1{font-size:24px}
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     LOADING SCREEN (some quando Firebase auth resolve)
+     ============================================================ -->
+<div class="loading-screen" id="loadingScreen">
+  <div class="spinner"></div>
+</div>
+
+<div class="app">
+
+  <!-- ============================================================
+       SIDEBAR — padrão da Plataforma G20 (alinhado com dashboard.html)
+       Estrutura: Principal · Conteúdo · Investimentos · Comunidade
+       ============================================================ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <div class="logo">
+        <div class="logo-circle">G</div>
+        <div>
+          <div>G20</div>
+          <div class="tagline">Masterclass</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-user" id="sidebarUserBlock" onclick="window.location.href='perfil.html'" style="cursor:pointer">
+      <div class="avatar" id="sidebarAvatar"><span id="sidebarInitials">IO</span></div>
+      <div class="who">
+        <div class="name">
+          <span id="sidebarName">Carregando…</span>
+          <span class="badge-infinity" id="badgeInfinity" style="display:none">∞</span>
+        </div>
+        <div class="role"><span id="sidebarTurma">Turma 20</span></div>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="group-label">Principal</div>
+      <a href="dashboard.html" class="nav-item">
+        <span class="ico">🏠</span><span>Dashboard</span>
+      </a>
+
+      <div class="group-label">Conteúdo</div>
+      <a href="sala-de-aula.html" class="nav-item">
+        <span class="ico">📚</span><span>Sala de Aula</span>
+      </a>
+      <a href="g20flix.html" class="nav-item">
+        <span class="ico">🎬</span><span>G20Flix</span>
+      </a>
+      <a href="g20cast.html" class="nav-item">
+        <span class="ico">🎧</span><span>G20Cast</span>
+      </a>
+      <a href="carteira.html" class="nav-item">
+        <span class="ico">📊</span><span>Carteira G20</span>
+      </a>
+      <a href="game.html" class="nav-item">
+        <span class="ico">🏆</span><span>Game G20</span>
+      </a>
+
+      <div class="group-label">Investimentos</div>
+      <a href="gestao-patrimonial.html" class="nav-item">
+        <span class="ico">💰</span><span>Minha Carteira</span>
+      </a>
+
+      <div class="group-label">Comunidade</div>
+      <a href="#" class="nav-item">
+        <span class="ico">👨‍💻</span><span>Consultoria</span>
+      </a>
+      <a href="#" class="nav-item">
+        <span class="ico">💬</span><span>Grupo WhatsApp</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <button class="btn-logout" onclick="g20Logout()" title="Sair">
+        <span class="logout-ico">🚪</span><span>Sair</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ============================================================
+       MAIN
+       ============================================================ -->
+  <main class="main">
+
+    <!-- ========================================
+         TOPBAR STICKY — sem ticker-tape
+         ======================================== -->
+    <header class="topbar">
+      <div class="search" onclick="document.getElementById('searchInput')?.focus()">
+        <span>🔍</span>
+        <span>Buscar ativo, página, notícia ou aluno…</span>
+        <span class="kbd">⌘K</span>
+      </div>
+      <div class="actions">
+        <button class="theme-toggle" id="themeToggle" title="Alternar tema">
+          <span>🌙</span>
+          <span>Dark</span>
+        </button>
+        <button class="icon-btn" title="Notificações">
+          🔔
+          <span class="dot"></span>
+        </button>
+        <button class="icon-btn" title="Configurações">⚙️</button>
+      </div>
+    </header>
+
+    <!-- ========================================
+         TAB NAVIGATION — 4 páginas v21
+         (links reais entre .html — sem SPA)
+         ======================================== -->
+    <nav class="tab-nav">
+      <a href="dashboard.html" class="tab">
+        <span class="ico">🏛️</span><span>Visão Geral</span>
+      </a>
+      <a href="command-center.html" class="tab">
+        <span class="ico">📊</span><span>Command Center</span>
+      </a>
+      <a href="minha-jornada.html" class="tab active">
+        <span class="ico">📓</span><span>Minha Jornada</span>
+      </a>
+      <a href="noticias-calendario.html" class="tab">
+        <span class="ico">📰</span><span>Notícias &amp; Calendário</span>
+      </a>
+    </nav>
+
+    <!-- ========================================
+         PAGE WRAP — header + grid 65/35
+         ======================================== -->
+    <div class="page-wrap">
+
+      <!-- Header da página: data + saudação + badge market -->
+      <div class="page-header">
+        <div>
+          <div class="meta" id="pageDate">Carregando data…</div>
+          <h1>Sua jornada de hoje, <span class="nome" id="pageNome">…</span></h1>
+          <div class="sub">A história do seu patrimônio contada em primeira pessoa</div>
+        </div>
+        <div class="market-badge" id="marketBadge">
+          <span class="pulse"></span>
+          <span id="marketLabel">Verificando…</span>
+        </div>
+      </div>
+
+      <!-- Grid 65/35 — preparado para Etapas 2-4 -->
+      <div class="jornada-grid">
+        <div class="col-main">
+          <!-- Etapa 2: Box "O DIA EM UMA FRASE" -->
+          <section class="frase-do-dia is-empty" id="fraseDoDia">
+            <div class="label">
+              <span class="diamond"></span>
+              <span>O dia em uma frase</span>
+            </div>
+            <div class="text" id="fraseTexto">
+              Calculando a história do seu patrimônio hoje…
+            </div>
+            <div class="meta-row" id="fraseMeta" style="display:none">
+              <div class="item">Patrimônio total · <b id="metaPatrimonio">—</b></div>
+              <div class="item">Variação dia · <b id="metaVariacao">—</b></div>
+              <div class="item">Posições ativas · <b id="metaPosicoes">—</b></div>
+            </div>
+          </section>
+          <!-- Etapa 3: Timeline cronológica virá aqui -->
+          <div class="card card-placeholder">
+            ETAPA 3 — TIMELINE CRONOLÓGICA (em construção)
+          </div>
+        </div>
+        <div class="col-side">
+          <!-- Etapa 4: 3 cards sidebar virão aqui -->
+          <div class="card card-placeholder">
+            ETAPA 4 — QUEM BRILHOU HOJE (em construção)
+          </div>
+          <div class="card card-placeholder">
+            ETAPA 4 — QUEM PESOU HOJE (em construção)
+          </div>
+          <div class="card card-placeholder">
+            ETAPA 4 — NO RADAR ESTA SEMANA (em construção)
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- ============================================================
+     SCRIPTS
+     ============================================================ -->
+<script>
+/* ============================================================
+   CONFIG FIREBASE — projeto g20-masterclass
+   IGUAL ao dashboard.html (padrão da plataforma)
+   ============================================================ */
+const firebaseConfig = {
+  apiKey: "AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",
+  authDomain: "g20-masterclass.firebaseapp.com",
+  projectId: "g20-masterclass",
+  storageBucket: "g20-masterclass.firebasestorage.app",
+  messagingSenderId: "1052719482127",
+  appId: "1:1052719482127:web:537c1d67c96532be8a2a7a"
+};
+
+if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+// Persistência LOCAL (login persiste entre tabs — padrão da plataforma)
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
+
+// Logout global (padrão da plataforma)
+window.g20Logout = function() {
+  localStorage.removeItem('g20_uid');
+  localStorage.removeItem('g20_user_profile');
+  auth.signOut().then(()=>{ window.location.href='login.html'; })
+              .catch(()=>{ window.location.href='login.html'; });
+};
+
+// Redireciona imediatamente se NÃO tem sessão salva
+const _savedUid = localStorage.getItem('g20_uid');
+if (!_savedUid) { window.location.href = 'login.html'; }
+
+/* ============================================================
+   STATE
+   ============================================================ */
+const STATE = {
+  uid:      null,
+  nome:     'G20',
+  turma:    'Turma 20',
+  initials: 'G2',
+  photo:    '',
+  infinite: false,
+  aportes:  [],   // g20_rvAportes (carteira individual do aluno)
+  snap:     null, // resultado de _calcularDia (usado por etapas 3 e 4)
+};
+
+/* ============================================================
+   UTILITÁRIOS DE DATA — PT-BR
+   ============================================================ */
+function _dataExtensoPT(d = new Date()){
+  const dias = ['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'];
+  const meses = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  return `${dias[d.getDay()]} · ${d.getDate()} de ${meses[d.getMonth()]} de ${d.getFullYear()}`;
+}
+function _dataMetaPT(d = new Date()){
+  const dias = ['DOMINGO','SEGUNDA-FEIRA','TERÇA-FEIRA','QUARTA-FEIRA','QUINTA-FEIRA','SEXTA-FEIRA','SÁBADO'];
+  const meses = ['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
+  return `${dias[d.getDay()]} • ${d.getDate()} DE ${meses[d.getMonth()]} DE ${d.getFullYear()}`;
+}
+function _primeiroNome(s){
+  if(!s) return 'G20';
+  return String(s).trim().split(/\s+/)[0] || 'G20';
+}
+
+/* ============================================================
+   MARKET STATUS — B3 abre 10:00 fecha 17:00 BRT (seg-sex)
+   ============================================================ */
+function _marketStatus(){
+  const now = new Date();
+  const dow = now.getDay();           // 0=dom 6=sáb
+  const h   = now.getHours();
+  const m   = now.getMinutes();
+  const min = h*60 + m;
+  const open  = 10*60;                // 10:00
+  const close = 17*60;                // 17:00
+  const isWeekday = dow >= 1 && dow <= 5;
+  const isOpen = isWeekday && min >= open && min < close;
+  return {
+    open: isOpen,
+    label: isOpen ? 'MARKET OPEN' : (isWeekday ? 'MARKET CLOSED' : 'WEEKEND')
+  };
+}
+function _renderMarketBadge(){
+  const badge = document.getElementById('marketBadge');
+  const label = document.getElementById('marketLabel');
+  const st = _marketStatus();
+  label.textContent = st.label;
+  badge.classList.toggle('closed', !st.open);
+}
+
+/* ============================================================
+   FORMATADORES — moeda, percentual
+   ============================================================ */
+function _fmtBRL(v, opts={}){
+  const sign = v >= 0 ? '+' : '−';
+  const abs  = Math.abs(v);
+  const out  = abs.toLocaleString('pt-BR', { minimumFractionDigits: opts.dec ?? 0, maximumFractionDigits: opts.dec ?? 0 });
+  return (opts.signed ? sign + ' ' : '') + 'R$ ' + out;
+}
+function _fmtPct(v, opts={}){
+  const sign = v >= 0 ? '+' : '−';
+  const abs  = Math.abs(v);
+  return (opts.signed!==false ? sign : '') + abs.toFixed(2).replace('.',',') + '%';
+}
+function _nomeCurto(ticker, full){
+  // Remove sufixo .SA, retorna nome amigável quando temos
+  const map = {
+    'PETR4':'Petrobras','PETR3':'Petrobras','VALE3':'Vale','ITUB4':'Itaú Unibanco',
+    'BBAS3':'Banco do Brasil','BBDC4':'Bradesco','MGLU3':'Magazine Luiza','VIIA3':'Via Varejo',
+    'COGN3':'Cogna','WEGE3':'WEG','ABEV3':'Ambev','RENT3':'Localiza','LREN3':'Lojas Renner',
+    'B3SA3':'B3','SUZB3':'Suzano','RAIL3':'Rumo','EMBR3':'Embraer','ELET3':'Eletrobras',
+    'TAEE11':'Taesa','BBSE3':'BB Seguridade','ITSA4':'Itaúsa','TOTS3':'Totvs',
+  };
+  return map[ticker] || full || ticker;
+}
+
+/* ============================================================
+   DADOS MOCK — variações dia (substituir por proxy Vercel)
+   Em produção: chamar https://g20-proxy.vercel.app/api/quote
+   ============================================================ */
+const MOCK_VARIACOES = {
+  // ticker → { precoAtual, varDia%, nome }
+  'PETR4': { preco: 38.42, varPct: +3.20, nome: 'Petrobras' },
+  'VALE3': { preco: 67.15, varPct: +2.10, nome: 'Vale' },
+  'ITUB4': { preco: 34.80, varPct: +1.80, nome: 'Itaú Unibanco' },
+  'BBAS3': { preco: 28.14, varPct: +1.20, nome: 'Banco do Brasil' },
+  'WEGE3': { preco: 42.30, varPct: +0.95, nome: 'WEG' },
+  'MGLU3': { preco:  8.24, varPct: -4.50, nome: 'Magazine Luiza' },
+  'COGN3': { preco:  2.18, varPct: -2.20, nome: 'Cogna' },
+  'VIIA3': { preco:  1.92, varPct: -3.10, nome: 'Via Varejo' },
+  'TAEE11':{ preco: 35.60, varPct: +0.40, nome: 'Taesa' },
+  'BBSE3': { preco: 38.90, varPct: +0.80, nome: 'BB Seguridade' },
+};
+
+// Carteira mock (só usada se Firestore não retornar nada — pra demo)
+const MOCK_APORTES = [
+  { ticker:'PETR4',  qtd: 4000, precoMedio: 32.10 },
+  { ticker:'VALE3',  qtd: 2200, precoMedio: 60.40 },
+  { ticker:'ITUB4',  qtd: 3500, precoMedio: 30.20 },
+  { ticker:'BBAS3',  qtd: 1800, precoMedio: 25.80 },
+  { ticker:'WEGE3',  qtd: 1200, precoMedio: 40.10 },
+  { ticker:'MGLU3',  qtd: 4500, precoMedio:  9.60 },
+  { ticker:'COGN3',  qtd: 3000, precoMedio:  2.90 },
+  { ticker:'VIIA3',  qtd: 2000, precoMedio:  2.40 },
+  { ticker:'TAEE11', qtd:  500, precoMedio: 33.20 },
+  { ticker:'BBSE3',  qtd:  900, precoMedio: 36.10 },
+];
+
+/* ============================================================
+   CÁLCULO DE POSIÇÕES — agrega aportes por ticker
+   ============================================================ */
+function _consolidarPosicoes(aportes){
+  const map = new Map();
+  for(const a of (aportes||[])){
+    const t = a.ticker;
+    if(!t) continue;
+    const cur = map.get(t) || { ticker:t, qtd:0, custoTotal:0 };
+    cur.qtd        += Number(a.qtd) || 0;
+    cur.custoTotal += (Number(a.qtd)||0) * (Number(a.precoMedio)||0);
+    map.set(t, cur);
+  }
+  return Array.from(map.values()).filter(p => p.qtd > 0);
+}
+
+/* ============================================================
+   CÁLCULO DO DIA — para cada posição, calcula var R$ do pregão
+   ============================================================ */
+function _calcularDia(posicoes){
+  const enriched = posicoes.map(p => {
+    const q = MOCK_VARIACOES[p.ticker];
+    if(!q) return null;
+    const valorAtual    = p.qtd * q.preco;
+    const varPct        = q.varPct;
+    const precoOntem    = q.preco / (1 + varPct/100);
+    const valorOntem    = p.qtd * precoOntem;
+    const impactoR$     = valorAtual - valorOntem;
+    return {
+      ...p,
+      preco:       q.preco,
+      nome:        q.nome,
+      varPct,
+      valorAtual,
+      valorOntem,
+      impactoR$,
+    };
+  }).filter(Boolean);
+
+  const patrimonioAtual = enriched.reduce((s,p) => s + p.valorAtual, 0);
+  const patrimonioOntem = enriched.reduce((s,p) => s + p.valorOntem, 0);
+  const variacaoR$      = patrimonioAtual - patrimonioOntem;
+  const variacaoPct     = patrimonioOntem > 0 ? (variacaoR$ / patrimonioOntem) * 100 : 0;
+
+  // Ordena por impacto absoluto (R$, não %) — quem PESA na carteira
+  const porImpacto = [...enriched].sort((a,b) => Math.abs(b.impactoR$) - Math.abs(a.impactoR$));
+  const positivos  = enriched.filter(p => p.impactoR$ > 0).sort((a,b) => b.impactoR$ - a.impactoR$);
+  const negativos  = enriched.filter(p => p.impactoR$ < 0).sort((a,b) => a.impactoR$ - b.impactoR$);
+
+  return {
+    posicoes: enriched,
+    patrimonioAtual,
+    patrimonioOntem,
+    variacaoR$,
+    variacaoPct,
+    porImpacto,
+    positivos,
+    negativos,
+  };
+}
+
+/* ============================================================
+   ENGINE DE NARRATIVA — _gerarNarrativaDia()
+   Regras determinísticas. Trocar por chamada IA depois com 1 linha.
+   Retorna HTML (com spans coloridos inline).
+   ============================================================ */
+const SELIC_AA = 10.75; // 10,75% a.a. — atualizar quando mudar
+
+function _gerarNarrativaDia(snap){
+  if(!snap || !snap.posicoes.length){
+    return {
+      html: 'Cadastre seus ativos em <b>Gestão Patrimonial</b> para ver a história do seu patrimônio aqui.',
+      empty: true,
+    };
+  }
+
+  const { variacaoR$, variacaoPct, patrimonioAtual, positivos, negativos } = snap;
+
+  // === 1. TOM DE ABERTURA (5 faixas) ===
+  let abertura;
+  const absPct = Math.abs(variacaoPct);
+  if(variacaoPct >= 1){
+    abertura = `Seu patrimônio <span class="v-up">subiu ${_fmtBRL(variacaoR$)} (${_fmtPct(variacaoPct)})</span> hoje`;
+  } else if(variacaoPct >= 0.3){
+    abertura = `Seu patrimônio teve <span class="v-up">dia positivo</span>, ganhando <span class="v-up">${_fmtBRL(variacaoR$)} (${_fmtPct(variacaoPct)})</span>`;
+  } else if(variacaoPct >= -0.3){
+    abertura = `Seu patrimônio teve <span class="v-gold">dia de lateralização</span>, oscilando próximo a zero (${_fmtPct(variacaoPct)})`;
+  } else if(variacaoPct >= -1){
+    abertura = `Seu patrimônio <span class="v-down">recuou ${_fmtBRL(Math.abs(variacaoR$))} (${_fmtPct(variacaoPct)})</span> hoje`;
+  } else {
+    abertura = `Seu patrimônio <span class="v-down">cedeu ${_fmtBRL(Math.abs(variacaoR$))} (${_fmtPct(variacaoPct)})</span> hoje`;
+  }
+
+  // === 2. MOTOR (top 1-2 contribuintes positivos) ===
+  let motor = '';
+  if(variacaoPct > 0.3 && positivos.length){
+    const top1 = positivos[0];
+    const motivo = `<span class="ticker v-gold">${_nomeCurto(top1.ticker, top1.nome)}</span> <span class="v-up">(${_fmtPct(top1.varPct)})</span>`;
+    if(positivos.length >= 2 && positivos[1].impactoR$ > Math.abs(variacaoR$) * 0.15){
+      const top2 = positivos[1];
+      motor = `, puxado pelo rali de ${motivo} e <span class="ticker v-gold">${_nomeCurto(top2.ticker, top2.nome)}</span> <span class="v-up">(${_fmtPct(top2.varPct)})</span>`;
+    } else {
+      motor = `, puxado pelo rali de ${motivo}`;
+    }
+  } else if(variacaoPct < -0.3 && negativos.length){
+    const top1 = negativos[0];
+    const motivo = `<span class="ticker v-gold">${_nomeCurto(top1.ticker, top1.nome)}</span> <span class="v-down">(${_fmtPct(top1.varPct)})</span>`;
+    motor = `, pressionado pela queda de ${motivo}`;
+  }
+
+  // === 3. COMPARAÇÃO CONTEXTUAL — equivalente a X meses de Selic ===
+  let contexto = '';
+  if(variacaoPct >= 1 && patrimonioAtual > 0){
+    const rendimentoMensalSelic = patrimonioAtual * (SELIC_AA/100/12);
+    const mesesEquivalentes = variacaoR$ / rendimentoMensalSelic;
+    if(mesesEquivalentes >= 0.8){
+      const meses = Math.round(mesesEquivalentes);
+      const txt = meses === 1 ? '1 mês' : `${meses} meses`;
+      contexto = ` — o equivalente a <span class="v-gold">${txt} de Selic</span> rendida em um único pregão`;
+    }
+  } else if(variacaoPct <= -1 && patrimonioAtual > 0){
+    const rendimentoDiarioCDI = patrimonioAtual * (SELIC_AA*0.95/100/252); // ~CDI
+    const diasEquivalentes = Math.abs(variacaoR$) / rendimentoDiarioCDI;
+    if(diasEquivalentes >= 5 && diasEquivalentes <= 60){
+      const dias = Math.round(diasEquivalentes);
+      contexto = ` — o equivalente a <span class="v-gold">${dias} dias de CDI</span> queimados em um pregão`;
+    } else if(diasEquivalentes > 60){
+      // queda anômala — usa meses pra não ficar absurdo
+      const rendMensalSelic = patrimonioAtual * (SELIC_AA/100/12);
+      const meses = Math.round(Math.abs(variacaoR$) / rendMensalSelic);
+      if(meses >= 1 && meses <= 12){
+        contexto = ` — o equivalente a <span class="v-gold">${meses} meses de Selic</span> evaporados em um pregão`;
+      }
+    }
+  }
+
+  // === 4. CONTRAPESO (se houver perdas relevantes em dia positivo) ===
+  let contrapeso = '';
+  if(variacaoPct > 0 && negativos.length){
+    const pior = negativos[0];
+    const piorImpactoAbs = Math.abs(pior.impactoR$);
+    // só menciona se for ≥10% da variação positiva total
+    if(piorImpactoAbs >= Math.abs(variacaoR$) * 0.10){
+      const verbo = pior.varPct <= -4 ? 'despencou' : (pior.varPct <= -2 ? 'caiu' : 'recuou');
+      contrapeso = `. Em contrapartida, <span class="ticker v-gold">${_nomeCurto(pior.ticker, pior.nome)}</span> <span class="v-down">${verbo} ${_fmtPct(pior.varPct, {signed:false})}</span>, descontando <span class="v-down">${_fmtBRL(piorImpactoAbs)}</span> do total`;
+    }
+  } else if(variacaoPct < 0 && positivos.length){
+    const melhor = positivos[0];
+    const melhorImpactoAbs = melhor.impactoR$;
+    if(melhorImpactoAbs >= Math.abs(variacaoR$) * 0.10){
+      contrapeso = `. Do lado positivo, <span class="ticker v-gold">${_nomeCurto(melhor.ticker, melhor.nome)}</span> <span class="v-up">subiu ${_fmtPct(melhor.varPct, {signed:false})}</span>, segurando <span class="v-up">${_fmtBRL(melhorImpactoAbs)}</span> da queda`;
+    }
+  }
+
+  // === 5. MONTAGEM FINAL ===
+  const html = abertura + motor + contexto + contrapeso + '.';
+  return { html, empty: false };
+}
+
+/* ============================================================
+   RENDER — Box "O DIA EM UMA FRASE"
+   ============================================================ */
+function _renderFraseDoDia(){
+  // Usa aportes do Firestore se houver, senão fallback mock pra demo visual
+  const aportes = STATE.aportes.length ? STATE.aportes : MOCK_APORTES;
+  const posicoes = _consolidarPosicoes(aportes);
+  const snap     = _calcularDia(posicoes);
+  const narrativa = _gerarNarrativaDia(snap);
+
+  const box   = document.getElementById('fraseDoDia');
+  const texto = document.getElementById('fraseTexto');
+  const meta  = document.getElementById('fraseMeta');
+
+  texto.innerHTML = narrativa.html;
+  box.classList.toggle('is-empty', narrativa.empty);
+
+  if(!narrativa.empty){
+    meta.style.display = 'flex';
+    document.getElementById('metaPatrimonio').textContent = _fmtBRL(snap.patrimonioAtual).replace('+ ','');
+    const varEl = document.getElementById('metaVariacao');
+    varEl.textContent = `${_fmtBRL(snap.variacaoR$)} (${_fmtPct(snap.variacaoPct)})`;
+    varEl.style.color = snap.variacaoR$ >= 0 ? 'var(--green)' : 'var(--red)';
+    document.getElementById('metaPosicoes').textContent = `${snap.posicoes.length} ativos`;
+  } else {
+    meta.style.display = 'none';
+  }
+
+  // Guarda snap pra próximas etapas (timeline + sidebar) usarem
+  STATE.snap = snap;
+}
+
+/* ============================================================
+   FIRESTORE — carrega perfil + aportes (padrão da plataforma)
+   - users/{uid} contém { aprovado, role, profile, perfil, infinite, ... }
+   - users/{uid}/dados/{key} contém { value: <JSON> } e é espelhado em LS
+     como localStorage['g20_'+key] (padrão dashboard.html)
+   ============================================================ */
+async function _carregarPerfil(uid){
+  try{
+    const doc = await db.collection('users').doc(uid).get();
+    if(!doc.exists) return false;
+    const data = doc.data();
+
+    // Verifica aprovação (padrão da plataforma)
+    if(data.aprovado !== true && data.role !== 'admin'){
+      return false;
+    }
+
+    const profile  = data.profile || data;
+    const name     = profile.name || profile.nome || (auth.currentUser && auth.currentUser.displayName) || 'G20';
+    const turma    = profile.turma || 'Turma 20';
+    const role     = profile.role  || data.role   || 'Membro';
+    const photo    = (data.perfil && data.perfil.foto) || profile.photo || (auth.currentUser && auth.currentUser.photoURL) || '';
+    const initials = name.split(' ').map(w => w[0] || '').slice(0,2).join('').toUpperCase() || 'G2';
+    const turmaLabel = (role === 'admin') ? 'Admin' : turma;
+
+    STATE.nome     = name;
+    STATE.turma    = turmaLabel;
+    STATE.initials = initials;
+    STATE.photo    = photo;
+    STATE.infinite = (data.infinite === true);
+
+    // Cache local (igual dashboard)
+    try{
+      localStorage.setItem('g20_user_profile', JSON.stringify({
+        name, turma, role, photo,
+        apelido: name.split(' ')[0],
+        infinite: data.infinite === true
+      }));
+    }catch(_){}
+
+    return true;
+  }catch(e){
+    console.warn('[minha-jornada] erro perfil:', e);
+    return false;
+  }
+}
+
+async function _sincronizarDados(uid){
+  // Espelha users/{uid}/dados/* para localStorage['g20_'+key] (padrão dashboard)
+  try{
+    const snap = await db.collection('users').doc(uid).collection('dados').get({ source: 'server' });
+    snap.forEach(doc => {
+      try{ localStorage.setItem('g20_' + doc.id, JSON.stringify(doc.data().value)); }catch(_){}
+    });
+  }catch(e){
+    console.warn('[minha-jornada] erro sync dados:', e);
+  }
+  // Lê aportes do LS (que acabou de ser sincronizado)
+  try{
+    const raw = localStorage.getItem('g20_rvAportes');
+    if(raw){
+      const parsed = JSON.parse(raw);
+      STATE.aportes = Array.isArray(parsed) ? parsed : [];
+    }
+  }catch(_){}
+}
+
+/* ============================================================
+   RENDER — sidebar (avatar, nome, turma, badge infinity)
+   ============================================================ */
+function _renderSidebar(){
+  const nm = document.getElementById('sidebarName');     if(nm) nm.textContent = STATE.nome || 'G20';
+  const tr = document.getElementById('sidebarTurma');    if(tr) tr.textContent = STATE.turma || 'Turma 20';
+  const ini= document.getElementById('sidebarInitials'); if(ini) ini.textContent = STATE.initials || 'G2';
+  const bi = document.getElementById('badgeInfinity');   if(bi) bi.style.display = STATE.infinite ? 'inline-block' : 'none';
+  const av = document.getElementById('sidebarAvatar');
+  if(av && STATE.photo){
+    av.innerHTML = '<img src="'+STATE.photo+'" onerror="this.parentNode.innerHTML=&quot;<span id=\\&quot;sidebarInitials\\&quot;>'+(STATE.initials||'G2')+'</span>&quot;">';
+  }
+}
+
+/* ============================================================
+   RENDER — header personalizado
+   ============================================================ */
+function _renderHeader(){
+  const nome1 = _primeiroNome(STATE.nome);
+  document.getElementById('pageNome').textContent  = nome1;
+  document.getElementById('pageDate').textContent  = _dataMetaPT();
+}
+
+/* ============================================================
+   AUTH GUARD — padrão da plataforma (aprovado check + polling)
+   ============================================================ */
+async function _bootstrap(){
+  // Tenta hidratar UI rápido com cache LS
+  try{
+    const cached = JSON.parse(localStorage.getItem('g20_user_profile') || 'null');
+    if(cached){
+      STATE.nome     = cached.name;
+      STATE.turma    = (cached.role === 'admin') ? 'Admin' : (cached.turma || 'Turma 20');
+      STATE.initials = (cached.name || 'G2').split(' ').map(w => w[0] || '').slice(0,2).join('').toUpperCase();
+      STATE.photo    = cached.photo || '';
+      STATE.infinite = cached.infinite === true;
+      _renderSidebar();
+      _renderHeader();
+    }
+  }catch(_){}
+
+  // Hidrata aportes do LS (sync mais recente que tiver)
+  try{
+    const raw = localStorage.getItem('g20_rvAportes');
+    if(raw){
+      const parsed = JSON.parse(raw);
+      STATE.aportes = Array.isArray(parsed) ? parsed : [];
+    }
+  }catch(_){}
+  _renderFraseDoDia();
+
+  // Esconde loading rápido
+  document.getElementById('loadingScreen').classList.add('hidden');
+
+  // Verifica em background (fonte da verdade = Firestore)
+  auth.onAuthStateChanged(async (user) => {
+    if(!user){
+      localStorage.removeItem('g20_uid');
+      window.location.href = 'login.html';
+      return;
+    }
+    STATE.uid = user.uid;
+    localStorage.setItem('g20_uid', user.uid);
+
+    // Polling de aprovação (até 20 tentativas, 3s cada)
+    async function verificarAcesso(tentativa){
+      const ok = await _carregarPerfil(user.uid);
+      if(!ok){
+        if((tentativa || 0) < 20){
+          setTimeout(() => verificarAcesso((tentativa||0)+1), 3000);
+        } else {
+          localStorage.removeItem('g20_uid');
+          auth.signOut().then(() => { window.location.href = 'login.html'; });
+        }
+        return;
+      }
+      _renderSidebar();
+      _renderHeader();
+      await _sincronizarDados(user.uid);
+      _renderFraseDoDia();
+      console.log('[minha-jornada] ✅ auth+perfil ok · uid:', user.uid, '· aportes:', STATE.aportes.length);
+    }
+
+    verificarAcesso(0);
+  });
+}
+
+/* ============================================================
+   INIT
+   ============================================================ */
+document.addEventListener('DOMContentLoaded', () => {
+  _renderMarketBadge();
+  setInterval(_renderMarketBadge, 60_000); // revalida a cada minuto
+
+  // Render imediato com defaults (caso auth demore)
+  _renderHeader();
+  _renderFraseDoDia();
+
+  _bootstrap();
+});
+
+// Atalho ⌘K / Ctrl+K (placeholder — futura busca global)
+document.addEventListener('keydown', (e) => {
+  if((e.metaKey || e.ctrlKey) && e.key === 'k'){
+    e.preventDefault();
+    console.log('[minha-jornada] ⌘K — busca global (TODO)');
+  }
+});
+
+/* ============================================================
+   SERVICE WORKER — PWA (padrão da plataforma)
+   ============================================================ */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js')
+      .then(reg => console.log('[minha-jornada] SW registrado:', reg.scope))
+      .catch(e   => console.warn('[minha-jornada] SW erro:', e));
+  });
+}
+</script>
+
+</body>
+</html>
