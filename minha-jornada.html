@@ -2013,16 +2013,107 @@ var MJ_TIMELINE_EVENTOS = [
 ];
 
 // ════════════════════════════════════════════════════════
-// MINHA JORNADA — DATASET RADAR
+// MINHA JORNADA — CALENDÁRIO MACRO 2026 (datas OFICIAIS)
+// COPOM 2026 (anúncio Selic é no SEGUNDO dia da reunião — 16h30):
+//   28/jan, 18/mar, 29/abr, 17/jun, 05/ago, 16/set, 04/nov, 09/dez
+// FOMC 2026 (anúncio juros é no SEGUNDO dia, ~15h ET):
+//   28/jan, 18/mar, 29/abr, 17/jun, 29/jul, 16/set, 28/out, 09/dez
+// Fontes: bcb.gov.br + federalreserve.gov
 // ════════════════════════════════════════════════════════
-var MJ_RADAR_AGENDA = [
-  { date:'05/05', kind:'provento',  desc:'BBAS3 paga div.',         val:'R$ 120',   valKind:'gold' },
-  { date:'06/05', kind:'provento',  desc:'ITSA4 paga JCP',          val:'R$ 89,50', valKind:'gold' },
-  { date:'07/05', kind:'macro',     desc:'COPOM decide Selic',      val:'MACRO',    valKind:'macro' },
-  { date:'08/05', kind:'macro',     desc:'FOMC anuncia juros (EUA)', val:'MACRO',   valKind:'macro' },
-  { date:'09/05', kind:'provento',  desc:'TAEE11 paga div.',        val:'R$ 245',   valKind:'gold' },
-  { date:'10/05', kind:'resultado', desc:'PETR4 divulga 1T26',      val:'BMO',      valKind:'macro' }
+var MJ_MACRO_CALENDAR = [
+  // COPOM 2026 (datas de anúncio = 2º dia)
+  { date:'2026-01-28', kind:'macro',  desc:'COPOM decide Selic',       valLabel:'MACRO' },
+  { date:'2026-03-18', kind:'macro',  desc:'COPOM decide Selic',       valLabel:'MACRO' },
+  { date:'2026-04-29', kind:'macro',  desc:'COPOM decide Selic',       valLabel:'MACRO' },
+  { date:'2026-06-17', kind:'macro',  desc:'COPOM decide Selic',       valLabel:'MACRO' },
+  { date:'2026-08-05', kind:'macro',  desc:'COPOM decide Selic',       valLabel:'MACRO' },
+  { date:'2026-09-16', kind:'macro',  desc:'COPOM decide Selic',       valLabel:'MACRO' },
+  { date:'2026-11-04', kind:'macro',  desc:'COPOM decide Selic',       valLabel:'MACRO' },
+  { date:'2026-12-09', kind:'macro',  desc:'COPOM decide Selic',       valLabel:'MACRO' },
+  // FOMC 2026 (datas de anúncio = 2º dia)
+  { date:'2026-01-28', kind:'macro',  desc:'FOMC anuncia juros (EUA)', valLabel:'MACRO' },
+  { date:'2026-03-18', kind:'macro',  desc:'FOMC anuncia juros (EUA)', valLabel:'MACRO' },
+  { date:'2026-04-29', kind:'macro',  desc:'FOMC anuncia juros (EUA)', valLabel:'MACRO' },
+  { date:'2026-06-17', kind:'macro',  desc:'FOMC anuncia juros (EUA)', valLabel:'MACRO' },
+  { date:'2026-07-29', kind:'macro',  desc:'FOMC anuncia juros (EUA)', valLabel:'MACRO' },
+  { date:'2026-09-16', kind:'macro',  desc:'FOMC anuncia juros (EUA)', valLabel:'MACRO' },
+  { date:'2026-10-28', kind:'macro',  desc:'FOMC anuncia juros (EUA)', valLabel:'MACRO' },
+  { date:'2026-12-09', kind:'macro',  desc:'FOMC anuncia juros (EUA)', valLabel:'MACRO' }
 ];
+
+// Janela de exibição: próximos 60 dias (cobre pelo menos 1 ciclo trimestral de dividendos US)
+var MJ_RADAR_JANELA_DIAS = 60;
+
+// ════════════════════════════════════════════════════════
+// MINHA JORNADA — MONTA RADAR REAL
+// (calendário macro + dividendos reais da carteira do usuário)
+// ════════════════════════════════════════════════════════
+function mjMontarRadarEventos(){
+  var hoje = new Date(); hoje.setHours(0,0,0,0);
+  var limite = new Date(hoje.getTime() + MJ_RADAR_JANELA_DIAS*24*3600*1000);
+  var eventos = [];
+
+  // 1. Eventos macro
+  MJ_MACRO_CALENDAR.forEach(function(m){
+    var d = new Date(m.date + 'T00:00:00');
+    if(d >= hoje && d <= limite){
+      eventos.push({
+        dateObj: d,
+        date: mjFormatarDDMM(d),
+        kind: m.kind,
+        desc: m.desc,
+        valLabel: m.valLabel,
+        valKind: 'macro'
+      });
+    }
+  });
+
+  // 2. Dividendos da carteira (filtra por tickers do usuário)
+  var tickersCarteira = {};
+  (MJ_STATE.aportes || []).forEach(function(a){
+    if(a.ticker && (!a.op || a.op === 'C')) tickersCarteira[a.ticker] = true;
+  });
+
+  try{
+    var divs = JSON.parse(localStorage.getItem('g20_dividendos') || '[]');
+    divs.forEach(function(d){
+      if(!d.ticker || !d.data) return;
+      if(!tickersCarteira[d.ticker]) return; // só ativos da carteira
+      var dt = new Date(d.data + 'T00:00:00');
+      if(isNaN(dt)) return;
+      if(dt < hoje || dt > limite) return; // só futuros próximos
+
+      // Detecta moeda — heurística: se ticker é US (sem números no final), usa USD
+      var isUS = !/\d/.test(d.ticker);
+      var valor = Number(d.total) || 0;
+      var valLabel = '';
+      if(isUS){
+        valLabel = '$ ' + valor.toFixed(2).replace('.',',');
+      } else {
+        valLabel = 'R$ ' + valor.toFixed(2).replace('.',',');
+      }
+      eventos.push({
+        dateObj: dt,
+        date: mjFormatarDDMM(dt),
+        kind: 'provento',
+        desc: d.ticker + ' paga ' + (d.tipo === 'JCP' ? 'JCP' : 'div.'),
+        valLabel: valLabel,
+        valKind: 'gold'
+      });
+    });
+  }catch(e){ console.warn('[mj radar] erro lendo dividendos:', e); }
+
+  // 3. Ordena cronologicamente
+  eventos.sort(function(a,b){ return a.dateObj - b.dateObj; });
+
+  return eventos;
+}
+
+function mjFormatarDDMM(d){
+  var dd = String(d.getDate()).padStart(2,'0');
+  var mm = String(d.getMonth()+1).padStart(2,'0');
+  return dd + '/' + mm;
+}
 
 // ════════════════════════════════════════════════════════
 // MINHA JORNADA — RENDER FRASE DO DIA
@@ -2133,18 +2224,21 @@ function mjRenderRankPesou(){
 function mjRenderRadar(){
   var wrap = document.getElementById('mjRadarList');
   if(!wrap) return;
-  var eventos = MJ_RADAR_AGENDA;
+  var eventos = mjMontarRadarEventos();
   if(!eventos.length){
-    wrap.innerHTML = '<div class="mj-rank-empty">Nenhum evento na semana.</div>';
+    wrap.innerHTML = '<div class="mj-rank-empty"><span class="ico-big">📅</span>Nenhum evento nos próximos ' + MJ_RADAR_JANELA_DIAS + ' dias.<br>Confira o calendário completo na aba Notícias.</div>';
     return;
   }
+  // Limita a 8 itens visíveis (2 a mais que o mock anterior)
+  eventos = eventos.slice(0, 8);
   wrap.innerHTML = eventos.map(function(ev){
     var klass = ev.kind === 'macro' ? 'is-macro' : (ev.kind === 'provento' ? 'is-provento' : (ev.kind === 'resultado' ? 'is-resultado' : ''));
     var valClass = ev.valKind === 'macro' ? 'macro' : (ev.valKind === 'gold' ? 'gold-tag' : '');
-    var descHtml = ev.desc.replace(/^([A-Z]{4}\d{1,2})\s/, '<span class="ticker">$1</span> ');
+    // Realça ticker quando descrição começa com TICKER (ex.: "PLD paga div.")
+    var descHtml = ev.desc.replace(/^([A-Z]{2,6}\d{0,2})\s/, '<span class="ticker">$1</span> ');
     return '<div class="mj-radar-item ' + klass + '"><span class="day-dot"></span>' +
       '<div class="date">' + ev.date + '</div><div class="desc">' + descHtml + '</div>' +
-      '<div class="val ' + valClass + '">' + ev.val + '</div></div>';
+      '<div class="val ' + valClass + '">' + ev.valLabel + '</div></div>';
   }).join('');
 }
 
