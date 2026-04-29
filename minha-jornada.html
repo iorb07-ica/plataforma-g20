@@ -23,6 +23,10 @@
 <script src="assets/g20-search.js?v=10"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<!-- Firebase (auth + foto sidebar — padrão da plataforma) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <style>
 :root{
   --bg:#1a191e;--bg2:#1f1e22;--bg3:#15141a;--bg-deep:#15141a;
@@ -2306,5 +2310,96 @@ if (typeof window.toggleSidebarCollapse !== 'function') {
   } catch(e){}
 }
 </script>
+
+<!-- ════════════════════════════════════════════════════════
+     FIREBASE AUTH + FOTO SIDEBAR
+     (cópia do bloco da gestao-patrimonial.html — padrão da plataforma)
+     ════════════════════════════════════════════════════════ -->
+<script>
+(function(){
+  // Carrega perfil do cache IMEDIATAMENTE (instant boot)
+  try {
+    var cached = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
+    if (cached.name) {
+      var _turma = (cached.role==='admin') ? 'Admin' : (cached.turma||'Turma 20');
+      var ids = {sidebarName:cached.name, sidebarTurma:_turma,
+                 sidebarInitials:(cached.name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase()||'IO')};
+      Object.keys(ids).forEach(function(id){ var el=document.getElementById(id); if(el) el.textContent=ids[id]; });
+      var av=document.getElementById('sidebarAvatar');
+      if(av&&cached.photo) av.innerHTML='<img src="'+cached.photo+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display=\'none\'">';
+    }
+  } catch(e) {}
+
+  var cfg = {
+    apiKey: "AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",
+    authDomain: "g20-masterclass.firebaseapp.com",
+    projectId: "g20-masterclass",
+    storageBucket: "g20-masterclass.firebasestorage.app",
+    messagingSenderId: "1052719482127",
+    appId: "1:1052719482127:web:537c1d67c96532be8a2a7a"
+  };
+  if (!firebase.apps.length) firebase.initializeApp(cfg);
+  var auth = firebase.auth();
+  var db   = firebase.firestore();
+
+  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function(){});
+
+  window.g20Logout = function() {
+    localStorage.removeItem('g20_uid');
+    localStorage.removeItem('g20_user_profile');
+    auth.signOut().then(function(){ window.location.href = 'login.html'; })
+        .catch(function(){ window.location.href = 'login.html'; });
+  };
+
+  // Se não tem uid salvo, redireciona imediatamente
+  var savedUid = localStorage.getItem('g20_uid');
+  if (!savedUid) { window.location.href = 'login.html'; return; }
+
+  auth.onAuthStateChanged(function(user) {
+    if (!user) {
+      localStorage.removeItem('g20_uid');
+      window.location.href = 'login.html';
+      return;
+    }
+    localStorage.setItem('g20_uid', user.uid);
+    db.collection('users').doc(user.uid).get().then(function(doc) {
+      var data = doc.exists ? doc.data() : {};
+      if (!doc.exists || (data.aprovado !== true && data.role !== 'admin')) {
+        localStorage.removeItem('g20_uid');
+        auth.signOut().then(function(){ window.location.href = 'login.html'; });
+        return;
+      }
+      var profile  = data.profile || data;
+      var name     = profile.name || profile.nome || user.displayName || 'Israel';
+      var turma    = profile.turma || 'Turma 20';
+      var role     = profile.role  || data.role   || 'Membro';
+      var photo    = (data.perfil && data.perfil.foto) || profile.photo || user.photoURL || '';
+      var initials = name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase()||'IO';
+      var turmaLabel = (role === 'admin') ? 'Admin' : turma;
+      var ids = {sidebarName:name, sidebarTurma:turmaLabel, sidebarInitials:initials};
+      Object.keys(ids).forEach(function(id){ var el=document.getElementById(id); if(el) el.textContent=ids[id]; });
+      var av = document.getElementById('sidebarAvatar');
+      if(av && photo){
+        av.innerHTML = '<img src="'+photo+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display=\'none\'">';
+      }
+      try {
+        localStorage.setItem('g20_user_profile', JSON.stringify({
+          name:name, turma:turma, role:role, photo:photo, apelido:name.split(' ')[0]
+        }));
+      } catch(e) {}
+
+      // Sync de aportes (subcollection dados/) — fonte da Minha Carteira
+      db.collection('users').doc(user.uid).collection('dados').get({source:'server'}).then(function(snap){
+        snap.forEach(function(d){
+          try{ localStorage.setItem('g20_'+d.id, JSON.stringify(d.data().value)); }catch(e){}
+        });
+        // Re-renderiza Minha Jornada com dados frescos
+        if(typeof mjAtualizarTudo === 'function') mjAtualizarTudo();
+      }).catch(function(e){ console.warn('sync dados:', e); });
+    }).catch(function(e){ console.warn('Firestore:', e); });
+  });
+})();
+</script>
+
 </body>
 </html>
