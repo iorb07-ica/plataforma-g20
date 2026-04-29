@@ -21,6 +21,7 @@
 <link rel="stylesheet" href="assets/g20-topbar-v21.css?v=10">
 <script src="assets/g20-sidebar.js?v=10"></script>
 <script src="assets/g20-search.js?v=10"></script>
+<script src="assets/tradingview-logos.js?v=10"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <!-- Firebase (auth + foto sidebar — padrão da plataforma) -->
@@ -1260,9 +1261,9 @@ a{text-decoration:none;color:inherit}
   border:1px solid rgba(110,160,220,.22)
 }
 
-.mj-timeline-list{position:relative;padding-left:32px}
+.mj-timeline-list{position:relative;padding-left:48px}
 .mj-timeline-list::before{
-  content:'';position:absolute;left:9px;top:8px;bottom:8px;width:2px;
+  content:'';position:absolute;left:15px;top:8px;bottom:8px;width:2px;
   background:linear-gradient(180deg,
     rgba(201,169,97,.05) 0%,
     rgba(201,169,97,.4) 8%,
@@ -1277,8 +1278,40 @@ a{text-decoration:none;color:inherit}
 .mj-tl-item:last-child{border-bottom:none;padding-bottom:0}
 .mj-tl-item:hover{padding-left:4px}
 
+/* LOGO 32x32 — substitui o bullet, posicionado em cima da linha vertical */
+.mj-tl-logo{
+  position:absolute;left:-48px;top:14px;
+  width:32px;height:32px;border-radius:50%;
+  background:var(--surface);
+  border:2px solid rgba(201,169,97,.3);
+  display:flex;align-items:center;justify-content:center;
+  z-index:2;overflow:hidden;
+  box-shadow:0 2px 8px rgba(0,0,0,.4);
+  transition:transform .18s ease, border-color .18s ease;
+}
+.mj-tl-item:hover .mj-tl-logo{
+  transform:scale(1.08);
+  border-color:var(--gold);
+}
+.mj-tl-logo img{
+  width:24px;height:24px;
+  object-fit:contain;
+  border-radius:50%;
+}
+.mj-tl-logo img[data-fallback="1"]{
+  width:28px;height:28px;
+}
+.mj-tl-logo.macro-icon{
+  border-color:rgba(255,255,255,.12);
+}
+.mj-tl-logo.macro-icon .emoji{
+  font-size:17px;line-height:1;
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,.4));
+}
+
+/* Bullet legado mantido pra compatibilidade (caso volte a ser usado) */
 .mj-tl-bullet{
-  position:absolute;left:-32px;top:18px;
+  position:absolute;left:-48px;top:18px;
   width:20px;height:20px;border-radius:50%;
   background:var(--surface);
   border:2px solid var(--text3);
@@ -2087,6 +2120,94 @@ var MJ_NEWS_ENDPOINT = 'https://royal-water-e5ca.iorb07.workers.dev/';
 var MJ_NEWS_CACHE_TTL_MS = 15 * 60 * 1000; // 15 min
 var MJ_NEWS_LIMIT = 15;
 
+// ════════════════════════════════════════════════════════════════════
+// LOGOS — usa mesmo sistema do dashboard.html
+// 1) TV_LOGOS exato (assets/tradingview-logos.js)
+// 2) Heurística icones-b3 (BR) ou financialmodelingprep (US)
+// 3) Fallback secundário (onerror)
+// ════════════════════════════════════════════════════════════════════
+function mjLogoUrl(ticker){
+  if(!ticker) return '';
+  // Mapa exato TradingView
+  if(window.TV_LOGOS && window.TV_LOGOS.getUrl){
+    var tvUrl = window.TV_LOGOS.getUrl(ticker);
+    if(tvUrl) return tvUrl;
+  }
+  // Heurística (mesma do dashboard)
+  var t  = String(ticker).replace(/\.SA$/i,'').toUpperCase();
+  var br = /\d$/.test(t) || t.length===5 || t.length===6;
+  return br
+    ? 'https://raw.githubusercontent.com/thefintz/icones-b3/main/icones/'+t+'.png'
+    : 'https://financialmodelingprep.com/image-stock/'+t+'.png';
+}
+function mjLogoFallback(ticker){
+  if(!ticker) return '';
+  var t  = String(ticker).replace(/\.SA$/i,'').toUpperCase();
+  var br = /\d$/.test(t) || t.length===5 || t.length===6;
+  if(!br) return 'https://s3-symbol-logo.tradingview.com/'+t.toLowerCase()+'--big.svg';
+  var noNum = t.replace(/\d+$/,'');
+  return 'https://raw.githubusercontent.com/thefintz/icones-b3/main/icones/'+noNum+'.png';
+}
+
+// ════════════════════════════════════════════════════════════════════
+// ÍCONES MACRO — emoji baseado em keywords detectadas
+// ════════════════════════════════════════════════════════════════════
+var MJ_MACRO_ICONS = {
+  'FED':       { icon:'🦅', bg:'#1a3a5c', color:'#7eaedc' },
+  'POWELL':    { icon:'🦅', bg:'#1a3a5c', color:'#7eaedc' },
+  'FOMC':      { icon:'🦅', bg:'#1a3a5c', color:'#7eaedc' },
+  'WARSH':     { icon:'🦅', bg:'#1a3a5c', color:'#7eaedc' },
+  'COPOM':     { icon:'🏛️', bg:'#1a4a2a', color:'#7adc92' },
+  'SELIC':     { icon:'🏛️', bg:'#1a4a2a', color:'#7adc92' },
+  'GALÍPOLO':  { icon:'🏛️', bg:'#1a4a2a', color:'#7adc92' },
+  'TRUMP':     { icon:'🇺🇸', bg:'#5c1a1a', color:'#dc7a7a' },
+  'IBOV':      { icon:'📈', bg:'#3a2a0a', color:'#dcb87a' },
+  'IBOVESPA':  { icon:'📈', bg:'#3a2a0a', color:'#dcb87a' },
+  'BOLSA':     { icon:'📈', bg:'#3a2a0a', color:'#dcb87a' },
+  'NASDAQ':    { icon:'📊', bg:'#1a3a5c', color:'#7eaedc' },
+  'S&P 500':   { icon:'📊', bg:'#1a3a5c', color:'#7eaedc' },
+  'S&P500':    { icon:'📊', bg:'#1a3a5c', color:'#7eaedc' },
+  'DOW JONES': { icon:'📊', bg:'#1a3a5c', color:'#7eaedc' },
+  'DÓLAR':     { icon:'💵', bg:'#1f3a1f', color:'#7adc92' },
+  'DOLAR':     { icon:'💵', bg:'#1f3a1f', color:'#7adc92' },
+  'EURO':      { icon:'💶', bg:'#1a3a5c', color:'#7eaedc' },
+  'PETRÓLEO':  { icon:'🛢️', bg:'#2a1a0a', color:'#c9a961' },
+  'PETROLEO':  { icon:'🛢️', bg:'#2a1a0a', color:'#c9a961' },
+  'OURO':      { icon:'🥇', bg:'#3a2a0a', color:'#c9a961' },
+  'MINÉRIO':   { icon:'⛏️', bg:'#3a2010', color:'#c9a961' },
+  'MINERIO':   { icon:'⛏️', bg:'#3a2010', color:'#c9a961' },
+  'CHINA':     { icon:'🇨🇳', bg:'#5c1a1a', color:'#dc7a7a' },
+  'EUROPA':    { icon:'🇪🇺', bg:'#1a3a5c', color:'#7eaedc' },
+  'BCE':       { icon:'🇪🇺', bg:'#1a3a5c', color:'#7eaedc' },
+  'EUA':       { icon:'🇺🇸', bg:'#1a3a5c', color:'#7eaedc' },
+  'OPEP':      { icon:'🛢️', bg:'#2a1a0a', color:'#c9a961' },
+  'JUROS':     { icon:'📉', bg:'#1a3a5c', color:'#7eaedc' },
+  'INFLAÇÃO':  { icon:'📈', bg:'#5c2a1a', color:'#dc9a7a' },
+  'INFLACAO':  { icon:'📈', bg:'#5c2a1a', color:'#dc9a7a' },
+  'IPCA':      { icon:'📈', bg:'#5c2a1a', color:'#dc9a7a' },
+  'IGP-M':     { icon:'📈', bg:'#5c2a1a', color:'#dc9a7a' },
+  'CDI':       { icon:'🏛️', bg:'#1a4a2a', color:'#7adc92' },
+  'PIB':       { icon:'🌎', bg:'#27252c', color:'#a8a4ae' },
+  'TARIFA':    { icon:'⚖️', bg:'#5c2a1a', color:'#dc9a7a' },
+  'TARIFF':    { icon:'⚖️', bg:'#5c2a1a', color:'#dc9a7a' },
+  'BIDEN':     { icon:'🇺🇸', bg:'#1a3a5c', color:'#7eaedc' },
+  'LULA':      { icon:'🇧🇷', bg:'#1a4a2a', color:'#7adc92' },
+  'TESOURO':   { icon:'🏛️', bg:'#1a4a2a', color:'#7adc92' },
+  'TREASURY':  { icon:'🏛️', bg:'#1a3a5c', color:'#7eaedc' }
+};
+var MJ_MACRO_DEFAULT = { icon:'🌎', bg:'#27252c', color:'#a8a4ae' };
+
+// Detecta o ícone macro baseado nas keywords da manchete
+function mjMacroIcon(item){
+  if(!item || !item.macro || !item.macro.length) return MJ_MACRO_DEFAULT;
+  // Itera nas keywords detectadas e retorna a primeira que tiver mapping
+  for(var i=0; i<item.macro.length; i++){
+    var k = item.macro[i];
+    if(MJ_MACRO_ICONS[k]) return MJ_MACRO_ICONS[k];
+  }
+  return MJ_MACRO_DEFAULT;
+}
+
 // Estado da timeline
 var MJ_TL_STATE = {
   activeTab: 'carteira',     // 'carteira' | 'watchlist' | 'macro'
@@ -2265,9 +2386,33 @@ function mjRenderTimeline(){
     var hora    = mjFormatHora(it.pubDate);
     var dayTag  = mjFormatDataDay(it.pubDate);
     var dayHtml = dayTag ? '<span class="day-tag">' + dayTag + '</span><span class="dot">·</span>' : '';
-    var bullet  = mjBulletType(tab, it);
     var srcIco  = it.sourceIcon || '📰';
     var srcLbl  = (it.source || 'NOTÍCIA').toUpperCase();
+
+    // ═══════════════════════════════════════════════════════════
+    // LOGO do ticker (carteira/watchlist) ou ÍCONE macro (aba macro)
+    // ═══════════════════════════════════════════════════════════
+    var logoHtml = '';
+    if(tab === 'macro' || (!it.tickers || !it.tickers.length)){
+      // Aba macro OU manchete sem ticker → ícone macro
+      var mIco = mjMacroIcon(it);
+      logoHtml =
+        '<span class="mj-tl-logo macro-icon" style="background:'+mIco.bg+';color:'+mIco.color+'">' +
+          '<span class="emoji">' + mIco.icon + '</span>' +
+        '</span>';
+    } else {
+      // Manchete com ticker → logo TradingView do PRIMEIRO ticker
+      var tk = it.tickers[0];
+      var url1 = mjLogoUrl(tk);
+      var url2 = mjLogoFallback(tk);
+      var safeTk = String(tk).replace(/"/g,'&quot;');
+      logoHtml =
+        '<span class="mj-tl-logo">' +
+          '<img src="'+url1+'" alt="'+safeTk+'" ' +
+               'onerror="this.onerror=null;this.src=\''+url2+'\';this.dataset.fallback=\'1\';" ' +
+               'data-ticker="'+safeTk+'">' +
+        '</span>';
+    }
 
     // Tickers (carteira destacada em verde)
     var tickersHtml = '';
@@ -2287,7 +2432,7 @@ function mjRenderTimeline(){
     var safeLink  = (it.link  || '#').replace(/"/g,'&quot;');
 
     return '<article class="mj-tl-item">' +
-      '<span class="mj-tl-bullet ' + bullet + '"></span>' +
+      logoHtml +
       '<div class="mj-tl-meta">' +
         '<span class="time">' + hora + '</span><span class="dot">·</span>' + dayHtml +
         '<span class="source"><span class="src-ico">' + srcIco + '</span>' + srcLbl + '</span>' +
