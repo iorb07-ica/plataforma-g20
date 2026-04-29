@@ -2045,49 +2045,193 @@ function _ccComputeTileSizes(text, pctText, w, h){
   };
 }
 
-// Helper: aplica zoom+pan estilo Finviz num SVG D3
-// Scroll do mouse = zoom in/out, click+arrastar = pan
-// Mostra botão Reset quando zoomed in
+// Mapeamento de abreviações conhecidas pra nomes de setor (quando completo não cabe)
+var SETOR_ABBREV = {
+  'CONSUMO NÃO CÍCLICO':       'CONS. ESS.',
+  'CONSUMO ESS.':              'CONS. ESS.',
+  'CONSUMO CÍCLICO':           'CONS. DISC.',
+  'CONSUMO DISC.':             'CONS. DISC.',
+  'CONSTRUÇÃO E IMOBILIÁRIO':  'IMOBILIÁRIO',
+  'BENS INDUSTRIAIS':          'INDUSTRIAL',
+  'PETRÓLEO E GÁS':            'PETRÓLEO',
+  'MATERIAIS BÁSICOS':         'MATERIAIS',
+  'UTILIDADE PÚBLICA':         'UTILITIES',
+  'ETFs INTERNACIONAIS':       'ETFs',
+  'FUNDOS IMOBILIÁRIOS':       'FIIs',
+  'COMUNICAÇÕES':              'COMUNIC.'
+};
+
+// Helper: ajusta TEXTO do label ao tamanho do tile.
+// Estratégia: tenta completo → tenta abreviação → trunca com elipses
+// Retorna o texto que cabe na largura disponível com a fonte dada
+function _ccFitLabel(text, availableWidth, fontSize, padding){
+  if(!text) return '';
+  padding = padding || 8;
+  var usableWidth = availableWidth - (padding * 2);
+  if(usableWidth <= 0) return '';
+  var charWidth = fontSize * 0.6;  // estimativa monospace
+  var maxChars = Math.floor(usableWidth / charWidth);
+  // Se cabe completo, retorna completo
+  if(text.length <= maxChars) return text;
+  // Tenta versão abreviada
+  var abbrev = SETOR_ABBREV[text];
+  if(abbrev && abbrev.length <= maxChars) return abbrev;
+  // Trunca com elipses (precisa de pelo menos 4 chars: "ABC…")
+  if(maxChars < 4) return '';
+  var truncated = (abbrev || text).slice(0, maxChars - 1) + '…';
+  return truncated;
+}
+
+// Helper: aplica zoom+pan estilo Finviz num SVG D3 com ZOOM SEMÂNTICO
+// Scroll do mouse = zoom in/out (níveis discretos: 1, 1.5, 2, 3, 5, 8, 12)
+// Click+arrastar = pan
+// A cada novo nível, RE-RENDERIZA fontes pra revelar info em tiles antes minúsculos
 function _ccAttachZoom(svgSel, container){
   if(!svgSel || !container) return;
   // Cria/recupera o grupo wrapper que recebe a transformação
   var rootG = svgSel.select('g.cc-zoom-root');
   if(rootG.empty()){
-    // Move todos os children pra dentro de um <g> wrapper
     var nodes = svgSel.node().childNodes;
     rootG = svgSel.append('g').attr('class', 'cc-zoom-root');
-    while(nodes.length > 1){  // > 1 pra não pegar o próprio <g> que acabamos de adicionar
+    while(nodes.length > 1){
       rootG.node().appendChild(nodes[0]);
     }
   }
 
+  // Níveis de zoom discretos — re-render fontes em cada limiar
+  var ZOOM_LEVELS = [1, 1.5, 2, 3, 5, 8, 12];
+  var lastLevel = 1;
+
+  function snapToLevel(k){
+    // Acha o nível mais próximo abaixo do k atual
+    var level = ZOOM_LEVELS[0];
+    for(var i = 0; i < ZOOM_LEVELS.length; i++){
+      if(k >= ZOOM_LEVELS[i]) level = ZOOM_LEVELS[i];
+    }
+    return level;
+  }
+
   var zoom = d3.zoom()
-    .scaleExtent([1, 12])  // zoom in até 12x (Finviz vai a ~10x)
+    .scaleExtent([1, 12])
     .on('zoom', function(event){
+      var k = event.transform.k;
       rootG.attr('transform', event.transform);
-      // Mostra botão reset se zoom > 1
+
+      // Re-render fontes em níveis discretos pra revelar info conforme zoom
+      var level = snapToLevel(k);
+      if(level !== lastLevel){
+        lastLevel = level;
+        _ccRefitTexts(svgSel, level);
+      }
+
+      // Botão Reset Zoom aparece quando zoom > 1
       var btn = container.querySelector('.cc-reset-zoom');
-      if(btn) btn.style.display = (event.transform.k > 1.05) ? 'flex' : 'none';
+      if(btn) btn.style.display = (k > 1.05) ? 'flex' : 'none';
     });
 
   svgSel.call(zoom);
-  // Guarda referências pra reset
   container._ccZoom = zoom;
   container._ccZoomSvg = svgSel;
 
-  // Cria botão Reset Zoom (uma vez)
+  // Reset por DOUBLE-CLICK no SVG (gesto natural estilo Finviz/Google Maps)
+  // Override do double-click padrão do D3 (que é zoom in)
+  svgSel.on('dblclick.zoom', function(event){
+    event.preventDefault();
+    svgSel.transition().duration(300).call(zoom.transform, d3.zoomIdentity);
+  });
+
+  // Reset por tecla ESC quando o mouse está sobre o heatmap
+  if(!container._ccEscBound){
+    var escHandler = function(e){
+      if(e.key === 'Escape' && container._ccZoom && container._ccZoomSvg){
+        container._ccZoomSvg.transition().duration(300)
+          .call(container._ccZoom.transform, d3.zoomIdentity);
+      }
+    };
+    container.addEventListener('mouseenter', function(){
+      document.addEventListener('keydown', escHandler);
+    });
+    container.addEventListener('mouseleave', function(){
+      document.removeEventListener('keydown', escHandler);
+    });
+    container._ccEscBound = true;
+  }
+
+  // Botão Reset Zoom (criado uma vez)
   var btn = container.querySelector('.cc-reset-zoom');
   if(!btn){
     btn = document.createElement('button');
     btn.className = 'cc-reset-zoom';
     btn.innerHTML = '⟲ Reset Zoom';
-    btn.title = 'Voltar ao tamanho original';
+    btn.title = 'Voltar ao tamanho original (atalho: ESC ou duplo-click)';
     btn.style.display = 'none';
     btn.addEventListener('click', function(){
       svgSel.transition().duration(300).call(zoom.transform, d3.zoomIdentity);
     });
     container.appendChild(btn);
   }
+}
+
+// Re-renderiza textos dos tiles considerando o zoom efetivo
+// Isso revela ticker/% em tiles que antes eram pequenos demais
+function _ccRefitTexts(svgSel, zoomLevel){
+  // Para cada tile com data bound, recalcula visibilidade e fontSize
+  svgSel.selectAll('.cc-treemap-tile').each(function(d){
+    if(!d || typeof d.x0 !== 'number') return;
+    var w = d.x1 - d.x0;
+    var h = d.y1 - d.y0;
+    // Tamanho EFETIVO no zoom atual (k× maior)
+    var effW = w * zoomLevel;
+    var effH = h * zoomLevel;
+    var minDim = Math.min(effW, effH);
+
+    var ticker = d.data && d.data.ticker;
+    var pctText = d.data && (d.data.chgPct !== undefined) ? fmtPct(d.data.chgPct) : '';
+    if(!ticker) return;
+
+    var sizes = _ccComputeTileSizes(ticker, pctText, effW, effH);
+    // Fonte renderizada deve ser dividida pelo zoomLevel pra compensar a transformação
+    var renderTickerFs = sizes.ticker / zoomLevel;
+    var renderPctFs = sizes.pct / zoomLevel;
+
+    var node = d3.select(this);
+    node.select('.tile-ticker-big')
+      .attr('font-size', renderTickerFs + 'px')
+      .attr('opacity', minDim < 18 ? 0 : 1);
+    node.select('.tile-pct-big')
+      .attr('font-size', renderPctFs + 'px')
+      .attr('opacity', (minDim < 18 || !sizes.showPct) ? 0 : 1);
+  });
+
+  // Macro tiles (setores): label, pct, meta
+  svgSel.selectAll('.cc-treemap-macro').each(function(d){
+    if(!d || typeof d.x0 !== 'number') return;
+    var w = d.x1 - d.x0;
+    var h = d.y1 - d.y0;
+    var effW = w * zoomLevel;
+    var effH = h * zoomLevel;
+    var minDim = Math.min(effW, effH);
+    var name = d.data && d.data.name;
+    if(!name) return;
+
+    // Label: refit + truncate
+    var labelFs = _ccFontScale(effW, effH, 0.10, 13, 30);
+    var renderLabelFs = labelFs / zoomLevel;
+    var node = d3.select(this);
+    node.select('.macro-label')
+      .attr('font-size', renderLabelFs + 'px')
+      .text(_ccFitLabel(name, effW, labelFs, 10));
+
+    // Pct: refit
+    var pctFs = _ccFontScale(effW, effH, 0.28, 16, 84);
+    node.select('.macro-pct').attr('font-size', (pctFs / zoomLevel) + 'px');
+
+    // Meta: refit + visibilidade
+    var metaFs = _ccFontScale(effW, effH, 0.07, 11, 18);
+    node.select('.macro-meta')
+      .attr('font-size', (metaFs / zoomLevel) + 'px')
+      .attr('opacity', (effW < 140 || minDim < 80) ? 0 : 1);
+  });
 }
 
 // Helper global: posiciona tooltip COLADO no mouse com flip inteligente nas bordas
@@ -2252,7 +2396,7 @@ function _renderMacroSectors(sectorsData){
       .attr('fill', function(d){ return tileColor(d.data.sectorData.chgMedio); })
       .attr('rx', 6);
 
-    // Label do setor (TOPO, centralizado) — font proporcional, MAIOR
+    // Label do setor (TOPO, centralizado) — font proporcional, com truncate inteligente
     tiles.append('text')
       .attr('class', 'macro-label')
       .attr('x', function(d){ return (d.x1 - d.x0) / 2; })
@@ -2265,7 +2409,11 @@ function _renderMacroSectors(sectorsData){
         // Label entre 13px e 30px (aumentado)
         return _ccFontScale(d.x1-d.x0, d.y1-d.y0, 0.10, 13, 30) + 'px';
       })
-      .text(function(d){ return d.data.name; });
+      .text(function(d){
+        var w = d.x1 - d.x0;
+        var fs = _ccFontScale(w, d.y1-d.y0, 0.10, 13, 30);
+        return _ccFitLabel(d.data.name, w, fs, 10);
+      });
 
     // Variação MEDIA PONDERADA — % GIGANTE no CENTRO (Finviz, AINDA MAIOR)
     tiles.append('text')
