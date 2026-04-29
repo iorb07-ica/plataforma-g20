@@ -2310,10 +2310,11 @@ function renderTreemap(positions, quotes){
       if(!tooltip) return;
       var chgClass = d.data.chgPct >= 0 ? 'up' : 'dn';
 
-      // Pre/post-market — só pra ações US fora do horário regular
+      // Pre/post-market — só pra ações US fora do horário regular (helper retorna '' agora)
       var extendedHtml = _ccBuildExtendedTooltip(d.data);
 
       // Cotação: USD pra US, BRL pro resto
+      var ehUS = (d.data.currency === 'USD') || (currentUniverse === 'sp500');
       var precoFmt = '–';
       if(d.data.preco){
         precoFmt = ehUS ? ('$ ' + d.data.preco.toFixed(2)) : fmtBRL(d.data.preco);
@@ -3160,11 +3161,23 @@ document.addEventListener('DOMContentLoaded', function(){
 //   Dispersão   (15%) - 100 - (max-min × 5), invertido (caos = baixo score)
 // ════════════════════════════════════════════════════════
 function calcHeatIndex(positions, quotes){
-  var ativos = positions
-    .filter(function(p){ return quotes[p.ticker] && typeof quotes[p.ticker].chgPct === 'number'; })
-    .map(function(p){
-      return { ticker: p.ticker, peso: p.peso, chg: quotes[p.ticker].chgPct };
-    });
+  var ativos = [];
+  var excluidas = [];
+
+  positions.forEach(function(p){
+    if(quotes[p.ticker] && typeof quotes[p.ticker].chgPct === 'number'){
+      ativos.push({ ticker: p.ticker, peso: p.peso, chg: quotes[p.ticker].chgPct });
+    } else {
+      var motivo = !quotes[p.ticker] ? 'sem cotação' : 'chgPct inválido';
+      excluidas.push({ ticker: p.ticker, peso: p.peso, motivo: motivo });
+    }
+  });
+
+  // Log das exclusões pra debug (visível no console F12)
+  if(excluidas.length > 0){
+    console.log('[HeatIndex] ' + excluidas.length + ' ação(ões) excluída(s) de ' + positions.length + ' total:');
+    console.table(excluidas);
+  }
 
   if(ativos.length === 0){
     return null;
