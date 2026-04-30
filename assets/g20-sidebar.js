@@ -48,14 +48,28 @@
     if (!isDesktop) return;
     var saved = localStorage.getItem(COLLAPSED_KEY);
     var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
+    var main = document.querySelector('.main') || document.querySelector('main');
     if (saved !== '0') {
       document.documentElement.classList.add('sidebar-collapsed');
       document.body.classList.add('sidebar-collapsed');
-      if (sb) sb.classList.add('sidebar-collapsed');
+      if (sb) {
+        sb.classList.add('sidebar-collapsed');
+        // Inline style — especificidade máxima, ganha qualquer CSS
+        sb.style.setProperty('width', '68px', 'important');
+        sb.style.setProperty('min-width', '68px', 'important');
+        sb.style.setProperty('max-width', '68px', 'important');
+      }
+      if (main) main.style.setProperty('margin-left', '68px', 'important');
     } else {
       document.documentElement.classList.remove('sidebar-collapsed');
       document.body.classList.remove('sidebar-collapsed');
-      if (sb) sb.classList.remove('sidebar-collapsed');
+      if (sb) {
+        sb.classList.remove('sidebar-collapsed');
+        sb.style.removeProperty('width');
+        sb.style.removeProperty('min-width');
+        sb.style.removeProperty('max-width');
+      }
+      if (main) main.style.removeProperty('margin-left');
     }
     // Remove o style de emergência (bloqueava transitions no boot)
     if (earlyStyle && earlyStyle.parentNode) {
@@ -78,16 +92,29 @@
     window.toggleSidebarCollapse = function(){
       if (window.innerWidth <= 768) return;
       var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
+      var main = document.querySelector('.main') || document.querySelector('main');
       var collapsed = !document.body.classList.contains('sidebar-collapsed');
       try { localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0'); } catch(e) {}
       if (collapsed) {
         document.documentElement.classList.add('sidebar-collapsed');
         document.body.classList.add('sidebar-collapsed');
-        if (sb) sb.classList.add('sidebar-collapsed');
+        if (sb) {
+          sb.classList.add('sidebar-collapsed');
+          sb.style.setProperty('width', '68px', 'important');
+          sb.style.setProperty('min-width', '68px', 'important');
+          sb.style.setProperty('max-width', '68px', 'important');
+        }
+        if (main) main.style.setProperty('margin-left', '68px', 'important');
       } else {
         document.documentElement.classList.remove('sidebar-collapsed');
         document.body.classList.remove('sidebar-collapsed');
-        if (sb) sb.classList.remove('sidebar-collapsed');
+        if (sb) {
+          sb.classList.remove('sidebar-collapsed');
+          sb.style.removeProperty('width');
+          sb.style.removeProperty('min-width');
+          sb.style.removeProperty('max-width');
+        }
+        if (main) main.style.removeProperty('margin-left');
       }
       atualizarLegendaBtn();
     };
