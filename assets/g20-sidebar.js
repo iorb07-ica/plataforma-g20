@@ -315,9 +315,22 @@
     });
   }
 
-  // PAGE FADE — implementado via CSS puro no g20-sidebar.css
-  // Sem JS, sem opacity:0 inicial, sem tela preta
-  function initPageFade() {}
+  // PAGE FADE — aplica depois que a página carregou completamente
+  // Sem opacity:0 inicial, sem tela preta, sem conflito com Firebase
+  function initPageFade() {
+    var style = document.createElement('style');
+    style.textContent =
+      '@keyframes g20FadeIn{from{opacity:0.2}to{opacity:1}}' +
+      '.g20-loaded .main{animation:g20FadeIn 700ms ease-out forwards}';
+    document.head.appendChild(style);
+    // Adiciona classe DEPOIS que tudo carregou — conteúdo já está visível
+    window.addEventListener('load', function() {
+      // Pequeno delay pra garantir que Firebase e conteúdo já renderizaram
+      setTimeout(function() {
+        document.body.classList.add('g20-loaded');
+      }, 50);
+    });
+  }
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
