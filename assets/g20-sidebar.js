@@ -193,74 +193,62 @@
     document.head.appendChild(styleEl);
   } catch(e){}
 
-  // ═══════════════════════════════════════════════════════════════
-  // INJECT NAV — injeta HTML da sidebar igual em TODAS as páginas
-  // Uma mudança aqui reflete automaticamente em todas as páginas.
-  // ═══════════════════════════════════════════════════════════════
+  // ═══ NAV ITEMS — lista central, injetada em todas as páginas ═══
   var NAV_ITEMS = [
-    { section: 'Principal', id: 'nav-section--principal', items: [
+    { section: 'Principal', cls: 'nav-section--principal', items: [
       { href: 'dashboard.html',          ico: '🏠', lucide: 'layout-dashboard', label: 'Dashboard',      id: '' }
     ]},
-    { section: 'Conteúdo', id: 'nav-section--conteudo', items: [
+    { section: 'Conteúdo', cls: 'nav-section--conteudo', items: [
       { href: 'sala-de-aula.html',       ico: '📚', lucide: 'graduation-cap',  label: 'Sala de Aula',   id: 'tut-sala' },
       { href: 'g20flix.html',            ico: '🎬', lucide: 'clapperboard',    label: 'G20Flix',        id: 'tut-flix', badge: '80' },
       { href: 'g20cast.html',            ico: '🎧', lucide: 'headphones',      label: 'G20Cast',        id: 'tut-cast' },
       { href: 'carteira.html',           ico: '📊', lucide: 'trending-up',     label: 'Carteira G20',   id: 'tut-carteira' },
       { href: 'game.html',               ico: '🏆', lucide: 'trophy',          label: 'Game G20',       id: '' }
     ]},
-    { section: 'Investimentos', id: 'nav-section--investimentos', items: [
+    { section: 'Investimentos', cls: 'nav-section--investimentos', items: [
       { href: 'gestao-patrimonial.html', ico: '💰', lucide: 'briefcase',       label: 'Minha Carteira', id: 'tut-gestao' }
     ]},
-    { section: 'Comunidade', id: 'nav-section--comunidade', items: [
-      { href: '#',                        ico: '👨‍💻', lucide: 'user-round',    label: 'Consultoria',    id: '' },
+    { section: 'Comunidade', cls: 'nav-section--comunidade', items: [
+      { href: '#',                        ico: '👨\u200d💻', lucide: 'user-round',   label: 'Consultoria',    id: '' },
       { href: '#',                        ico: '💬', lucide: 'message-circle',  label: 'Grupo WhatsApp', id: '' }
     ]}
   ];
 
   function injectNav() {
-    var sidebar = document.querySelector('#sidebar, .sidebar');
+    var sidebar = document.getElementById('sidebar') || document.querySelector('.sidebar');
     if (!sidebar) return;
 
-    // Detecta página atual
-    var currentPage = window.location.pathname.split('/').pop() || 'dashboard.html';
-
-    // Se nav já foi injetada (ex: volta ao dashboard), só atualiza o active
+    // Se já tem nav-sections injetadas, só atualiza o active
     var existing = sidebar.querySelectorAll('.nav-section');
+    var currentPage = window.location.pathname.split('/').pop() || 'dashboard.html';
     if (existing.length > 0) {
       sidebar.querySelectorAll('.nav-item').forEach(function(a) {
         var href = a.getAttribute('href') || '';
-        if (href !== '#' && href === currentPage) {
-          a.classList.add('active');
-        } else {
-          a.classList.remove('active');
-        }
+        if (href !== '#' && href === currentPage) a.classList.add('active');
+        else a.classList.remove('active');
       });
-      return; // sem recriar DOM — sem flash
+      return;
     }
 
-    // Ponto de inserção: antes do sidebar-footer
     var footer = sidebar.querySelector('.sidebar-footer');
-
-    // Usa DocumentFragment — monta off-screen, insere de uma vez
     var frag = document.createDocumentFragment();
 
-    NAV_ITEMS.forEach(function(section) {
+    NAV_ITEMS.forEach(function(sec) {
       var div = document.createElement('div');
-      div.className = 'nav-section ' + section.id;
+      div.className = 'nav-section ' + sec.cls;
 
-      var label = document.createElement('div');
-      label.className = 'nav-label';
-      label.textContent = section.section;
-      div.appendChild(label);
+      var lbl = document.createElement('div');
+      lbl.className = 'nav-label';
+      lbl.textContent = sec.section;
+      div.appendChild(lbl);
 
-      section.items.forEach(function(item) {
-        var isActive = item.href !== '#' && currentPage === item.href;
+      sec.items.forEach(function(item) {
         var a = document.createElement('a');
         a.href = item.href;
-        a.className = 'nav-item' + (isActive ? ' active' : '');
+        a.className = 'nav-item' + (item.href !== '#' && currentPage === item.href ? ' active' : '');
         if (item.id) a.id = item.id;
         a.setAttribute('data-tooltip', item.label);
-        a.onclick = function(){ if(typeof csm === 'function') csm(); };
+        a.onclick = function(){ if (typeof csm === 'function') csm(); };
 
         var ico = document.createElement('span');
         ico.className = 'ico';
@@ -274,29 +262,20 @@
         a.appendChild(document.createTextNode(item.label));
 
         if (item.badge) {
-          var badge = document.createElement('span');
-          badge.style.cssText = 'margin-left:6px;background:var(--gold);color:#000;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px';
-          badge.textContent = item.badge;
-          a.appendChild(badge);
+          var b = document.createElement('span');
+          b.style.cssText = 'margin-left:6px;background:var(--gold);color:#000;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px';
+          b.textContent = item.badge;
+          a.appendChild(b);
         }
-
         div.appendChild(a);
       });
-
       frag.appendChild(div);
     });
 
-    // Inserção única e atômica — sem múltiplos repaints
-    if (footer) {
-      sidebar.insertBefore(frag, footer);
-    } else {
-      sidebar.appendChild(frag);
-    }
+    if (footer) sidebar.insertBefore(frag, footer);
+    else sidebar.appendChild(frag);
 
-    // Re-inicializa lucide icons se disponível
-    if (window.lucide && lucide.createIcons) {
-      lucide.createIcons();
-    }
+    if (window.lucide && lucide.createIcons) lucide.createIcons();
   }
 
   function init(){
@@ -307,24 +286,11 @@
     bindClickBounce();
     injectLogoutConfirm();
     atualizarLegendaBtn();
-    initPageFade();
     requestAnimationFrame(function(){
       requestAnimationFrame(function(){
         document.body.classList.add('sidebar-ready');
       });
     });
-  }
-
-  // PAGE FADE — fade-in suave, sem tela preta
-  // O delay:50ms garante que o browser pintou pelo menos 1 frame antes de começar
-  function initPageFade() {
-    if (document.getElementById('g20-page-fade')) return;
-    var style = document.createElement('style');
-    style.id = 'g20-page-fade';
-    style.textContent =
-      '@keyframes g20In{0%{opacity:0}100%{opacity:1}}' +
-      '.main{animation:g20In 900ms ease-out 50ms both}';
-    document.head.appendChild(style);
   }
 
   if (document.readyState === 'loading') {
