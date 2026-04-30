@@ -315,23 +315,16 @@
     });
   }
 
-  // PAGE FADE — aplicado via JS depois que conteúdo carregou
-  // Sem CSS no .main — sem opacity:0 antes do load
+  // PAGE FADE — fade-in suave, sem tela preta
+  // O delay:50ms garante que o browser pintou pelo menos 1 frame antes de começar
   function initPageFade() {
+    if (document.getElementById('g20-page-fade')) return;
     var style = document.createElement('style');
     style.id = 'g20-page-fade';
     style.textContent =
-      '@keyframes g20PageIn{from{opacity:0}to{opacity:1}}' +
-      '.g20-page-ready .main{animation:g20PageIn 800ms ease-out forwards}';
+      '@keyframes g20In{0%{opacity:0}100%{opacity:1}}' +
+      '.main{animation:g20In 900ms ease-out 50ms both}';
     document.head.appendChild(style);
-
-    // Aplica DEPOIS que tudo renderizou — conteúdo já visível
-    // Usa requestAnimationFrame duplo para garantir que o browser pintou 1 frame
-    requestAnimationFrame(function() {
-      requestAnimationFrame(function() {
-        document.body.classList.add('g20-page-ready');
-      });
-    });
   }
 
   if (document.readyState === 'loading') {
