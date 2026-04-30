@@ -221,16 +221,29 @@
     var sidebar = document.querySelector('#sidebar, .sidebar');
     if (!sidebar) return;
 
-    // Detecta página atual (ex: "carteira.html")
+    // Detecta página atual
     var currentPage = window.location.pathname.split('/').pop() || 'dashboard.html';
 
-    // Remove seções existentes (deixa logo, user-block e footer intactos)
-    sidebar.querySelectorAll('.nav-section').forEach(function(el){ el.remove(); });
+    // Se nav já foi injetada (ex: volta ao dashboard), só atualiza o active
+    var existing = sidebar.querySelectorAll('.nav-section');
+    if (existing.length > 0) {
+      sidebar.querySelectorAll('.nav-item').forEach(function(a) {
+        var href = a.getAttribute('href') || '';
+        if (href !== '#' && href === currentPage) {
+          a.classList.add('active');
+        } else {
+          a.classList.remove('active');
+        }
+      });
+      return; // sem recriar DOM — sem flash
+    }
 
     // Ponto de inserção: antes do sidebar-footer
     var footer = sidebar.querySelector('.sidebar-footer');
 
-    // Gera cada seção
+    // Usa DocumentFragment — monta off-screen, insere de uma vez
+    var frag = document.createDocumentFragment();
+
     NAV_ITEMS.forEach(function(section) {
       var div = document.createElement('div');
       div.className = 'nav-section ' + section.id;
@@ -249,21 +262,17 @@
         a.setAttribute('data-tooltip', item.label);
         a.onclick = function(){ if(typeof csm === 'function') csm(); };
 
-        // Emoji ico
         var ico = document.createElement('span');
         ico.className = 'ico';
         ico.textContent = item.ico;
         a.appendChild(ico);
 
-        // Lucide icon (fallback visual)
         var i = document.createElement('i');
         i.setAttribute('data-lucide', item.lucide);
         a.appendChild(i);
 
-        // Label text
         a.appendChild(document.createTextNode(item.label));
 
-        // Badge (ex: "80" no G20Flix)
         if (item.badge) {
           var badge = document.createElement('span');
           badge.style.cssText = 'margin-left:6px;background:var(--gold);color:#000;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px';
@@ -274,13 +283,15 @@
         div.appendChild(a);
       });
 
-      // Insere antes do footer (ou no final se não tem footer)
-      if (footer) {
-        sidebar.insertBefore(div, footer);
-      } else {
-        sidebar.appendChild(div);
-      }
+      frag.appendChild(div);
     });
+
+    // Inserção única e atômica — sem múltiplos repaints
+    if (footer) {
+      sidebar.insertBefore(frag, footer);
+    } else {
+      sidebar.appendChild(frag);
+    }
 
     // Re-inicializa lucide icons se disponível
     if (window.lucide && lucide.createIcons) {
@@ -296,11 +307,64 @@
     bindClickBounce();
     injectLogoutConfirm();
     atualizarLegendaBtn();
+    initPageFade();
     requestAnimationFrame(function(){
       requestAnimationFrame(function(){
         document.body.classList.add('sidebar-ready');
       });
     });
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // PAGE FADE — fade elegante ao navegar entre páginas
+  // Sidebar permanece estática. Só o .main faz a transição.
+  // ═══════════════════════════════════════════════════════════════
+  function initPageFade() {
+    // Injeta CSS do fade (uma vez só)
+    if (document.getElementById('g20-page-fade-style')) return;
+    var style = document.createElement('style');
+    style.id = 'g20-page-fade-style';
+    style.textContent = [
+      // Fade-in ao entrar na página
+      '@keyframes g20FadeIn{',
+      '  from{opacity:0;transform:translateY(6px)}',
+      '  to{opacity:1;transform:translateY(0)}',
+      '}',
+      // Aplica no .main ao carregar
+      '.main{',
+      '  animation:g20FadeIn 280ms cubic-bezier(.4,0,.2,1) both;',
+      '}',
+      // Classe de saída (fade-out antes de navegar)
+      '.g20-page-leaving .main{',
+      '  opacity:0;',
+      '  transform:translateY(-4px);',
+      '  transition:opacity 150ms cubic-bezier(.4,0,.2,1),transform 150ms cubic-bezier(.4,0,.2,1);',
+      '  pointer-events:none;',
+      '}'
+    ].join('');
+    document.head.appendChild(style);
+
+    // Intercepta cliques nos nav-items
+    document.addEventListener('click', function(e) {
+      var link = e.target.closest('a.nav-item');
+      if (!link) return;
+
+      var href = link.getAttribute('href');
+      // Ignora links inválidos, âncoras e página atual
+      if (!href || href === '#' || href.startsWith('javascript')) return;
+      var currentPage = window.location.pathname.split('/').pop() || 'dashboard.html';
+      if (href === currentPage) return;
+
+      e.preventDefault();
+
+      // Fade-out do conteúdo
+      document.body.classList.add('g20-page-leaving');
+
+      // Navega após o fade-out (150ms)
+      setTimeout(function() {
+        window.location.href = href;
+      }, 150);
+    }, true);
   }
 
   if (document.readyState === 'loading') {
