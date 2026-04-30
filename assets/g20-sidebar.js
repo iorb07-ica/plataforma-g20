@@ -315,27 +315,9 @@
     });
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // PAGE FADE — fade-in suave ao carregar cada página
-  // Sem fade-out. Sidebar estática. Conteúdo surge devagar.
-  // ═══════════════════════════════════════════════════════════════
-  function initPageFade() {
-    if (document.getElementById('g20-page-fade-style')) return;
-    var style = document.createElement('style');
-    style.id = 'g20-page-fade-style';
-    style.textContent = [
-      '@keyframes g20PageFadeIn{',
-      '  from{opacity:0}',
-      '  to{opacity:1}',
-      '}',
-      // 'backwards' — NÃO aplica opacity:0 antes da animação começar
-      // evita o flash branco/preto antes do JS carregar
-      '.main{',
-      '  animation:g20PageFadeIn 500ms ease-out backwards;',
-      '}'
-    ].join('');
-    document.head.appendChild(style);
-  }
+  // PAGE FADE — implementado via CSS puro no g20-sidebar.css
+  // Sem JS, sem opacity:0 inicial, sem tela preta
+  function initPageFade() {}
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
