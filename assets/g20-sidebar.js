@@ -307,9 +307,26 @@
     if (window.lucide && lucide.createIcons) lucide.createIcons();
   }
 
+  // Envolve text nodes dos nav-items em span.nav-item-text
+  // Necessário para o CSS collapsed esconder o texto corretamente
+  function initSidebarTexts(){
+    document.querySelectorAll('#sidebar .nav-item').forEach(function(item){
+      if (item.querySelector('.nav-item-text')) return;
+      item.childNodes.forEach(function(node){
+        if (node.nodeType === 3 && node.textContent.trim()){
+          var span = document.createElement('span');
+          span.className = 'nav-item-text';
+          span.textContent = node.textContent;
+          item.replaceChild(span, node);
+        }
+      });
+    });
+  }
+
   function init(){
     aplicarEstado();
     injectNav();
+    initSidebarTexts();
     injectCollapseBtn();
     setTooltips();
     bindClickBounce();
