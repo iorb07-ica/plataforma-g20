@@ -34,12 +34,14 @@
         bodyObs.observe(document.documentElement, { childList: true });
       }
 
-      // Style early — bloqueia transition durante o boot
+      // Style early — bloqueia transition e FORÇA largura collapsed durante o boot
       earlyStyle = document.createElement('style');
       earlyStyle.id = 'g20-sidebar-early';
       earlyStyle.textContent =
-        'html.sidebar-collapsed .sidebar,html.sidebar-collapsed .main{transition:none !important}' +
-        'body.sidebar-collapsed .sidebar,body.sidebar-collapsed .main{transition:none !important}';
+        'html.sidebar-collapsed .sidebar,body.sidebar-collapsed .sidebar{' +
+        'transition:none !important;width:68px !important;min-width:68px !important;max-width:68px !important}' +
+        'html.sidebar-collapsed .main,body.sidebar-collapsed .main,html.sidebar-collapsed main,body.sidebar-collapsed main{' +
+        'transition:none !important;margin-left:68px !important}';
       document.head.appendChild(earlyStyle);
     } catch(e) {}
   }
