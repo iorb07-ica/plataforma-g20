@@ -193,8 +193,104 @@
     document.head.appendChild(styleEl);
   } catch(e){}
 
+  // ═══════════════════════════════════════════════════════════════
+  // INJECT NAV — injeta HTML da sidebar igual em TODAS as páginas
+  // Uma mudança aqui reflete automaticamente em todas as páginas.
+  // ═══════════════════════════════════════════════════════════════
+  var NAV_ITEMS = [
+    { section: 'Principal', id: 'nav-section--principal', items: [
+      { href: 'dashboard.html',          ico: '🏠', lucide: 'layout-dashboard', label: 'Dashboard',      id: '' }
+    ]},
+    { section: 'Conteúdo', id: 'nav-section--conteudo', items: [
+      { href: 'sala-de-aula.html',       ico: '📚', lucide: 'graduation-cap',  label: 'Sala de Aula',   id: 'tut-sala' },
+      { href: 'g20flix.html',            ico: '🎬', lucide: 'clapperboard',    label: 'G20Flix',        id: 'tut-flix', badge: '80' },
+      { href: 'g20cast.html',            ico: '🎧', lucide: 'headphones',      label: 'G20Cast',        id: 'tut-cast' },
+      { href: 'carteira.html',           ico: '📊', lucide: 'trending-up',     label: 'Carteira G20',   id: 'tut-carteira' },
+      { href: 'game.html',               ico: '🏆', lucide: 'trophy',          label: 'Game G20',       id: '' }
+    ]},
+    { section: 'Investimentos', id: 'nav-section--investimentos', items: [
+      { href: 'gestao-patrimonial.html', ico: '💰', lucide: 'briefcase',       label: 'Minha Carteira', id: 'tut-gestao' }
+    ]},
+    { section: 'Comunidade', id: 'nav-section--comunidade', items: [
+      { href: '#',                        ico: '👨‍💻', lucide: 'user-round',    label: 'Consultoria',    id: '' },
+      { href: '#',                        ico: '💬', lucide: 'message-circle',  label: 'Grupo WhatsApp', id: '' }
+    ]}
+  ];
+
+  function injectNav() {
+    var sidebar = document.querySelector('#sidebar, .sidebar');
+    if (!sidebar) return;
+
+    // Detecta página atual (ex: "carteira.html")
+    var currentPage = window.location.pathname.split('/').pop() || 'dashboard.html';
+
+    // Remove seções existentes (deixa logo, user-block e footer intactos)
+    sidebar.querySelectorAll('.nav-section').forEach(function(el){ el.remove(); });
+
+    // Ponto de inserção: antes do sidebar-footer
+    var footer = sidebar.querySelector('.sidebar-footer');
+
+    // Gera cada seção
+    NAV_ITEMS.forEach(function(section) {
+      var div = document.createElement('div');
+      div.className = 'nav-section ' + section.id;
+
+      var label = document.createElement('div');
+      label.className = 'nav-label';
+      label.textContent = section.section;
+      div.appendChild(label);
+
+      section.items.forEach(function(item) {
+        var isActive = item.href !== '#' && currentPage === item.href;
+        var a = document.createElement('a');
+        a.href = item.href;
+        a.className = 'nav-item' + (isActive ? ' active' : '');
+        if (item.id) a.id = item.id;
+        a.setAttribute('data-tooltip', item.label);
+        a.onclick = function(){ if(typeof csm === 'function') csm(); };
+
+        // Emoji ico
+        var ico = document.createElement('span');
+        ico.className = 'ico';
+        ico.textContent = item.ico;
+        a.appendChild(ico);
+
+        // Lucide icon (fallback visual)
+        var i = document.createElement('i');
+        i.setAttribute('data-lucide', item.lucide);
+        a.appendChild(i);
+
+        // Label text
+        a.appendChild(document.createTextNode(item.label));
+
+        // Badge (ex: "80" no G20Flix)
+        if (item.badge) {
+          var badge = document.createElement('span');
+          badge.style.cssText = 'margin-left:6px;background:var(--gold);color:#000;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px';
+          badge.textContent = item.badge;
+          a.appendChild(badge);
+        }
+
+        div.appendChild(a);
+      });
+
+      // Insere antes do footer (ou no final se não tem footer)
+      if (footer) {
+        sidebar.insertBefore(div, footer);
+      } else {
+        sidebar.appendChild(div);
+      }
+    });
+
+    // Re-inicializa lucide icons se disponível
+    if (window.lucide && lucide.createIcons) {
+      lucide.createIcons();
+    }
+  }
+
   function init(){
     aplicarEstado();
+    injectNav();
     injectCollapseBtn();
     setTooltips();
     bindClickBounce();
