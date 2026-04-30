@@ -7725,13 +7725,11 @@ function saveUserProfile(u){
 
 function renderSidebarUser(){
   var u = loadUserProfile();
-  // Nome
-  var nameEl = document.getElementById('sidebarUserName');
-  var turmaEl = document.getElementById('sidebarUserTurma');
+  var nameEl   = document.getElementById('sidebarUserName');
+  var turmaEl  = document.getElementById('sidebarUserTurma');
   var avatarEl = document.getElementById('sidebarAvatar');
-  var initialsEl = document.getElementById('sidebarAvatarInitials');
-  var wNameEl = document.getElementById('wName');
-  var wDescEl = document.getElementById('wDesc');
+  var wNameEl  = document.getElementById('wName');
+  var wDescEl  = document.getElementById('wDesc');
 
   if(nameEl) nameEl.textContent = u.name;
   if(turmaEl){
@@ -7740,13 +7738,35 @@ function renderSidebarUser(){
   if(wNameEl) wNameEl.textContent = u.apelido || u.name.split(' ')[0];
   if(wDescEl) wDescEl.textContent = 'Continue sua jornada de investimentos. Voce esta na '+u.turma+' com acesso completo a plataforma G20 Masterclass.';
 
-  // Avatar
-  if(u.photo && avatarEl){
-    avatarEl.innerHTML = '<img src="'+u.photo+'" alt="'+u.name+'" onerror="this.style.display=&quot;none&quot;">';
-    if(initialsEl) initialsEl.style.display = 'block';
-  }
+  // Iniciais sempre atualizadas no span existente
   var initials = u.name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase();
+  var initialsEl = document.getElementById('sidebarInitials');
   if(initialsEl) initialsEl.textContent = initials;
+
+  // Avatar — ANTI-PISCA: nunca usa innerHTML, só atualiza img existente
+  if(avatarEl){
+    if(u.photo){
+      var existingImg = avatarEl.querySelector('img');
+      if(existingImg){
+        // Só atualiza src se mudou (evita re-download e flash)
+        if(existingImg.getAttribute('src') !== u.photo) existingImg.setAttribute('src', u.photo);
+      } else {
+        // Primeira vez: cria img sem apagar span das iniciais
+        var img = document.createElement('img');
+        img.src = u.photo;
+        img.alt = u.name;
+        img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%;z-index:1';
+        img.onerror = function(){ this.remove(); };
+        avatarEl.appendChild(img);
+      }
+      // Iniciais ficam por baixo (z-index 0) — visíveis só se img falhar
+      if(initialsEl) initialsEl.style.cssText = 'position:relative;z-index:0';
+    } else {
+      // Sem foto: remove img se houver
+      var img = avatarEl.querySelector('img');
+      if(img) img.remove();
+    }
+  }
 }
 
 function abrirPerfilModal(){
@@ -7849,7 +7869,7 @@ function renderUserBlocks(){
   var nameEl = document.getElementById('sidebarUserName');
   var turmaEl = document.getElementById('sidebarUserTurma');
   var avatarEl = document.getElementById('sidebarAvatar');
-  var initialsEl = document.getElementById('sidebarAvatarInitials');
+  var initialsEl = document.getElementById('sidebarInitials');
   var wNameEl = document.getElementById('wName');
   var wDescEl = document.getElementById('wDesc');
 
@@ -7858,46 +7878,28 @@ function renderUserBlocks(){
   if(wNameEl) wNameEl.textContent = USER.name.split(' ')[0];
   if(wDescEl) wDescEl.textContent = 'Continue sua jornada de investimentos. Voce esta na '+USER.turma+' com acesso completo a plataforma G20 Masterclass.';
 
-  // Avatar - foto ou iniciais (anti-pisca: NÃO troca innerHTML, só adiciona/atualiza img)
+  var initials = USER.name.split(' ').map(function(w){return w[0];}).slice(0,2).join('').toUpperCase();
+  if(initialsEl) initialsEl.textContent = initials;
+
+  // Avatar — anti-pisca: não usa innerHTML
   if(avatarEl){
-    var initials = USER.name.split(' ').map(function(w){return w[0];}).slice(0,2).join('').toUpperCase();
-    // Garante que iniciais sempre estão presentes como fallback (por baixo da img)
-    var initialsSpan = avatarEl.querySelector('span#sidebarInitials, span:not([class])');
-    if(!initialsSpan){
-      initialsSpan = document.createElement('span');
-      initialsSpan.id = 'sidebarInitials';
-      avatarEl.insertBefore(initialsSpan, avatarEl.firstChild);
-    }
-    initialsSpan.textContent = initials;
-
-    // Atualiza ring (se houver)
-    var ring = avatarEl.querySelector('.user-avatar-ring');
-
     if(USER.photo){
       var existingImg = avatarEl.querySelector('img');
       if(existingImg){
-        // Já tem img: só atualiza src se mudou (evita re-download)
-        if(existingImg.src !== USER.photo) existingImg.src = USER.photo;
+        if(existingImg.getAttribute('src') !== USER.photo) existingImg.setAttribute('src', USER.photo);
       } else {
-        // Não tem img: adiciona ANTES das iniciais (img cobre por z-index)
         var img = document.createElement('img');
         img.src = USER.photo;
         img.alt = USER.name;
+        img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%;z-index:1';
         img.onerror = function(){ this.remove(); };
         avatarEl.appendChild(img);
-        if(!ring){
-          var ringDiv = document.createElement('div');
-          ringDiv.className = 'user-avatar-ring';
-          avatarEl.appendChild(ringDiv);
-        }
       }
     } else {
-      // Sem foto: remove img se houver (volta pra iniciais)
       var img = avatarEl.querySelector('img');
       if(img) img.remove();
     }
   }
-  if(initialsEl) initialsEl.textContent = USER.name.split(' ').map(function(w){return w[0];}).slice(0,2).join('').toUpperCase();
 }
 
 function editarPerfil(){
