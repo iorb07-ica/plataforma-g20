@@ -316,55 +316,23 @@
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // PAGE FADE — fade elegante ao navegar entre páginas
-  // Sidebar permanece estática. Só o .main faz a transição.
+  // PAGE FADE — fade-in suave ao carregar cada página
+  // Sem fade-out — só o conteúdo surge devagar. Sidebar estática.
   // ═══════════════════════════════════════════════════════════════
   function initPageFade() {
-    // Injeta CSS do fade (uma vez só)
     if (document.getElementById('g20-page-fade-style')) return;
     var style = document.createElement('style');
     style.id = 'g20-page-fade-style';
     style.textContent = [
-      // Fade-in ao entrar na página
       '@keyframes g20FadeIn{',
-      '  from{opacity:0;transform:translateY(6px)}',
+      '  from{opacity:0;transform:translateY(8px)}',
       '  to{opacity:1;transform:translateY(0)}',
       '}',
-      // Aplica no .main ao carregar
       '.main{',
-      '  animation:g20FadeIn 280ms cubic-bezier(.4,0,.2,1) both;',
-      '}',
-      // Classe de saída (fade-out antes de navegar)
-      '.g20-page-leaving .main{',
-      '  opacity:0;',
-      '  transform:translateY(-4px);',
-      '  transition:opacity 150ms cubic-bezier(.4,0,.2,1),transform 150ms cubic-bezier(.4,0,.2,1);',
-      '  pointer-events:none;',
+      '  animation:g20FadeIn 400ms cubic-bezier(.2,0,.1,1) both;',
       '}'
     ].join('');
     document.head.appendChild(style);
-
-    // Intercepta cliques nos nav-items
-    document.addEventListener('click', function(e) {
-      var link = e.target.closest('a.nav-item');
-      if (!link) return;
-
-      var href = link.getAttribute('href');
-      // Ignora links inválidos, âncoras e página atual
-      if (!href || href === '#' || href.startsWith('javascript')) return;
-      var currentPage = window.location.pathname.split('/').pop() || 'dashboard.html';
-      if (href === currentPage) return;
-
-      e.preventDefault();
-
-      // Fade-out do conteúdo
-      document.body.classList.add('g20-page-leaving');
-
-      // Navega após o fade-out (150ms)
-      setTimeout(function() {
-        window.location.href = href;
-      }, 150);
-    }, true);
   }
 
   if (document.readyState === 'loading') {
