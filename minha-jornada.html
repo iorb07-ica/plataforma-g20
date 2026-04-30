@@ -1261,6 +1261,47 @@ a{text-decoration:none;color:inherit}
   border:1px solid rgba(110,160,220,.22)
 }
 
+/* Tag MERCADO — manchetes vindas do estiramento (watchlist completando carteira) */
+.mj-tl-origin-tag{
+  display:inline-block;padding:3px 9px;border-radius:5px;
+  font-size:9.5px;font-weight:700;letter-spacing:.18em;
+  background:rgba(255,255,255,.04);color:var(--text3);
+  border:1px solid rgba(255,255,255,.08);
+  text-transform:uppercase;
+}
+
+/* Botão "Ver mais 15 manchetes" */
+.mj-tl-loadmore-wrap{
+  margin-top:24px;padding-top:20px;
+  display:flex;justify-content:center;
+  border-top:1px dashed var(--border);
+}
+.mj-tl-loadmore{
+  display:inline-flex;align-items:center;gap:9px;
+  padding:13px 24px;border-radius:10px;
+  background:linear-gradient(180deg, rgba(201,169,97,.14), rgba(201,169,97,.08));
+  border:1px solid rgba(201,169,97,.32);
+  color:var(--gold);font-size:13.5px;font-weight:600;letter-spacing:.04em;
+  cursor:pointer;transition:all .2s ease;font-family:inherit;
+  box-shadow:0 2px 8px rgba(0,0,0,.3);
+}
+.mj-tl-loadmore:hover{
+  background:linear-gradient(180deg, rgba(201,169,97,.22), rgba(201,169,97,.14));
+  border-color:var(--gold);
+  transform:translateY(-1px);
+  box-shadow:0 4px 14px rgba(201,169,97,.18);
+}
+.mj-tl-loadmore:active{transform:translateY(0)}
+.mj-tl-loadmore.loading{
+  opacity:.6;cursor:wait;
+  background:rgba(201,169,97,.08);
+}
+.mj-tl-loadmore.loading::before{
+  content:'';display:inline-block;width:13px;height:13px;
+  border:2px solid var(--gold);border-top-color:transparent;
+  border-radius:50%;animation:mjSpin .6s linear infinite;
+}
+
 .mj-timeline-list{position:relative;padding-left:70px}
 .mj-timeline-list::before{
   content:'';position:absolute;left:23px;top:8px;bottom:8px;width:2px;
@@ -1436,6 +1477,23 @@ a{text-decoration:none;color:inherit}
 .mj-rank-info .name{
   font-size:11px;color:var(--text3);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+
+/* Headline contextual dentro dos cards Brilhou/Pesou */
+.mj-rank-headline{
+  display:block;margin-top:5px;
+  font-size:10.5px;line-height:1.4;color:var(--text2);
+  text-decoration:none;
+  white-space:normal;
+  letter-spacing:0;
+  transition:color .18s ease;
+}
+.mj-rank-headline:hover{color:var(--gold)}
+.mj-rank-headline .arrow{color:var(--text3);margin-right:1px}
+.mj-rank-headline .text{font-weight:400}
+.mj-rank-headline .src{
+  color:var(--text3);font-size:9.5px;
+  font-weight:600;letter-spacing:.06em;
 }
 
 .mj-rank-vals{text-align:right;flex-shrink:0}
@@ -2212,7 +2270,12 @@ function mjMacroIcon(item){
 var MJ_TL_STATE = {
   activeTab: 'carteira',     // 'carteira' | 'watchlist' | 'macro'
   loading: false,
-  data: { carteira:null, watchlist:null, macro:null }, // por aba: {items, ts}
+  loadingMore: false,         // estado do botão "Ver mais"
+  data: {                      // por aba: {items, ts, page, hasMore}
+    carteira:  null,
+    watchlist: null,
+    macro:     null
+  },
   lastUpdate: null            // timestamp do último fetch bem-sucedido
 };
 
@@ -2240,62 +2303,152 @@ function mjReadNewsCache(tab){
   }catch(e){ return null; }
 }
 
-function mjWriteNewsCache(tab, items){
+function mjWriteNewsCache(tab, items, hasMore){
   try{
     var key = 'g20_mj_news_' + tab;
-    localStorage.setItem(key, JSON.stringify({ ts:Date.now(), items:items }));
+    localStorage.setItem(key, JSON.stringify({ ts:Date.now(), items:items, hasMore: !!hasMore }));
   }catch(e){}
 }
 
 // Busca manchetes da API (com fallback de cache)
-function mjFetchNews(tab, forceRefresh){
-  return new Promise(function(resolve){
-    // Cache hit?
-    if(!forceRefresh){
-      var cached = mjReadNewsCache(tab);
-      if(cached){
-        resolve({ items: cached.items, fromCache: true, ts: cached.ts });
-        return;
-      }
-    }
+// Fetch básico — busca manchetes do worker pra um modo + tickers + limit
+// Retorna { items, fromCache, ts, error? }
+function mjFetchNews(opts){
+  // opts: { mode, tickers, limit, forceRefresh }
+  var mode = opts.mode || 'carteira';
+  var tickers = opts.tickers || '';
+  var limit = opts.limit || MJ_NEWS_LIMIT;
+  var forceRefresh = !!opts.forceRefresh;
 
-    // Monta URL
-    var url = MJ_NEWS_ENDPOINT + '?mode=' + encodeURIComponent(tab) + '&limit=' + MJ_NEWS_LIMIT;
-    if(tab === 'carteira'){
-      var tickers = mjGetTickersCarteira();
-      if(!tickers.length){
-        // Sem carteira: resolve com lista vazia (frontend mostra empty state especial)
-        resolve({ items: [], fromCache: false, ts: Date.now(), emptyCarteira:true });
-        return;
-      }
-      url += '&tickers=' + encodeURIComponent(tickers.join(','));
-    }
+  return new Promise(function(resolve){
+    var url = MJ_NEWS_ENDPOINT + '?mode=' + encodeURIComponent(mode) + '&limit=' + limit;
+    if(tickers) url += '&tickers=' + encodeURIComponent(tickers);
     if(forceRefresh) url += '&forceRefresh=1';
 
     fetch(url, { headers: { 'Accept': 'application/json' } })
       .then(function(r){ return r.json(); })
       .then(function(data){
         if(!data || !data.ok){
-          resolve({ items: [], fromCache: false, ts: Date.now(), error: (data && data.error) || 'erro desconhecido' });
+          resolve({ items: [], ts: Date.now(), error: (data && data.error) || 'erro desconhecido' });
           return;
         }
-        var items = data.items || [];
-        mjWriteNewsCache(tab, items);
-        resolve({ items: items, fromCache: false, ts: Date.now() });
+        resolve({ items: data.items || [], ts: Date.now() });
       })
       .catch(function(e){
-        // Erro de rede: tenta cache antigo (mesmo que expirado) como fallback
+        resolve({ items: [], ts: Date.now(), error: e.message });
+      });
+  });
+}
+
+// Helper: marca cada item com origem (fonte do estiramento)
+function mjMarkOrigin(items, origin){
+  return items.map(function(it){
+    var clone = {};
+    for(var k in it) if(it.hasOwnProperty(k)) clone[k] = it[k];
+    clone._origin = origin; // 'carteira' | 'mercado'
+    return clone;
+  });
+}
+
+// Helper: dedup por link (evita repetidas quando mistura carteira + watchlist)
+function mjDedupItems(items){
+  var seen = {};
+  var out = [];
+  items.forEach(function(it){
+    var key = it.link || it.title;
+    if(!seen[key]){ seen[key] = true; out.push(it); }
+  });
+  return out;
+}
+
+// Engine principal — busca página de manchetes pra uma aba
+// Implementa: cache 15min, estiramento (carteira completa com watchlist), paginação
+// page=0 → primeiras 15 (com estiramento). page=1 → próximas 15. Etc.
+function mjFetchPage(tab, page, forceRefresh){
+  return new Promise(function(resolve){
+    page = page || 0;
+
+    // Cache só na página 0 (1ª carga). Páginas seguintes sempre buscam fresco.
+    if(page === 0 && !forceRefresh){
+      var cached = mjReadNewsCache(tab);
+      if(cached){
+        resolve({ items: cached.items, fromCache: true, ts: cached.ts, hasMore: cached.hasMore !== false });
+        return;
+      }
+    }
+
+    var limit = MJ_NEWS_LIMIT;
+    var fetchLimit = limit + page * limit; // pede sempre o "total acumulado" e cliva
+    if(fetchLimit > 50) fetchLimit = 50;   // worker cap
+
+    if(tab === 'carteira'){
+      var tickersCart = mjGetTickersCarteira();
+      if(!tickersCart.length){
+        // Sem carteira: empty state
+        resolve({ items: [], ts: Date.now(), emptyCarteira: true, hasMore: false });
+        return;
+      }
+
+      // 1) busca mais que precisa pra ter folga de estiramento
+      mjFetchNews({ mode:'carteira', tickers: tickersCart.join(','), limit: 50, forceRefresh: forceRefresh })
+        .then(function(resCart){
+          var cartItems = mjMarkOrigin(resCart.items, 'carteira');
+
+          // Slice da página atual
+          var start = page * limit;
+          var fim   = start + limit;
+          var slice = cartItems.slice(start, fim);
+
+          if(slice.length >= limit){
+            // tem folga, retorna direto
+            var result = { items: slice, ts: Date.now(), hasMore: cartItems.length > fim || true };
+            if(page === 0) mjWriteNewsCache(tab, slice, result.hasMore);
+            resolve(result);
+            return;
+          }
+
+          // 2) precisa esticar com watchlist
+          var faltam = limit - slice.length;
+          mjFetchNews({ mode:'watchlist', limit: 50, forceRefresh: forceRefresh })
+            .then(function(resWatch){
+              var watchItems = mjMarkOrigin(resWatch.items, 'mercado');
+              // Combina e deduplica (caso ticker da carteira esteja na watchlist e venha duplicado)
+              var combined = mjDedupItems(slice.concat(watchItems));
+              // Pega só o que cabe + indica se tem mais
+              var finalItems = combined.slice(0, limit);
+              var hasMore = combined.length > limit || cartItems.length > fim;
+              var result = { items: finalItems, ts: Date.now(), hasMore: hasMore };
+              if(page === 0) mjWriteNewsCache(tab, finalItems, hasMore);
+              resolve(result);
+            });
+        });
+      return;
+    }
+
+    // Watchlist e Macro: fetch direto sem estiramento
+    mjFetchNews({ mode: tab, limit: fetchLimit, forceRefresh: forceRefresh })
+      .then(function(res){
+        var items = res.items || [];
+        var start = page * limit;
+        var slice = items.slice(start, start + limit);
+        var hasMore = items.length > start + limit;
+        var result = { items: slice, ts: Date.now(), hasMore: hasMore };
+        if(page === 0) mjWriteNewsCache(tab, slice, hasMore);
+        resolve(result);
+      })
+      .catch(function(){
+        // Fallback cache
         try{
           var raw = localStorage.getItem('g20_mj_news_' + tab);
           if(raw){
             var obj = JSON.parse(raw);
             if(obj && obj.items){
-              resolve({ items: obj.items, fromCache: true, ts: obj.ts, fallback:true });
+              resolve({ items: obj.items, fromCache: true, ts: obj.ts, fallback: true, hasMore: false });
               return;
             }
           }
         }catch(_){}
-        resolve({ items: [], fromCache: false, ts: Date.now(), error: e.message });
+        resolve({ items: [], ts: Date.now(), hasMore: false });
       });
   });
 }
@@ -2382,12 +2535,18 @@ function mjRenderTimeline(){
   var setCart = {}; tickersCart.forEach(function(t){ setCart[t]=true; });
 
   // Render
-  list.innerHTML = bucket.items.map(function(it){
+  var itemsHtml = bucket.items.map(function(it){
     var hora    = mjFormatHora(it.pubDate);
     var dayTag  = mjFormatDataDay(it.pubDate);
     var dayHtml = dayTag ? '<span class="day-tag">' + dayTag + '</span><span class="dot">·</span>' : '';
     var srcIco  = it.sourceIcon || '📰';
     var srcLbl  = (it.source || 'NOTÍCIA').toUpperCase();
+
+    // Badge MERCADO (só na aba Carteira pra manchetes vindas de estiramento da Watchlist)
+    var originBadge = '';
+    if(tab === 'carteira' && it._origin === 'mercado'){
+      originBadge = '<span class="mj-tl-origin-tag" title="Manchete da watchlist global, complementa sua carteira">MERCADO</span>';
+    }
 
     // ═══════════════════════════════════════════════════════════
     // LOGO do ticker (carteira/watchlist) ou ÍCONE macro (aba macro)
@@ -2436,6 +2595,7 @@ function mjRenderTimeline(){
       '<div class="mj-tl-meta">' +
         '<span class="time">' + hora + '</span><span class="dot">·</span>' + dayHtml +
         '<span class="source"><span class="src-ico">' + srcIco + '</span>' + srcLbl + '</span>' +
+        originBadge +
       '</div>' +
       '<a href="' + safeLink + '" target="_blank" rel="noopener noreferrer" class="mj-tl-title-link">' +
         '<div class="mj-tl-title">' + safeTitle +
@@ -2445,6 +2605,23 @@ function mjRenderTimeline(){
       tickersHtml +
       '</article>';
   }).join('');
+
+  // Botão "Ver mais" (só se tem hasMore e a aba não está esgotada)
+  var loadMoreHtml = '';
+  if(bucket.hasMore){
+    var loadingClass = MJ_TL_STATE.loadingMore ? ' loading' : '';
+    var btnText = MJ_TL_STATE.loadingMore ? 'Carregando…' : '📥 Ver mais 15 manchetes';
+    loadMoreHtml =
+      '<div class="mj-tl-loadmore-wrap">' +
+        '<button id="mjBtnLoadMore" class="mj-tl-loadmore' + loadingClass + '" ' +
+                'onclick="mjLoadMore()" ' +
+                (MJ_TL_STATE.loadingMore ? 'disabled' : '') + '>' +
+          btnText +
+        '</button>' +
+      '</div>';
+  }
+
+  list.innerHTML = itemsHtml + loadMoreHtml;
 }
 
 // Atualiza badge de count em cada pill
@@ -2469,17 +2646,53 @@ function mjSwitchTab(tab){
   }
 }
 
-// Carrega manchetes pra uma aba (com loading state)
+// Carrega manchetes pra uma aba (página 0 — primeira carga)
 function mjLoadTab(tab, forceRefresh){
   MJ_TL_STATE.loading = true;
   mjRenderTimeline();
-  mjFetchNews(tab, forceRefresh).then(function(res){
+  mjFetchPage(tab, 0, forceRefresh).then(function(res){
     MJ_TL_STATE.loading = false;
-    MJ_TL_STATE.data[tab] = { items: res.items, ts: res.ts };
+    MJ_TL_STATE.data[tab] = {
+      items: res.items,
+      ts: res.ts,
+      page: 0,
+      hasMore: !!res.hasMore
+    };
     if(!res.fromCache) MJ_TL_STATE.lastUpdate = Date.now();
     mjUpdatePillCount(tab, res.items.length);
     if(MJ_TL_STATE.activeTab === tab) mjRenderTimeline();
     mjUpdateTimeDisplay();
+    // Re-render dos cards laterais — headlines podem ter sido populadas no cache
+    if(typeof mjRenderRankBrilhou === 'function') mjRenderRankBrilhou();
+    if(typeof mjRenderRankPesou   === 'function') mjRenderRankPesou();
+  });
+}
+
+// Carrega +15 manchetes (botão "Ver mais")
+function mjLoadMore(){
+  var tab = MJ_TL_STATE.activeTab;
+  var bucket = MJ_TL_STATE.data[tab];
+  if(!bucket || MJ_TL_STATE.loadingMore) return;
+
+  MJ_TL_STATE.loadingMore = true;
+  mjRenderTimeline(); // re-render pra atualizar botão (loading state)
+
+  var nextPage = (bucket.page || 0) + 1;
+  mjFetchPage(tab, nextPage, false).then(function(res){
+    MJ_TL_STATE.loadingMore = false;
+    if(!res || !res.items || !res.items.length){
+      // Sem mais resultados — marca hasMore=false e re-renderiza
+      bucket.hasMore = false;
+      mjRenderTimeline();
+      return;
+    }
+    // Append + dedup pra evitar repetidas
+    var combined = mjDedupItems(bucket.items.concat(res.items));
+    bucket.items = combined;
+    bucket.page = nextPage;
+    bucket.hasMore = !!res.hasMore && res.items.length >= MJ_NEWS_LIMIT;
+    mjUpdatePillCount(tab, combined.length);
+    mjRenderTimeline();
   });
 }
 
@@ -2512,6 +2725,27 @@ function mjInitTimeline(){
 
   // Carrega aba inicial
   mjLoadTab(MJ_TL_STATE.activeTab, false);
+
+  // Pre-load watchlist em background (1s depois) — pra cards laterais
+  // terem manchetes mesmo se ticker está só na watchlist
+  setTimeout(function(){
+    if(MJ_TL_STATE.activeTab !== 'watchlist' && !MJ_TL_STATE.data.watchlist){
+      mjFetchPage('watchlist', 0, false).then(function(res){
+        if(res && res.items){
+          MJ_TL_STATE.data.watchlist = {
+            items: res.items,
+            ts: res.ts,
+            page: 0,
+            hasMore: !!res.hasMore
+          };
+          mjUpdatePillCount('watchlist', res.items.length);
+          // Re-render cards laterais com novos dados
+          if(typeof mjRenderRankBrilhou === 'function') mjRenderRankBrilhou();
+          if(typeof mjRenderRankPesou   === 'function') mjRenderRankPesou();
+        }
+      });
+    }
+  }, 1500);
 
   // Re-init lucide se disponível (pra renderizar refresh-cw)
   if(window.lucide && lucide.createIcons) lucide.createIcons();
@@ -2655,6 +2889,49 @@ function mjRenderFraseDoDia(){
 // ════════════════════════════════════════════════════════
 // MINHA JORNADA — RENDER CARDS LATERAIS
 // ════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════
+// SUMÁRIO CONTEXTUAL — busca manchete relacionada a 1 ticker
+// Estratégia: usa cache local da timeline (carteira/watchlist) — match local
+// Retorna: { title, link, source } ou null
+// ════════════════════════════════════════════════════════
+function mjFindHeadlineForTicker(ticker){
+  if(!ticker) return null;
+  var tk = String(ticker).toUpperCase();
+
+  // Tenta cache da carteira primeiro (mais relevante pro aluno), depois watchlist
+  var sources = ['carteira','watchlist'];
+  for(var s=0; s<sources.length; s++){
+    try{
+      var raw = localStorage.getItem('g20_mj_news_' + sources[s]);
+      if(!raw) continue;
+      var obj = JSON.parse(raw);
+      if(!obj || !obj.items) continue;
+      // Procura primeira manchete que contenha o ticker
+      for(var i=0; i<obj.items.length; i++){
+        var it = obj.items[i];
+        if(it.tickers && it.tickers.indexOf(tk) !== -1){
+          return {
+            title:  it.title,
+            link:   it.link,
+            source: it.source
+          };
+        }
+      }
+    }catch(e){}
+  }
+  return null;
+}
+
+// Encurta título pra caber em 1-2 linhas (max 70 chars)
+function mjShortHeadline(title){
+  if(!title) return '';
+  var t = String(title).trim();
+  // Remove "Ibovespa Hoje Ao Vivo:" e variantes pra deixar mais conciso
+  t = t.replace(/^Ibovespa Hoje Ao Vivo:\s*/i, '');
+  if(t.length <= 70) return t;
+  return t.substring(0, 67).trim() + '…';
+}
+
 function mjRenderRankBrilhou(){
   var wrap = document.getElementById('mjRankBrilhou');
   if(!wrap) return;
@@ -2664,9 +2941,27 @@ function mjRenderRankBrilhou(){
     return;
   }
   wrap.innerHTML = snap.positivos.slice(0,3).map(function(p,i){
-    return '<div class="mj-rank-item"><div class="mj-rank-num">' + (i+1) + '</div>' +
-      '<div class="mj-rank-info"><div class="ticker">' + p.ticker + '</div><div class="name">' + mjNomeCurto(p.ticker, p.nome) + '</div></div>' +
-      '<div class="mj-rank-vals"><span class="pct">' + mjFmtPct(p.varPct) + '</span><span class="impact">+R$ ' + Math.round(p.impactoR$).toLocaleString('pt-BR') + '</span></div></div>';
+    var hl = mjFindHeadlineForTicker(p.ticker);
+    var hlHtml = '';
+    if(hl){
+      var safeT = (hl.title||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      var safeL = (hl.link ||'#').replace(/"/g,'&quot;');
+      var safeS = (hl.source||'').toUpperCase();
+      hlHtml = '<a class="mj-rank-headline" href="'+safeL+'" target="_blank" rel="noopener noreferrer" title="'+safeT+'">' +
+                 '<span class="arrow">↳</span> ' +
+                 '<span class="text">' + mjShortHeadline(hl.title) + '</span>' +
+                 (safeS ? ' <span class="src">· ' + safeS + '</span>' : '') +
+               '</a>';
+    }
+    return '<div class="mj-rank-item">' +
+      '<div class="mj-rank-num">' + (i+1) + '</div>' +
+      '<div class="mj-rank-info">' +
+        '<div class="ticker">' + p.ticker + '</div>' +
+        '<div class="name">' + mjNomeCurto(p.ticker, p.nome) + '</div>' +
+        hlHtml +
+      '</div>' +
+      '<div class="mj-rank-vals"><span class="pct">' + mjFmtPct(p.varPct) + '</span><span class="impact">+R$ ' + Math.round(p.impactoR$).toLocaleString('pt-BR') + '</span></div>' +
+    '</div>';
   }).join('');
 }
 
@@ -2679,9 +2974,27 @@ function mjRenderRankPesou(){
     return;
   }
   wrap.innerHTML = snap.negativos.slice(0,3).map(function(p,i){
-    return '<div class="mj-rank-item"><div class="mj-rank-num">' + (i+1) + '</div>' +
-      '<div class="mj-rank-info"><div class="ticker">' + p.ticker + '</div><div class="name">' + mjNomeCurto(p.ticker, p.nome) + '</div></div>' +
-      '<div class="mj-rank-vals"><span class="pct">' + mjFmtPct(p.varPct) + '</span><span class="impact">−R$ ' + Math.round(Math.abs(p.impactoR$)).toLocaleString('pt-BR') + '</span></div></div>';
+    var hl = mjFindHeadlineForTicker(p.ticker);
+    var hlHtml = '';
+    if(hl){
+      var safeT = (hl.title||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      var safeL = (hl.link ||'#').replace(/"/g,'&quot;');
+      var safeS = (hl.source||'').toUpperCase();
+      hlHtml = '<a class="mj-rank-headline" href="'+safeL+'" target="_blank" rel="noopener noreferrer" title="'+safeT+'">' +
+                 '<span class="arrow">↳</span> ' +
+                 '<span class="text">' + mjShortHeadline(hl.title) + '</span>' +
+                 (safeS ? ' <span class="src">· ' + safeS + '</span>' : '') +
+               '</a>';
+    }
+    return '<div class="mj-rank-item">' +
+      '<div class="mj-rank-num">' + (i+1) + '</div>' +
+      '<div class="mj-rank-info">' +
+        '<div class="ticker">' + p.ticker + '</div>' +
+        '<div class="name">' + mjNomeCurto(p.ticker, p.nome) + '</div>' +
+        hlHtml +
+      '</div>' +
+      '<div class="mj-rank-vals"><span class="pct">' + mjFmtPct(p.varPct) + '</span><span class="impact">−R$ ' + Math.round(Math.abs(p.impactoR$)).toLocaleString('pt-BR') + '</span></div>' +
+    '</div>';
   }).join('');
 }
 
