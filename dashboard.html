@@ -518,7 +518,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .nav-item:hover{color:#fff !important;background:rgba(232,184,75,.14);border-left-color:rgba(232,184,75,.55)}
 .nav-item.active{color:var(--gold) !important;border-left-color:var(--gold);background:rgba(232,184,75,.12)}
 
-.nav-item .ico{font-size:17px;width:18px;text-align:center;flex-shrink:0}
+.nav-item .ico{font-size:24px;width:30px;text-align:center;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center}
 .sidebar-footer{padding:12px 16px;border-top:1px solid var(--border)}
 .btn-logout{width:100%;display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;font-size:13px;color:#b6c0d2;transition:.2s;background:none;border:1px solid var(--border)}
 .btn-logout:hover{color:var(--red);border-color:rgba(230,57,70,.4)}
@@ -1322,7 +1322,7 @@ body.pat-hidden .v21-change-extra::after{
 .nav-item{display:flex;align-items:center;gap:10px;padding:10px 16px;font-size:14px;color:var(--text2);transition:all .2s;cursor:pointer;border-left:2px solid transparent;text-decoration:none;font-weight:500}
 .nav-item:hover{color:var(--text);background:var(--sur2)}
 .nav-item.active{color:var(--gold);border-left-color:var(--gold);background:rgba(232,184,75,.08)}
-.nav-item .ico{font-size:17px;width:18px;text-align:center;flex-shrink:0}
+.nav-item .ico{font-size:24px;width:30px;text-align:center;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center}
 .sidebar-footer{margin-top:auto;padding:14px 16px;border-top:1px solid var(--border)}
 .btn-logout{width:100%;padding:8px;background:transparent;border:1px solid var(--border);color:var(--text2);border-radius:8px;font-size:12px;cursor:pointer;transition:all .2s;font-family:inherit}
 .btn-logout:hover{border-color:var(--red);color:var(--red)}
@@ -1800,7 +1800,7 @@ body.pat-hidden .v21-change-extra::after{
   /* BASE — sempre igual, expandido ou recolhido */
   .nav-item {
     height: 46px !important;
-    color: #c4bfb8 !important;
+    color: #fff !important;
     font-size: 13px !important;
     font-weight: 500 !important;
     display: flex !important;
@@ -1936,7 +1936,7 @@ body.pat-hidden .v21-change-extra::after{
     border: none !important;
     border-left: 2px solid transparent !important;
     border-radius: 0 !important;
-    color: #c4bfb8 !important;
+    color: #fff !important;
     font-weight: 600 !important;
     font-size: 13px !important;
     padding: 9px 14px !important;
@@ -7064,7 +7064,7 @@ body.pat-hidden .v21-change-extra::after{
 </head>
 <body>
 <!-- G20 Loader Elegante — visível no boot + acionável em operações >1s -->
-<div id="g20LoadingOverlay" class="g20-loader-overlay">
+<div id="g20LoadingOverlay" class="g20-loader-overlay" style="display:none!important;visibility:hidden!important;pointer-events:none!important">
   <div class="g20-loader-box">
     <div class="g20-loader-logo-wrap">
       <div class="g20-loader-ring g20-loader-ring-1"></div>
@@ -7189,94 +7189,11 @@ body.pat-hidden .v21-change-extra::after{
   </style>
 </div>
 <script>
-// API global do loader: G20Loader.show('msg'), G20Loader.hide()
-window.G20Loader = (function(){
-  var el = document.getElementById('g20LoadingOverlay');
-  var msg = document.getElementById('g20LoaderMsg');
-  var hideTimer = null;
-  var shownAt = Date.now();  // tempo que foi mostrado (já visível no boot)
-  var minDuration = 6000;    // 6s mínimo no boot — garante animação completa antes de esconder
-  var deferredShow = null;   // timer pra showAfter
-  var pendingHide = null;    // se hide foi chamado antes do minDuration, agenda
-  var isHidden = false;      // flag: loader já escondeu?
-  return {
-    show: function(text){
-      if (!el) return;
-      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
-      if (pendingHide) { clearTimeout(pendingHide); pendingHide = null; }
-      if (deferredShow) { clearTimeout(deferredShow); deferredShow = null; }
-      if (msg && text) msg.textContent = text;
-      el.classList.remove('is-hiding');
-      el.style.display = 'flex';
-      shownAt = Date.now();
-      isHidden = false;
-    },
-    // Só mostra o loader se a operação demorar > threshold (padrão 1000ms)
-    showAfter: function(text, thresholdMs){
-      var self = this;
-      if (deferredShow) { clearTimeout(deferredShow); deferredShow = null; }
-      var ms = (typeof thresholdMs === 'number') ? thresholdMs : 1000;
-      deferredShow = setTimeout(function(){
-        self.show(text);
-        deferredShow = null;
-      }, ms);
-      return deferredShow;
-    },
-    cancel: function(){
-      if (deferredShow) { clearTimeout(deferredShow); deferredShow = null; }
-    },
-    // NÃO reseta shownAt: o loader já tá visível desde o carregamento do script,
-    // duração deve contar a partir daí
-    setMinDuration: function(ms){
-      minDuration = ms || 0;
-      console.log('%c[G20Loader] minDuration ajustado para ' + minDuration + 'ms (shownAt há ' + (Date.now() - shownAt) + 'ms)', 'color:#c9a961');
-    },
-    hide: function(){
-      if (!el || isHidden) return;
-      if (deferredShow) { clearTimeout(deferredShow); deferredShow = null; }
-      // Se já tem hide pendente, ignora segunda chamada
-      if (pendingHide) {        return;
-      }
-      var elapsed = Date.now() - shownAt;
-      var wait = Math.max(0, minDuration - elapsed);
-      console.log('%c[G20Loader] hide() chamado — elapsed=' + elapsed + 'ms, minDuration=' + minDuration + 'ms, aguardando ' + wait + 'ms antes de esconder', 'color:#e8c766');
-      pendingHide = setTimeout(function(){
-        pendingHide = null;
-        isHidden = true;
-        console.log('%c[G20Loader] ⏻ Escondendo agora (total exibido: ' + (Date.now() - shownAt) + 'ms)', 'color:#4ade80');
-        el.classList.add('is-hiding');
-        hideTimer = setTimeout(function(){
-          el.style.display = 'none';
-          hideTimer = null;
-        }, 400);
-      }, wait);
-    },
-    msg: function(text){
-      if (msg && text) msg.textContent = text;
-    }
-  };
-})();
-// Esconde loader automaticamente 7s após tudo carregar (fallback defensivo)
-window.addEventListener('load', function(){
-  setTimeout(function(){
-    if (window.G20Loader) window.G20Loader.hide();
-  }, 7000);
-});
-
-// Carrega badge Infinity do cache imediatamente
-(function(){
-  try {
-    var uid = localStorage.getItem('g20_uid');
-    if (uid) {
-      var cached = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
-      if (cached.infinite === true) {
-        var bi = document.getElementById('badgeInfinity');
-        if (bi) bi.style.display = 'inline-block';
-      }
-    }
-  } catch(e){}
-})();
-
+// G20Loader desativado
+window.G20Loader = {
+  show:function(){}, showAfter:function(){return null;}, cancel:function(){},
+  setMinDuration:function(){}, hide:function(){}, msg:function(){}
+};
 </script>
 
 <div class="overlay" id="overlay" onclick="closeSidebar()"></div>
