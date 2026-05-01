@@ -8872,23 +8872,20 @@ function aplicarOrdemColunas(){
     }
     iniciarAutoRefresh(); // auto-refresh a cada 15 min
 
-    // Auto-import de proventos se não tem dados locais
+    // Auto-import de proventos no boot (usa função existente com cache diário)
     setTimeout(function(){
       try {
-        var divs = loadData('dividendos', []);
-        if(!divs || divs.length === 0){
-          console.log('[carteira] Auto-import proventos: sem dados locais');
-          var pos = calcPosicoes();
-          if(pos.length){
-            var pArr = pos.map(function(p){
-              if(isBR(p.ticker, p.tipo)) return importarProventosBR(p.ticker);
-              else return importarProventosUS(p.ticker);
-            });
-            Promise.all(pArr).then(function(){ renderDividendos(); });
-          }
+        if(calcPosicoes().length){
+          console.log('[carteira boot] Auto-import proventos...');
+          importarTodosProventos(function(novos){
+            if(novos > 0){
+              console.log('[carteira boot] '+novos+' novo(s) provento(s)');
+              renderDividendos();
+            }
+          }, false);
         }
-      } catch(e){ console.warn('[carteira] auto-import proventos erro:', e); }
-    }, 3000);
+      } catch(e){ console.warn('[carteira boot] erro:', e); }
+    }, 4000);
   });
 })();
 </script>
