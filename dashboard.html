@@ -7064,7 +7064,7 @@ body.pat-hidden .v21-change-extra::after{
 </head>
 <body>
 <!-- G20 Loader Elegante — visível no boot + acionável em operações >1s -->
-<div id="g20LoadingOverlay" class="g20-loader-overlay" style="display:none!important;visibility:hidden!important;pointer-events:none!important">
+<div id="g20LoadingOverlay" class="g20-loader-overlay">
   <div class="g20-loader-box">
     <div class="g20-loader-logo-wrap">
       <div class="g20-loader-ring g20-loader-ring-1"></div>
@@ -7189,11 +7189,94 @@ body.pat-hidden .v21-change-extra::after{
   </style>
 </div>
 <script>
-// G20Loader desativado
-window.G20Loader = {
-  show:function(){}, showAfter:function(){return null;}, cancel:function(){},
-  setMinDuration:function(){}, hide:function(){}, msg:function(){}
-};
+// API global do loader: G20Loader.show('msg'), G20Loader.hide()
+window.G20Loader = (function(){
+  var el = document.getElementById('g20LoadingOverlay');
+  var msg = document.getElementById('g20LoaderMsg');
+  var hideTimer = null;
+  var shownAt = Date.now();  // tempo que foi mostrado (já visível no boot)
+  var minDuration = 6000;    // 6s mínimo no boot — garante animação completa antes de esconder
+  var deferredShow = null;   // timer pra showAfter
+  var pendingHide = null;    // se hide foi chamado antes do minDuration, agenda
+  var isHidden = false;      // flag: loader já escondeu?
+  return {
+    show: function(text){
+      if (!el) return;
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+      if (pendingHide) { clearTimeout(pendingHide); pendingHide = null; }
+      if (deferredShow) { clearTimeout(deferredShow); deferredShow = null; }
+      if (msg && text) msg.textContent = text;
+      el.classList.remove('is-hiding');
+      el.style.display = 'flex';
+      shownAt = Date.now();
+      isHidden = false;
+    },
+    // Só mostra o loader se a operação demorar > threshold (padrão 1000ms)
+    showAfter: function(text, thresholdMs){
+      var self = this;
+      if (deferredShow) { clearTimeout(deferredShow); deferredShow = null; }
+      var ms = (typeof thresholdMs === 'number') ? thresholdMs : 1000;
+      deferredShow = setTimeout(function(){
+        self.show(text);
+        deferredShow = null;
+      }, ms);
+      return deferredShow;
+    },
+    cancel: function(){
+      if (deferredShow) { clearTimeout(deferredShow); deferredShow = null; }
+    },
+    // NÃO reseta shownAt: o loader já tá visível desde o carregamento do script,
+    // duração deve contar a partir daí
+    setMinDuration: function(ms){
+      minDuration = ms || 0;
+      console.log('%c[G20Loader] minDuration ajustado para ' + minDuration + 'ms (shownAt há ' + (Date.now() - shownAt) + 'ms)', 'color:#c9a961');
+    },
+    hide: function(){
+      if (!el || isHidden) return;
+      if (deferredShow) { clearTimeout(deferredShow); deferredShow = null; }
+      // Se já tem hide pendente, ignora segunda chamada
+      if (pendingHide) {        return;
+      }
+      var elapsed = Date.now() - shownAt;
+      var wait = Math.max(0, minDuration - elapsed);
+      console.log('%c[G20Loader] hide() chamado — elapsed=' + elapsed + 'ms, minDuration=' + minDuration + 'ms, aguardando ' + wait + 'ms antes de esconder', 'color:#e8c766');
+      pendingHide = setTimeout(function(){
+        pendingHide = null;
+        isHidden = true;
+        console.log('%c[G20Loader] ⏻ Escondendo agora (total exibido: ' + (Date.now() - shownAt) + 'ms)', 'color:#4ade80');
+        el.classList.add('is-hiding');
+        hideTimer = setTimeout(function(){
+          el.style.display = 'none';
+          hideTimer = null;
+        }, 400);
+      }, wait);
+    },
+    msg: function(text){
+      if (msg && text) msg.textContent = text;
+    }
+  };
+})();
+// Esconde loader automaticamente 7s após tudo carregar (fallback defensivo)
+window.addEventListener('load', function(){
+  setTimeout(function(){
+    if (window.G20Loader) window.G20Loader.hide();
+  }, 7000);
+});
+
+// Carrega badge Infinity do cache imediatamente
+(function(){
+  try {
+    var uid = localStorage.getItem('g20_uid');
+    if (uid) {
+      var cached = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
+      if (cached.infinite === true) {
+        var bi = document.getElementById('badgeInfinity');
+        if (bi) bi.style.display = 'inline-block';
+      }
+    }
+  } catch(e){}
+})();
+
 </script>
 
 <div class="overlay" id="overlay" onclick="closeSidebar()"></div>
@@ -7212,27 +7295,9 @@ window.G20Loader = {
     </div>
     <span class="user-edit-ico">✏️</span>
   </div>
-  <div class="nav-section nav-section--principal">
-    <div class="nav-label">Principal</div>
-    <a href="dashboard.html" class="nav-item active" data-tooltip="Dashboard" onclick="csm()"><span class="ico">🏠</span><i data-lucide="layout-dashboard"></i>Dashboard</a>
-  </div>
-  <div class="nav-section nav-section--conteudo">
-    <div class="nav-label">Conteúdo</div>
-    <a href="sala-de-aula.html" class="nav-item" id="tut-sala" data-tooltip="Sala de Aula" onclick="csm()"><span class="ico">📚</span><i data-lucide="graduation-cap"></i>Sala de Aula</a>
-    <a href="g20flix.html" class="nav-item" id="tut-flix" data-tooltip="G20Flix" onclick="csm()"><span class="ico">🎬</span><i data-lucide="clapperboard"></i>G20Flix<span style="margin-left:6px;background:var(--gold);color:#000;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px">80</span></a>
-    <a href="g20cast.html" class="nav-item" id="tut-cast" data-tooltip="G20Cast" onclick="csm()"><span class="ico">🎧</span><i data-lucide="headphones"></i>G20Cast</a>
-    <a href="carteira.html" class="nav-item" id="tut-carteira" data-tooltip="Carteira G20" onclick="csm()"><span class="ico">📊</span><i data-lucide="trending-up"></i>Carteira G20</a>
-    <a href="game.html" class="nav-item" data-tooltip="Game G20" onclick="csm()"><span class="ico">🏆</span><i data-lucide="trophy"></i>Game G20</a>
-  </div>
-  <div class="nav-section nav-section--investimentos">
-    <div class="nav-label">Investimentos</div>
-    <a href="gestao-patrimonial.html" class="nav-item" id="tut-gestao" data-tooltip="Minha Carteira" onclick="csm()"><span class="ico">💰</span><i data-lucide="briefcase"></i>Minha Carteira</a>
-  </div>
-  <div class="nav-section nav-section--comunidade">
-    <div class="nav-label">Comunidade</div>
-    <a href="#" class="nav-item" data-tooltip="Consultoria" onclick="csm()"><span class="ico">👨‍💻</span><i data-lucide="user-round"></i>Consultoria</a>
-    <a href="#" class="nav-item" data-tooltip="Grupo WhatsApp" onclick="csm()"><span class="ico">💬</span><i data-lucide="message-circle"></i>Grupo WhatsApp</a>
-  </div>
+  
+  <!-- NAV ITEMS INJETADOS POR g20-sidebar.js -->
+
   <div class="sidebar-footer">
     <button class="btn-logout" data-tooltip="Sair" onclick="g20Logout()"><span class="logout-ico-emoji">🚪</span><span class="logout-text">Sair</span></button>
   </div>
@@ -7255,9 +7320,9 @@ window.G20Loader = {
       <a href="command-center.html" class="g20-tab" title="Command Center">
         <i data-lucide="grid-3x3"></i>Command Center
       </a>
-      <a href="minha-jornada.html" class="g20-tab" title="Minha Jornada">
+      <div class="g20-tab soon" title="Minha Jornada (em breve)">
         <i data-lucide="book-open"></i>Minha Jornada
-      </a>
+      </div>
       <div class="g20-tab soon" title="Notícias & Calendário (em breve)">
         <i data-lucide="newspaper"></i>Notícias & Calendário
       </div>
