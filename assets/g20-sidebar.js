@@ -222,6 +222,43 @@
     document.head.appendChild(styleEl);
   } catch(e){}
 
+  // ═══ TABS — lista central, injetada em todas as páginas ═══
+  var TABS = [
+    { href: 'dashboard.html',        lucide: 'layout-dashboard', label: 'Visão Geral' },
+    { href: 'command-center.html',   lucide: 'grid-3x3',         label: 'Command Center' },
+    { href: 'minha-jornada.html',    lucide: 'book-open',        label: 'Minha Jornada' },
+    { href: 'noticias.html',         lucide: 'newspaper',        label: 'Notícias & Calendário', soon: true }
+  ];
+
+  function injectTabs() {
+    var container = document.querySelector('.g20-tabs');
+    if (!container) return;
+    var currentPage = window.location.pathname.split('/').pop() || 'dashboard.html';
+    container.innerHTML = '';
+    TABS.forEach(function(tab) {
+      var el;
+      if (tab.soon) {
+        el = document.createElement('div');
+        el.className = 'g20-tab soon';
+        el.title = tab.label + ' (em breve)';
+      } else {
+        el = document.createElement('a');
+        el.href = tab.href;
+        el.className = 'g20-tab';
+        el.title = tab.label;
+        if (tab.href === currentPage || (tab.href === 'dashboard.html' && currentPage === '')) {
+          el.classList.add('active');
+        }
+      }
+      var icon = document.createElement('i');
+      icon.setAttribute('data-lucide', tab.lucide);
+      el.appendChild(icon);
+      el.appendChild(document.createTextNode(tab.label));
+      container.appendChild(el);
+    });
+    if (window.lucide && lucide.createIcons) lucide.createIcons();
+  }
+
   // ═══ NAV ITEMS — lista central, injetada em todas as páginas ═══
   var NAV_ITEMS = [
     { section: 'Principal', cls: 'nav-section--principal', items: [
@@ -325,6 +362,7 @@
 
   function init(){
     aplicarEstado();
+    injectTabs();
     injectNav();
     initSidebarTexts();
     injectCollapseBtn();
