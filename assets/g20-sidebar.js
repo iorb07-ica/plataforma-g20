@@ -233,6 +233,8 @@
   function injectTabs() {
     var container = document.querySelector('.g20-tabs');
     if (!container) return;
+    // Se já foi injetado por este script, não reinjetar (evita piscar)
+    if (container.getAttribute('data-g20-injected') === 'v1') return;
     var currentPage = window.location.pathname.split('/').pop() || 'dashboard.html';
     container.innerHTML = '';
     TABS.forEach(function(tab) {
@@ -256,6 +258,7 @@
       el.appendChild(document.createTextNode(tab.label));
       container.appendChild(el);
     });
+    container.setAttribute('data-g20-injected', 'v1');
     if (window.lucide && lucide.createIcons) lucide.createIcons();
   }
 
