@@ -526,6 +526,10 @@ a{text-decoration:none;color:inherit}
   align-items: start;
   padding-bottom: 40px;
 }
+/* Sidebar ocupa exatamente a altura do conteúdo principal */
+.sa-aula-main {
+  min-width: 0;
+}
 @media (max-width: 1024px) {
   .sa-aula-layout { grid-template-columns: 1fr; }
   .sa-aula-sidebar { order: -1; }
@@ -690,10 +694,13 @@ a{text-decoration:none;color:inherit}
   overflow: hidden;
   position: sticky;
   top: 80px;
-  max-height: calc(100vh - 100px);
   display: flex;
   flex-direction: column;
+  align-self: start;
+  max-height: calc(100vh - 100px);
 }
+/* Sidebar termina junto com o conteúdo principal */
+.sa-aula-layout { align-items: start; }
 .sa-sidebar-header {
   padding: 16px 20px;
   border-bottom: 1px solid rgba(255,255,255,0.06);
@@ -709,6 +716,7 @@ a{text-decoration:none;color:inherit}
   flex: 1;
   scrollbar-width: thin;
   scrollbar-color: rgba(201,169,97,0.2) transparent;
+  max-height: calc(100vh - 160px);
 }
 .sa-sidebar-item {
   display: flex;
@@ -1157,7 +1165,7 @@ var SA_MODULOS = [
     img: 'https://images.unsplash.com/photo-1559526324-4b87b5e36e44?w=800&q=80',
     aulas: 13, duracao: '4h10', progresso: 38,
     aulas_list: [
-      { id: 'm1a1', titulo: 'Liberdade Financeira ou Escravidão Financeira?', desc: 'Você acha que vai se aposentar? Parte 1', tipo: 'artigo', url: 'https://g20masterclass.com.br', concluida: true },
+      { id: 'm1a1', titulo: 'Liberdade Financeira ou Escravidão Financeira?', desc: 'Você acha que vai se aposentar? Parte 1', tipo: 'artigo', url: 'https://clubedospoupadores.com/poupanca/liberdade-escravidao.html', preview: { img: 'https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?w=900&q=80', fonte: 'Clube dos Poupadores', resumo: 'Você está vivendo para trabalhar ou trabalhando para viver? Este artigo mostra a diferença entre liberdade financeira e escravidão financeira — e como sair de um lado para o outro.' }, concluida: true },
       { id: 'm1a2', titulo: 'Hapiness - A busca incessante por felicidade', desc: 'Você acha que vai se aposentar? Parte 2', tipo: 'artigo', url: 'https://g20masterclass.com.br', concluida: true },
       { id: 'm1a3', titulo: 'Por dentro da mente de um milionário', desc: 'Você acha que vai se aposentar? Parte 2', tipo: 'artigo', url: 'https://g20masterclass.com.br', concluida: false },
       { id: 'm1a4', titulo: 'Lutando pelos pães', desc: 'Você acha que vai se aposentar? Parte 2', tipo: 'artigo', url: 'https://g20masterclass.com.br', concluida: false },
@@ -1347,6 +1355,23 @@ function showAula(moduloId, aulaId) {
   var playerWrap = document.getElementById('playerWrap');
   if (aula.tipo === 'video') {
     playerWrap.innerHTML = '<iframe src="' + aula.url + '?rel=0&autoplay=0" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>';
+  } else if (aula.preview && aula.preview.img) {
+    // Preview card com imagem de capa do artigo
+    playerWrap.style.aspectRatio = 'auto';
+    playerWrap.style.height = 'auto';
+    playerWrap.innerHTML =
+      '<div style="position:relative;width:100%;border-radius:14px;overflow:hidden;background:#0d0c10">' +
+        '<img src="' + aula.preview.img + '" alt="" style="width:100%;height:280px;object-fit:cover;display:block;opacity:0.7">' +
+        '<div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(10,9,14,0.97) 0%,rgba(10,9,14,0.5) 50%,transparent 100%)"></div>' +
+        '<div style="position:absolute;bottom:0;left:0;right:0;padding:28px 32px">' +
+          '<div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(201,169,97,0.8);margin-bottom:8px">📰 ' + aula.preview.fonte + '</div>' +
+          '<div style="font-size:20px;font-weight:800;color:#fff;margin-bottom:10px;line-height:1.3">' + aula.titulo + '</div>' +
+          '<div style="font-size:13px;color:rgba(255,255,255,0.6);line-height:1.6;margin-bottom:20px;max-width:600px">' + aula.preview.resumo + '</div>' +
+          '<a href="' + aula.url + '" target="_blank" onclick="autoMarcarConcluida(\'' + aulaId + '\')" style="display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,#c9a961,#b89751);color:#0d0c10;font-weight:700;font-size:13px;padding:12px 24px;border-radius:10px;text-decoration:none;transition:all 0.2s">' +
+            '<i data-lucide="external-link"></i> Ler artigo completo' +
+          '</a>' +
+        '</div>' +
+      '</div>';
   } else {
     playerWrap.innerHTML = '<div class="sa-player-article">' +
       '<div class="sa-art-icon">📄</div>' +
@@ -1399,6 +1424,9 @@ function showAula(moduloId, aulaId) {
 
   // Comentários
   initComments(aulaId);
+
+  // Sync sidebar height
+  setTimeout(syncSidebarHeight, 50);
 }
 
 function navegarAula(dir) {
@@ -1565,6 +1593,18 @@ function submitDuvida() {
   input.value = '';
   document.getElementById('submitDuvida').style.display = 'none';
   renderDuvidas(currentAulaId);
+}
+
+
+// ─── SYNC SIDEBAR HEIGHT ───
+function syncSidebarHeight() {
+  var main = document.querySelector('.sa-aula-main');
+  var sidebar = document.querySelector('.sa-aula-sidebar');
+  if (!main || !sidebar) return;
+  var mainH = main.getBoundingClientRect().height;
+  var topbarH = 80;
+  var availH = Math.min(mainH, window.innerHeight - topbarH - 20);
+  sidebar.style.maxHeight = availH + 'px';
 }
 
 // ─── INIT ───
