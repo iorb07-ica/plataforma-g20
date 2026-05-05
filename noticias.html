@@ -9172,11 +9172,26 @@ var CAL_BR = [
 var CG20_TICKERS = ['PETR4','VALE3','ITUB4','BBAS3','BBDC4','WEGE3','ABEV3','RENT3','RAIL3','EMBR3','B3SA3','SUZB3','AAPL','MSFT','GOOGL','AMZN','NVDA','META','TSLA','JPM'];
 
 function calGetMinhaCarteira() {
+  // Gestão Patrimonial — carteira individual do aluno
   var tks = {};
   try {
-    var r = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
-    r.forEach(function(x){if(x.ticker)tks[x.ticker.toUpperCase()]=true;});
+    var rv = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
+    rv.forEach(function(x){ if(x.ticker) tks[x.ticker.toUpperCase()] = true; });
   } catch(e){}
+  return Object.keys(tks);
+}
+
+function calGetCG20() {
+  // Carteira G20 — portfólio educativo do CG20
+  var tks = {};
+  try {
+    var g20 = JSON.parse(localStorage.getItem('g20_aportes')||'[]');
+    g20.forEach(function(x){ if(x.ticker) tks[x.ticker.toUpperCase()] = true; });
+  } catch(e){}
+  // Fallback para lista hardcoded se localStorage vazio
+  if (!Object.keys(tks).length) {
+    CG20_TICKERS.forEach(function(t){ tks[t] = true; });
+  }
   return Object.keys(tks);
 }
 
@@ -9261,8 +9276,9 @@ function calMergeAndRender(items, filter) {
 
   // Filtra por carteira
   var minha = calGetMinhaCarteira();
+  var cg20  = calGetCG20();
   if (filter === 'cg20') {
-    all = all.filter(function(x){ return CG20_TICKERS.indexOf(x.ticker.toUpperCase()) >= 0; });
+    all = all.filter(function(x){ return cg20.indexOf(x.ticker.toUpperCase()) >= 0; });
   } else if (filter === 'minha') {
     all = all.filter(function(x){ return minha.indexOf(x.ticker.toUpperCase()) >= 0; });
   }
@@ -9286,8 +9302,9 @@ function calSetFilter(btn, filter) {
 
 function calFetchUS() {
   var today = new Date();
-  var from = today.toISOString().split('T')[0];
-  var to = new Date(today.getTime() + 60*24*3600*1000).toISOString().split('T')[0];
+  // 30 dias atrás para pegar quem já reportou + 60 dias à frente
+  var from = new Date(today.getTime() - 30*24*3600*1000).toISOString().split('T')[0];
+  var to   = new Date(today.getTime() + 60*24*3600*1000).toISOString().split('T')[0];
 
   // Chama o Worker — ele combina CVM (BR confirmados) + curado BR (futuro) + FMP (EUA)
   var url = NC_EP + '?action=earnings&from=' + from + '&to=' + to;
@@ -9319,11 +9336,16 @@ window._ncReady=function(){
   ncLoadPosicoes();
   ncFetchQuotes();
   ncLoad('todas');
-  // Tenta cache do calendário primeiro, depois busca FMP
+  // Calendário: cache 6h, senão busca Worker (CVM + FMP)
   try {
     var c = JSON.parse(localStorage.getItem('g20_cal_us')||'null');
-    if (c && Date.now()-c.ts < 6*3600*1000) { window._calUSItems=c.items; calMergeAndRender(c.items,'todas'); }
-    else calFetchUS();
+    if (c && Date.now()-c.ts < 6*3600*1000) {
+      window._calUSItems = c.items;
+      calMergeAndRender(c.items, 'todas');
+    } else {
+      localStorage.removeItem('g20_cal_us');
+      calFetchUS();
+    }
   } catch(e) { calFetchUS(); }
 };
 </script>
