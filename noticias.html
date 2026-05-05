@@ -7240,8 +7240,8 @@ body.pat-hidden .v21-change-extra::after{
 .nc-card:hover{border-color:rgba(201,169,97,.3);transform:translateY(-2px);box-shadow:0 12px 32px rgba(0,0,0,.4)}
 .nc-card-inner2{display:flex;gap:18px;align-items:flex-start;margin-bottom:0}
 .nc-logo-big{width:68px;height:68px;border-radius:16px;flex-shrink:0;overflow:hidden;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(0,0,0,.5)}
-.nc-logo-big img{width:100%;height:100%;object-fit:contain}
-.nc-logo-big.nc-logo-flag img{object-fit:cover}
+.nc-logo-big img{width:100%;height:100%;object-fit:contain;display:block}
+.nc-logo-big.nc-logo-flag img{object-fit:cover;width:100%;height:100%;display:block}
 .nc-logo-emoji{font-size:30px}
 .nc-body2{flex:1;min-width:0}
 .nc-card-top{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:10px}
@@ -8825,8 +8825,8 @@ var NC_LOGO_MAP = {
   'SELIC':     { type:'img', src:'https://flagcdn.com/w80/br.png', bg:'#1a4a2a' },
   'IPCA':      { type:'img', src:'https://flagcdn.com/w80/br.png', bg:'#1a4a2a' },
   'PIB':       { type:'img', src:'https://flagcdn.com/w80/br.png', bg:'#1a4a2a' },
-  'IBOV':      { type:'img', src:'https://s3-symbol-logo.tradingview.com/b3-sa--big.svg', bg:'#111' },
-  'IBOVESPA':  { type:'img', src:'https://s3-symbol-logo.tradingview.com/b3-sa--big.svg', bg:'#111' },
+  'IBOV':      { type:'img', src:'https://raw.githubusercontent.com/thefintz/icones-b3/main/icones/B3SA3.png', bg:'#111', flag:false },
+  'IBOVESPA':  { type:'img', src:'https://raw.githubusercontent.com/thefintz/icones-b3/main/icones/B3SA3.png', bg:'#111', flag:false },
   'NASDAQ':    { type:'img', src:'https://s3-symbol-logo.tradingview.com/indices/nasdaq-composite--big.svg', bg:'#1a3a5c' },
   'S&P 500':   { type:'img', src:'https://s3-symbol-logo.tradingview.com/source/spy--big.svg', bg:'#1a3a5c' },
   'S&P500':    { type:'img', src:'https://s3-symbol-logo.tradingview.com/source/spy--big.svg', bg:'#1a3a5c' },
@@ -8921,7 +8921,7 @@ function ncGetLogo(it) {
     if (m) {
       var isFlag = m.src && m.src.indexOf('flagcdn') >= 0;
       var cls = 'nc-logo-big' + (isFlag ? ' nc-logo-flag' : '');
-      if (m.type==='img') return '<div class="'+cls+'" style="background:'+m.bg+';'+(m.pad?'padding:8px;box-sizing:border-box':'')+'"><img src="'+m.src+'" alt="'+macros[i]+'" style="'+(m.pad?'width:100%;height:100%;object-fit:contain':'width:100%;height:100%;object-fit:contain')+'"></div>';
+      if (m.type==='img'){var imgStyle=isFlag?'width:100%;height:100%;object-fit:cover;display:block':'width:100%;height:100%;object-fit:contain;display:block';return '<div class="'+cls+'" style="background:'+m.bg+(m.pad?';padding:6px;box-sizing:border-box':'')+';overflow:hidden"><img src="'+m.src+'" alt="'+macros[i]+'" style="'+imgStyle+'"></div>';}
       return '<div class="nc-logo-big nc-logo-emoji" style="background:'+m.bg+';color:'+m.c+'">'+m.i+'</div>';
     }
   }
@@ -9002,7 +9002,22 @@ function ncShowFeed(items,filter){
   var filtered=items;
   if(filter&&filter!=='todas'&&filter!=='carteira'){
     filtered=items.filter(function(it){return ncDetectCat(it)===filter;});
-    // Se filtro muito restritivo retornou zero, mostra msg útil
+  } else if(filter==='todas'){
+    // Equilíbrio: max 8 por categoria, prioriza recência
+    var buckets={cripto:[],commodities:[],macro:[],brasil:[],eua:[],outras:[]};
+    items.forEach(function(it){
+      var cat=ncDetectCat(it);
+      var b=buckets[cat]||buckets['outras'];
+      if(b.length<8)b.push(it);
+    });
+    // Intercala categorias para distribuição equilibrada
+    var balanced=[];
+    var cats=['brasil','eua','macro','cripto','commodities','outras'];
+    var maxRound=8;
+    for(var r=0;r<maxRound;r++){
+      cats.forEach(function(c){if(buckets[c]&&buckets[c][r])balanced.push(buckets[c][r]);});
+    }
+    filtered=balanced;
   }
   var feed=document.getElementById('newsFeed');
   if(!filtered||!filtered.length){
