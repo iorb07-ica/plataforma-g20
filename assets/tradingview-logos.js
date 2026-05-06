@@ -32,6 +32,54 @@
     'MANA': 'crypto/XTVCMANA',
     'SAND': 'crypto/XTVCSAND',
 
+    // ACOES BR — adicionadas (NOT FOUND no console)
+    'ITUB4': 'itauunibanco-on-nm',
+    'BBDC4': 'bradesco-pn-n1',
+    'BBAS3': 'banco-do-brasil-on-nm',
+    'ABEV3': 'ambev',
+    'B3SA3': 'b3-on-nm',
+    'RAIL3': 'rumo-on-nm',
+    'GGBR4': 'gerdau-met-pn-n1',
+    'SANB11': 'santander-br-units-n2',
+    'BBSE3': 'bb-seguridade-on-nm',
+    'EQTL3': 'equatorial-on-nm',
+    'SBSP3': 'sabesp-on-nm',
+    'KLBN11': 'klabin-units-n2',
+    'VIVT3': 'telefonica-brasil-on-nm',
+    'ENGI11': 'energisa-units-n2',
+    'MULT3': 'multiplan-on-nr2',
+    'HAPV3': 'hapvida-on-nm',
+    'CYRE3': 'cyrela-realty-on-nm',
+    'TOTS3': 'totvs-on-nm',
+    'EMBR3': 'embraer-on-nm',
+    'PETR3': 'brasileiro-petrobras',
+
+    // STOCKS US — adicionadas (NOT FOUND no console)
+    'GOOGL': 'alphabet',
+    'JPM': 'jpmorgan-chase',
+    'BAC': 'bank-of-america',
+    'COST': 'costco',
+    'WMT': 'walmart',
+    'HD': 'home-depot',
+    'AVGO': 'broadcom',
+    'KO': 'coca-cola',
+    'V': 'visa',
+    'MA': 'mastercard',
+    'XOM': 'exxon-mobil',
+    'CVX': 'chevron',
+    'PFE': 'pfizer',
+    'ABBV': 'abbvie',
+    'MRK': 'merck',
+    'TXN': 'texas-instruments',
+    'QCOM': 'qualcomm',
+    'BKNG': 'booking-holdings',
+    'GE': 'ge-aerospace',
+    'INTC': 'intel',
+    'AMD': 'advanced-micro-devices',
+    'CRM': 'salesforce',
+    'BAC': 'bank-of-america',
+    'TSMC': 'taiwan-semiconductor',
+
     // ACOES BR
     'PRIO3': 'petrorio-on-nm',
     'VALE3': 'vale',
@@ -195,7 +243,7 @@
 
     // Metadata
     count: Object.keys(LOGOS).length,
-    version: '1.1.0-20260419'
+    version: '1.2.0-20260506'
   };
 
 })();
