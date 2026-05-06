@@ -7220,6 +7220,19 @@ body.pat-hidden .v21-change-extra::after{
               <button class="cal-filter-btn" onclick="calSetFilter(this,'minha')" data-filter="minha">Minha Carteira</button>
             </div>
           </div>
+          <!-- Sub-barra: período + histórico -->
+          <div style="padding:8px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <div style="display:flex;gap:4px">
+              <button class="cal-period-btn active" onclick="calSetPeriod(this,30)">30d</button>
+              <button class="cal-period-btn" onclick="calSetPeriod(this,60)">60d</button>
+              <button class="cal-period-btn" onclick="calSetPeriod(this,90)">90d</button>
+              <button class="cal-period-btn" onclick="calSetPeriod(this,0)">Todos</button>
+            </div>
+            <button id="calHistBtn" onclick="calToggleHistory()" style="display:flex;align-items:center;gap:5px;padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text3);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s">
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M8 5v3.5l2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              Ver histórico
+            </button>
+          </div>
           <div id="calList">
             <div class="cal-skel"></div><div class="cal-skel"></div><div class="cal-skel"></div>
           </div>
@@ -7278,7 +7291,12 @@ body.pat-hidden .v21-change-extra::after{
 .nc-more{width:100%;padding:13px;border-radius:var(--r);border:1px solid var(--border);background:transparent;color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s}
 .nc-more:hover{background:var(--surface);color:var(--text)}.nc-more:disabled{opacity:.4;cursor:default}
 .nc-empty{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:40px;text-align:center;color:var(--text3);font-size:14px}
-.cal-filter-btn{padding:5px 12px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s;white-space:nowrap}
+.cal-period-btn{padding:3px 9px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text3);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s}
+.cal-period-btn:hover{background:var(--sur2);color:var(--text)}
+.cal-period-btn.active{background:rgba(201,169,97,.15);border-color:rgba(201,169,97,.4);color:var(--gold)}
+.cal-hist-sep{padding:8px 20px 4px;display:flex;align-items:center;gap:10px}
+.cal-hist-sep span{font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--text3);text-transform:uppercase;white-space:nowrap}
+.cal-hist-sep div{flex:1;height:1px;background:var(--border)}
 .cal-filter-btn:hover{background:var(--sur2);color:var(--text)}
 .cal-filter-btn.active{background:var(--gold);border-color:var(--gold);color:#0d0c10}
 .cal-skel{height:72px;background:rgba(255,255,255,.04);margin:0;animation:shimmer 1.5s ease-in-out infinite;border-bottom:1px solid var(--border)}
@@ -9144,6 +9162,8 @@ function ncMore(){
 var FMP_KEY = 'BKbXyY5r7GcgiTbr8a6oQvszhil2dh6m';
 var FMP_BASE = 'https://financialmodelingprep.com/api/v3';
 var CAL_FILTER = 'todas';
+var CAL_PERIOD = 30;       // dias futuros a mostrar (0 = todos)
+var CAL_SHOW_HISTORY = false;
 
 // Dados BR curados 1T26 — fontes: B3, InfoMoney, ADVFN, StatusInvest
 var CAL_BR = [
@@ -9307,15 +9327,13 @@ function calRenderRow(item) {
 }
 
 function calMergeAndRender(items, filter) {
-  // O Worker já retorna BR (CVM+curado) + EUA (FMP) combinados
-  // Se items vazio, usa só os dados BR curados do JS local como fallback
   var all = items.length ? items : CAL_BR.map(function(x){ return Object.assign({}, x); });
 
   // Normaliza campo when
   all.forEach(function(x){
     if(x.when==='amc') x.when='Após mercado';
     else if(x.when==='bmo') x.when='Antes do mercado';
-    if(!x.isUS) x.isUS = !x.ticker.match(/\d/);
+    if(x.isUS === undefined) x.isUS = !x.ticker.match(/\d/);
   });
 
   // Filtra por carteira
@@ -9327,14 +9345,63 @@ function calMergeAndRender(items, filter) {
     all = all.filter(function(x){ return minha.indexOf(x.ticker.toUpperCase()) >= 0; });
   }
 
-  all.sort(function(a, b){ return (a.date||'').localeCompare(b.date||''); });
+  // Separa histórico (passados) e futuros
+  var today = new Date(); today.setHours(0,0,0,0);
+  var todayStr = today.toISOString().split('T')[0];
+
+  var history = all.filter(function(x){ return x.date < todayStr; })
+                   .sort(function(a,b){ return b.date.localeCompare(a.date); }); // mais recente primeiro
+  var future  = all.filter(function(x){ return x.date >= todayStr; })
+                   .sort(function(a,b){ return a.date.localeCompare(b.date); });
+
+  // Aplica filtro de período nos futuros
+  if (CAL_PERIOD > 0) {
+    var cutoff = new Date(today.getTime() + CAL_PERIOD*24*3600*1000).toISOString().split('T')[0];
+    future = future.filter(function(x){ return x.date <= cutoff; });
+  }
 
   var list = document.getElementById('calList');
-  if (!all.length) {
-    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">Nenhum resultado para este filtro.</div>';
-    return;
+  var html = '';
+
+  // Histórico (expansível)
+  if (CAL_SHOW_HISTORY && history.length) {
+    html += '<div class="cal-hist-sep"><span>Histórico</span><div></div></div>';
+    html += history.map(function(x){
+      return '<div style="opacity:.55">' + calRenderRow(x) + '</div>';
+    }).join('');
+    html += '<div class="cal-hist-sep"><span>A partir de hoje</span><div></div></div>';
   }
-  list.innerHTML = all.map(calRenderRow).join('');
+
+  // Futuros
+  if (!future.length) {
+    html += '<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">Nenhum resultado neste período.</div>';
+  } else {
+    html += future.map(calRenderRow).join('');
+  }
+
+  list.innerHTML = html;
+}
+
+function calSetPeriod(btn, days) {
+  document.querySelectorAll('.cal-period-btn').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+  CAL_PERIOD = days;
+  calMergeAndRender(window._calUSItems || [], CAL_FILTER);
+}
+
+function calToggleHistory() {
+  CAL_SHOW_HISTORY = !CAL_SHOW_HISTORY;
+  var btn = document.getElementById('calHistBtn');
+  if (CAL_SHOW_HISTORY) {
+    btn.style.color = 'var(--gold)';
+    btn.style.borderColor = 'rgba(201,169,97,.4)';
+    btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M8 5v3.5l2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Ocultar histórico';
+  } else {
+    btn.style.color = 'var(--text3)';
+    btn.style.borderColor = 'var(--border)';
+    btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M8 5v3.5l2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Ver histórico';
+  }
+  calMergeAndRender(window._calUSItems || [], CAL_FILTER);
 }
 
 function calSetFilter(btn, filter) {
