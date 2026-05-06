@@ -558,6 +558,11 @@ function buildFormModulo(d) {
         '<div class="adm-hero-mock-label" id="prev_hero_tag">' + _esc(d.tag || '') + ' · ' + _esc(d.title || '') + '</div>' +
       '</div>' +
       '<div id="prev_mod_hero_err" class="adm-img-err" style="display:none">⚠️ URL inválida</div>' +
+      '<div class="adm-pos-sliders" style="margin-top:10px">' +
+        '<div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px">Reposicionar hero</div>' +
+        '<div class="adm-slider-row"><span class="adm-slider-label">X</span><input type="range" class="adm-slider" id="slider_hero_x" min="0" max="100" value="50"><span class="adm-slider-val" id="slider_hero_x_val">50%</span></div>' +
+        '<div class="adm-slider-row"><span class="adm-slider-label">Y</span><input type="range" class="adm-slider" id="slider_hero_y" min="0" max="100" value="0"><span class="adm-slider-val" id="slider_hero_y_val">0%</span></div>' +
+      '</div>' +
     '</div></div>';
 }
 
@@ -625,7 +630,7 @@ function bindImgPreviews() {
     el._syncListener = syncMockCard;
     el.addEventListener('input', el._syncListener);
   });
-  // Sliders de reposicionamento
+  // Sliders do CARD
   var slX = document.getElementById('slider_img_x');
   var slY = document.getElementById('slider_img_y');
   if (slX) {
@@ -640,16 +645,48 @@ function bindImgPreviews() {
       updateImgPosition();
     };
   }
-  // Restaurar posição salva se existir
+  // Sliders do HERO
+  var slHX = document.getElementById('slider_hero_x');
+  var slHY = document.getElementById('slider_hero_y');
+  if (slHX) {
+    slHX.oninput = function() {
+      document.getElementById('slider_hero_x_val').textContent = slHX.value + '%';
+      updateHeroPosition();
+    };
+  }
+  if (slHY) {
+    slHY.oninput = function() {
+      document.getElementById('slider_hero_y_val').textContent = slHY.value + '%';
+      updateHeroPosition();
+    };
+  }
+  // Restaurar posições salvas se existirem
   if (_admCtx && _admCtx.moduloId) {
     var mod = getModulo(_admCtx.moduloId);
-    if (mod && mod.imgPosition) {
-      var parts = (mod.imgPosition + '').split(' ');
-      if (slX && parts[0]) { slX.value = parseInt(parts[0]) || 50; document.getElementById('slider_img_x_val').textContent = slX.value + '%'; }
-      if (slY && parts[1]) { slY.value = parseInt(parts[1]) || 50; document.getElementById('slider_img_y_val').textContent = slY.value + '%'; }
-      updateImgPosition();
+    if (mod) {
+      if (mod.imgPosition) {
+        var parts = (mod.imgPosition + '').split(' ');
+        if (slX && parts[0]) { slX.value = parseInt(parts[0]) || 50; document.getElementById('slider_img_x_val').textContent = slX.value + '%'; }
+        if (slY && parts[1]) { slY.value = parseInt(parts[1]) || 50; document.getElementById('slider_img_y_val').textContent = slY.value + '%'; }
+        updateImgPosition();
+      }
+      if (mod.heroPosition) {
+        var hparts = (mod.heroPosition + '').split(' ');
+        if (slHX && hparts[0]) { slHX.value = parseInt(hparts[0]) || 50; document.getElementById('slider_hero_x_val').textContent = slHX.value + '%'; }
+        if (slHY && hparts[1]) { slHY.value = parseInt(hparts[1]) || 0; document.getElementById('slider_hero_y_val').textContent = slHY.value + '%'; }
+        updateHeroPosition();
+      }
     }
   }
+}
+
+function updateHeroPosition() {
+  var slHX = document.getElementById('slider_hero_x');
+  var slHY = document.getElementById('slider_hero_y');
+  if (!slHX || !slHY) return;
+  var pos = slHX.value + '% ' + slHY.value + '%';
+  var img = document.getElementById('prev_mod_hero');
+  if (img) img.style.objectPosition = pos;
 }
 
 function updateImgPosition() {
@@ -737,7 +774,8 @@ function _saveEditModulo() {
   var data = { tag: _gv('f_tag'), title: _gv('f_title'), desc: _gv('f_desc'),
     duracao: _gv('f_duracao'), ordem: parseInt(_gv('f_ordem')) || 0,
     img: _gv('f_img'), heroImg: _gv('f_heroImg') || null,
-    imgPosition: _imgPos };
+    imgPosition: _imgPos,
+    heroPosition: (function(){ var hx = document.getElementById('slider_hero_x'); var hy = document.getElementById('slider_hero_y'); return (hx && hy) ? (hx.value + '% ' + hy.value + '%') : '50% 0%'; })() };
   db.collection('cursos').doc('g20-masterclass').collection('modulos').doc(mId).update(data)
     .then(function() {
       var mod = getModulo(mId); if (mod) Object.assign(mod, data);
