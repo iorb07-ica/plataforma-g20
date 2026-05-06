@@ -297,7 +297,28 @@ auth.onAuthStateChanged(function(user) {
       return;
     }
     setStatus('Conectado · ' + user.email, true);
-    loadModulos();
+    loadModulos().then(function() {
+      // Abrir aula específica via URL params (?modulo=mod1&aula=m1a2)
+      var params = new URLSearchParams(window.location.search);
+      var pModulo = params.get('modulo');
+      var pAula   = params.get('aula');
+      if (pModulo) {
+        selectModulo(pModulo);
+        if (pAula) {
+          // Aguarda aulas carregarem e abre o modal
+          var _tries = 0;
+          var _wait = setInterval(function() {
+            _tries++;
+            if (AULAS[pModulo]) {
+              clearInterval(_wait);
+              openModalEditAula(pModulo, pAula);
+            } else if (_tries > 20) {
+              clearInterval(_wait);
+            }
+          }, 150);
+        }
+      }
+    });
   });
 });
 
@@ -332,7 +353,7 @@ function getModulo(id) { return MODULOS.find(function(m){ return m.id === id; })
 // ─── LOAD MÓDULOS ───
 function loadModulos() {
   document.getElementById('sidebarSpinner').style.display = 'inline-block';
-  db.collection('cursos').doc('g20-masterclass')
+  return db.collection('cursos').doc('g20-masterclass')
     .collection('modulos').orderBy('ordem').get()
     .then(function(snap) {
       MODULOS = [];
