@@ -8805,7 +8805,7 @@ window.g20Logout = function() {
 })();
 </script><script>
 var NC_EP='https://royal-water-e5ca.iorb07.workers.dev/';
-var NC_TTL=15*60*1000,NC_LIMIT=100,ncBuckets={},ncActiveTab='todas';
+var NC_TTL=5*60*1000,NC_LIMIT=100,ncBuckets={},ncActiveTab='todas',NC_LOADED_ONCE=false;
 var NC_QUOTES={},NC_FX=5.70,NC_POSICOES={};
 var NC_MACRO={'FED':{i:'&#129413;',b:'#1a3a5c',c:'#7eaedc'},'FOMC':{i:'&#129413;',b:'#1a3a5c',c:'#7eaedc'},'COPOM':{i:'&#127963;',b:'#1a4a2a',c:'#7adc92'},'SELIC':{i:'&#127963;',b:'#1a4a2a',c:'#7adc92'},'TRUMP':{i:'&#127482;&#127480;',b:'#5c1a1a',c:'#dc7a7a'},'IBOV':{i:'&#128200;',b:'#3a2a0a',c:'#dcb87a'},'NASDAQ':{i:'&#128202;',b:'#1a3a5c',c:'#7eaedc'},'DOLLAR':{i:'&#128181;',b:'#1f3a1f',c:'#7adc92'},'PETROLEO':{i:'&#128754;',b:'#2a1a0a',c:'#c9a961'},'OURO':{i:'&#129351;',b:'#3a2a0a',c:'#c9a961'},'CHINA':{i:'&#127464;&#127475;',b:'#5c1a1a',c:'#dc7a7a'},'JUROS':{i:'&#128201;',b:'#1a3a5c',c:'#7eaedc'},'IPCA':{i:'&#128200;',b:'#5c2a1a',c:'#dc9a7a'},'CPI':{i:'&#128200;',b:'#5c2a1a',c:'#dc9a7a'},'PIB':{i:'&#127758;',b:'#27252c',c:'#a8a4ae'},'BTC':{i:'&#8383;',b:'#2a1a05',c:'#f7931a'},'ETH':{i:'&#926;',b:'#1a1a3a',c:'#627eea'}};
 var NC_DEF={i:'&#127758;',b:'#27252c',c:'#a8a4ae'};
@@ -9113,7 +9113,20 @@ function ncShowFeed(items,filter){
   document.getElementById('updateLabel').textContent='ATUALIZADO AGORA';
   clearInterval(window._ncT);var m=0;window._ncT=setInterval(function(){m++;var el=document.getElementById('updateLabel');if(el)el.textContent='HÁ '+m+' MIN';},60000);
 }
-function ncFetch(mode,tickers){var key='g20_nc_'+mode+(tickers?'_c':'');try{var c=JSON.parse(localStorage.getItem(key)||'null');if(c&&Date.now()-c.ts<NC_TTL)return Promise.resolve(c.items||[]);}catch(e){}var url=NC_EP+'?mode='+encodeURIComponent(mode)+'&limit='+NC_LIMIT;if(tickers)url+='&tickers='+encodeURIComponent(tickers);return fetch(url,{headers:{'Accept':'application/json'}}).then(function(r){return r.json();}).then(function(d){var items=(d&&d.ok)?(d.items||[]):[];try{localStorage.setItem(key,JSON.stringify({ts:Date.now(),items:items}));}catch(e){}return items;}).catch(function(){return[];});}
+function ncFetch(mode,tickers){
+  var key='g20_nc_'+mode+(tickers?'_c':'');
+  // Só usa cache se já carregou uma vez nesta sessão (evita notícias velhas ao entrar)
+  if(NC_LOADED_ONCE){
+    try{var c=JSON.parse(localStorage.getItem(key)||'null');if(c&&Date.now()-c.ts<NC_TTL)return Promise.resolve(c.items||[]);}catch(e){}
+  }
+  var url=NC_EP+'?mode='+encodeURIComponent(mode)+'&limit='+NC_LIMIT;
+  if(tickers)url+='&tickers='+encodeURIComponent(tickers);
+  return fetch(url,{headers:{'Accept':'application/json'}}).then(function(r){return r.json();}).then(function(d){
+    var items=(d&&d.ok)?(d.items||[]):[];
+    try{localStorage.setItem(key,JSON.stringify({ts:Date.now(),items:items}));}catch(e){}
+    return items;
+  }).catch(function(){return[];});
+}
 function ncLoad(tab){
   var feed=document.getElementById('newsFeed');
   feed.innerHTML='<div class="nc-skel"><div class="nc-sl" style="height:10px;width:30%"></div><div class="nc-sl" style="height:60px;width:100%"></div></div><div class="nc-skel"><div class="nc-sl" style="height:10px;width:25%"></div><div class="nc-sl" style="height:60px;width:100%"></div></div><div class="nc-skel"><div class="nc-sl" style="height:10px;width:35%"></div><div class="nc-sl" style="height:60px;width:100%"></div></div>';
@@ -9132,25 +9145,15 @@ function ncLoad(tab){
   }
 
   // Todas as outras abas: busca tudo (modo macro = tudo relevante) e filtra client-side
-  var cacheKey='g20_nc_all';
-  try{
-    var cached=JSON.parse(localStorage.getItem(cacheKey)||'null');
-    if(cached&&Date.now()-cached.ts<NC_TTL){
-      ncBuckets['_all']=cached.items;
-      ncShowFeed(cached.items,tab);
-      return;
-    }
-  }catch(e){}
-
-  // Se já temos em memória (outra aba já buscou)
-  if(ncBuckets['_all']){
+  // Se já temos em memória nesta sessão (outra aba já buscou), reutiliza
+  if(ncBuckets['_all'] && NC_LOADED_ONCE){
     ncShowFeed(ncBuckets['_all'],tab);
     return;
   }
 
   ncFetch('macro','').then(function(items){
+    NC_LOADED_ONCE=true;
     ncBuckets['_all']=items;
-    try{localStorage.setItem(cacheKey,JSON.stringify({ts:Date.now(),items:items}));}catch(e){}
     ncShowFeed(items,tab);
   });
 }
