@@ -9069,7 +9069,7 @@ function ncRender(it,idx){
   var readBadge='<span class="nc-readbadge">&#128214; '+readMin+' min de leitura</span>';
 
   var border=idx===0?'border-left:3px solid var(--gold);':'';
-  return '<div class="nc-card" style="'+border+'" onclick="window.open(\''+link+'\',\'_blank\')">' +
+  return '<div class="nc-card" data-link="'+link+'" style="'+border+'" onclick="window.open(\''+link+'\',\'_blank\')">' +
     '<div class="nc-card-inner2">'+
       logoHtml+
       '<div class="nc-body2">'+
@@ -9120,47 +9120,153 @@ function ncShowFeed(items,filter){
 }
 function ncFetch(mode,tickers){
   var key='g20_nc_'+mode+(tickers?'_c':'');
-  // Só usa cache se já carregou uma vez nesta sessão (evita notícias velhas ao entrar)
-  if(NC_LOADED_ONCE){
-    try{var c=JSON.parse(localStorage.getItem(key)||'null');if(c&&Date.now()-c.ts<NC_TTL)return Promise.resolve(c.items||[]);}catch(e){}
-  }
   var url=NC_EP+'?mode='+encodeURIComponent(mode)+'&limit='+NC_LIMIT;
   if(tickers)url+='&tickers='+encodeURIComponent(tickers);
-  return fetch(url,{headers:{'Accept':'application/json'}}).then(function(r){return r.json();}).then(function(d){
+  var networkPromise=fetch(url,{headers:{'Accept':'application/json'}}).then(function(r){return r.json();}).then(function(d){
     var items=(d&&d.ok)?(d.items||[]):[];
     try{localStorage.setItem(key,JSON.stringify({ts:Date.now(),items:items}));}catch(e){}
     return items;
-  }).catch(function(){return[];});
+  }).catch(function(){return null;});
+  // Retorna cache imediatamente se existir, mas sempre dispara network em background
+  try{
+    var c=JSON.parse(localStorage.getItem(key)||'null');
+    if(c&&c.items&&c.items.length){
+      return Promise.resolve({items:c.items,stale:true,network:networkPromise});
+    }
+  }catch(e){}
+  return networkPromise.then(function(items){return{items:items||[],stale:false,network:null};});
 }
+
+// TTL para revalidação silenciosa — se cache tem mais de 3min, revalida em background
+var NC_REVALIDATE_TTL = 3*60*1000;
+
 function ncLoad(tab){
   var feed=document.getElementById('newsFeed');
-  feed.innerHTML='<div class="nc-skel"><div class="nc-sl" style="height:10px;width:30%"></div><div class="nc-sl" style="height:60px;width:100%"></div></div><div class="nc-skel"><div class="nc-sl" style="height:10px;width:25%"></div><div class="nc-sl" style="height:60px;width:100%"></div></div><div class="nc-skel"><div class="nc-sl" style="height:10px;width:35%"></div><div class="nc-sl" style="height:60px;width:100%"></div></div>';
 
   if(tab==='carteira'){
     var tickers=Object.keys(NC_POSICOES).join(',');
     var mode=tickers?'carteira':'watchlist';
     var key='g20_nc_cart'+(tickers?'_c':'');
-    try{var c=JSON.parse(localStorage.getItem(key)||'null');if(c&&Date.now()-c.ts<NC_TTL){ncBuckets[tab]=c.items;ncShowFeed(c.items,tab);return;}}catch(e){}
-    ncFetch(mode,tickers).then(function(items){
-      ncBuckets[tab]=items;
-      try{localStorage.setItem(key,JSON.stringify({ts:Date.now(),items:items}));}catch(e){}
-      ncShowFeed(items,tab);
-    });
+    var cached=null;
+    try{cached=JSON.parse(localStorage.getItem(key)||'null');}catch(e){}
+
+    if(cached&&cached.items&&cached.items.length){
+      // Mostra cache imediatamente
+      ncBuckets[tab]=cached.items;
+      ncShowFeed(cached.items,tab);
+      // Revalida em background se stale
+      if(Date.now()-cached.ts>NC_REVALIDATE_TTL){
+        ncFetch(mode,tickers).then(function(res){
+          if(!res||!res.items||!res.items.length)return;
+          ncBuckets[tab]=res.items;
+          if(ncActiveTab===tab) ncShowFeedSilent(res.items,tab);
+        });
+      }
+    } else {
+      feed.innerHTML='<div class="nc-skel"><div class="nc-sl" style="height:10px;width:30%"></div><div class="nc-sl" style="height:60px;width:100%"></div></div><div class="nc-skel"><div class="nc-sl" style="height:10px;width:25%"></div><div class="nc-sl" style="height:60px;width:100%"></div></div>';
+      ncFetch(mode,tickers).then(function(res){
+        var items=res&&res.items?res.items:[];
+        ncBuckets[tab]=items;
+        ncShowFeed(items,tab);
+      });
+    }
     return;
   }
 
-  // Todas as outras abas: busca tudo (modo macro = tudo relevante) e filtra client-side
-  // Se já temos em memória nesta sessão (outra aba já buscou), reutiliza
-  if(ncBuckets['_all'] && NC_LOADED_ONCE){
+  // Todas as outras abas — stale-while-revalidate
+  if(ncBuckets['_all']&&NC_LOADED_ONCE){
+    // Mostra instantaneamente o que há em memória
     ncShowFeed(ncBuckets['_all'],tab);
+    // Revalida silenciosamente em background
+    ncRevalidateBackground();
     return;
   }
 
-  ncFetch('macro','').then(function(items){
+  // Primeira carga — verifica cache localStorage
+  var key='g20_nc_macro';
+  var cached=null;
+  try{cached=JSON.parse(localStorage.getItem(key)||'null');}catch(e){}
+
+  if(cached&&cached.items&&cached.items.length){
+    // Mostra cache imediatamente
     NC_LOADED_ONCE=true;
+    ncBuckets['_all']=cached.items;
+    ncShowFeed(cached.items,tab);
+    // Sempre busca frescos em background na primeira carga
+    ncRevalidateBackground();
+  } else {
+    // Sem cache — mostra skeleton e busca
+    feed.innerHTML='<div class="nc-skel"><div class="nc-sl" style="height:10px;width:30%"></div><div class="nc-sl" style="height:60px;width:100%"></div></div><div class="nc-skel"><div class="nc-sl" style="height:10px;width:25%"></div><div class="nc-sl" style="height:60px;width:100%"></div></div><div class="nc-skel"><div class="nc-sl" style="height:10px;width:35%"></div><div class="nc-sl" style="height:60px;width:100%"></div></div>';
+    var url=NC_EP+'?mode=macro&limit='+NC_LIMIT;
+    fetch(url,{headers:{'Accept':'application/json'}}).then(function(r){return r.json();}).then(function(d){
+      var items=(d&&d.ok)?(d.items||[]):[];
+      try{localStorage.setItem('g20_nc_macro',JSON.stringify({ts:Date.now(),items:items}));}catch(e){}
+      NC_LOADED_ONCE=true;
+      ncBuckets['_all']=items;
+      ncShowFeed(items,tab);
+    }).catch(function(){
+      feed.innerHTML='<div class="nc-empty">Erro ao carregar notícias. Tente novamente.</div>';
+    });
+  }
+}
+
+// Revalida em background sem mostrar skeleton — atualiza silenciosamente
+var _ncRevalidating=false;
+function ncRevalidateBackground(){
+  if(_ncRevalidating)return;
+  _ncRevalidating=true;
+  var url=NC_EP+'?mode=macro&limit='+NC_LIMIT;
+  fetch(url,{headers:{'Accept':'application/json'}}).then(function(r){return r.json();}).then(function(d){
+    _ncRevalidating=false;
+    var items=(d&&d.ok)?(d.items||[]):[];
+    if(!items.length)return;
+    try{localStorage.setItem('g20_nc_macro',JSON.stringify({ts:Date.now(),items:items}));}catch(e){}
     ncBuckets['_all']=items;
-    ncShowFeed(items,tab);
+    // Atualiza a aba ativa silenciosamente
+    ncShowFeedSilent(items,ncActiveTab);
+  }).catch(function(){_ncRevalidating=false;});
+}
+
+// Atualiza feed sem piscar — só adiciona novas notícias no topo
+function ncShowFeedSilent(items,tab){
+  if(ncActiveTab!==tab)return; // aba mudou, ignora
+  var feed=document.getElementById('newsFeed');
+  if(!feed)return;
+  // Verifica links já exibidos
+  var shown={};
+  feed.querySelectorAll('.nc-card').forEach(function(el){
+    var link=el.getAttribute('data-link');
+    if(link)shown[link]=true;
   });
+  var filtered=items;
+  if(tab&&tab!=='todas'&&tab!=='carteira'){
+    filtered=items.filter(function(it){return ncDetectCat(it)===tab;});
+  } else if(tab==='todas'){
+    var buckets={cripto:[],commodities:[],politica:[],macro:[],brasil:[],eua:[],outras:[]};
+    items.forEach(function(it){var cat=ncDetectCat(it);var b=buckets[cat]||buckets['outras'];if(b.length<10)b.push(it);});
+    filtered=[];Object.keys(buckets).forEach(function(c){filtered=filtered.concat(buckets[c]);});
+  }
+  filtered=ncSortByDate(filtered);
+  var newItems=filtered.filter(function(it){return it.link&&!shown[it.link];});
+  if(!newItems.length)return;
+  // Insere novas no topo com animação sutil
+  var loadBtn=document.getElementById('loadBtn');
+  var firstCard=feed.querySelector('.nc-card');
+  newItems.forEach(function(it,i){
+    var div=document.createElement('div');
+    div.innerHTML=ncRender(it,i);
+    var card=div.firstChild;
+    if(card){
+      card.style.opacity='0';
+      card.style.transition='opacity .4s ease';
+      feed.insertBefore(card,firstCard||loadBtn);
+      setTimeout(function(){card.style.opacity='1';},50+i*30);
+    }
+  });
+  document.getElementById('countBadge').textContent=feed.querySelectorAll('.nc-card').length;
+  document.getElementById('updateLabel').textContent='ATUALIZADO AGORA';
+  clearInterval(window._ncT);var m=0;window._ncT=setInterval(function(){m++;var el=document.getElementById('updateLabel');if(el)el.textContent='HÁ '+m+' MIN';},60000);
+}
 }
 function ncFilter(btn,tab){document.querySelectorAll('.nc-fb').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');ncActiveTab=tab;ncLoad(tab);}
 function ncMore(){
