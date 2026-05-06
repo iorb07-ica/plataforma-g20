@@ -627,7 +627,12 @@ function buildFormAula(d) {
     '<div class="adm-form-row"><label class="adm-form-label">Fonte (ex: Clube dos Poupadores)</label>' +
     '<input class="adm-input" id="f_previewFonte" value="' + _esc(p.fonte || '') + '" placeholder="Nome da fonte ou canal"></div>' +
     '<div class="adm-form-row"><label class="adm-form-label">Resumo (texto do card de preview)</label>' +
-    '<textarea class="adm-textarea" id="f_previewResumo" rows="3">' + _esc(p.resumo || '') + '</textarea></div>';
+    '<textarea class="adm-textarea" id="f_previewResumo" rows="3">' + _esc(p.resumo || '') + '</textarea></div>' +
+    '<div class="adm-divider"></div>' +
+    '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Texto da aula</div>' +
+    '<div class="adm-form-row"><label class="adm-form-label">Introdução / contexto (aparece abaixo da thumb)</label>' +
+    '<textarea class="adm-textarea" id="f_textoAula" rows="6" placeholder="Escreva uma introdução, contexto ou comentário sobre esta aula. Aparece para o aluno logo abaixo da imagem/vídeo.">' + _esc(d.textoAula || '') + '</textarea>' +
+    '<div style="font-size:11px;color:var(--text3);margin-top:6px">Suporta parágrafos. Quebras de linha são preservadas.</div></div>';
 }
 
 // ─── IMAGE PREVIEW ───
@@ -647,6 +652,15 @@ function bindImgPreviews() {
   if (slAY) { slAY.oninput = function() { document.getElementById('slider_aula_y_val').textContent = slAY.value + '%'; updateAulaPosition(); }; }
   if (slAZ) { slAZ.oninput = function() { document.getElementById('slider_aula_z_val').textContent = slAZ.value + '%'; updateAulaPosition(); }; }
   // Sync título no mock da aula
+  // Auto-thumb YouTube ao colar URL
+  var fUrl = document.getElementById('f_url');
+  if (fUrl) {
+    if (fUrl._urlListener) fUrl.removeEventListener('input', fUrl._urlListener);
+    fUrl._urlListener = autoFillYouTubeThumb;
+    fUrl.addEventListener('input', fUrl._urlListener);
+    // Disparar imediatamente se já tem URL
+    if (fUrl.value) setTimeout(autoFillYouTubeThumb, 100);
+  }
   var fTitulo = document.getElementById('f_titulo');
   if (fTitulo) { fTitulo.oninput = function() { var el = document.getElementById('prev_aula_titulo'); if(el) el.textContent = fTitulo.value || 'Título da aula'; }; }
   var fTipo = document.getElementById('f_tipo');
@@ -774,6 +788,38 @@ function syncMockCard() {
   if (dur   && pMet)  pMet.textContent  = dur.value   || '';
 }
 
+
+// ─── AUTO THUMB YOUTUBE ───
+function extractYouTubeId(url) {
+  if (!url) return null;
+  var patterns = [
+    /(?:youtube\.com\/embed\/)([\w-]+)/,
+    /(?:youtube\.com\/watch\?v=)([\w-]+)/,
+    /(?:youtu\.be\/)([\w-]+)/,
+    /(?:youtube\.com\/v\/)([\w-]+)/
+  ];
+  for (var i = 0; i < patterns.length; i++) {
+    var m = url.match(patterns[i]);
+    if (m) return m[1].split('?')[0].split('&')[0];
+  }
+  return null;
+}
+
+function autoFillYouTubeThumb() {
+  var urlInput = document.getElementById('f_url');
+  var imgInput = document.getElementById('f_previewImg');
+  if (!urlInput || !imgInput) return;
+  var ytId = extractYouTubeId(urlInput.value);
+  if (!ytId) return;
+  // Só preenche se o campo de imagem estiver vazio
+  if (!imgInput.value.trim()) {
+    var thumb = 'https://img.youtube.com/vi/' + ytId + '/maxresdefault.jpg';
+    imgInput.value = thumb;
+    refreshImgPreview('f_previewImg', 'prev_aula_img');
+    updateAulaPosition();
+  }
+}
+
 function suggestAulaPath() {
   var aulaId = _admCtx.aulaId || 'nova-aula';
   var url = 'https://iorb07-ica.github.io/plataforma-g20/assets/aulas/' + aulaId + '.jpg';
@@ -846,7 +892,8 @@ function _saveNovaAula() {
   var _slAZ = document.getElementById('slider_aula_z');
   var data = { titulo: _gv('f_titulo'), desc: _gv('f_desc'), tipo: _gv('f_tipo'),
     url: _gv('f_url'), ordem: parseInt(_gv('f_ordem')) || 0,
-    publicada: _gb('f_publicada'), criadoEm: Date.now(),
+    publicada: _gb('f_publicada'),
+    textoAula: _gv('f_textoAula'), criadoEm: Date.now(),
     previewScale: _slAZ ? (_slAZ.value/100) : 1,
     previewTranslateX: _slAX ? (_slAX.value-50)*-1 : 0,
     previewTranslateY: _slAY ? (_slAY.value-50)*-1 : 0 };
@@ -871,6 +918,7 @@ function _saveEditAula() {
   var _slAZ = document.getElementById('slider_aula_z');
   var data = { titulo: _gv('f_titulo'), desc: _gv('f_desc'), tipo: _gv('f_tipo'),
     url: _gv('f_url'), ordem: parseInt(_gv('f_ordem')) || 0, publicada: _gb('f_publicada'),
+    textoAula: _gv('f_textoAula'),
     previewScale: _slAZ ? (_slAZ.value/100) : 1,
     previewTranslateX: _slAX ? (_slAX.value-50)*-1 : 0,
     previewTranslateY: _slAY ? (_slAY.value-50)*-1 : 0 };
