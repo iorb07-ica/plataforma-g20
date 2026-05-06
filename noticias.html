@@ -9081,27 +9081,32 @@ function ncRender(it,idx){
     '<div class="nc-footer">'+readBadge+(impHtml||'')+'</div>'+
   '</div>';
 }
+function ncSortByDate(arr){
+  return arr.slice().sort(function(a,b){
+    var da = a.pubDate ? new Date(a.pubDate).getTime() : 0;
+    var db = b.pubDate ? new Date(b.pubDate).getTime() : 0;
+    return db - da;
+  });
+}
+
 function ncShowFeed(items,filter){
   var filtered=items;
   if(filter&&filter!=='todas'&&filter!=='carteira'){
     filtered=items.filter(function(it){return ncDetectCat(it)===filter;});
   } else if(filter==='todas'){
-    // Equilíbrio: max 8 por categoria, prioriza recência
-    var buckets={cripto:[],commodities:[],macro:[],brasil:[],eua:[],outras:[]};
+    // Equilíbrio: max 10 por categoria, depois ordena tudo por data
+    var buckets={cripto:[],commodities:[],politica:[],macro:[],brasil:[],eua:[],outras:[]};
     items.forEach(function(it){
       var cat=ncDetectCat(it);
       var b=buckets[cat]||buckets['outras'];
-      if(b.length<8)b.push(it);
+      if(b.length<10)b.push(it);
     });
-    // Intercala categorias para distribuição equilibrada
     var balanced=[];
-    var cats=['brasil','eua','macro','cripto','commodities','outras'];
-    var maxRound=8;
-    for(var r=0;r<maxRound;r++){
-      cats.forEach(function(c){if(buckets[c]&&buckets[c][r])balanced.push(buckets[c][r]);});
-    }
+    Object.keys(buckets).forEach(function(c){balanced=balanced.concat(buckets[c]);});
     filtered=balanced;
   }
+  // Ordena SEMPRE por data decrescente — mais recente primeiro
+  filtered=ncSortByDate(filtered);
   var feed=document.getElementById('newsFeed');
   if(!filtered||!filtered.length){
     feed.innerHTML='<div class="nc-empty">Nenhuma notícia encontrada para esta categoria.<br><span style="font-size:12px;color:var(--text3)">Aguarde a próxima atualização ou tente a aba "Todas".</span></div>';
@@ -9162,22 +9167,24 @@ function ncMore(){
   var btn=document.getElementById('loadBtn');if(!btn)return;
   btn.disabled=true;btn.textContent='Carregando...';
   var mode=ncActiveTab==='todas'||ncActiveTab==='brasil'||ncActiveTab==='eua'||ncActiveTab==='macro'||ncActiveTab==='cripto'||ncActiveTab==='commodities'||ncActiveTab==='politica'?'macro':'carteira';
-  var page=Math.floor((ncBuckets[ncActiveTab]||[]).length/NC_LIMIT);
-  // Dedup: links já exibidos
+  var page=Math.floor((ncBuckets['_all']||[]).length/NC_LIMIT)+1;
   var seenLinks={};
-  (ncBuckets[ncActiveTab]||[]).forEach(function(it){if(it.link)seenLinks[it.link]=true;});
+  (ncBuckets['_all']||[]).forEach(function(it){if(it.link)seenLinks[it.link]=true;});
   fetch(NC_EP+'?mode='+encodeURIComponent(mode)+'&limit='+NC_LIMIT+'&page='+page,{headers:{'Accept':'application/json'}})
     .then(function(r){return r.json();})
     .then(function(d){
       var ni=(d&&d.ok)?(d.items||[]):[];
-      // Remove duplicatas
       ni=ni.filter(function(it){return it.link&&!seenLinks[it.link];});
       if(!ni.length){btn.textContent='Sem mais notícias';btn.disabled=true;return;}
+      // Acumula no _all
+      ncBuckets['_all']=(ncBuckets['_all']||[]).concat(ni);
+      // Filtra pela aba ativa e ordena
       var filt=ncActiveTab!=='todas'&&ncActiveTab!=='carteira'?ncActiveTab:null;
       var filtered=filt?ni.filter(function(it){return ncDetectCat(it)===filt;}):ni;
-      var off=(ncBuckets[ncActiveTab]||[]).length;
-      ncBuckets[ncActiveTab]=(ncBuckets[ncActiveTab]||[]).concat(ni);
+      filtered=ncSortByDate(filtered);
+      if(!filtered.length){btn.disabled=false;btn.textContent='↻ Carregar mais';return;}
       var feed=document.getElementById('newsFeed');
+      var off=feed.querySelectorAll('.nc-card').length;
       filtered.forEach(function(it,i){
         var div=document.createElement('div');
         div.innerHTML=ncRender(it,off+i);
