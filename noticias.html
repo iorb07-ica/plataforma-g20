@@ -7285,7 +7285,7 @@ body.pat-hidden .v21-change-extra::after{
 .cal-row{display:flex;align-items:center;gap:16px;padding:16px 20px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s}
 .cal-row:hover{background:rgba(255,255,255,.04)}
 .cal-row.today{background:rgba(201,169,97,.06);border-left:3px solid var(--gold)}
-.cal-row.past{opacity:.5}
+.cal-row.past{opacity:1}
 .cal-d{display:flex;flex-direction:column;align-items:center;justify-content:center;width:52px;height:52px;border-radius:12px;background:linear-gradient(135deg,#3a2e0f,#2a2008);border:1px solid rgba(201,169,97,.3);flex-shrink:0}
 .cal-row.today .cal-d{background:linear-gradient(135deg,#c9a961,#a07830);border-color:var(--gold)}
 .cal-row.today .cal-d b,.cal-row.today .cal-d span{color:#0d0c10!important}
@@ -9198,14 +9198,42 @@ function calGetCG20() {
 function calLogoUrl(ticker, isUS) {
   if (!ticker) return '';
   var s = ticker.toUpperCase();
-  // Usa o mesmo sistema de logos do resto da plataforma
   if (window.TV_LOGOS && window.TV_LOGOS.getUrl) {
     var tvUrl = window.TV_LOGOS.getUrl(s);
     if (tvUrl) return tvUrl;
   }
-  // Fallback: TradingView CDN direto (mesmo formato que a plataforma usa)
-  if (isUS) return 'https://s3-symbol-logo.tradingview.com/' + s.toLowerCase() + '.svg';
-  return 'https://raw.githubusercontent.com/thefintz/icones-b3/main/icones/' + s + '.png';
+  // Slugs corretos do TradingView para empresas US não mapeadas no TV_LOGOS
+  var TV_SLUGS_US = {
+    'JPM':'jpmorgan-chase','BAC':'bank-of-america','WMT':'walmart',
+    'COST':'costco','HD':'home-depot','AVGO':'broadcom',
+    'KO':'coca-cola','V':'visa','MA':'mastercard',
+    'XOM':'exxon-mobil','CVX':'chevron','PFE':'pfizer',
+    'ABBV':'abbvie','UNH':'unitedhealth','MRK':'merck',
+    'TXN':'texas-instruments','QCOM':'qualcomm','BKNG':'booking-holdings',
+    'GE':'ge-aerospace','INTC':'intel','DIS':'walt-disney',
+    'AMD':'advanced-micro-devices','CRM':'salesforce','ORCL':'oracle'
+  };
+  if (isUS && TV_SLUGS_US[s]) {
+    return 'https://s3-symbol-logo.tradingview.com/' + TV_SLUGS_US[s] + '--big.svg';
+  }
+  if (!isUS) return 'https://raw.githubusercontent.com/thefintz/icones-b3/main/icones/' + s + '.png';
+  return '';
+}
+
+function calLogoHtml(ticker, isUS) {
+  var url = calLogoUrl(ticker, isUS);
+  var initials = ticker.substring(0,2).toUpperCase();
+  var bg = isUS ? 'rgba(59,130,246,.2)' : 'rgba(201,169,97,.15)';
+  var color = isUS ? '#60a5fa' : 'var(--gold)';
+  if (url) {
+    return '<div class="cal-logo">' +
+      '<img src="'+url+'" alt="'+ticker+'" ' +
+      'onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\'" ' +
+      'style="width:100%;height:100%;object-fit:contain">' +
+      '<span style="display:none;width:100%;height:100%;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:'+color+';background:'+bg+'">'+initials+'</span>' +
+      '</div>';
+  }
+  return '<div class="cal-logo" style="background:'+bg+';display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:'+color+'">'+initials+'</div>';
 }
 
 function calFmtDate(dateStr) {
@@ -9235,8 +9263,7 @@ function calRenderRow(item) {
   var flagCls = isUS ? 'cal-flag-us' : 'cal-flag-br';
   var flagLbl = isUS ? 'us' : 'br';
 
-  // Logo
-  var logo = '<div class="cal-logo"><img src="'+calLogoUrl(item.ticker,isUS)+'" onerror="this.style.display=\'none\'" alt=""></div>';
+  var logo = calLogoHtml(item.ticker, isUS);
 
   // Valor direito
   var rightHtml = '';
