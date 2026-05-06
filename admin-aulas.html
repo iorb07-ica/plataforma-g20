@@ -188,6 +188,36 @@ a{text-decoration:none;color:inherit}
   flex-shrink: 0;
 }
 
+
+/* ── SLIDERS DE REPOSICIONAMENTO ── */
+.adm-pos-sliders { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.adm-slider-row { display: flex; align-items: center; gap: 10px; }
+.adm-slider-label { font-size: 10px; font-weight: 700; color: var(--text3); letter-spacing: 1px; text-transform: uppercase; width: 24px; flex-shrink: 0; }
+.adm-slider { flex: 1; accent-color: var(--gold); cursor: pointer; height: 4px; }
+.adm-slider-val { font-size: 10px; color: var(--text3); font-family: "JetBrains Mono", monospace; width: 36px; text-align: right; flex-shrink: 0; }
+
+/* ── HERO PREVIEW ── */
+.adm-hero-mock {
+  position: relative; width: 100%; height: 160px;
+  border-radius: 10px; overflow: hidden;
+  background: #1a191e; margin-top: 8px;
+}
+.adm-hero-mock-img {
+  width: 100%; height: 100%; object-fit: cover;
+  object-position: center top; display: block;
+}
+.adm-hero-mock-overlay {
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(to bottom, transparent 0%, transparent 45%, rgba(26,25,30,.6) 72%, rgba(26,25,30,1) 100%),
+    linear-gradient(to right, rgba(26,25,30,.55) 0%, transparent 55%);
+}
+.adm-hero-mock-label {
+  position: absolute; bottom: 12px; left: 14px;
+  font-size: 9px; font-weight: 800; color: #c9a961;
+  letter-spacing: 1.5px; text-transform: uppercase;
+}
+
 </style>
 </head>
 <body>
@@ -510,14 +540,24 @@ function buildFormModulo(d) {
           '<b>Dica:</b> imagem ideal<br>390×468px ou proporção 5:6<br><br>' +
           'Cole a URL acima<br>ou <a style="color:var(--gold);cursor:pointer" onclick="window.open(\'https://github.com/iorb07-ica/plataforma-g20/upload/main/assets/aulas\',\'_blank\')">suba no GitHub →</a><br><br>' +
           '<span style="color:var(--red);display:none" id="prev_mod_img_err">⚠️ URL inválida</span>' +
+          '<div class="adm-pos-sliders" style="margin-top:12px">' +
+            '<div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px">Reposicionar</div>' +
+            '<div class="adm-slider-row"><span class="adm-slider-label">X</span><input type="range" class="adm-slider" id="slider_img_x" min="0" max="100" value="50"><span class="adm-slider-val" id="slider_img_x_val">50%</span></div>' +
+            '<div class="adm-slider-row"><span class="adm-slider-label">Y</span><input type="range" class="adm-slider" id="slider_img_y" min="0" max="100" value="50"><span class="adm-slider-val" id="slider_img_y_val">50%</span></div>' +
+          '</div>' +
         '</div>' +
       '</div>' +
     '</div></div>' +
     '<div class="adm-form-row"><label class="adm-form-label">Hero image (URL, opcional)</label>' +
     '<input class="adm-input" id="f_heroImg" value="' + _esc(d.heroImg || '') + '" placeholder="https://..."">' +
     '<div class="adm-img-preview-wrap">' +
-      '<img id="prev_mod_hero" class="adm-img-preview' + (d.heroImg ? ' show' : '') + '" src="' + _esc(d.heroImg || '') + '">' +
-      '<div id="prev_mod_hero_err" class="adm-img-err">⚠️ URL inválida</div>' +
+      '<div class="adm-card-preview-label">Preview do hero <span>VISÃO REAL</span></div>' +
+      '<div class="adm-hero-mock">' +
+        '<img id="prev_mod_hero" class="adm-hero-mock-img" src="' + _esc(d.heroImg || '') + '" style="opacity:' + (d.heroImg ? '1' : '0.1') + '">' +
+        '<div class="adm-hero-mock-overlay"></div>' +
+        '<div class="adm-hero-mock-label" id="prev_hero_tag">' + _esc(d.tag || '') + ' · ' + _esc(d.title || '') + '</div>' +
+      '</div>' +
+      '<div id="prev_mod_hero_err" class="adm-img-err" style="display:none">⚠️ URL inválida</div>' +
     '</div></div>';
 }
 
@@ -585,6 +625,40 @@ function bindImgPreviews() {
     el._syncListener = syncMockCard;
     el.addEventListener('input', el._syncListener);
   });
+  // Sliders de reposicionamento
+  var slX = document.getElementById('slider_img_x');
+  var slY = document.getElementById('slider_img_y');
+  if (slX) {
+    slX.oninput = function() {
+      document.getElementById('slider_img_x_val').textContent = slX.value + '%';
+      updateImgPosition();
+    };
+  }
+  if (slY) {
+    slY.oninput = function() {
+      document.getElementById('slider_img_y_val').textContent = slY.value + '%';
+      updateImgPosition();
+    };
+  }
+  // Restaurar posição salva se existir
+  if (_admCtx && _admCtx.moduloId) {
+    var mod = getModulo(_admCtx.moduloId);
+    if (mod && mod.imgPosition) {
+      var parts = (mod.imgPosition + '').split(' ');
+      if (slX && parts[0]) { slX.value = parseInt(parts[0]) || 50; document.getElementById('slider_img_x_val').textContent = slX.value + '%'; }
+      if (slY && parts[1]) { slY.value = parseInt(parts[1]) || 50; document.getElementById('slider_img_y_val').textContent = slY.value + '%'; }
+      updateImgPosition();
+    }
+  }
+}
+
+function updateImgPosition() {
+  var slX = document.getElementById('slider_img_x');
+  var slY = document.getElementById('slider_img_y');
+  if (!slX || !slY) return;
+  var pos = slX.value + '% ' + slY.value + '%';
+  var img = document.getElementById('prev_mod_img');
+  if (img) img.style.objectPosition = pos;
 }
 
 function refreshImgPreview(inputId, previewId) {
@@ -657,9 +731,13 @@ function _saveNovoModulo() {
 function _saveEditModulo() {
   var btn = _setSaving();
   var mId = _admCtx.moduloId;
+  var _slX = document.getElementById('slider_img_x');
+  var _slY = document.getElementById('slider_img_y');
+  var _imgPos = (_slX && _slY) ? (_slX.value + '% ' + _slY.value + '%') : '50% 50%';
   var data = { tag: _gv('f_tag'), title: _gv('f_title'), desc: _gv('f_desc'),
     duracao: _gv('f_duracao'), ordem: parseInt(_gv('f_ordem')) || 0,
-    img: _gv('f_img'), heroImg: _gv('f_heroImg') || null };
+    img: _gv('f_img'), heroImg: _gv('f_heroImg') || null,
+    imgPosition: _imgPos };
   db.collection('cursos').doc('g20-masterclass').collection('modulos').doc(mId).update(data)
     .then(function() {
       var mod = getModulo(mId); if (mod) Object.assign(mod, data);
