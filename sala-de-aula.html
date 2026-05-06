@@ -1582,7 +1582,7 @@ function showModulo(moduloId) {
       ? '<img class="sa-aula-thumb" src="' + aula.img + '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\'">' +
         '<div class="sa-aula-thumb-placeholder" style="display:none">' + icon + '</div>'
       : '<div class="sa-aula-thumb-placeholder">' + icon + '</div>';
-    var _editBtn = SA_IS_ADMIN ? '<button class="sa-admin-edit-btn" style="top:50%;transform:translateY(-50%)" onclick="event.stopPropagation();saAdminEditAula(\'' + moduloId + '\',\'' + aula.id + '\')">✏️</button>' : '';
+    var _editBtn = SA_IS_ADMIN ? '<button class="sa-admin-edit-btn" style="top:50%;transform:translateY(-50%)" onclick="event.stopPropagation();abrirAdminAula(\'' + moduloId + '\',\'' + aula.id + '\')">✏️</button>' : '';
     return '<div class="sa-aula-item' + (done ? ' concluida' : '') + '" onclick="showAula(\'' + moduloId + '\',\'' + aula.id + '\')">' +
       _editBtn +
       thumbHtml +
@@ -1618,15 +1618,27 @@ function showAula(moduloId, aulaId) {
 
   // Player — padrão único: thumb grande 560px para vídeo e artigo
   var playerWrap = document.getElementById('playerWrap');
-  var isYT = aula.tipo === 'video' && aula.url && aula.url.indexOf('youtube.com/embed') !== -1;
-  var ytId = isYT ? aula.url.replace('https://www.youtube.com/embed/','').split('?')[0] : '';
+  // Detecta YouTube por URL (independente do campo tipo)
+  function _extractYtId(url) {
+    if (!url) return '';
+    var m = url.match(/(?:youtube\.com\/embed\/|youtu\.be\/|youtube\.com\/watch\?v=)([\w-]+)/);
+    return m ? m[1].split('?')[0] : '';
+  }
+  var ytId = _extractYtId(aula.url);
+  var isYT = !!(ytId);
+  // Normaliza URL para embed se for youtu.be ou watch
+  if (isYT && aula.url.indexOf('youtube.com/embed') === -1) {
+    aula._embedUrl = 'https://www.youtube.com/embed/' + ytId;
+  } else {
+    aula._embedUrl = aula.url;
+  }
   var thumbImg = isYT
-    ? 'https://img.youtube.com/vi/' + ytId + '/maxresdefault.jpg'
+    ? (aula.preview && aula.preview.img ? aula.preview.img : 'https://img.youtube.com/vi/' + ytId + '/maxresdefault.jpg')
     : (aula.preview && aula.preview.img ? aula.preview.img : (aula.img || ''));
   var fonte = isYT ? '▶ VÍDEO' : (aula.preview && aula.preview.fonte ? '📰 ' + aula.preview.fonte : '📄 ARTIGO');
   var btnLabel = isYT ? '▶ Assistir vídeo' : '📖 Ler artigo completo';
   var btnAction = isYT
-    ? 'loadYouTubePlayer(\'' + aula.url + '\',\'' + aulaId + '\')'
+    ? 'loadYouTubePlayer(\'' + (aula._embedUrl||aula.url) + '\',\'' + aulaId + '\')'
     : 'window.open(\'' + aula.url + '\',\'_blank\');autoMarcarConcluida(\'' + aulaId + '\')';
 
   playerWrap.style.cssText = 'width:100%;background:transparent;border-radius:0;box-shadow:none;aspect-ratio:auto;height:auto';
@@ -1989,6 +2001,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // ════ ADMIN INLINE EDIT ════
 var _saAdminCtx = {}; // { type: 'aula'|'modulo', moduloId, aulaId, data }
+
+function abrirAdminAula(moduloId, aulaId) {
+  window.open('admin-aulas.html?modulo=' + encodeURIComponent(moduloId) + '&aula=' + encodeURIComponent(aulaId), '_blank');
+}
 
 function saAdminEditAula(moduloId, aulaId) {
   var mod = getModulo(moduloId);
