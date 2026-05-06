@@ -130,6 +130,64 @@ a{text-decoration:none;color:inherit}
 .adm-spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(201,169,97,.3);border-top-color:var(--gold);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
 .adm-divider{height:1px;background:var(--border);margin:12px 0}
+
+/* ── PREVIEW FIEL AO CARD REAL ── */
+.adm-card-preview-wrap {
+  margin-top: 14px;
+}
+.adm-card-preview-label {
+  font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
+  text-transform: uppercase; color: var(--text3); margin-bottom: 10px;
+  display: flex; align-items: center; gap: 8px;
+}
+.adm-card-preview-label span {
+  background: rgba(201,169,97,.12); border: 1px solid var(--gold-border);
+  color: var(--gold); padding: 2px 7px; border-radius: 5px; font-size: 9px;
+}
+.adm-card-mock {
+  position: relative; width: 195px; height: 234px;
+  border-radius: 16px; overflow: hidden;
+  background: #27252c;
+  box-shadow: 0 8px 24px rgba(0,0,0,.6);
+  flex-shrink: 0;
+}
+.adm-card-mock-img {
+  width: 100%; height: 100%; object-fit: cover;
+  display: block; transition: opacity .3s;
+}
+.adm-card-mock-overlay {
+  position: absolute; inset: 0;
+  background: linear-gradient(to top, rgba(10,9,14,.95) 0%, rgba(10,9,14,.4) 50%, transparent 100%);
+}
+.adm-card-mock-body {
+  position: absolute; bottom: 0; left: 0; right: 0; padding: 12px 11px;
+}
+.adm-card-mock-tag {
+  font-size: 8px; font-weight: 800; letter-spacing: 2px;
+  text-transform: uppercase; color: #c9a961; margin-bottom: 4px;
+}
+.adm-card-mock-title {
+  font-size: 11px; font-weight: 800; color: #fff; line-height: 1.25;
+  margin: 0 0 4px;
+}
+.adm-card-mock-meta {
+  font-size: 6px; color: rgba(255,255,255,.5);
+}
+.adm-card-preview-row {
+  display: flex; gap: 16px; align-items: flex-start;
+}
+.adm-card-preview-info {
+  flex: 1; font-size: 11px; color: var(--text3); line-height: 1.8;
+}
+.adm-card-preview-info b { color: var(--text2); }
+.adm-img-no-preview {
+  width: 195px; height: 234px; border-radius: 16px;
+  background: var(--bg3); border: 1px dashed rgba(255,255,255,.1);
+  display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 8px; color: var(--text3); font-size: 12px;
+  flex-shrink: 0;
+}
+
 </style>
 </head>
 <body>
@@ -437,9 +495,23 @@ function buildFormModulo(d) {
     '<div class="adm-form-row"><label class="adm-form-label">Imagem do card (URL)</label>' +
     '<input class="adm-input" id="f_img" value="' + _esc(d.img || '') + '" placeholder="https://..."">' +
     '<div class="adm-img-preview-wrap">' +
-      '<img id="prev_mod_img" class="adm-img-preview' + (d.img ? ' show' : '') + '" src="' + _esc(d.img || '') + '">' +
-      '<div id="prev_mod_img_err" class="adm-img-err">⚠️ URL inválida</div>' +
-      '<div class="adm-img-hint">Cole a URL · ou <a onclick="window.open(\'https://github.com/iorb07-ica/plataforma-g20/upload/main/assets/aulas\',\'_blank\')">suba no GitHub</a> e cole o link</div>' +
+      '<div class="adm-card-preview-label">Preview do card <span>TAMANHO REAL 50%</span></div>' +
+      '<div class="adm-card-preview-row">' +
+        '<div class="adm-card-mock" id="prev_mod_mock">' +
+          '<img id="prev_mod_img" class="adm-card-mock-img' + (d.img ? '' : ' hidden') + '" src="' + _esc(d.img || '') + '">' +
+          '<div class="adm-card-mock-overlay"></div>' +
+          '<div class="adm-card-mock-body">' +
+            '<div class="adm-card-mock-tag" id="prev_mod_tag">' + _esc(d.tag || 'MÓDULO') + '</div>' +
+            '<div class="adm-card-mock-title" id="prev_mod_title">' + _esc(d.title || 'Título do módulo') + '</div>' +
+            '<div class="adm-card-mock-meta" id="prev_mod_meta">' + _esc(d.duracao || '') + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="adm-card-preview-info">' +
+          '<b>Dica:</b> imagem ideal<br>390×468px ou proporção 5:6<br><br>' +
+          'Cole a URL acima<br>ou <a style="color:var(--gold);cursor:pointer" onclick="window.open(\'https://github.com/iorb07-ica/plataforma-g20/upload/main/assets/aulas\',\'_blank\')">suba no GitHub →</a><br><br>' +
+          '<span style="color:var(--red);display:none" id="prev_mod_img_err">⚠️ URL inválida</span>' +
+        '</div>' +
+      '</div>' +
     '</div></div>' +
     '<div class="adm-form-row"><label class="adm-form-label">Hero image (URL, opcional)</label>' +
     '<input class="adm-input" id="f_heroImg" value="' + _esc(d.heroImg || '') + '" placeholder="https://..."">' +
@@ -505,6 +577,14 @@ function bindImgPreviews() {
     input._imgListener = function() { refreshImgPreview(pair[0], prevId); };
     input.addEventListener('input', input._imgListener);
   });
+  // Sincroniza campos de texto no mock
+  ['f_tag','f_title','f_duracao'].forEach(function(fid) {
+    var el = document.getElementById(fid);
+    if (!el) return;
+    if (el._syncListener) el.removeEventListener('input', el._syncListener);
+    el._syncListener = syncMockCard;
+    el.addEventListener('input', el._syncListener);
+  });
 }
 
 function refreshImgPreview(inputId, previewId) {
@@ -514,13 +594,27 @@ function refreshImgPreview(inputId, previewId) {
   if (!input || !preview) return;
   var url = input.value.trim();
   if (!url) {
-    preview.classList.remove('show');
-    if (errEl) errEl.classList.remove('show');
+    preview.style.opacity = '0.2';
+    if (errEl) errEl.style.display = 'none';
     return;
   }
+  preview.style.opacity = '1';
   preview.src = url;
-  preview.onload  = function() { preview.classList.add('show'); if (errEl) errEl.classList.remove('show'); };
-  preview.onerror = function() { preview.classList.remove('show'); if (errEl) errEl.classList.add('show'); };
+  preview.onload  = function() { if (errEl) errEl.style.display = 'none'; };
+  preview.onerror = function() { preview.style.opacity = '0.1'; if (errEl) errEl.style.display = 'inline'; };
+}
+
+// Sincroniza tag/título/duração no mock card em tempo real
+function syncMockCard() {
+  var tag   = document.getElementById('f_tag');
+  var title = document.getElementById('f_title');
+  var dur   = document.getElementById('f_duracao');
+  var pTag  = document.getElementById('prev_mod_tag');
+  var pTit  = document.getElementById('prev_mod_title');
+  var pMet  = document.getElementById('prev_mod_meta');
+  if (tag   && pTag)  pTag.textContent  = tag.value   || 'MÓDULO';
+  if (title && pTit)  pTit.textContent  = title.value || 'Título do módulo';
+  if (dur   && pMet)  pMet.textContent  = dur.value   || '';
 }
 
 function suggestAulaPath() {
