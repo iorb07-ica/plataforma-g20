@@ -486,9 +486,13 @@ function renderModuloView(moduloId, aulas) {
     var tipoBadge = aula.tipo === 'video'
       ? '<span class="adm-badge adm-badge-video">▶ VIDEO</span>'
       : '<span class="adm-badge adm-badge-artigo">📄 ARTIGO</span>';
-    var pubBadge = aula.publicada !== false
-      ? '<span class="adm-badge adm-badge-live">● LIVE</span>'
-      : '<span class="adm-badge adm-badge-draft">RASCUNHO</span>';
+    var _agora = Date.now();
+    var _travada = aula.liberarEm && aula.liberarEm > _agora;
+    var pubBadge = !aula.publicada
+      ? '<span class="adm-badge adm-badge-draft">RASCUNHO</span>'
+      : _travada
+        ? '<span class="adm-badge" style="background:rgba(230,150,0,.15);color:#e69600;border:1px solid rgba(230,150,0,.3)">🔒 ' + new Date(aula.liberarEm).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}) + '</span>'
+        : '<span class="adm-badge adm-badge-live">● LIVE</span>';
     var aulaIdEsc = _esc(aula.id);
     var modIdEsc  = _esc(moduloId);
     return '<div class="adm-aula-card' + (aula.publicada === false ? ' unpublished' : '') + '">' +
@@ -680,6 +684,9 @@ function buildFormAula(d) {
       '<div class="adm-form-row"><label class="adm-form-label">Publicada</label>' +
       '<label class="adm-toggle"><input type="checkbox" id="f_publicada"' + (d.publicada !== false ? ' checked' : '') + '>' +
       '<span style="font-size:13px">Visível para alunos</span></label></div>' +
+    '<div class="adm-form-row"><label class="adm-form-label">Liberar em (opcional)</label>' +
+    '<input class="adm-input" type="datetime-local" id="f_liberarEm" value="' + (d.liberarEm ? new Date(d.liberarEm).toISOString().slice(0,16) : '') + '">' +
+    '<div style="font-size:11px;color:var(--text3);margin-top:5px">Se preenchido, a aula fica bloqueada para alunos até esta data/hora. Admin sempre acessa.</div></div>' +
     '</div>' +
     '<div class="adm-form-row"><label class="adm-form-label">URL do conteúdo</label>' +
     '<input class="adm-input" id="f_url" value="' + _esc(d.url || '') + '" placeholder="https://youtube.com/embed/... ou https://artigo.com"></div>' +
@@ -1073,6 +1080,7 @@ function _saveEditAula() {
   var data = { titulo: _gv('f_titulo'), desc: _gv('f_desc'), tipo: _gv('f_tipo'),
     url: _gv('f_url'), ordem: parseInt(_gv('f_ordem')) || 0, publicada: _gb('f_publicada'),
     textoAula: getQuillContent(),
+    liberarEm: (function(){ var v=_gv('f_liberarEm'); return v ? new Date(v).getTime() : null; })(),
     previewScale: _slAZ ? (_slAZ.value/100) : 1,
     previewTranslateX: _slAX ? (_slAX.value-50)*-1 : 0,
     previewTranslateY: _slAY ? (_slAY.value-50)*-1 : 0 };
