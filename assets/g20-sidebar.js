@@ -287,11 +287,17 @@
     var sidebar = document.getElementById('sidebar') || document.querySelector('.sidebar');
     if (!sidebar) return;
 
-    // Se já tem nav-sections injetadas, só atualiza o active
+    // Se já tem nav-sections injetadas, atualiza o active E corrige hrefs
     var existing = sidebar.querySelectorAll('.nav-section');
     var currentPage = window.location.pathname.split('/').pop() || 'dashboard.html';
     if (existing.length > 0) {
+      // Corrigir hrefs hardcoded errados usando NAV_ITEMS como fonte da verdade
+      var allItems = [];
+      NAV_ITEMS.forEach(function(sec){ sec.items.forEach(function(item){ allItems.push(item); }); });
       sidebar.querySelectorAll('.nav-item').forEach(function(a) {
+        var tooltip = a.getAttribute('data-tooltip') || '';
+        var match = allItems.find(function(item){ return item.label === tooltip; });
+        if (match && match.href !== '#') a.href = match.href;
         var href = a.getAttribute('href') || '';
         if (href !== '#' && href === currentPage) a.classList.add('active');
         else a.classList.remove('active');
