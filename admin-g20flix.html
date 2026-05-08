@@ -91,13 +91,13 @@ body{background:var(--bg);color:var(--text);font-family:"DM Sans",sans-serif;min
 .img-editor-wrap{margin-top:8px}
 .img-editor-row{display:flex;gap:16px;align-items:flex-start}
 .img-mock-card{position:relative;width:160px;height:192px;border-radius:14px;overflow:hidden;background:#27252c;box-shadow:0 8px 24px rgba(0,0,0,.6);flex-shrink:0}
-.img-mock-card-img{width:100%;height:100%;object-fit:cover;display:block;transition:opacity .3s}
+.img-mock-card-img{position:absolute;top:0;left:0;width:auto;height:auto;min-width:100%;min-height:100%;max-width:none;max-height:none;object-fit:none;display:block;transition:opacity .3s;transform-origin:0 0}
 .img-mock-card-overlay{position:absolute;inset:0;background:linear-gradient(to top,rgba(10,9,14,.92) 0%,rgba(10,9,14,.35) 55%,transparent 100%)}
 .img-mock-card-body{position:absolute;bottom:0;left:0;right:0;padding:10px}
 .img-mock-card-ep{font-size:9px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#c9a961;margin-bottom:3px}
 .img-mock-card-title{font-size:10px;font-weight:800;color:#fff;line-height:1.25}
 .img-mock-hero{position:relative;width:100%;aspect-ratio:16/5;border-radius:10px;overflow:hidden;background:#1a191e;margin-top:8px}
-.img-mock-hero-img{width:100%;height:100%;object-fit:cover;display:block}
+.img-mock-hero-img{position:absolute;top:0;left:0;width:auto;height:auto;min-width:100%;min-height:100%;max-width:none;max-height:none;object-fit:none;display:block;transform-origin:0 0}
 .img-mock-hero-overlay{position:absolute;inset:0;background:linear-gradient(to bottom,transparent 0%,transparent 40%,rgba(26,25,30,.6) 70%,rgba(26,25,30,1) 100%),linear-gradient(to right,rgba(26,25,30,.5) 0%,transparent 50%)}
 .img-mock-hero-label{position:absolute;bottom:10px;left:12px;font-size:9px;font-weight:800;color:#c9a961;letter-spacing:1.5px;text-transform:uppercase}
 .img-editor-info{flex:1;font-size:11px;color:var(--text3);line-height:1.8}
@@ -299,7 +299,7 @@ body{background:var(--bg);color:var(--text);font-family:"DM Sans",sans-serif;min
           <input type="text" id="fHeroImg" placeholder="URL da imagem hero (vazio = usa thumbnail do YouTube)" oninput="onHeroImgInput(this.value)">
           <div class="url-hint">Aparece como background quando o vídeo está selecionado no G20Flix</div>
         </div>
-        <div class="img-mock-hero">
+        <div class="img-mock-hero" id="heroMockWrap">
           <img id="heroMockImg" class="img-mock-hero-img" src="" style="opacity:0.15">
           <div class="img-mock-hero-overlay"></div>
           <div class="img-mock-hero-label" id="heroMockLabel">EPISÓDIO · Título</div>
@@ -548,8 +548,15 @@ function fecharModal(){document.getElementById('modalOverlay').classList.remove(
 
 function onUrlInput(url){
   var id=extrairYouTubeId(url),tp=document.getElementById('thumbPreview');
-  if(id)tp.innerHTML='<img src="https://img.youtube.com/vi/'+id+'/mqdefault.jpg" onerror="this.parentNode.innerHTML=\'<div class=\\\"thumb-placeholder\\\">Não disponível</div>\'">';
-  else tp.innerHTML='<div class="thumb-placeholder">Cole a URL acima<br>para gerar</div>';
+  if(id){
+    tp.innerHTML='<img src="https://img.youtube.com/vi/'+id+'/mqdefault.jpg" onerror="this.parentNode.innerHTML=\'<div class=\\\"thumb-placeholder\\\">Não disponível</div>\'">';
+    var ci=document.getElementById('cardMockImg'),cf=document.getElementById('fCardImg');
+    if(ci&&(!cf||!cf.value)){ci.src='https://img.youtube.com/vi/'+id+'/mqdefault.jpg';ci.style.opacity='1';setTimeout(updateCardImgPosition,50);}
+    var hi=document.getElementById('heroMockImg'),hf=document.getElementById('fHeroImg');
+    if(hi&&(!hf||!hf.value)){hi.src='https://img.youtube.com/vi/'+id+'/maxresdefault.jpg';hi.style.opacity='1';setTimeout(updateHeroImgPosition,50);}
+  } else {
+    tp.innerHTML='<div class="thumb-placeholder">Cole a URL acima<br>para gerar</div>';
+  }
 }
 
 function salvarVideo(){
@@ -593,63 +600,94 @@ function extrairYouTubeId(url){if(!url)return null;var m=url.match(/(?:youtu\.be
 function onCardImgInput(url) {
   var img = document.getElementById('cardMockImg');
   if (!img) return;
-  if (url && url.length > 8) {
-    img.src = url;
-    img.style.opacity = '1';
-    img.onerror = function(){ img.style.opacity = '0.15'; };
-  } else {
-    // Fallback para thumbnail do YouTube
+  var src = (url && url.length > 8) ? url : null;
+  if (!src) {
     var ytId = extrairYouTubeId(document.getElementById('fUrl').value||'');
-    if (ytId) { img.src = 'https://img.youtube.com/vi/'+ytId+'/mqdefault.jpg'; img.style.opacity='1'; }
-    else { img.style.opacity = '0.15'; }
+    if (ytId) src = 'https://img.youtube.com/vi/'+ytId+'/mqdefault.jpg';
+  }
+  if (src) {
+    img.onload = function(){ img.style.opacity='1'; updateCardImgPosition(); };
+    img.onerror = function(){ img.style.opacity='0.15'; };
+    img.src = src;
+  } else {
+    img.style.opacity='0.15';
   }
 }
 
 function updateCardImgPosition() {
   var img = document.getElementById('cardMockImg');
+  var frame = document.getElementById('cardMock');
   var slX = document.getElementById('cSliderX');
   var slY = document.getElementById('cSliderY');
   var slZ = document.getElementById('cSliderZ');
-  if (!img || !slX || !slY) return;
-  var scale = slZ ? slZ.value/100 : 1;
-  var tx = (slX.value - 50) * -1;
-  var ty = (slY.value - 50) * -1;
-  img.style.transform = 'scale('+scale+') translate('+tx+'%, '+ty+'%)';
-  img.style.objectPosition = 'center center';
-  document.getElementById('cSliderXVal').textContent = slX.value+'%';
-  document.getElementById('cSliderYVal').textContent = slY.value+'%';
-  document.getElementById('cSliderZVal').textContent = slZ.value+'%';
+  if (!img || !slX || !slY || !frame) return;
+  var zoom = slZ ? (1 + (slZ.value - 100) / 100) : 1;
+  // Tamanho natural da imagem escalado pelo zoom
+  var iw = (img.naturalWidth || img.offsetWidth || 300) * zoom;
+  var ih = (img.naturalHeight || img.offsetHeight || 300) * zoom;
+  // Garante que a imagem cobre o frame minimamente
+  var fw = frame.offsetWidth || 160;
+  var fh = frame.offsetHeight || 192;
+  var minScale = Math.max(fw / (img.naturalWidth||fw), fh / (img.naturalHeight||fh));
+  var finalZoom = Math.max(zoom, minScale);
+  iw = (img.naturalWidth||fw) * finalZoom;
+  ih = (img.naturalHeight||fh) * finalZoom;
+  // Range de movimento: diferença entre imagem e frame
+  var rangeX = Math.max(0, iw - fw);
+  var rangeY = Math.max(0, ih - fh);
+  // Slider 0=esquerda/topo, 100=direita/baixo
+  var ox = -(slX.value / 100) * rangeX;
+  var oy = -(slY.value / 100) * rangeY;
+  img.style.transform = 'translate('+ox+'px, '+oy+'px) scale('+finalZoom+')';
+  img.style.transformOrigin = '0 0';
+  // Atualizar valores
+  if(document.getElementById('cSliderXVal')) document.getElementById('cSliderXVal').textContent = slX.value+'%';
+  if(document.getElementById('cSliderYVal')) document.getElementById('cSliderYVal').textContent = slY.value+'%';
+  if(document.getElementById('cSliderZVal')) document.getElementById('cSliderZVal').textContent = Math.round(finalZoom*100)+'%';
 }
 
 // ── EDITOR HERO IMAGE ──
 function onHeroImgInput(url) {
   var img = document.getElementById('heroMockImg');
   if (!img) return;
-  if (url && url.length > 8) {
-    img.src = url;
-    img.style.opacity = '1';
-    img.onerror = function(){ img.style.opacity = '0.15'; };
-  } else {
+  var src = (url && url.length > 8) ? url : null;
+  if (!src) {
     var ytId = extrairYouTubeId(document.getElementById('fUrl').value||'');
-    if (ytId) { img.src = 'https://img.youtube.com/vi/'+ytId+'/maxresdefault.jpg'; img.style.opacity='1'; }
-    else { img.style.opacity = '0.15'; }
+    if (ytId) src = 'https://img.youtube.com/vi/'+ytId+'/maxresdefault.jpg';
+  }
+  if (src) {
+    img.onload = function(){ img.style.opacity='1'; updateHeroImgPosition(); };
+    img.onerror = function(){ img.style.opacity='0.15'; };
+    img.src = src;
+  } else {
+    img.style.opacity='0.15';
   }
 }
 
 function updateHeroImgPosition() {
   var img = document.getElementById('heroMockImg');
+  var frame = document.getElementById('heroMockWrap');
   var slX = document.getElementById('hSliderX');
   var slY = document.getElementById('hSliderY');
   var slZ = document.getElementById('hSliderZ');
   if (!img || !slX || !slY) return;
-  var scale = slZ ? slZ.value/100 : 1;
-  var tx = (slX.value - 50) * -1;
-  var ty = (slY.value - 50) * -1;
-  img.style.transform = 'scale('+scale+') translate('+tx+'%, '+ty+'%)';
-  img.style.objectPosition = 'center center';
-  document.getElementById('hSliderXVal').textContent = slX.value+'%';
-  document.getElementById('hSliderYVal').textContent = slY.value+'%';
-  document.getElementById('hSliderZVal').textContent = slZ.value+'%';
+  frame = frame || img.parentElement;
+  var zoom = slZ ? (1 + (slZ.value - 100) / 100) : 1;
+  var fw = frame ? (frame.offsetWidth||400) : 400;
+  var fh = frame ? (frame.offsetHeight||125) : 125;
+  var minScale = Math.max(fw / (img.naturalWidth||fw), fh / (img.naturalHeight||fh));
+  var finalZoom = Math.max(zoom, minScale);
+  var iw = (img.naturalWidth||fw) * finalZoom;
+  var ih = (img.naturalHeight||fh) * finalZoom;
+  var rangeX = Math.max(0, iw - fw);
+  var rangeY = Math.max(0, ih - fh);
+  var ox = -(slX.value / 100) * rangeX;
+  var oy = -(slY.value / 100) * rangeY;
+  img.style.transform = 'translate('+ox+'px, '+oy+'px) scale('+finalZoom+')';
+  img.style.transformOrigin = '0 0';
+  if(document.getElementById('hSliderXVal')) document.getElementById('hSliderXVal').textContent = slX.value+'%';
+  if(document.getElementById('hSliderYVal')) document.getElementById('hSliderYVal').textContent = slY.value+'%';
+  if(document.getElementById('hSliderZVal')) document.getElementById('hSliderZVal').textContent = Math.round(finalZoom*100)+'%';
 }
 
 function _bindImgSliders() {
