@@ -582,29 +582,31 @@ var videos = VIDEOS_FALLBACK.slice(); // começa com fallback, Firestore substit
 function setHero(idx) {
   selectedIdx = idx;
   var v = videos[idx];
-  var heroSrc = v.heroImg || ('https://img.youtube.com/vi/' + v.id + '/maxresdefault.jpg');
   var heroBg = document.getElementById("heroBg");
-  heroBg.src = heroSrc;
-  // Aplicar posição salva
-  if (v.heroImgX != null || v.heroImgY != null || v.heroImgZ != null) {
-    var hz = (v.heroImgZ || 1);
-    var fw = heroBg.parentElement ? heroBg.parentElement.clientWidth : 800;
-    var fh = heroBg.parentElement ? heroBg.parentElement.clientHeight : 240;
+  var heroSrc = v.heroImg || ('https://img.youtube.com/vi/' + v.id + '/maxresdefault.jpg');
+  // Reset estilos anteriores
+  heroBg.style.cssText = '';
+  if (v.heroImg && v.heroImgZ != null) {
     heroBg.onload = function() {
+      var frame = document.getElementById('heroWrap');
+      var fw = frame ? frame.clientWidth : 800;
+      var fh = frame ? frame.clientHeight : 240;
       var nw = heroBg.naturalWidth, nh = heroBg.naturalHeight;
+      var hz = v.heroImgZ || 1;
       var iw = nw * hz, ih = nh * hz;
       var ox = (iw <= fw) ? (fw-iw)/2 : -((v.heroImgX||50)/100)*(iw-fw);
       var oy = (ih <= fh) ? (fh-ih)/2 : -((v.heroImgY||50)/100)*(ih-fh);
-      heroBg.style.width = iw+'px'; heroBg.style.height = ih+'px';
-      heroBg.style.left = ox+'px'; heroBg.style.top = oy+'px';
-      heroBg.style.objectFit = 'none'; heroBg.style.maxWidth = 'none'; heroBg.style.maxHeight = 'none';
       heroBg.style.position = 'absolute';
+      heroBg.style.width = iw+'px';
+      heroBg.style.height = ih+'px';
+      heroBg.style.left = ox+'px';
+      heroBg.style.top = oy+'px';
+      heroBg.style.objectFit = 'none';
+      heroBg.style.maxWidth = 'none';
+      heroBg.style.maxHeight = 'none';
     };
-  } else {
-    heroBg.style.width = ''; heroBg.style.height = '';
-    heroBg.style.left = ''; heroBg.style.top = '';
-    heroBg.style.objectFit = ''; heroBg.style.position = '';
   }
+  heroBg.src = heroSrc;
   // Ep label: "EPISÓDIO #82 · T2026"
   var seasonLabel = /^\d{4}$/.test(v.season) ? 'T' + v.season : (v.season || '');
   document.getElementById("heroEpLabel").textContent = "EPISÓDIO #" + v.ep + " · " + seasonLabel;
@@ -761,14 +763,7 @@ function renderGrid() {
     var isPlay = v.id === playingId;
     var cls = "card" + (isPlay ? " playing" : isSel ? " selected" : "");
     var r = '<div class="' + cls + '" style="animation-delay:' + (i * 0.03) + 's" data-id="' + v.id + '">';
-    // Imagem do card: customizada ou thumbnail YouTube
-    var cardSrc = v.cardImg || ('https://img.youtube.com/vi/' + v.id + '/hqdefault.jpg');
-    var cardStyle = '';
-    if (v.cardImg && (v.cardImgX != null || v.cardImgY != null || v.cardImgZ != null)) {
-      // Posição é aplicada via JS após load — marcamos com data attributes
-      cardStyle = ' data-cx="'+(v.cardImgX||50)+'" data-cy="'+(v.cardImgY||50)+'" data-cz="'+(v.cardImgZ||1)+'"';
-    }
-    r += '<div class="thumb"><img src="' + cardSrc + '" alt="" loading="lazy"' + cardStyle + ' onload="applyCardImgPos(this)">';
+    r += '<div class="thumb"><img src="https://img.youtube.com/vi/' + v.id + '/hqdefault.jpg" alt="" loading="lazy">';
     r += '<div class="thumb-ov"><div class="play-circle">' + (isPlay ? "&#9646;&#9646;" : "&#9654;") + '</div></div>';
     r += '<div class="ep-badge">#' + v.ep + '</div>';
     r += '<button class="card-edit-btn" data-edit-id="' + v.id + '" title="Editar vídeo" onclick="event.stopPropagation();abrirEditarCard(\'' + v.id + '\')">✏️</button>';
@@ -784,27 +779,6 @@ function renderGrid() {
     r += '</div></div>';
     return r;
   }).join("");
-}
-
-/* ─── APLICAR POSIÇÃO DE IMAGEM DO CARD ─── */
-function applyCardImgPos(img) {
-  var cx = img.getAttribute('data-cx');
-  var cy = img.getAttribute('data-cy');
-  var cz = img.getAttribute('data-cz');
-  if (!cx && !cy && !cz) return; // sem customização, usa object-fit:cover normal
-  var frame = img.parentElement;
-  if (!frame) return;
-  var fw = frame.clientWidth || frame.offsetWidth || 180;
-  var fh = frame.clientHeight || frame.offsetHeight || 100;
-  var hz = parseFloat(cz) || 1;
-  var nw = img.naturalWidth, nh = img.naturalHeight;
-  var iw = nw * hz, ih = nh * hz;
-  var ox = (iw <= fw) ? (fw-iw)/2 : -(parseFloat(cx)/100)*(iw-fw);
-  var oy = (ih <= fh) ? (fh-ih)/2 : -(parseFloat(cy)/100)*(ih-fh);
-  img.style.position = 'absolute';
-  img.style.width = iw+'px'; img.style.height = ih+'px';
-  img.style.left = ox+'px'; img.style.top = oy+'px';
-  img.style.objectFit = 'none'; img.style.maxWidth = 'none'; img.style.maxHeight = 'none';
 }
 
 /* ─── EDITAR CARD (admin) ─── */
