@@ -297,7 +297,12 @@
       sidebar.querySelectorAll('.nav-item').forEach(function(a) {
         var tooltip = a.getAttribute('data-tooltip') || '';
         var match = allItems.find(function(item){ return item.label === tooltip; });
-        if (match && match.href !== '#') a.href = match.href;
+        if (match && match.href !== '#') {
+          a.href = match.href;
+          // Remover onclick que bloqueia navegação para links reais
+          a.onclick = null;
+          a.removeAttribute('onclick');
+        }
         var href = a.getAttribute('href') || '';
         if (href !== '#' && href === currentPage) a.classList.add('active');
         else a.classList.remove('active');
