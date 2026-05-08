@@ -280,6 +280,7 @@ try { _savedUid = JSON.parse(localStorage.getItem('g20_user_profile')||'{}').uid
 auth.onAuthStateChanged(function(user) {
   if (!user) { window.location.href = 'login.html'; return; }
   _uid = user.uid;
+  console.log('[Consultoria] UID:', _uid);
   carregarTudo();
 });
 
@@ -442,7 +443,8 @@ function cancelarSelecao() {
 }
 
 function confirmarAgendamento() {
-  if (!_selectedDate || !_selectedSlot) return;
+  if (!_selectedDate || !_selectedSlot) { toast('Selecione data e horário.'); return; }
+  if (!_uid) { toast('Usuário não autenticado. Recarregue a página.'); return; }
   if (_creditos <= 0) { toast('Sem créditos disponíveis.'); return; }
 
   var btn = document.querySelector('#confirmCard .btn-primary');
@@ -461,10 +463,10 @@ function confirmarAgendamento() {
 
   db.collection('consultoria').doc('agendamentos').collection('items').add(agData)
     .then(function() {
-      // Descontar crédito
-      return db.collection('users').doc(_uid).update({
+      // Descontar crédito — usa set/merge para evitar problema se campo não existir
+      return db.collection('users').doc(_uid).set({
         creditosConsultoria: firebase.firestore.FieldValue.increment(-1)
-      });
+      }, { merge: true });
     })
     .then(function() {
       _creditos--;
