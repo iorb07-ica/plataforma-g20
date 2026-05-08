@@ -283,6 +283,25 @@ a{text-decoration:none;color:inherit}
   <div class="content">
   <div class="cons-page">
 
+    <!-- PAINEL DE SIMULAÇÃO — apenas visível em modo dev -->
+    <div id="simPanel" style="background:rgba(201,169,97,.08);border:1px solid rgba(201,169,97,.3);border-radius:12px;padding:.75rem 1.25rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:.5rem">
+      <div style="font-size:11px;color:var(--gold);font-weight:700;letter-spacing:.1em;text-transform:uppercase;flex-shrink:0">🎭 Modo simulação</div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+        <span style="font-size:12px;color:rgba(255,255,255,.5)">Créditos:</span>
+        <button onclick="simCreditos(0)" id="simBtn0" style="font-size:12px;font-weight:600;padding:4px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:transparent;color:rgba(255,255,255,.5);cursor:pointer;transition:all .15s">0</button>
+        <button onclick="simCreditos(1)" id="simBtn1" style="font-size:12px;font-weight:600;padding:4px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:transparent;color:rgba(255,255,255,.5);cursor:pointer;transition:all .15s">1</button>
+        <button onclick="simCreditos(3)" id="simBtn3" style="font-size:12px;font-weight:600;padding:4px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:transparent;color:rgba(255,255,255,.5);cursor:pointer;transition:all .15s">3</button>
+        <button onclick="simCreditos(99)" id="simBtn99" style="font-size:12px;font-weight:600;padding:4px 12px;border-radius:8px;border:1px solid var(--gold);background:rgba(201,169,97,.15);color:var(--gold);cursor:pointer;transition:all .15s">∞ Ilimitado</button>
+      </div>
+      <div style="width:1px;height:20px;background:rgba(255,255,255,.1);flex-shrink:0"></div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+        <span style="font-size:12px;color:rgba(255,255,255,.5)">Visão:</span>
+        <button onclick="simVisao('israel')" id="simVIsrael" style="font-size:12px;font-weight:600;padding:4px 12px;border-radius:8px;border:1px solid var(--gold);background:rgba(201,169,97,.15);color:var(--gold);cursor:pointer;transition:all .15s">👨‍💼 Israel (admin)</button>
+        <button onclick="simVisao('aluno')" id="simVAluno" style="font-size:12px;font-weight:600;padding:4px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:transparent;color:rgba(255,255,255,.5);cursor:pointer;transition:all .15s">👤 Aluno</button>
+      </div>
+      <div style="margin-left:auto;font-size:11px;color:rgba(255,255,255,.3);flex-shrink:0">este painel não aparece para alunos</div>
+    </div>
+
     <!-- HERO -->
     <div class="hero-card">
       <div class="hero-photo" id="heroPhoto">IS</div>
@@ -709,8 +728,51 @@ function _fmtDate(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(
 function _addHour(h){var p=h.split(':');return String(parseInt(p[0])+1).padStart(2,'0')+':'+p[1];}
 function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.style.opacity='1';setTimeout(function(){t.style.opacity='0';},3000);}
 
+// ─── SIMULAÇÃO ───
+function simCreditos(n){
+  _creditos = n === 99 ? 999 : n;
+  // Atualizar botões
+  ['0','1','3','99'].forEach(function(v){
+    var btn = document.getElementById('simBtn'+v);
+    if(!btn) return;
+    var active = (n===99&&v==='99') || (String(n)===v);
+    btn.style.border = active ? '1px solid var(--gold)' : '1px solid rgba(255,255,255,.15)';
+    btn.style.background = active ? 'rgba(201,169,97,.15)' : 'transparent';
+    btn.style.color = active ? 'var(--gold)' : 'rgba(255,255,255,.5)';
+  });
+  renderCreditsC();
+  renderHistoricoC();
+}
+
+function simVisao(v){
+  var isIsrael = v === 'israel';
+  var btnI = document.getElementById('simVIsrael');
+  var btnA = document.getElementById('simVAluno');
+  // Estilo botões
+  btnI.style.border = isIsrael ? '1px solid var(--gold)' : '1px solid rgba(255,255,255,.15)';
+  btnI.style.background = isIsrael ? 'rgba(201,169,97,.15)' : 'transparent';
+  btnI.style.color = isIsrael ? 'var(--gold)' : 'rgba(255,255,255,.5)';
+  btnA.style.border = !isIsrael ? '1px solid var(--gold)' : '1px solid rgba(255,255,255,.15)';
+  btnA.style.background = !isIsrael ? 'rgba(201,169,97,.15)' : 'transparent';
+  btnA.style.color = !isIsrael ? 'var(--gold)' : 'rgba(255,255,255,.5)';
+  // Simular agendamentos para visão aluno
+  if(!isIsrael){
+    _agendamentos = [
+      {id:'sim1', data: new Date().getFullYear()+'-'+(String(new Date().getMonth()+2).padStart(2,'0'))+'-15', hora:'10:00', status:'confirmado', timestamp: Date.now() + 86400000*7, meetLink:'https://meet.google.com/psx-kifx-qgc'},
+    ];
+    if(_creditos === 0) _creditos = 1;
+  } else {
+    _agendamentos = [];
+    carregarAgendamentos().then(function(){ renderHistoricoC(); });
+  }
+  renderHistoricoC();
+  renderCreditsC();
+}
+
 document.addEventListener('DOMContentLoaded',function(){
   if(window.lucide)lucide.createIcons();
+  // Iniciar simulação com créditos ilimitados
+  setTimeout(function(){ simCreditos(99); }, 800);
   if(localStorage.getItem('g20_sidebar_collapsed')==='1'){
     var sb=document.getElementById('sidebar'),main=document.querySelector('.main');
     if(sb&&window.innerWidth>768){sb.classList.add('sidebar-collapsed');document.body.classList.add('sidebar-collapsed');sb.style.setProperty('width','68px','important');sb.style.setProperty('min-width','68px','important');if(main)main.style.setProperty('margin-left','68px','important');}
