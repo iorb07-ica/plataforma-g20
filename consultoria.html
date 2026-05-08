@@ -692,20 +692,20 @@ function confirmarAgendamentoC(){
 function renderHistoricoC(){
   var list=document.getElementById('historicoListC');
   if(!list)return;
-  if(!_agendamentos.length){
-    list.innerHTML='<div class="appoint-empty-c"><div style="font-size:30px;margin-bottom:.6rem">📭</div><div style="font-size:13px;color:var(--text2)">Nenhum agendamento ainda</div></div>';
+  var ativos=_agendamentos.filter(function(a){ return a.status!=='cancelado'; });
+  if(!ativos.length){
+    list.innerHTML='<div class="appoint-empty-c"><div style="font-size:26px;margin-bottom:.4rem">📭</div><div style="font-size:13px;color:rgba(255,255,255,.45)">Nenhum agendamento ainda</div></div>';
     return;
   }
-  list.innerHTML=_agendamentos.map(function(a){
+  list.innerHTML=ativos.map(function(a){
     var d=new Date(a.data+'T00:00:00');
     var dateLabel=DIAS_SEMANA[d.getDay()]+', '+d.getDate()+' '+MESES_C[d.getMonth()]+' '+d.getFullYear();
-    var status=a.status||'confirmado';
-    var statusLabel={confirmado:'✅ Confirmado',cancelado:'❌ Cancelado'};
-    return '<div class="appoint-item-c '+status+'">'+
-      '<div><div style="font-size:16px;font-weight:700;color:#f0ede8;margin-bottom:3px">'+dateLabel+'</div><div style="font-size:14px;color:rgba(255,255,255,.55);margin-top:4px">'+a.hora+' — 1 hora · Google Meet</div></div>'+
+    return '<div class="appoint-item-c confirmado">'+
+      '<div><div style="font-size:16px;font-weight:700;color:#f0ede8;margin-bottom:3px">'+dateLabel+'</div>'+
+      '<div style="font-size:14px;color:rgba(255,255,255,.55);margin-top:4px">'+a.hora+' — 1 hora · Google Meet</div></div>'+
       '<div style="display:flex;align-items:center;gap:.6rem">'+
-        '<span class="appoint-status-c '+status+'">'+statusLabel[status]+'</span>'+
-        (status==='confirmado'&&a.timestamp>Date.now()?'<button class="btn-cancel-apt-c" onclick="cancelarAgendamentoC(\''+a.id+'\')">Cancelar</button>':'')+
+        '<span class="appoint-status-c confirmado">✅ Confirmado</span>'+
+        (a.timestamp>Date.now()?'<button class="btn-cancel-apt-c" onclick="cancelarAgendamentoC(\''+a.id+'\')">Cancelar</button>':'')+
       '</div>'+
     '</div>';
   }).join('');
@@ -713,17 +713,19 @@ function renderHistoricoC(){
 
 function cancelarAgendamentoC(id){
   if(!confirm('Cancelar esta consultoria? Seu crédito será devolvido.'))return;
-  db.collection('consultoria').doc('agendamentos').collection('items').doc(id).update({status:'cancelado'})
-    .then(function(){
-      return db.collection('users').doc(_uid).set({creditosConsultoria:firebase.firestore.FieldValue.increment(1)},{merge:true});
-    })
-    .then(function(){
-      _creditos++;
-      var idx=_agendamentos.findIndex(function(a){return a.id===id;});
-      if(idx>=0)_agendamentos[idx].status='cancelado';
-      renderHistoricoC();renderCreditsC();
-      toast('Consultoria cancelada. Crédito devolvido.');
-    });
+  // Remover da lista local imediatamente
+  _agendamentos = _agendamentos.filter(function(a){ return a.id !== id; });
+  if(_creditos < 999) _creditos++;
+  renderHistoricoC();
+  renderCreditsC();
+  toast('Consultoria cancelada. Crédito devolvido.');
+  // Tentar persistir no Firestore (ignora erro em modo simulação)
+  try {
+    db.collection('consultoria').doc('agendamentos').collection('items').doc(id).update({status:'cancelado'})
+      .then(function(){
+        return db.collection('users').doc(_uid).set({creditosConsultoria:firebase.firestore.FieldValue.increment(1)},{merge:true});
+      }).catch(function(){});
+  } catch(e) {}
 }
 
 function toggleSidebar(){var sb=document.getElementById('sidebar'),ov=document.getElementById('overlay');sb.classList.toggle('open');ov.classList.toggle('show');document.body.style.overflow=sb.classList.contains('open')?'hidden':'';}
