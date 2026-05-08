@@ -278,7 +278,7 @@
       { href: 'gestao-patrimonial.html', ico: '💰', lucide: 'briefcase',       label: 'Minha Carteira', id: 'tut-gestao' }
     ]},
     { section: 'Comunidade', cls: 'nav-section--comunidade', items: [
-      { href: '#',                        ico: '👨\u200d💻', lucide: 'user-round',   label: 'Consultoria',    id: '' },
+      { href: 'consultoria.html',         ico: '👨\u200d💻', lucide: 'user-round',   label: 'Consultoria',    id: '' },
       { href: '#',                        ico: '💬', lucide: 'message-circle',  label: 'Grupo WhatsApp', id: '' }
     ]}
   ];
