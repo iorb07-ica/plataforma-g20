@@ -317,7 +317,7 @@
         a.className = 'nav-item' + (item.href !== '#' && currentPage === item.href ? ' active' : '');
         if (item.id) a.id = item.id;
         a.setAttribute('data-tooltip', item.label);
-        a.onclick = function(){ if (typeof csm === 'function') csm(); };
+        if (typeof csm === 'function') a.onclick = function(){ csm(); };
 
         var ico = document.createElement('span');
         ico.className = 'ico';
