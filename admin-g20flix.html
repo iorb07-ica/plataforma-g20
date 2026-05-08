@@ -230,14 +230,23 @@ body{background:var(--bg);color:var(--text);font-family:"DM Sans",sans-serif;min
         <div class="url-hint">Cole o link — thumbnail e ID são extraídos automaticamente</div>
       </div>
       <div class="field-row">
-        <div class="field" style="margin:0"><label>Título</label><input type="text" id="fTitle" placeholder="Ex: Aporte da Carteira G20 — Março 2026"></div>
-        <div class="field" style="margin:0"><label>Thumbnail</label><div class="thumb-preview" id="thumbPreview"><div class="thumb-placeholder">Cole a URL acima<br>para gerar</div></div></div>
+        <div class="field" style="margin:0"><label>Título</label><input type="text" id="fTitle" placeholder="Ex: #82 - Aporte Carteira G20"></div>
+        <div class="field" style="margin:0"><label>Thumbnail (YouTube)</label><div class="thumb-preview" id="thumbPreview"><div class="thumb-placeholder">Cole a URL acima<br>para gerar</div></div></div>
       </div>
       <div class="field-row" style="margin-top:1rem">
         <div class="field" style="margin:0"><label>Categoria</label><select id="fCat"><option>Carteira G20</option><option>LIVE</option><option>Mentalidade</option><option>Análise</option><option>Internacional</option><option>IA</option><option>Estratégia</option></select></div>
-        <div class="field" style="margin:0"><label>Temporada · Data</label><input type="text" id="fSeason" placeholder="T2026 · Março 2026"></div>
+        <div class="field" style="margin:0"><label>Episódio #</label><input type="number" id="fEp" placeholder="Ex: 82" min="1"></div>
       </div>
-      <div class="field" style="margin-top:1rem"><label>Episódio #</label><input type="number" id="fEp" placeholder="Ex: 80" min="1"></div>
+      <div class="field-row" style="margin-top:1rem">
+        <div class="field" style="margin:0"><label>Temporada (ano)</label><input type="text" id="fSeason" placeholder="Ex: 2026" maxlength="4"></div>
+        <div class="field" style="margin:0"><label>Mês / Data</label><input type="text" id="fDate" placeholder="Ex: Maio 2026"></div>
+      </div>
+      <div class="field" style="margin-top:1rem">
+        <label>Imagem do Card (opcional)</label>
+        <input type="text" id="fCardImg" placeholder="URL da imagem customizada (deixe vazio para usar thumbnail do YouTube)" oninput="onCardImgInput(this.value)">
+        <div class="url-hint">Se preenchido, substitui o thumbnail padrão do YouTube no card e no hero</div>
+        <div class="thumb-preview" id="cardImgPreview" style="margin-top:6px;display:none"><div class="thumb-placeholder">Pré-visualização</div></div>
+      </div>
       <div class="field"><label>Descrição</label><textarea id="fDesc" placeholder="Resumo do vídeo..."></textarea></div>
       <div class="toggle-row">
         <span class="toggle-lbl">⭐ Marcar como destaque (aparece em primeiro no G20Flix)</span>
@@ -295,6 +304,7 @@ function carregarVideos(){
         _videos=[];
         snap.forEach(function(d){var v=d.data();v.docId=d.id;_videos.push(v);});
         renderLista();renderStats();
+        if(typeof _checkEditParam==='function') _checkEditParam();
         _checkEditParam();
       }
     })
@@ -420,10 +430,13 @@ function toggleDestaque(docId){
 function abrirModal(){
   _editingId=null;
   document.getElementById('modalTitle').textContent='Adicionar vídeo';
-  ['fUrl','fTitle','fSeason','fEp','fDesc'].forEach(function(id){document.getElementById(id).value='';});
+  ['fUrl','fTitle','fSeason','fDate','fEp','fDesc','fCardImg'].forEach(function(id){
+    var el=document.getElementById(id);if(el)el.value='';
+  });
   document.getElementById('fCat').value='Carteira G20';
   document.getElementById('toggleDestaque').classList.remove('on');
   document.getElementById('thumbPreview').innerHTML='<div class="thumb-placeholder">Cole a URL acima<br>para gerar</div>';
+  var ci=document.getElementById('cardImgPreview');if(ci)ci.style.display='none';
   document.getElementById('modalOverlay').classList.add('open');
 }
 
@@ -434,9 +447,19 @@ function abrirEditar(docId){
   document.getElementById('fUrl').value='https://www.youtube.com/watch?v='+v.id;
   document.getElementById('fTitle').value=v.title||'';
   document.getElementById('fCat').value=v.cat||'Carteira G20';
-  document.getElementById('fSeason').value=(v.season||'')+(v.date?' · '+v.date:'');
+  // Campos separados de temporada e data
+  document.getElementById('fSeason').value=v.season||'';
+  document.getElementById('fDate').value=v.date||'';
   document.getElementById('fEp').value=v.ep||'';
   document.getElementById('fDesc').value=v.desc||'';
+  // Imagem customizada
+  var ciEl=document.getElementById('fCardImg');
+  if(ciEl) ciEl.value=v.cardImg||'';
+  var ciPrev=document.getElementById('cardImgPreview');
+  if(ciPrev){
+    if(v.cardImg){ciPrev.style.display='flex';ciPrev.innerHTML='<img src="'+v.cardImg+'" onerror="this.parentNode.innerHTML=\'<div class=\\"thumb-placeholder\\">URL inválida</div>\'">';}
+    else ciPrev.style.display='none';
+  }
   var td=document.getElementById('toggleDestaque');v.destaque?td.classList.add('on'):td.classList.remove('on');
   document.getElementById('thumbPreview').innerHTML='<img src="https://img.youtube.com/vi/'+v.id+'/mqdefault.jpg">';
   document.getElementById('modalOverlay').classList.add('open');
@@ -455,11 +478,14 @@ function salvarVideo(){
   if(!id){toast('❌ URL do YouTube inválida');return;}
   var title=document.getElementById('fTitle').value.trim();
   if(!title){toast('❌ Título obrigatório');return;}
-  var parts=(document.getElementById('fSeason').value.trim()).split('·').map(function(s){return s.trim();});
+  var season=(document.getElementById('fSeason').value||'').trim();
+  var date=(document.getElementById('fDate').value||'').trim();
+  var cardImg=(document.getElementById('fCardImg').value||'').trim();
   var ep=parseInt(document.getElementById('fEp').value)||0;
   var destaque=document.getElementById('toggleDestaque').classList.contains('on');
   var btn=document.getElementById('btnSave');btn.disabled=true;btn.textContent='Salvando...';
-  var video={id:id,title:title,cat:document.getElementById('fCat').value,season:parts[0]||'',date:parts[1]||'',ep:ep,desc:document.getElementById('fDesc').value.trim(),destaque:destaque,ordem:_editingId?(_videos.find(function(v){return v.docId===_editingId;})||{}).ordem||999:_videos.length+1};
+  var video={id:id,title:title,cat:document.getElementById('fCat').value,season:season,date:date,ep:ep,desc:document.getElementById('fDesc').value.trim(),destaque:destaque,ordem:_editingId?(_videos.find(function(v){return v.docId===_editingId;})||{}).ordem||999:_videos.length+1};
+  if(cardImg) video.cardImg=cardImg;
   salvarNoFirestore(video,_editingId)
     .then(function(ref){
       if(_editingId){var idx=_videos.findIndex(function(v){return v.docId===_editingId;});if(idx>=0){video.docId=_editingId;_videos[idx]=video;}}
@@ -478,6 +504,40 @@ function confirmarDeletar(docId){
 }
 
 function extrairYouTubeId(url){if(!url)return null;var m=url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{11})/);return m?m[1]:null;}
+
+function onCardImgInput(url){
+  var prev=document.getElementById('cardImgPreview');
+  if(!prev)return;
+  if(url&&url.startsWith('http')){
+    prev.style.display='flex';
+    prev.innerHTML='<img src="'+url+'" onerror="this.parentNode.innerHTML=\'<div class=\\"thumb-placeholder\\">URL inválida</div>\'">';
+  } else {
+    prev.style.display='none';
+    prev.innerHTML='';
+  }
+}
+
+// ESC fecha modal
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'){fecharModal();}
+});
+
+// _checkEditParam: usa docId direto na URL para máxima confiabilidade
+function _checkEditParam(){
+  var params=new URLSearchParams(window.location.search);
+  var docId=params.get('docId');  // preferência: docId direto
+  var ytId=params.get('edit');    // fallback: YouTube ID
+  if(!docId&&!ytId) return;
+  var v=docId
+    ? _videos.find(function(v){return v.docId===docId;})
+    : _videos.find(function(v){return v.id===ytId;});
+  if(v&&v.docId){
+    setTimeout(function(){abrirEditar(v.docId);},150);
+  } else {
+    console.warn('[G20Flix Admin] vídeo não encontrado. docId='+docId+' ytId='+ytId);
+    console.warn('IDs disponíveis:', _videos.map(function(v){return v.docId+'='+v.id;}));
+  }
+}
 function escHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.style.opacity='1';setTimeout(function(){t.style.opacity='0';},3000);}
 function toggleSidebar(){var sb=document.getElementById('sidebar'),ov=document.getElementById('overlay');sb.classList.toggle('open');ov.classList.toggle('show');document.body.style.overflow=sb.classList.contains('open')?'hidden':'';}
