@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin · Consultoria G20</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
 :root{--bg:#1a191e;--bg2:#1f1e22;--bg3:#15141a;--surface:#27252c;--border:rgba(201,169,97,0.08);--gold:#c9a961;--gold2:#e8c766;--gold-soft:rgba(201,169,97,0.12);--gold-border:rgba(201,169,97,0.3);--red:#e63946;--green:#2ecc71;--text:#e8e6e3;--text2:#9a958e;--text3:#6b6862;--shadow:0 24px 48px rgba(0,0,0,.55)}
 *{margin:0;padding:0;box-sizing:border-box}
@@ -93,6 +94,7 @@ body{background:var(--bg);color:var(--text);font-family:"DM Sans",sans-serif;min
   <span style="font-size:13px;font-weight:700;color:var(--text2)">Admin · Consultoria</span>
   <span class="topbar-badge">ADMIN</span>
   <div class="topbar-right">
+    <button class="adm-btn" id="btnGcal" onclick="gcalConectar()" style="background:rgba(66,133,244,.15);color:#4285f4;border:1px solid rgba(66,133,244,.3)">📅 Conectar Google Calendar</button>
     <a href="consultoria.html" class="adm-btn adm-btn-ghost" style="text-decoration:none">👁 Ver como aluno</a>
     <a href="dashboard.html" class="adm-btn adm-btn-ghost" style="text-decoration:none">← Dashboard</a>
   </div>
@@ -285,7 +287,7 @@ function renderAgenda(){
       '<div class="ag-data"><div class="ag-dia">'+String(d.getDate()).padStart(2,'0')+'</div><div class="ag-mes">'+MESES[d.getMonth()]+'</div></div>'+
       '<div class="ag-info"><div class="ag-aluno">'+_esc(aluno.name||aluno.email||a.uid)+'</div><div class="ag-hora">⏰ '+a.hora+' – '+_addHour(a.hora)+'</div></div>'+
       '<span class="ag-status '+a.status+'">'+(a.status==='confirmado'?'✅ Confirmado':'❌ Cancelado')+'</span>'+
-      cancelBtn+
+      calBtn+cancelBtn+
     '</div>';
   }).join('');
 }
@@ -442,11 +444,132 @@ function darCreditoTodos(){
   Promise.all(promises).then(function(){renderAlunos();toast('✅ 1 crédito dado a '+_alunos.length+' alunos.');});
 }
 
+function adminAdicionarCalendar(agId) {
+  var ag = _agendamentos.find(function(a){ return a.id === agId; });
+  if (!ag) return;
+  var aluno = _alunos.find(function(u){ return u.uid === ag.uid; });
+  var nomeAluno = aluno ? (aluno.name || aluno.email) : 'Aluno';
+  ag.firestoreId = agId;
+  if (!_gcalToken) {
+    toast('Conecte o Google Calendar primeiro (botão no topo).');
+    gcalConectar();
+    return;
+  }
+  gcalCriarEvento(ag, nomeAluno);
+}
+
+var MEET_LINK = 'https://meet.google.com/psx-kifx-qgc';
+
 // ─── HELPERS ───
 function _esc(s){return(s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function _fmtDate(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function _addHour(h){var p=h.split(':');return String(parseInt(p[0])+1).padStart(2,'0')+':'+p[1];}
 function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.style.opacity='1';setTimeout(function(){t.style.opacity='0';},2500);}
+
+// ─── GOOGLE CALENDAR INTEGRATION ───
+const GCAL_CLIENT_ID = '12978799600-pgdiok4erfhrvbfnjh8qlnu0dree4j1u.apps.googleusercontent.com';
+const GCAL_SCOPES = 'https://www.googleapis.com/auth/calendar.events';
+var _gcalToken = null;
+var _gcalTokenClient = null;
+
+function gcalInit() {
+  try {
+    _gcalTokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GCAL_CLIENT_ID,
+      scope: GCAL_SCOPES,
+      callback: function(resp) {
+        if (resp.error) { console.error('GCal auth error:', resp); return; }
+        _gcalToken = resp.access_token;
+        localStorage.setItem('g20_gcal_token', _gcalToken);
+        document.getElementById('btnGcal').textContent = '✅ Google Calendar conectado';
+        document.getElementById('btnGcal').style.background = 'rgba(46,204,113,.15)';
+        document.getElementById('btnGcal').style.color = '#2ecc71';
+        document.getElementById('btnGcal').style.borderColor = 'rgba(46,204,113,.3)';
+        toast('✅ Google Calendar conectado!');
+      }
+    });
+    // Tenta restaurar token salvo
+    var saved = localStorage.getItem('g20_gcal_token');
+    if (saved) {
+      _gcalToken = saved;
+      document.getElementById('btnGcal').textContent = '✅ Google Calendar conectado';
+      document.getElementById('btnGcal').style.background = 'rgba(46,204,113,.15)';
+      document.getElementById('btnGcal').style.color = '#2ecc71';
+      document.getElementById('btnGcal').style.borderColor = 'rgba(46,204,113,.3)';
+    }
+  } catch(e) { console.warn('GCal init:', e); }
+}
+
+function gcalConectar() {
+  if (!_gcalTokenClient) { gcalInit(); setTimeout(gcalConectar, 500); return; }
+  _gcalTokenClient.requestAccessToken({ prompt: '' });
+}
+
+function gcalCriarEvento(agendamento, nomeAluno) {
+  if (!_gcalToken) {
+    console.warn('GCal não conectado — pulando criação de evento');
+    return Promise.resolve();
+  }
+  var dataHoraInicio = agendamento.data + 'T' + agendamento.hora + ':00';
+  var horaFim = _addHour(agendamento.hora);
+  var dataHoraFim = agendamento.data + 'T' + horaFim + ':00';
+  var evento = {
+    summary: '📊 Consultoria G20 · ' + (nomeAluno || 'Aluno'),
+    description: 'Consultoria 1:1 G20 Masterclass\n\nLink do Meet: ' + MEET_LINK + '\n\nAgendado pela plataforma G20.',
+    start: { dateTime: dataHoraInicio, timeZone: 'America/Sao_Paulo' },
+    end:   { dateTime: dataHoraFim,   timeZone: 'America/Sao_Paulo' },
+    conferenceData: {
+      createRequest: { requestId: agendamento.id || Date.now().toString() }
+    },
+    attendees: [],
+    reminders: {
+      useDefault: false,
+      overrides: [
+        { method: 'email',  minutes: 1440 }, // 24h antes
+        { method: 'popup',  minutes: 30   }  // 30min antes
+      ]
+    }
+  };
+
+  return fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + _gcalToken,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(evento)
+  })
+  .then(function(r) {
+    if (r.status === 401) {
+      // Token expirado — limpa e pede nova autorização
+      _gcalToken = null;
+      localStorage.removeItem('g20_gcal_token');
+      toast('⚠️ Token Google expirado. Reconecte o Calendar.');
+      return null;
+    }
+    return r.json();
+  })
+  .then(function(data) {
+    if (data && data.id) {
+      console.log('[GCal] Evento criado:', data.htmlLink);
+      toast('📅 Evento criado no Google Calendar!');
+      // Salva link do evento no Firestore
+      if (agendamento.firestoreId) {
+        db.collection('consultoria').doc('agendamentos').collection('items')
+          .doc(agendamento.firestoreId)
+          .update({ gcalEventLink: data.htmlLink })
+          .catch(function(){});
+      }
+    }
+  })
+  .catch(function(e) { console.warn('[GCal] Erro ao criar evento:', e); });
+}
+
+// Inicializa quando Google API carrega
+window.addEventListener('load', function() {
+  setTimeout(gcalInit, 1000);
+});
+
 </script>
 </body>
 </html>
