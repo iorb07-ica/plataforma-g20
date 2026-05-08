@@ -572,7 +572,7 @@ var VIDEOS_CAT = {
 
 /* ─── ESTADO ─── */
 var activeSeason = "Todos", searchTerm = "", selectedIdx = 0, playingId = null;
-var videos = []; // será preenchido pelo Firestore (ou fallback)
+var videos = VIDEOS_FALLBACK.slice(); // começa com fallback, Firestore substitui depois
 
 /* ─── HERO ─── */
 function setHero(idx) {
@@ -637,16 +637,18 @@ var _isAdmin = false;
 
 function renderAdminBtn() {
   if (!_isAdmin) return;
-  var hdr = document.querySelector('.filters');
-  if (!hdr || document.getElementById('adminFlixBtn')) return;
+  if (document.getElementById('adminFlixBtn')) return;
+  // Inserir na barra de filtros, ao lado do título "Episódios"
+  var sec = document.querySelector('.filters .sec-title');
+  if (!sec) return;
   var btn = document.createElement('a');
   btn.id = 'adminFlixBtn';
   btn.href = 'admin-g20flix.html';
-  btn.style.cssText = 'display:inline-flex;align-items:center;gap:6px;background:rgba(201,169,97,.15);border:.5px solid rgba(201,169,97,.35);color:#c9a961;border-radius:9px;padding:.35rem .9rem;font-size:12px;font-weight:700;text-decoration:none;margin-left:auto;flex-shrink:0;transition:background .15s';
-  btn.innerHTML = '⚙️ Gerenciar vídeos';
-  btn.onmouseenter = function(){this.style.background='rgba(201,169,97,.25)';};
+  btn.style.cssText = 'display:inline-flex;align-items:center;gap:5px;background:rgba(201,169,97,.15);border:.5px solid rgba(201,169,97,.35);color:#c9a961;border-radius:8px;padding:4px 12px;font-size:12px;font-weight:700;text-decoration:none;margin-left:12px;vertical-align:middle;transition:background .15s;font-family:inherit';
+  btn.innerHTML = '⚙️ Admin';
+  btn.onmouseenter = function(){this.style.background='rgba(201,169,97,.28)';};
   btn.onmouseleave = function(){this.style.background='rgba(201,169,97,.15)';};
-  hdr.appendChild(btn);
+  sec.appendChild(btn);
 }
 
 function loadVideosFromFirestore(db, uid) {
@@ -655,23 +657,24 @@ function loadVideosFromFirestore(db, uid) {
     .get()
     .then(function(snap) {
       if (!snap.empty) {
-        videos = [];
+        var loaded = [];
         snap.forEach(function(d) {
           var v = d.data();
-          // Normaliza campos para compatibilidade com g20flix
+          if (!v.id) return;
           if (!v.url) v.url = 'https://www.youtube.com/watch?v=' + v.id;
           if (!v.isNew) v.isNew = v.destaque || false;
-          videos.push(v);
+          // campo 'cat' no admin → 'season' no g20flix para filtros de temporada
+          if (!v.season && v.cat) v.season = v.cat;
+          if (!v.date && v.season) v.date = v.season;
+          loaded.push(v);
         });
-      } else {
-        // Nada no Firestore ainda — usa fallback hardcoded
-        videos = VIDEOS_FALLBACK.slice();
+        if (loaded.length) videos = loaded;
       }
       setHero(0);
       renderGrid();
     })
     .catch(function() {
-      videos = VIDEOS_FALLBACK.slice();
+      // Firestore falhou — já tem fallback, só re-renderiza
       setHero(0);
       renderGrid();
     });
