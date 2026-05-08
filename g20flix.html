@@ -135,7 +135,7 @@ a{text-decoration:none;color:inherit}
 @media(min-width:768px){.hero-title{font-size:52px;margin-bottom:10px}}
 .hero-title em{color:var(--gold);font-style:normal}
 .hero-meta-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
-.hero-season-badge{background:rgba(201,169,97,.15);border:1px solid rgba(201,169,97,.3);color:var(--gold);font-size:11px;font-weight:700;padding:2px 9px;border-radius:4px}
+.hero-season-badge{background:rgba(201,169,97,.18);border:1px solid rgba(201,169,97,.45);color:var(--gold);font-size:13px;font-weight:800;padding:4px 14px;border-radius:6px;letter-spacing:.5px}
 .hero-date-txt{color:rgba(255,255,255,.5);font-size:12px}
 .hero-desc{color:rgba(255,255,255,.55);font-size:13px;line-height:1.55;max-width:400px;margin-bottom:18px;display:none}
 @media(min-width:768px){.hero-desc{display:block}}
@@ -175,9 +175,10 @@ a{text-decoration:none;color:inherit}
 .thumb-ov{position:absolute;inset:0;background:rgba(26,25,30,.45);display:flex;align-items:center;justify-content:center;opacity:0;transition:.22s var(--ease);pointer-events:none}
 .card:hover .thumb-ov,.card.playing .thumb-ov{opacity:1}
 .play-circle{display:none}
-.ep-badge{position:absolute;top:6px;right:6px;background:rgba(26,25,30,.92);border:1px solid var(--gold);border-radius:6px;padding:2px 7px;font-size:11px;font-weight:800;color:var(--gold);pointer-events:none;letter-spacing:.5px;text-shadow:0 1px 4px rgba(0,0,0,.5)}
-.card-edit-btn{position:absolute;top:6px;left:6px;width:26px;height:26px;background:rgba(201,169,97,.85);border:none;border-radius:6px;color:#1a191e;font-size:12px;cursor:pointer;display:none;align-items:center;justify-content:center;z-index:10;transition:background .15s;-webkit-tap-highlight-color:transparent}
-.card-edit-btn:hover{background:#c9a961}
+.ep-badge{position:absolute;top:7px;right:7px;background:rgba(26,25,30,.92);border:1px solid var(--gold);border-radius:7px;padding:3px 9px;font-size:13px;font-weight:900;color:var(--gold);pointer-events:none;letter-spacing:.5px;text-shadow:0 1px 6px rgba(0,0,0,.8);box-shadow:0 2px 8px rgba(0,0,0,.5)}
+.card-cat-pill{display:inline-block;font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;background:rgba(201,169,97,.12);color:var(--gold);border:.5px solid rgba(201,169,97,.3);letter-spacing:.3px;text-transform:uppercase}
+.card-edit-btn{position:absolute;top:7px;left:7px;width:28px;height:28px;background:rgba(15,13,20,.75);border:1px solid rgba(201,169,97,.6);border-radius:7px;color:#e8c766;font-size:13px;cursor:pointer;display:none;align-items:center;justify-content:center;z-index:10;transition:all .18s;-webkit-tap-highlight-color:transparent;backdrop-filter:blur(4px);box-shadow:0 2px 8px rgba(0,0,0,.5)}
+.card-edit-btn:hover{background:rgba(201,169,97,.25);border-color:#c9a961;color:#fff;transform:scale(1.1)}
 body.is-admin .card-edit-btn{display:flex}
 .new-badge{position:absolute;top:5px;right:5px;background:var(--red);border-radius:4px;padding:1px 5px;font-size:8px;font-weight:800;color:#fff;letter-spacing:1px;text-transform:uppercase;pointer-events:none}
 .now-playing{position:absolute;bottom:4px;left:50%;transform:translateX(-50%);background:var(--red);color:#fff;font-size:8px;font-weight:800;letter-spacing:1px;text-transform:uppercase;padding:1px 6px;border-radius:3px;white-space:nowrap;pointer-events:none}
@@ -582,10 +583,14 @@ function setHero(idx) {
   selectedIdx = idx;
   var v = videos[idx];
   document.getElementById("heroBg").src = "https://img.youtube.com/vi/" + v.id + "/maxresdefault.jpg";
-  document.getElementById("heroEpLabel").textContent = "EPISÓDIO #" + v.ep + " \u00b7 TEMPORADA " + v.season;
-  document.getElementById("heroTitle").innerHTML = "<em>" + v.title + "</em> - " + v.date;
-  document.getElementById("heroSeason").textContent = "T" + v.season;
-  document.getElementById("heroDate").textContent = v.date;
+  // Ep label: "EPISÓDIO #82 · T2026"
+  var seasonLabel = /^\d{4}$/.test(v.season) ? 'T' + v.season : (v.season || '');
+  document.getElementById("heroEpLabel").textContent = "EPISÓDIO #" + v.ep + " · " + seasonLabel;
+  // Título: só o título, sem duplicar a data
+  document.getElementById("heroTitle").innerHTML = "<em>" + v.title + "</em>";
+  // Badge: mostra ano ou categoria
+  document.getElementById("heroSeason").textContent = seasonLabel;
+  document.getElementById("heroDate").textContent = v.date || '';
   document.getElementById("heroDesc").textContent = v.desc || "";
   document.getElementById("heroTag").style.display = idx === 0 ? "inline-flex" : "none";
   renderGrid();
@@ -696,9 +701,12 @@ function loadVideosFromFirestore(db, uid) {
           if (!v.url) v.url = 'https://www.youtube.com/watch?v=' + v.id;
           if (!v.isNew) v.isNew = v.destaque || false;
           // campo 'cat' no admin → 'season' no g20flix para filtros de temporada
+          // Normaliza season para ano numérico (ex: "T2026"→"2026", "Carteira G20"→extrai de date)
           if (!v.season && v.cat) v.season = v.cat;
           if (!v.date && v.season) v.date = v.season;
-          // Normaliza season: se for categoria de texto (ex: "Carteira G20"), extrai ano da date
+          // Remove prefixo "T" se existir (ex: "T2026" → "2026")
+          if (v.season && /^T\d{4}$/.test(v.season)) v.season = v.season.substring(1);
+          // Se season não for ano numérico, extrai da date
           if (v.season && !/^\d{4}$/.test(v.season)) {
             var mAno = (v.date || '').match(/\d{4}/);
             v.season = mAno ? mAno[0] : v.season;
@@ -738,8 +746,12 @@ function renderGrid() {
     if (v.isNew) r += '<div class="new-badge">Novo</div>';
     if (isPlay) r += '<div class="now-playing">&#9679; Ao Vivo</div>';
     r += '</div><div class="card-body">';
-    r += '<div class="card-title">' + v.title + ' - ' + v.date + '</div>';
-    r += '<div class="card-footer"><span style="color:var(--text3)">Temporada ' + v.season + '</span></div>';
+    // Título: só o título principal, data aparece no footer
+    r += '<div class="card-title">' + v.title + '</div>';
+    // Footer: data + cat-pill
+    var catLabel = v.cat || '';
+    var dateTxt = v.date || '';
+    r += '<div class="card-footer"><span style="color:var(--text2);font-size:10px">' + dateTxt + '</span>' + (catLabel ? '<span class="card-cat-pill">' + catLabel + '</span>' : '') + '</div>';
     r += '</div></div>';
     return r;
   }).join("");
