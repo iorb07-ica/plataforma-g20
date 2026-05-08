@@ -434,13 +434,31 @@ function selecionarData(dateStr) {
 
 function selecionarSlot(hora) {
   _selectedSlot = hora;
-  selecionarData(_selectedDate); // re-render slots
-
+  // Re-renderiza apenas os slots (sem resetar _selectedSlot)
+  _renderSlotsOnly();
   var d = new Date(_selectedDate + 'T00:00:00');
   document.getElementById('cfData').textContent = d.toLocaleDateString('pt-BR', {weekday:'long', day:'2-digit', month:'long', year:'numeric'});
   document.getElementById('cfHora').textContent = hora + ' – ' + _addHour(hora);
   document.getElementById('confirmCard').classList.add('show');
   document.getElementById('confirmCard').scrollIntoView({ behavior:'smooth', block:'nearest' });
+}
+
+function _renderSlotsOnly() {
+  if (!_selectedDate) return;
+  var d = new Date(_selectedDate + 'T00:00:00');
+  var slots = getSlotsForDate(d);
+  var ocupados = _agendamentos.filter(function(a){ return a.data === _selectedDate && a.status !== 'cancelado'; }).map(function(a){ return a.hora; });
+  var grid = document.getElementById('slotsGrid');
+  if (!grid) return;
+  grid.innerHTML = slots.map(function(hora) {
+    var taken = ocupados.indexOf(hora) !== -1;
+    var sel = _selectedSlot === hora;
+    return '<div class="slot' + (taken?' taken':'') + (sel?' selected':'') + '" data-hora="' + hora + '">' +
+      hora + (taken ? ' · Ocupado' : '') + '</div>';
+  }).join('');
+  grid.querySelectorAll('.slot:not(.taken)').forEach(function(el) {
+    el.addEventListener('click', function() { selecionarSlot(el.getAttribute('data-hora')); });
+  });
 }
 
 function cancelarSelecao() {
