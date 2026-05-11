@@ -623,24 +623,18 @@ function abrirEditar(docId){
     function tryReset() {
       if (cardLoaded && heroLoaded) _resetImgSliders(_v);
     }
-    if (ci) {
-      ci.style.opacity = '0.15';
-      ci.onload = function() { ci.style.opacity='1'; cardLoaded=true; tryReset(); };
-      ci.onerror = function() { cardLoaded=true; tryReset(); };
-      // Se já em cache
-      if (ci.complete && ci.naturalWidth) { cardLoaded=true; ci.style.opacity='1'; }
-      ci.src = _v.cardImg || ytThumb;
-      if (ci.complete && ci.naturalWidth) { cardLoaded=true; ci.style.opacity='1'; }
-    } else { cardLoaded=true; }
-    if (hi) {
-      hi.style.opacity = '0.15';
-      hi.onload = function() { hi.style.opacity='1'; heroLoaded=true; tryReset(); };
-      hi.onerror = function() { heroLoaded=true; tryReset(); };
-      if (hi.complete && hi.naturalWidth) { heroLoaded=true; hi.style.opacity='1'; }
-      hi.src = _v.heroImg || ytHero;
-      if (hi.complete && hi.naturalWidth) { heroLoaded=true; hi.style.opacity='1'; }
-    } else { heroLoaded=true; }
-    // Fallback se onload não disparar
+    function loadImg(el, src, onDone) {
+      if (!el) { onDone(); return; }
+      el.style.opacity = '0.15';
+      el.onload = function() { el.style.opacity='1'; onDone(); };
+      el.onerror = function() { onDone(); };
+      el.src = src;
+      // Se já em cache após setar src
+      if (el.complete && el.naturalWidth) { el.style.opacity='1'; onDone(); }
+    }
+    loadImg(ci, _v.cardImg || ytThumb, function() { cardLoaded=true; tryReset(); });
+    loadImg(hi, _v.heroImg || ytHero,  function() { heroLoaded=true; tryReset(); });
+    // Fallback
     setTimeout(function(){ cardLoaded=true; heroLoaded=true; tryReset(); }, 3000);
   }
   _loadAndReset();
@@ -839,10 +833,11 @@ function _calcMinZoomDirect(img, frame) {
   return Math.round(Math.max(fw / img.naturalWidth, fh / img.naturalHeight) * 100);
 }
 
-function _applySliders(prefix, img, frame, x, y, z) {
-  // Calcula minZoom agora que a imagem já carregou
+function _applySliders(prefix, img, frame, x, y, z_saved) {
+  // z_saved: valor salvo (0-200) ou null se não tem valor salvo
+  // Se não tem valor salvo, usa minZoom para cobrir o frame
   var minZ = _calcMinZoomDirect(img, frame);
-  var finalZ = Math.max(z, minZ);
+  var finalZ = (z_saved != null) ? Math.max(z_saved, minZ) : minZ;
   var el;
   if((el=document.getElementById(prefix+'SliderX'))) el.value=x;
   if((el=document.getElementById(prefix+'SliderY'))) el.value=y;
@@ -859,15 +854,16 @@ function _resetImgSliders(v) {
   var cFrame = document.getElementById('cardMock');
   var hImg = document.getElementById('heroMockImg');
   var hFrame = document.getElementById('heroMockWrap');
+  // Valores salvos — null significa "não tem, calcular minZoom"
   var cx = v.cardImgX!=null ? v.cardImgX : 50;
   var cy = v.cardImgY!=null ? v.cardImgY : 50;
-  var cz = v.cardImgZ!=null ? Math.round(v.cardImgZ*100) : 10;
+  var cz = v.cardImgZ!=null ? Math.round(v.cardImgZ*100) : null;
   var hx = v.heroImgX!=null ? v.heroImgX : 50;
   var hy = v.heroImgY!=null ? v.heroImgY : 50;
-  var hz = v.heroImgZ!=null ? Math.round(v.heroImgZ*100) : 10;
-  // Aplica quando imagem já carregou
+  var hz = v.heroImgZ!=null ? Math.round(v.heroImgZ*100) : null;
   function applyCard() { _applySliders('c', cImg, cFrame, cx, cy, cz); }
   function applyHero() { _applySliders('h', hImg, hFrame, hx, hy, hz); }
+  // Só aplica depois que a imagem carregou (naturalWidth disponível)
   if (cImg && cImg.complete && cImg.naturalWidth) { applyCard(); }
   else if (cImg) { cImg.addEventListener('load', applyCard, {once:true}); }
   if (hImg && hImg.complete && hImg.naturalWidth) { applyHero(); }
