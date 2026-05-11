@@ -183,6 +183,10 @@ a{text-decoration:none;color:inherit}
 .card-edit-btn{position:absolute;top:7px;left:7px;width:28px;height:28px;background:rgba(15,13,20,.75);border:1px solid rgba(201,169,97,.6);border-radius:7px;color:#e8c766;font-size:13px;cursor:pointer;display:none;align-items:center;justify-content:center;z-index:10;transition:all .18s;-webkit-tap-highlight-color:transparent;backdrop-filter:blur(4px);box-shadow:0 2px 8px rgba(0,0,0,.5)}
 .card-edit-btn:hover{background:rgba(201,169,97,.25);border-color:#c9a961;color:#fff;transform:scale(1.1)}
 body.is-admin .card-edit-btn{display:flex}
+body.is-admin .card{cursor:grab}
+body.is-admin .card:active{cursor:grabbing}
+.card.drag-over{outline:2px solid var(--gold);outline-offset:2px}
+.card.dragging{opacity:.4;transform:scale(.97)}
 .new-badge{position:absolute;top:5px;right:5px;background:var(--red);border-radius:4px;padding:1px 5px;font-size:8px;font-weight:800;color:#fff;letter-spacing:1px;text-transform:uppercase;pointer-events:none}
 .now-playing{position:absolute;bottom:4px;left:50%;transform:translateX(-50%);background:var(--red);color:#fff;font-size:8px;font-weight:800;letter-spacing:1px;text-transform:uppercase;padding:1px 6px;border-radius:3px;white-space:nowrap;pointer-events:none}
 .card-body{padding:7px 9px;pointer-events:none}
@@ -879,6 +883,68 @@ function renderGrid() {
     r += '</div></div>';
     return r;
   }).join("");
+  if (_isAdmin) initCardDragDrop();
+}
+
+/* ─── DRAG & DROP CARDS (admin) ─── */
+var _dragSrcId = null;
+
+function initCardDragDrop() {
+  document.querySelectorAll('.card').forEach(function(card) {
+    card.draggable = true;
+
+    card.addEventListener('dragstart', function(e) {
+      _dragSrcId = card.dataset.id;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+
+    card.addEventListener('dragend', function() {
+      card.classList.remove('dragging');
+      document.querySelectorAll('.card').forEach(function(c) { c.classList.remove('drag-over'); });
+    });
+
+    card.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (card.dataset.id !== _dragSrcId) card.classList.add('drag-over');
+    });
+
+    card.addEventListener('dragleave', function() {
+      card.classList.remove('drag-over');
+    });
+
+    card.addEventListener('drop', function(e) {
+      e.preventDefault();
+      card.classList.remove('drag-over');
+      if (!_dragSrcId || card.dataset.id === _dragSrcId) return;
+
+      var srcIdx = videos.findIndex(function(v) { return v.id === _dragSrcId; });
+      var dstIdx = videos.findIndex(function(v) { return v.id === card.dataset.id; });
+      if (srcIdx < 0 || dstIdx < 0) return;
+
+      // Reordenar array
+      var moved = videos.splice(srcIdx, 1)[0];
+      videos.splice(dstIdx, 0, moved);
+
+      // Atualizar ordem no Firestore
+      var batch = _db.batch();
+      videos.forEach(function(v, i) {
+        v.ordem = i + 1;
+        if (v.docId) {
+          var ref = _db.collection('g20flix').doc('videos').collection('items').doc(v.docId);
+          batch.update(ref, {ordem: i + 1});
+        }
+      });
+      batch.commit().then(function() {
+        // toast silencioso
+      }).catch(function(err) {
+        console.warn('Erro ao salvar ordem:', err);
+      });
+
+      renderGrid();
+    });
+  });
 }
 
 /* ─── EDITAR CARD (admin) ─── */
@@ -1055,6 +1121,7 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
   if (!firebase.apps.length) firebase.initializeApp(cfg);
   var auth = firebase.auth();
   var db   = firebase.firestore();
+  window._db = db;
 
   // Persistência LOCAL — mantém login mesmo fechando o app
   auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function(){});
