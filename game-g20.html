@@ -1,0 +1,2189 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Game G20 — Plataforma G20 Masterclass</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/g20-topbar.css?v=10">
+<link rel="stylesheet" href="assets/g20-sidebar.css?v=10">
+<link rel="stylesheet" href="assets/g20-scrollbar.css?v=10">
+<link rel="stylesheet" href="assets/g20-topbar-v21.css?v=12">
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<style>
+:root {
+  --bg-primary: #1a191e;
+  --bg-card: #27252c;
+  --bg-card2: #2e2c35;
+  --gold-start: #c9a961;
+  --gold-end: #e8c766;
+  --text-primary: #f0ece0;
+  --text-muted: #8b8499;
+  --border: #3a3740;
+  --green: #4ade80;
+  --red: #f87171;
+  --blue: #60a5fa;
+  --purple: #a78bfa;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'DM Sans', sans-serif;
+  min-height: 100vh;
+  display: flex;
+}
+
+.main-content {
+  flex: 1;
+  margin-left: 240px;
+  padding: 0;
+  min-height: 100vh;
+  transition: margin-left 0.3s;
+}
+
+.page-header {
+  padding: 32px 32px 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.page-title-block h1 {
+  font-size: 28px;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--gold-start), var(--gold-end));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.page-title-block h1 svg { width: 28px; height: 28px; }
+.page-title-block p { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
+
+.cycle-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cycle-badge {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cycle-badge .dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--gold-end);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ── TABS ──────────────────────────────── */
+.tabs-bar {
+  display: flex;
+  gap: 4px;
+  padding: 24px 32px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 10px 20px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tab-btn:hover { color: var(--text-primary); }
+.tab-btn.active {
+  color: var(--gold-end);
+  border-bottom-color: var(--gold-end);
+}
+
+.tab-content { display: none; padding: 28px 32px; }
+.tab-content.active { display: block; }
+
+/* ── MY POSITION HERO ──────────────────── */
+.my-position-hero {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.pos-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+
+.pos-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--gold-start), var(--gold-end));
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.pos-card:hover { border-color: var(--gold-start); }
+.pos-card:hover::before { opacity: 1; }
+
+.pos-circle {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--gold-start), var(--gold-end));
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  font-size: 20px;
+  color: #1a191e;
+  flex-shrink: 0;
+}
+
+.pos-circle.neutral {
+  background: var(--bg-card2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.pos-info { flex: 1; }
+.pos-info .pos-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.pos-info .pos-type { font-size: 16px; font-weight: 600; color: var(--text-primary); margin: 2px 0; }
+.pos-rentab {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 22px;
+  font-weight: 700;
+}
+.pos-rentab.positive { color: var(--green); }
+.pos-rentab.negative { color: var(--red); }
+.pos-rentab.neutral { color: var(--text-muted); }
+
+/* ── RANKING TABLE ──────────────────────── */
+.ranking-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.ranking-col {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.ranking-col-header {
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(90deg, rgba(201,169,97,0.08), transparent);
+}
+
+.ranking-col-header h3 {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, var(--gold-start), var(--gold-end));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.ranking-col-header .periodo {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.ranking-table { width: 100%; }
+
+.ranking-table thead tr th {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  padding: 8px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.ranking-table thead tr th:last-child { text-align: right; }
+
+.ranking-table tbody tr {
+  cursor: pointer;
+  transition: background 0.15s;
+  border-bottom: 1px solid rgba(58,55,64,0.5);
+}
+
+.ranking-table tbody tr:hover { background: rgba(201,169,97,0.06); }
+.ranking-table tbody tr.my-row { background: rgba(201,169,97,0.1); }
+.ranking-table tbody tr.my-row td { color: var(--gold-end); }
+.ranking-table tbody tr:last-child { border-bottom: none; }
+
+.ranking-table tbody tr td {
+  padding: 10px 16px;
+  font-size: 13px;
+  vertical-align: middle;
+}
+
+.ranking-table tbody tr td:last-child {
+  text-align: right;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+}
+
+.td-pos {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+  width: 32px;
+}
+
+.td-pos.top1 { color: #FFD700; }
+.td-pos.top2 { color: #C0C0C0; }
+.td-pos.top3 { color: #CD7F32; }
+
+.td-player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.player-avatar {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--gold-start), var(--gold-end));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #1a191e;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.player-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.player-name { font-size: 13px; font-weight: 500; }
+
+.infinite-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  background: rgba(201,169,97,0.15);
+  border: 1px solid rgba(201,169,97,0.3);
+  border-radius: 10px;
+  font-size: 9px;
+  color: var(--gold-end);
+  margin-left: 4px;
+}
+
+.rentab-positive { color: var(--green) !important; }
+.rentab-negative { color: var(--red) !important; }
+
+/* loading skeleton */
+.skeleton-row td { opacity: 0.3; }
+
+/* ── MINHA CARTEIRA ─────────────────────── */
+.minha-carteira-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.mc-left { display: flex; flex-direction: column; gap: 16px; }
+
+.mc-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.mc-card-header {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(90deg, rgba(201,169,97,0.06), transparent);
+}
+
+.mc-card-header h3 {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--gold-end);
+}
+
+/* ciclo selector */
+.ciclo-selector {
+  display: flex;
+  gap: 6px;
+  padding: 14px 18px;
+  flex-wrap: wrap;
+}
+
+.ciclo-btn {
+  flex: 1;
+  padding: 8px 10px;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.ciclo-btn:hover { border-color: var(--gold-start); color: var(--gold-end); }
+.ciclo-btn.active {
+  background: linear-gradient(135deg, rgba(201,169,97,0.2), rgba(232,199,102,0.1));
+  border-color: var(--gold-start);
+  color: var(--gold-end);
+}
+
+/* regras */
+.regras-list { padding: 14px 18px; display: flex; flex-direction: column; gap: 8px; }
+
+.regra-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-card2);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.regra-item.ok { border-color: rgba(74,222,128,0.3); background: rgba(74,222,128,0.05); }
+.regra-item.ok .regra-status { color: var(--green); }
+.regra-item.pending .regra-status { color: var(--text-muted); }
+.regra-item.error { border-color: rgba(248,113,113,0.3); background: rgba(248,113,113,0.05); }
+.regra-item.error .regra-status { color: var(--red); }
+
+.regra-label { color: var(--text-primary); display: flex; align-items: center; gap: 6px; }
+.regra-label .class-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.regra-status { font-size: 11px; font-weight: 600; }
+
+.counter-badge {
+  background: linear-gradient(135deg, var(--gold-start), var(--gold-end));
+  color: #1a191e;
+  font-weight: 700;
+  font-size: 13px;
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.counter-badge.full {
+  background: linear-gradient(135deg, var(--gold-start), var(--gold-end));
+}
+
+.counter-badge.error {
+  background: rgba(248,113,113,0.2);
+  color: var(--red);
+  border: 1px solid rgba(248,113,113,0.4);
+}
+
+/* deadline info */
+.deadline-info {
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.deadline-info svg { width: 14px; height: 14px; }
+.deadline-info strong { color: var(--gold-end); }
+
+/* save button */
+.save-btn {
+  width: calc(100% - 36px);
+  margin: 0 18px 18px;
+  padding: 12px;
+  background: linear-gradient(135deg, var(--gold-start), var(--gold-end));
+  border: none;
+  border-radius: 10px;
+  color: #1a191e;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.save-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+.save-btn:disabled {
+  background: var(--bg-card2);
+  color: var(--text-muted);
+  transform: none;
+  cursor: not-allowed;
+  border: 1px solid var(--border);
+}
+
+/* ── SELETOR DE ATIVOS ──────────────────── */
+.mc-right { display: flex; flex-direction: column; gap: 16px; }
+
+.ativos-search-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.search-input-wrap {
+  flex: 1;
+  position: relative;
+}
+
+.search-input-wrap svg {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  width: 16px; height: 16px;
+}
+
+.search-input {
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px 10px 38px;
+  color: var(--text-primary);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.search-input:focus { border-color: var(--gold-start); }
+.search-input::placeholder { color: var(--text-muted); }
+
+.filter-btns {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.filter-btn {
+  padding: 6px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.filter-btn .filter-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+}
+
+.filter-btn:hover { border-color: var(--gold-start); color: var(--text-primary); }
+.filter-btn.active { border-color: var(--gold-start); color: var(--gold-end); background: rgba(201,169,97,0.1); }
+
+/* ativos grid */
+.ativos-grid {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.ativos-grid-header {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ativos-grid-header h3 { font-size: 13px; font-weight: 600; }
+.ativos-grid-header span { font-size: 12px; color: var(--text-muted); }
+
+.ativos-list {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.ativo-row {
+  display: flex;
+  align-items: center;
+  padding: 10px 18px;
+  gap: 12px;
+  border-bottom: 1px solid rgba(58,55,64,0.5);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ativo-row:hover { background: rgba(201,169,97,0.06); }
+.ativo-row:last-child { border-bottom: none; }
+
+.ativo-row.selected {
+  background: rgba(201,169,97,0.1);
+  border-color: rgba(201,169,97,0.2);
+}
+
+.ativo-row.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.ativo-logo {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: var(--bg-card2);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.ativo-logo img { width: 100%; height: 100%; object-fit: cover; }
+
+.ativo-info { flex: 1; min-width: 0; }
+.ativo-ticker {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ativo-nome {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ativo-class-tag {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+
+.ativo-preco {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  min-width: 70px;
+  text-align: right;
+}
+
+.ativo-check {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+.ativo-check.checked {
+  background: linear-gradient(135deg, var(--gold-start), var(--gold-end));
+  border-color: transparent;
+}
+
+.ativo-check.checked svg { display: block; }
+.ativo-check svg { display: none; width: 12px; height: 12px; color: #1a191e; }
+
+/* carteira selecionada */
+.carteira-selecionada {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.cs-header {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(90deg, rgba(201,169,97,0.06), transparent);
+}
+
+.cs-header h3 { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+
+.cs-counter {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gold-end);
+}
+
+.cs-list { padding: 8px 0; min-height: 60px; }
+
+.cs-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 18px;
+  gap: 10px;
+  border-bottom: 1px solid rgba(58,55,64,0.4);
+  animation: slideIn 0.2s ease;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.cs-item:last-child { border-bottom: none; }
+
+.cs-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  width: 18px;
+  text-align: center;
+}
+
+.cs-ticker {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.cs-nome {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex: 2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cs-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: color 0.2s;
+  display: flex;
+}
+
+.cs-remove:hover { color: var(--red); }
+.cs-remove svg { width: 14px; height: 14px; }
+
+.cs-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* ── CLASS COLORS ───────────────────────── */
+.class-acao-br { background: rgba(96,165,250,0.15); color: #60a5fa; }
+.class-fii      { background: rgba(74,222,128,0.15); color: #4ade80; }
+.class-stock    { background: rgba(167,139,250,0.15); color: #a78bfa; }
+.class-etf      { background: rgba(251,191,36,0.15); color: #fbbf24; }
+.class-reit     { background: rgba(249,115,22,0.15); color: #f97316; }
+.class-cripto   { background: rgba(232,199,102,0.15); color: #e8c766; }
+
+.dot-acao-br { background: #60a5fa; }
+.dot-fii     { background: #4ade80; }
+.dot-stock   { background: #a78bfa; }
+.dot-etf     { background: #fbbf24; }
+.dot-reit    { background: #f97316; }
+.dot-cripto  { background: #e8c766; }
+
+/* ── MODAL CARTEIRA ALUNO ───────────────── */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+}
+
+.modal-overlay.open { display: flex; }
+
+.modal-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  width: 520px;
+  max-width: 95vw;
+  max-height: 85vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: modalIn 0.2s ease;
+}
+
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.96) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.modal-header {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  background: linear-gradient(90deg, rgba(201,169,97,0.08), transparent);
+}
+
+.modal-header h2 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.modal-header .modal-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: color 0.2s;
+}
+
+.modal-close:hover { color: var(--text-primary); }
+.modal-close svg { width: 18px; height: 18px; }
+
+.modal-body { overflow-y: auto; padding: 16px 24px 24px; flex: 1; }
+
+.modal-ativos-table { width: 100%; border-collapse: collapse; }
+
+.modal-ativos-table thead tr th {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.modal-ativos-table thead tr th:last-child { text-align: right; }
+
+.modal-ativos-table tbody tr {
+  border-bottom: 1px solid rgba(58,55,64,0.5);
+}
+
+.modal-ativos-table tbody tr:last-child { border-bottom: none; }
+
+.modal-ativos-table tbody tr td {
+  padding: 10px 0;
+  font-size: 13px;
+}
+
+.modal-ativos-table tbody tr td:last-child {
+  text-align: right;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+}
+
+.modal-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-rentab {
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-rentab .label { font-size: 11px; color: var(--text-muted); }
+.modal-rentab .value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.modal-close-btn {
+  padding: 10px 24px;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.modal-close-btn:hover { border-color: var(--gold-start); color: var(--gold-end); }
+
+/* ── TOAST ──────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 32px;
+  right: 32px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  z-index: 9999;
+  transform: translateY(80px);
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  max-width: 360px;
+}
+
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.success { border-color: rgba(74,222,128,0.4); }
+.toast.success svg { color: var(--green); }
+.toast.error { border-color: rgba(248,113,113,0.4); }
+.toast.error svg { color: var(--red); }
+
+/* ── EMPTY STATES ───────────────────────── */
+.empty-state {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--text-muted);
+}
+
+.empty-state svg { width: 40px; height: 40px; opacity: 0.4; margin-bottom: 12px; }
+.empty-state p { font-size: 14px; }
+
+/* ── UPDATE BAR ─────────────────────────── */
+.update-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 0 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.update-bar svg { width: 13px; height: 13px; }
+
+/* ── CLOSED CYCLE BADGE ─────────────────── */
+.closed-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(248,113,113,0.1);
+  border: 1px solid rgba(248,113,113,0.3);
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-size: 11px;
+  color: var(--red);
+}
+
+/* responsive */
+@media (max-width: 1100px) {
+  .ranking-grid { grid-template-columns: 1fr; }
+  .minha-carteira-layout { grid-template-columns: 1fr; }
+  .mc-right { order: -1; }
+}
+
+@media (max-width: 768px) {
+  .main-content { margin-left: 0; }
+  .my-position-hero { grid-template-columns: 1fr; }
+}
+
+/* scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--gold-start); border-radius: 10px; }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div id="sidebarContainer"></div>
+
+<!-- MAIN -->
+<div class="main-content" id="mainContent">
+
+  <!-- TOPBAR -->
+  <div id="topbarContainer"></div>
+
+  <!-- PAGE HEADER -->
+  <div class="page-header">
+    <div class="page-title-block">
+      <h1>
+        <svg viewBox="0 0 24 24" fill="none" stroke="url(#goldGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <defs>
+            <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" style="stop-color:#c9a961"/>
+              <stop offset="100%" style="stop-color:#e8c766"/>
+            </linearGradient>
+          </defs>
+          <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>
+        </svg>
+        Game G20
+      </h1>
+      <p>Monte sua carteira e dispute o ranking com os outros alunos</p>
+    </div>
+    <div class="cycle-badges" id="cycleBadges">
+      <!-- preenchido via JS -->
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs-bar">
+    <button class="tab-btn active" onclick="switchTab('ranking')" id="tabRanking">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+      Ranking
+    </button>
+    <button class="tab-btn" onclick="switchTab('minha-carteira')" id="tabMinhaCarteira">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+      Minha Carteira
+    </button>
+  </div>
+
+  <!-- TAB: RANKING -->
+  <div class="tab-content active" id="tabContentRanking">
+    <div class="update-bar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      <span id="lastUpdate">Atualizando...</span>
+    </div>
+
+    <!-- minha posição -->
+    <div class="my-position-hero" id="myPositionHero">
+      <div class="pos-card" onclick="openModalCarteira(currentUid, 'mensal', 'Minha Carteira')">
+        <div class="pos-circle neutral" id="myPosMensal">—</div>
+        <div class="pos-info">
+          <div class="pos-label">Sua posição</div>
+          <div class="pos-type">Mensal</div>
+        </div>
+        <div class="pos-rentab neutral" id="myRentMensal">—</div>
+      </div>
+      <div class="pos-card" onclick="openModalCarteira(currentUid, 'trimestral', 'Minha Carteira')">
+        <div class="pos-circle neutral" id="myPosTrimestral">—</div>
+        <div class="pos-info">
+          <div class="pos-label">Sua posição</div>
+          <div class="pos-type">Trimestral</div>
+        </div>
+        <div class="pos-rentab neutral" id="myRentTrimestral">—</div>
+      </div>
+      <div class="pos-card" onclick="openModalCarteira(currentUid, 'anual', 'Minha Carteira')">
+        <div class="pos-circle neutral" id="myPosAnual">—</div>
+        <div class="pos-info">
+          <div class="pos-label">Sua posição</div>
+          <div class="pos-type">Anual</div>
+        </div>
+        <div class="pos-rentab neutral" id="myRentAnual">—</div>
+      </div>
+    </div>
+
+    <!-- tabelas -->
+    <div class="ranking-grid">
+      <!-- MENSAL -->
+      <div class="ranking-col">
+        <div class="ranking-col-header">
+          <h3>Mensal</h3>
+          <span class="periodo" id="periodoMensal"></span>
+        </div>
+        <table class="ranking-table">
+          <thead><tr><th>#</th><th>Jogador</th><th>Rentabilidade</th></tr></thead>
+          <tbody id="tbodyMensal">
+            <tr class="skeleton-row"><td colspan="3" style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <!-- TRIMESTRAL -->
+      <div class="ranking-col">
+        <div class="ranking-col-header">
+          <h3>Trimestral</h3>
+          <span class="periodo" id="periodoTrimestral"></span>
+        </div>
+        <table class="ranking-table">
+          <thead><tr><th>#</th><th>Jogador</th><th>Rentabilidade</th></tr></thead>
+          <tbody id="tbodyTrimestral">
+            <tr class="skeleton-row"><td colspan="3" style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <!-- ANUAL -->
+      <div class="ranking-col">
+        <div class="ranking-col-header">
+          <h3>Anual</h3>
+          <span class="periodo" id="periodoAnual"></span>
+        </div>
+        <table class="ranking-table">
+          <thead><tr><th>#</th><th>Jogador</th><th>Rentabilidade</th></tr></thead>
+          <tbody id="tbodyAnual">
+            <tr class="skeleton-row"><td colspan="3" style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: MINHA CARTEIRA -->
+  <div class="tab-content" id="tabContentMinhaCarteira">
+    <div class="minha-carteira-layout">
+
+      <!-- ESQUERDA: painel de controle -->
+      <div class="mc-left">
+
+        <!-- ciclo selector -->
+        <div class="mc-card">
+          <div class="mc-card-header">
+            <h3>Ciclo Ativo</h3>
+            <span id="cicloStatus" style="font-size:11px;color:var(--text-muted);"></span>
+          </div>
+          <div class="ciclo-selector">
+            <button class="ciclo-btn active" onclick="selectCiclo('mensal')" id="btnCicloMensal">Mensal</button>
+            <button class="ciclo-btn" onclick="selectCiclo('trimestral')" id="btnCicloTrimestral">Trimestral</button>
+            <button class="ciclo-btn" onclick="selectCiclo('anual')" id="btnCicloAnual">Anual</button>
+          </div>
+          <div class="deadline-info">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span>Fecha em <strong id="deadlineText">—</strong></span>
+          </div>
+        </div>
+
+        <!-- regras -->
+        <div class="mc-card">
+          <div class="mc-card-header">
+            <h3>Regras</h3>
+            <span id="totalSelecionados" style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--gold-end);">0/10</span>
+          </div>
+          <div class="regras-list" id="regrasPanel">
+            <!-- gerado via JS -->
+          </div>
+        </div>
+
+        <!-- carteira selecionada -->
+        <div class="carteira-selecionada">
+          <div class="cs-header">
+            <h3>Selecionados</h3>
+            <span class="cs-counter" id="csCounter">0 / 10</span>
+          </div>
+          <div class="cs-list" id="csList">
+            <div class="cs-empty">Selecione 10 ativos ao lado</div>
+          </div>
+        </div>
+
+        <!-- salvar -->
+        <button class="save-btn" id="saveBtn" onclick="salvarCarteira()" disabled>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          Salvar Carteira
+        </button>
+
+      </div>
+
+      <!-- DIREITA: seletor de ativos -->
+      <div class="mc-right">
+        <div class="ativos-search-bar">
+          <div class="search-input-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" class="search-input" placeholder="Buscar ativo..." id="searchAtivos" oninput="filterAtivos()">
+          </div>
+        </div>
+
+        <div class="filter-btns" id="filterBtns">
+          <button class="filter-btn active" onclick="setFilter('todos')" data-filter="todos">Todos</button>
+          <button class="filter-btn" onclick="setFilter('acao-br')" data-filter="acao-br">
+            <span class="filter-dot dot-acao-br"></span>Ações BR
+          </button>
+          <button class="filter-btn" onclick="setFilter('fii')" data-filter="fii">
+            <span class="filter-dot dot-fii"></span>FII / Fiagro
+          </button>
+          <button class="filter-btn" onclick="setFilter('stock')" data-filter="stock">
+            <span class="filter-dot dot-stock"></span>Stocks
+          </button>
+          <button class="filter-btn" onclick="setFilter('etf')" data-filter="etf">
+            <span class="filter-dot dot-etf"></span>ETFs
+          </button>
+          <button class="filter-btn" onclick="setFilter('reit')" data-filter="reit">
+            <span class="filter-dot dot-reit"></span>REITs
+          </button>
+          <button class="filter-btn" onclick="setFilter('cripto')" data-filter="cripto">
+            <span class="filter-dot dot-cripto"></span>Cripto
+          </button>
+        </div>
+
+        <div class="ativos-grid">
+          <div class="ativos-grid-header">
+            <h3>Carteira G20 — Ativos Disponíveis</h3>
+            <span id="ativosCount">—</span>
+          </div>
+          <div class="ativos-list" id="ativosList">
+            <div class="empty-state">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <p>Carregando ativos da CG20...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- MODAL: carteira do aluno -->
+<div class="modal-overlay" id="modalOverlay" onclick="fecharModal(event)">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div>
+        <h2 id="modalTitle">Carteira do Aluno</h2>
+        <div class="modal-subtitle" id="modalSubtitle"></div>
+      </div>
+      <button class="modal-close" onclick="fecharModalBtn()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <table class="modal-ativos-table">
+        <thead>
+          <tr>
+            <th style="width:40px;"></th>
+            <th>Ativo</th>
+            <th>Preço Base</th>
+            <th>Preço Atual</th>
+            <th>%</th>
+          </tr>
+        </thead>
+        <tbody id="modalTbody"></tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <div class="modal-rentab">
+        <span class="label">Rentabilidade Média</span>
+        <span class="value" id="modalRentab">—</span>
+      </div>
+      <button class="modal-close-btn" onclick="fecharModalBtn()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="toastIcon"></svg>
+  <span id="toastMsg"></span>
+</div>
+
+<!-- FIREBASE + LÓGICA -->
+<script>
+// ── FIREBASE CONFIG ─────────────────────────────
+var _cfg = {
+  apiKey: "AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",
+  authDomain: "g20-masterclass.firebaseapp.com",
+  projectId: "g20-masterclass",
+  storageBucket: "g20-masterclass.firebasestorage.app",
+  messagingSenderId: "1052719482127",
+  appId: "1:1052719482127:web:537c1d67c96532be8a2a7a"
+};
+if (!firebase.apps.length) firebase.initializeApp(_cfg);
+var auth = firebase.auth(), db = firebase.firestore();
+
+// ── ESTADO GLOBAL ───────────────────────────────
+var currentUid = null;
+var currentRole = null;
+var cicloAtivo = 'mensal';
+var ativosDisponiveis = []; // todos da CG20
+var filtroAtual = 'todos';
+var selecionados = [];     // tickers selecionados no ciclo atual
+var carteirasCache = {};   // { mensal: [...], trimestral: [...], anual: [...] }
+var cotacoesCache = {};    // { ticker: precoAtual }
+var rankingData = {};
+var refreshInterval = null;
+
+// ── CLASSES E CORES ────────────────────────────
+var CLASS_MAP = {
+  'acao-br': { label: 'Ação BR', css: 'class-acao-br', dot: 'dot-acao-br' },
+  'fii':     { label: 'FII/Fiagro', css: 'class-fii', dot: 'dot-fii' },
+  'stock':   { label: 'Stock', css: 'class-stock', dot: 'dot-stock' },
+  'etf':     { label: 'ETF', css: 'class-etf', dot: 'dot-etf' },
+  'reit':    { label: 'REIT', css: 'class-reit', dot: 'dot-reit' },
+  'cripto':  { label: 'Cripto', css: 'class-cripto', dot: 'dot-cripto' }
+};
+
+var MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+var MESES_FULL = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+// ── CICLOS ──────────────────────────────────────
+function getCicloInfo(tipo) {
+  var now = new Date();
+  var y = now.getFullYear();
+  var m = now.getMonth(); // 0-based
+
+  if (tipo === 'mensal') {
+    var fim = new Date(y, m + 1, 0, 23, 59, 59);
+    return {
+      key: y + '-' + String(m + 1).padStart(2, '0'),
+      label: MESES_FULL[m] + '/' + y,
+      periodo: MESES[m] + '/' + y,
+      inicio: new Date(y, m, 1),
+      fim: fim,
+      fechado: now > fim
+    };
+  }
+
+  if (tipo === 'trimestral') {
+    var tri = Math.floor(m / 3);
+    var triMeses = [[0,2],[3,5],[6,8],[9,11]];
+    var mesInicio = triMeses[tri][0];
+    var mesFim = triMeses[tri][1];
+    var fim = new Date(y, mesFim + 1, 0, 23, 59, 59);
+    var labels = ['T1 (Jan-Mar)', 'T2 (Abr-Jun)', 'T3 (Jul-Set)', 'T4 (Out-Dez)'];
+    return {
+      key: y + '-Q' + (tri + 1),
+      label: labels[tri] + ' ' + y,
+      periodo: 'Q' + (tri+1) + '/' + y,
+      inicio: new Date(y, mesInicio, 1),
+      fim: fim,
+      fechado: now > fim
+    };
+  }
+
+  if (tipo === 'anual') {
+    var fim = new Date(y, 11, 31, 23, 59, 59);
+    return {
+      key: String(y),
+      label: 'Ano ' + y,
+      periodo: String(y),
+      inicio: new Date(y, 0, 1),
+      fim: fim,
+      fechado: now > fim
+    };
+  }
+}
+
+function formatDeadline(fim) {
+  var d = fim.getDate().toString().padStart(2,'0');
+  var m = (fim.getMonth()+1).toString().padStart(2,'0');
+  return d + '/' + m + ' às 23h59';
+}
+
+// ── AUTH ────────────────────────────────────────
+auth.onAuthStateChanged(function(user) {
+  if (!user) { location.href = 'login.html'; return; }
+  currentUid = user.uid;
+
+  db.collection('users').doc(user.uid).get().then(function(doc) {
+    if (!doc.exists) return;
+    var d = doc.data();
+    if (d.aprovado !== true) { location.href = 'aguardando.html'; return; }
+    currentRole = d.role || 'aluno';
+
+    var profile = d.profile || d;
+    var name = profile.name || profile.nome || user.email;
+    var ini = name.split(' ').map(function(w){ return w[0]||''; }).slice(0,2).join('').toUpperCase();
+    var el = document.getElementById('sidebarName');
+    if (el) { var nt = el.querySelector('.user-name-text'); if (nt) nt.textContent = name; }
+    var eli = document.getElementById('sidebarInitials'); if (eli) eli.textContent = ini;
+    try {
+      localStorage.setItem('g20_user_profile', JSON.stringify({ name: name, role: d.role||'', turma: d.turma||'', photo:'', infinite: d.infinite===true }));
+    } catch(e){}
+
+    init();
+  });
+});
+
+// ── INIT ─────────────────────────────────────────
+function init() {
+  renderCycleBadges();
+  renderPeriodos();
+  renderRegrasPanel();
+  updateDeadline();
+  carregarAtivosDisponiveis();
+  carregarCarteirasDoAluno();
+  carregarRanking();
+
+  // refresh a cada 10 min
+  refreshInterval = setInterval(function() {
+    carregarRanking();
+  }, 10 * 60 * 1000);
+}
+
+// ── CYCLE BADGES ────────────────────────────────
+function renderCycleBadges() {
+  var tipos = ['mensal','trimestral','anual'];
+  var html = '';
+  tipos.forEach(function(t) {
+    var c = getCicloInfo(t);
+    html += '<div class="cycle-badge"><span class="dot"></span>' + c.periodo + '</div>';
+  });
+  document.getElementById('cycleBadges').innerHTML = html;
+}
+
+function renderPeriodos() {
+  ['mensal','trimestral','anual'].forEach(function(t) {
+    var c = getCicloInfo(t);
+    var el = document.getElementById('periodo' + t.charAt(0).toUpperCase() + t.slice(1));
+    if (el) el.textContent = c.periodo;
+  });
+}
+
+// ── TABS ─────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
+  document.querySelectorAll('.tab-content').forEach(function(c){ c.classList.remove('active'); });
+
+  if (tab === 'ranking') {
+    document.getElementById('tabRanking').classList.add('active');
+    document.getElementById('tabContentRanking').classList.add('active');
+  } else {
+    document.getElementById('tabMinhaCarteira').classList.add('active');
+    document.getElementById('tabContentMinhaCarteira').classList.add('active');
+  }
+}
+
+// ── CICLO SELECTOR ───────────────────────────────
+function selectCiclo(tipo) {
+  cicloAtivo = tipo;
+  ['mensal','trimestral','anual'].forEach(function(t) {
+    var btn = document.getElementById('btnCiclo' + t.charAt(0).toUpperCase() + t.slice(1));
+    if (btn) btn.classList.toggle('active', t === tipo);
+  });
+
+  // restaura selecionados do cache
+  selecionados = (carteirasCache[tipo] || []).map(function(a){ return a.ticker; });
+  updateDeadline();
+  renderAtivosList();
+  renderSelecionados();
+  updateRegras();
+  updateSaveBtn();
+}
+
+function updateDeadline() {
+  var c = getCicloInfo(cicloAtivo);
+  var el = document.getElementById('deadlineText');
+  if (el) el.textContent = formatDeadline(c.fim);
+  var status = document.getElementById('cicloStatus');
+  if (status) status.textContent = c.label;
+}
+
+// ── ATIVOS DA CG20 ──────────────────────────────
+// TODO: substituir SEED_CG20 por fetch real de users/{ADMIN_UID}/dados/aportes
+// quando Israel confirmar o UID admin e a estrutura estiver populada.
+// Carteira G20 real — 115 ativos (extraídos das transações históricas, posição líquida positiva)
+var SEED_CG20 = [
+  // ── AÇÕES BR ──
+  { ticker: 'AUAU3',  nome: 'Uniao Pet Participacoes S.A.',              classe: 'acao-br' },
+  { ticker: 'AZZA3',  nome: 'Azzas 2154 S.A.',                          classe: 'acao-br' },
+  { ticker: 'BMOB3',  nome: 'Bemobi Mobile Tech S.A.',                  classe: 'acao-br' },
+  { ticker: 'BPAC11', nome: 'Banco BTG Pactual S.A.',                   classe: 'acao-br' },
+  { ticker: 'BRAV3',  nome: 'Brava Energia S.A.',                       classe: 'acao-br' },
+  { ticker: 'BRKM5',  nome: 'Braskem S.A.',                             classe: 'acao-br' },
+  { ticker: 'CMIG4',  nome: 'CEMIG - Cia Energética de Minas Gerais',   classe: 'acao-br' },
+  { ticker: 'CVCB3',  nome: 'CVC Brasil Operadora e Agência de Viagens',classe: 'acao-br' },
+  { ticker: 'EGIE3',  nome: 'Engie Brasil Energia S.A.',                classe: 'acao-br' },
+  { ticker: 'EMBJ3',  nome: 'Embraer S.A.',                             classe: 'acao-br' },
+  { ticker: 'ENEV3',  nome: 'Eneva S.A.',                               classe: 'acao-br' },
+  { ticker: 'GMAT3',  nome: 'Grupo Mateus S.A.',                        classe: 'acao-br' },
+  { ticker: 'INTB3',  nome: 'Intelbras S.A.',                           classe: 'acao-br' },
+  { ticker: 'LREN3',  nome: 'Lojas Renner S.A.',                        classe: 'acao-br' },
+  { ticker: 'MGLU3',  nome: 'Magazine Luiza S.A.',                      classe: 'acao-br' },
+  { ticker: 'NATU3',  nome: 'Natura Cosméticos S.A.',                   classe: 'acao-br' },
+  { ticker: 'PETR4',  nome: 'Petróleo Brasileiro S.A. - Petrobras',     classe: 'acao-br' },
+  { ticker: 'PRIO3',  nome: 'Prio S.A.',                                classe: 'acao-br' },
+  { ticker: 'QUAL3',  nome: 'Qualicorp Consultoria e Corretora',        classe: 'acao-br' },
+  { ticker: 'RADL3',  nome: 'Raia Drogasil S.A.',                       classe: 'acao-br' },
+  { ticker: 'RENT3',  nome: 'Localiza Rent a Car S.A.',                 classe: 'acao-br' },
+  { ticker: 'SAPR11', nome: 'Sanepar S.A.',                             classe: 'acao-br' },
+  { ticker: 'SBFG3',  nome: 'Grupo SBF S.A.',                           classe: 'acao-br' },
+  { ticker: 'SUZB3',  nome: 'Suzano S.A.',                              classe: 'acao-br' },
+  { ticker: 'TRIS3',  nome: 'Trisul S.A.',                              classe: 'acao-br' },
+  { ticker: 'VALE3',  nome: 'Vale S.A.',                                classe: 'acao-br' },
+  { ticker: 'VIVA3',  nome: 'Vivara Participações S.A.',                classe: 'acao-br' },
+  { ticker: 'VULC3',  nome: 'Vulcabras S.A.',                           classe: 'acao-br' },
+  { ticker: 'WEGE3',  nome: 'WEG S.A.',                                 classe: 'acao-br' },
+  { ticker: 'WIZC3',  nome: 'Wiz Co Participações e Corretagem',        classe: 'acao-br' },
+
+  // ── FIIs & FIAGROS ──
+  { ticker: 'BCRI11', nome: 'Banestes Recebíveis FII',                  classe: 'fii' },
+  { ticker: 'BTHF11', nome: 'BTG Pactual Real Estate Hedge Fund FII',   classe: 'fii' },
+  { ticker: 'CPTR11', nome: 'Capitania Agro Strategies Fiagro',         classe: 'fii' },
+  { ticker: 'HCTR11', nome: 'Hectare CE FII',                           classe: 'fii' },
+  { ticker: 'HGLG11', nome: 'CSHG Logística FII',                       classe: 'fii' },
+  { ticker: 'KNCA11', nome: 'Kinea Crédito Agro Fiagro',                classe: 'fii' },
+  { ticker: 'KNRI11', nome: 'Kinea Renda Imobiliária FII',              classe: 'fii' },
+  { ticker: 'RBRR11', nome: 'RBR Rendimento High Grade FII',            classe: 'fii' },
+  { ticker: 'SNAG11', nome: 'Suno Agro - Fiagro-Imobiliario',           classe: 'fii' },
+  { ticker: 'TVRI11', nome: 'BB Progressivo II FII',                    classe: 'fii' },
+  { ticker: 'VISC11', nome: 'Vinci Shopping Centers FII',               classe: 'fii' },
+  { ticker: 'VRTA11', nome: 'Fator Veritá FII',                         classe: 'fii' },
+  { ticker: 'XPCA11', nome: 'XP Crédito Agrícola Fiagro',              classe: 'fii' },
+  { ticker: 'XPLG11', nome: 'XP Log FII',                               classe: 'fii' },
+
+  // ── STOCKS (EUA) ──
+  { ticker: 'AAPL',   nome: 'Apple Inc.',                               classe: 'stock' },
+  { ticker: 'ACN',    nome: 'Accenture plc',                            classe: 'stock' },
+  { ticker: 'ADBE',   nome: 'Adobe Inc.',                               classe: 'stock' },
+  { ticker: 'AMZN',   nome: 'Amazon.com, Inc.',                         classe: 'stock' },
+  { ticker: 'ANF',    nome: 'Abercrombie & Fitch Co.',                  classe: 'stock' },
+  { ticker: 'ASML',   nome: 'ASML Holding N.V.',                        classe: 'stock' },
+  { ticker: 'BABA',   nome: 'Alibaba Group Holding Limited',            classe: 'stock' },
+  { ticker: 'BLK',    nome: 'BlackRock, Inc.',                          classe: 'stock' },
+  { ticker: 'BRK.B',  nome: 'Berkshire Hathaway Inc.',                  classe: 'stock' },
+  { ticker: 'CEG',    nome: 'Constellation Energy Corporation',         classe: 'stock' },
+  { ticker: 'COIN',   nome: 'Coinbase Global, Inc.',                    classe: 'stock' },
+  { ticker: 'CROX',   nome: 'Crocs, Inc.',                              classe: 'stock' },
+  { ticker: 'DELL',   nome: 'Dell Technologies Inc.',                   classe: 'stock' },
+  { ticker: 'DIS',    nome: 'The Walt Disney Company',                  classe: 'stock' },
+  { ticker: 'DPZ',    nome: "Domino's Pizza, Inc.",                     classe: 'stock' },
+  { ticker: 'DUOL',   nome: 'Duolingo, Inc.',                           classe: 'stock' },
+  { ticker: 'ENPH',   nome: 'Enphase Energy, Inc.',                     classe: 'stock' },
+  { ticker: 'FTNT',   nome: 'Fortinet, Inc.',                           classe: 'stock' },
+  { ticker: 'GOOG',   nome: 'Alphabet Inc.',                            classe: 'stock' },
+  { ticker: 'INTR',   nome: 'Inter & Co, Inc.',                         classe: 'stock' },
+  { ticker: 'LULU',   nome: 'lululemon athletica inc.',                 classe: 'stock' },
+  { ticker: 'MELI',   nome: 'MercadoLibre, Inc.',                       classe: 'stock' },
+  { ticker: 'META',   nome: 'Meta Platforms, Inc.',                     classe: 'stock' },
+  { ticker: 'MNST',   nome: 'Monster Beverage Corporation',             classe: 'stock' },
+  { ticker: 'MSFT',   nome: 'Microsoft Corporation',                    classe: 'stock' },
+  { ticker: 'NFLX',   nome: 'Netflix, Inc.',                            classe: 'stock' },
+  { ticker: 'NKE',    nome: 'NIKE, Inc.',                               classe: 'stock' },
+  { ticker: 'NU',     nome: 'Nu Holdings Ltd.',                         classe: 'stock' },
+  { ticker: 'NVDA',   nome: 'NVIDIA Corporation',                       classe: 'stock' },
+  { ticker: 'NVO',    nome: 'Novo Nordisk A/S',                         classe: 'stock' },
+  { ticker: 'PYPL',   nome: 'PayPal Holdings, Inc.',                    classe: 'stock' },
+  { ticker: 'QBTS',   nome: 'D-Wave Quantum Inc.',                      classe: 'stock' },
+  { ticker: 'RGTI',   nome: 'Rigetti Computing, Inc.',                  classe: 'stock' },
+  { ticker: 'ROL',    nome: 'Rollins, Inc.',                            classe: 'stock' },
+  { ticker: 'TSLA',   nome: 'Tesla, Inc.',                              classe: 'stock' },
+  { ticker: 'TSM',    nome: 'Taiwan Semiconductor Manufacturing Co.',   classe: 'stock' },
+  { ticker: 'UNH',    nome: 'UnitedHealth Group Incorporated',          classe: 'stock' },
+  { ticker: 'VST',    nome: 'Vistra Corp.',                             classe: 'stock' },
+  { ticker: 'XP',     nome: 'XP Inc.',                                  classe: 'stock' },
+
+  // ── ETFs ──
+  { ticker: 'ARGT',   nome: 'Global X MSCI Argentina ETF',             classe: 'etf' },
+  { ticker: 'CIBR',   nome: 'First Trust NASDAQ Cybersecurity ETF',    classe: 'etf' },
+  { ticker: 'HERO',   nome: 'Global X Video Games & Esports ETF',      classe: 'etf' },
+  { ticker: 'IEUR',   nome: 'iShares Core MSCI Europe ETF',            classe: 'etf' },
+  { ticker: 'MCHI',   nome: 'iShares MSCI China ETF',                  classe: 'etf' },
+  { ticker: 'NOBL',   nome: 'ProShares S&P 500 Dividend Aristocrats',  classe: 'etf' },
+  { ticker: 'QQQ',    nome: 'Invesco QQQ Trust',                       classe: 'etf' },
+  { ticker: 'QYLD',   nome: 'Global X NASDAQ 100 Covered Call ETF',    classe: 'etf' },
+  { ticker: 'SCHA',   nome: 'Schwab U.S. Small-Cap ETF',               classe: 'etf' },
+  { ticker: 'URA',    nome: 'Global X Uranium ETF',                    classe: 'etf' },
+  { ticker: 'VNQ',    nome: 'Vanguard Real Estate Index Fund ETF',     classe: 'etf' },
+  { ticker: 'XBI',    nome: 'SPDR S&P Biotech ETF',                    classe: 'etf' },
+  { ticker: 'XLU',    nome: 'State Street Utilities Select Sector SPDR ETF', classe: 'etf' },
+  { ticker: 'XYLD',   nome: 'Global X S&P 500 Covered Call ETF',       classe: 'etf' },
+
+  // ── REITs ──
+  { ticker: 'DOC',    nome: 'Healthpeak Properties, Inc.',             classe: 'reit' },
+  { ticker: 'EQIX',   nome: 'Equinix, Inc.',                           classe: 'reit' },
+  { ticker: 'ESS',    nome: 'Essex Property Trust, Inc.',              classe: 'reit' },
+  { ticker: 'IIPR',   nome: 'Innovative Industrial Properties, Inc.',  classe: 'reit' },
+  { ticker: 'NNN',    nome: 'NNN REIT, Inc.',                          classe: 'reit' },
+  { ticker: 'O',      nome: 'Realty Income Corporation',               classe: 'reit' },
+  { ticker: 'PLD',    nome: 'Prologis, Inc.',                          classe: 'reit' },
+  { ticker: 'SKT',    nome: 'Tanger Inc.',                             classe: 'reit' },
+  { ticker: 'SLG',    nome: 'SL Green Realty Corp.',                   classe: 'reit' },
+
+  // ── CRIPTO ──
+  { ticker: 'BNB',    nome: 'BNB',                                     classe: 'cripto' },
+  { ticker: 'BTC',    nome: 'Bitcoin',                                  classe: 'cripto' },
+  { ticker: 'DOT',    nome: 'Polkadot',                                 classe: 'cripto' },
+  { ticker: 'ETH',    nome: 'Ethereum',                                 classe: 'cripto' },
+  { ticker: 'HNT',    nome: 'Helium',                                   classe: 'cripto' },
+  { ticker: 'LINK',   nome: 'Chainlink',                                classe: 'cripto' },
+  { ticker: 'MANA',   nome: 'Decentraland',                             classe: 'cripto' },
+  { ticker: 'SAND',   nome: 'The Sandbox',                              classe: 'cripto' },
+  { ticker: 'SOL',    nome: 'Solana',                                   classe: 'cripto' },
+];
+
+function carregarAtivosDisponiveis() {
+  // ordena: classe alfabética, depois ticker
+  var arr = SEED_CG20.slice().sort(function(a, b) {
+    var ordemClasse = { 'acao-br': 1, 'fii': 2, 'stock': 3, 'etf': 4, 'reit': 5, 'cripto': 6 };
+    var oa = ordemClasse[a.classe] || 9;
+    var ob = ordemClasse[b.classe] || 9;
+    if (oa !== ob) return oa - ob;
+    return a.ticker.localeCompare(b.ticker);
+  });
+
+  ativosDisponiveis = arr;
+  document.getElementById('ativosCount').textContent = arr.length + ' ativos';
+  renderAtivosList();
+  buscarCotacoes(arr.map(function(a) { return a.ticker; }));
+}
+
+// ── DETECTAR CLASSE ──────────────────────────────
+function detectarClasse(ticker, dados) {
+  if (dados && dados.classe) return dados.classe;
+  if (dados && dados.type) {
+    var t = dados.type.toLowerCase();
+    if (t === 'fii' || t === 'fiagro') return 'fii';
+    if (t === 'cripto' || t === 'crypto') return 'cripto';
+    if (t === 'stock' || t === 'us_stock') return 'stock';
+    if (t === 'etf') return 'etf';
+    if (t === 'reit') return 'reit';
+    if (t === 'acao' || t === 'br_stock' || t === 'acao-br') return 'acao-br';
+  }
+
+  // heurísticas
+  var CRIPTOS = ['BTC','ETH','SOL','BNB','XRP','ADA','DOT','MATIC','AVAX','LINK','UNI','AAVE','LTC','BCH'];
+  if (CRIPTOS.indexOf(ticker.toUpperCase()) >= 0) return 'cripto';
+
+  var t = ticker.toUpperCase();
+  if (/\d{1,2}$/.test(t)) {
+    var n = parseInt(t.slice(-2));
+    if (t.endsWith('11') && !['BPAC11','TAEE11','SANB11'].includes(t)) return 'fii';
+    if (n >= 3 && n <= 8) return 'acao-br';
+    if (n === 11) return 'acao-br';
+  }
+
+  // se tem mais de 5 chars sem número, provavelmente US
+  if (/^[A-Z]{4,}$/.test(t)) return 'stock';
+  if (/^[A-Z]{3,4}\d?$/.test(t)) return 'stock';
+
+  return 'acao-br';
+}
+
+// ── COTAÇÕES ────────────────────────────────────
+function buscarCotacoes(tickers) {
+  if (!tickers.length) return;
+  // divide em lotes de 10
+  var lotes = [];
+  for (var i = 0; i < tickers.length; i += 10) {
+    lotes.push(tickers.slice(i, i + 10));
+  }
+
+  lotes.forEach(function(lote) {
+    var url = 'https://g20-proxy.vercel.app/api/quote?tickers=' + encodeURIComponent(lote.join(','));
+    fetch(url).then(function(r){ return r.json(); }).then(function(data) {
+      if (Array.isArray(data)) {
+        data.forEach(function(q) {
+          if (q.ticker && q.price) cotacoesCache[q.ticker] = q.price;
+        });
+      } else if (data && typeof data === 'object') {
+        Object.assign(cotacoesCache, data);
+      }
+      renderAtivosList();
+    }).catch(function(){});
+  });
+}
+
+// ── RENDER ATIVOS ────────────────────────────────
+function renderAtivosList() {
+  var search = (document.getElementById('searchAtivos') || {}).value || '';
+  var lista = ativosDisponiveis.filter(function(a) {
+    var matchFilter = filtroAtual === 'todos' || a.classe === filtroAtual;
+    var matchSearch = !search || a.ticker.toLowerCase().includes(search.toLowerCase()) || (a.nome && a.nome.toLowerCase().includes(search.toLowerCase()));
+    return matchFilter && matchSearch;
+  });
+
+  var el = document.getElementById('ativosList');
+  if (!lista.length) {
+    el.innerHTML = '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><p>Nenhum ativo encontrado</p></div>';
+    return;
+  }
+
+  var html = '';
+  var maxCripto = 3;
+  var criptosNaSel = selecionados.filter(function(tk) {
+    var a = ativosDisponiveis.find(function(x){ return x.ticker===tk; });
+    return a && a.classe === 'cripto';
+  }).length;
+
+  lista.forEach(function(a) {
+    var isSel = selecionados.indexOf(a.ticker) >= 0;
+    var preco = cotacoesCache[a.ticker];
+    var precoStr = preco ? formatPreco(preco, a.classe) : '—';
+
+    // disabled se: já tem 10 e não está selecionado, ou se cripto e já tem 3 e não está selecionado
+    var disabled = false;
+    if (!isSel && selecionados.length >= 10) disabled = true;
+    if (!isSel && a.classe === 'cripto' && criptosNaSel >= maxCripto) disabled = true;
+
+    var classInfo = CLASS_MAP[a.classe] || CLASS_MAP['acao-br'];
+    var slug = a.logoSlug || gerarSlug(a.ticker, a.classe);
+
+    html += '<div class="ativo-row' + (isSel ? ' selected':'') + (disabled ? ' disabled':'') + '" onclick="toggleAtivo(\'' + a.ticker + '\')">';
+    html += '<div class="ativo-logo"><img src="https://s3-symbol-logo.tradingview.com/' + slug + '.svg" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\'" style="display:block"><span style="display:none;width:100%;height:100%;align-items:center;justify-content:center;font-size:9px;font-weight:700">' + a.ticker.slice(0,4) + '</span></div>';
+    html += '<div class="ativo-info"><div class="ativo-ticker">' + a.ticker + '</div><div class="ativo-nome">' + (a.nome || '') + '</div></div>';
+    html += '<span class="ativo-class-tag ' + classInfo.css + '">' + classInfo.label + '</span>';
+    html += '<div class="ativo-preco">' + precoStr + '</div>';
+    html += '<div class="ativo-check' + (isSel ? ' checked':'') + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>';
+    html += '</div>';
+  });
+
+  el.innerHTML = html;
+}
+
+function gerarSlug(ticker, classe) {
+  var t = ticker.toLowerCase();
+  // slugs conhecidos
+  var slugsConhecidos = {
+    'itub4': 'itau-unibanco', 'itub3': 'itau-unibanco',
+    'bbdc4': 'bradesco', 'bbdc3': 'bradesco',
+    'bbas3': 'banco-do-brasil',
+    'b3sa3': 'b3-on-nm',
+    'ggbr4': 'gerdau', 'ggbr3': 'gerdau',
+    'sbsp3': 'sabesp',
+    'embr3': 'embraer',
+    'stne': 'stoneco',
+    'btc': 'bitcoin', 'eth': 'ethereum',
+    'sol': 'solana', 'bnb': 'binance'
+  };
+  return slugsConhecidos[t] || t.replace(/\d+$/, '');
+}
+
+function formatPreco(p, classe) {
+  if (!p) return '—';
+  var n = parseFloat(p);
+  if (isNaN(n)) return '—';
+  var usd = ['stock','etf','reit','cripto'];
+  if (usd.indexOf(classe) >= 0) return '$' + n.toFixed(2);
+  return 'R$' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// ── TOGGLE ATIVO ─────────────────────────────────
+function toggleAtivo(ticker) {
+  var idx = selecionados.indexOf(ticker);
+  var ativo = ativosDisponiveis.find(function(a){ return a.ticker === ticker; });
+  if (!ativo) return;
+
+  if (idx >= 0) {
+    selecionados.splice(idx, 1);
+  } else {
+    if (selecionados.length >= 10) { showToast('Máximo de 10 ativos atingido', 'error'); return; }
+    if (ativo.classe === 'cripto') {
+      var criptosNaSel = selecionados.filter(function(tk) {
+        var a = ativosDisponiveis.find(function(x){ return x.ticker===tk; });
+        return a && a.classe === 'cripto';
+      }).length;
+      if (criptosNaSel >= 3) { showToast('Máximo de 3 criptoativos permitido', 'error'); return; }
+    }
+    selecionados.push(ticker);
+  }
+
+  renderAtivosList();
+  renderSelecionados();
+  updateRegras();
+  updateSaveBtn();
+}
+
+// ── RENDER SELECIONADOS ──────────────────────────
+function renderSelecionados() {
+  var el = document.getElementById('csList');
+  var counter = document.getElementById('csCounter');
+  var total = document.getElementById('totalSelecionados');
+
+  if (counter) counter.textContent = selecionados.length + ' / 10';
+  if (total) total.textContent = selecionados.length + '/10';
+
+  if (!selecionados.length) {
+    el.innerHTML = '<div class="cs-empty">Selecione 10 ativos ao lado</div>';
+    return;
+  }
+
+  var html = '';
+  selecionados.forEach(function(tk, i) {
+    var ativo = ativosDisponiveis.find(function(a){ return a.ticker === tk; });
+    var classInfo = CLASS_MAP[(ativo && ativo.classe) || 'acao-br'];
+    html += '<div class="cs-item">';
+    html += '<span class="cs-num">' + (i+1) + '</span>';
+    html += '<span class="cs-ticker ' + classInfo.css + '" style="padding:2px 6px;border-radius:6px;font-size:12px;">' + tk + '</span>';
+    html += '<span class="cs-nome">' + ((ativo && ativo.nome) || '') + '</span>';
+    html += '<button class="cs-remove" onclick="removerAtivo(\'' + tk + '\')" title="Remover"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>';
+    html += '</div>';
+  });
+
+  el.innerHTML = html;
+}
+
+function removerAtivo(ticker) {
+  var idx = selecionados.indexOf(ticker);
+  if (idx >= 0) selecionados.splice(idx, 1);
+  renderAtivosList();
+  renderSelecionados();
+  updateRegras();
+  updateSaveBtn();
+}
+
+// ── REGRAS ───────────────────────────────────────
+function updateRegras() {
+  var regras = [
+    { id: 'acao-br', label: 'Ações Brasileiras', obrigatorio: true, min: 1 },
+    { id: 'fii',     label: 'FII / Fiagro',       obrigatorio: true, min: 1 },
+    { id: 'stock',   label: 'Stocks (EUA)',        obrigatorio: true, min: 1 },
+    { id: 'etf',     label: 'ETFs Internacionais', obrigatorio: true, min: 1 },
+    { id: 'reit',    label: 'REITs',               obrigatorio: true, min: 1 },
+    { id: 'cripto',  label: 'Cripto (máx 3)',      obrigatorio: false, min: 0, max: 3 }
+  ];
+
+  var el = document.getElementById('regrasPanel');
+  var html = '';
+
+  regras.forEach(function(r) {
+    var count = selecionados.filter(function(tk) {
+      var a = ativosDisponiveis.find(function(x){ return x.ticker === tk; });
+      return a && a.classe === r.id;
+    }).length;
+
+    var classInfo = CLASS_MAP[r.id];
+    var ok = r.obrigatorio ? count >= r.min : (!r.max || count <= r.max);
+    var state = count === 0 ? 'pending' : (ok ? 'ok' : 'error');
+    var statusText = count === 0 ? (r.obrigatorio ? 'Obrigatório' : 'Opcional') : count + (r.max ? '/'+r.max : '');
+
+    html += '<div class="regra-item ' + state + '">';
+    html += '<span class="regra-label"><span class="class-dot ' + classInfo.dot + '"></span>' + r.label + '</span>';
+    html += '<span class="regra-status">' + statusText + '</span>';
+    html += '</div>';
+  });
+
+  if (el) el.innerHTML = html;
+}
+
+function renderRegrasPanel() { updateRegras(); }
+
+function validarRegras() {
+  var obrigatorias = ['acao-br','fii','stock','etf','reit'];
+  for (var i = 0; i < obrigatorias.length; i++) {
+    var classe = obrigatorias[i];
+    var tem = selecionados.some(function(tk) {
+      var a = ativosDisponiveis.find(function(x){ return x.ticker === tk; });
+      return a && a.classe === classe;
+    });
+    if (!tem) return false;
+  }
+  var criptos = selecionados.filter(function(tk) {
+    var a = ativosDisponiveis.find(function(x){ return x.ticker === tk; });
+    return a && a.classe === 'cripto';
+  }).length;
+  if (criptos > 3) return false;
+  if (selecionados.length !== 10) return false;
+  return true;
+}
+
+function updateSaveBtn() {
+  var btn = document.getElementById('saveBtn');
+  if (!btn) return;
+  var c = getCicloInfo(cicloAtivo);
+  if (c.fechado) {
+    btn.disabled = true;
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Ciclo Encerrado';
+    return;
+  }
+  var valid = validarRegras();
+  btn.disabled = !valid;
+}
+
+// ── FILTER / SEARCH ──────────────────────────────
+function setFilter(f) {
+  filtroAtual = f;
+  document.querySelectorAll('.filter-btn').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.filter === f);
+  });
+  renderAtivosList();
+}
+
+function filterAtivos() { renderAtivosList(); }
+
+// ── CARREGAR CARTEIRAS DO ALUNO ──────────────────
+function carregarCarteirasDoAluno() {
+  if (!currentUid) return;
+  var tipos = ['mensal','trimestral','anual'];
+  tipos.forEach(function(tipo) {
+    var c = getCicloInfo(tipo);
+    db.collection('game-g20').doc(currentUid).collection('carteiras').doc(c.key).get().then(function(doc) {
+      if (doc.exists) {
+        carteirasCache[tipo] = doc.data().ativos || [];
+        if (tipo === cicloAtivo) {
+          selecionados = carteirasCache[tipo].map(function(a){ return a.ticker; });
+          renderAtivosList();
+          renderSelecionados();
+          updateRegras();
+          updateSaveBtn();
+        }
+      }
+    });
+  });
+}
+
+// ── SALVAR CARTEIRA ──────────────────────────────
+function salvarCarteira() {
+  if (!validarRegras()) { showToast('Verifique as regras antes de salvar', 'error'); return; }
+  var c = getCicloInfo(cicloAtivo);
+  if (c.fechado) { showToast('Este ciclo já está encerrado', 'error'); return; }
+
+  var btn = document.getElementById('saveBtn');
+  btn.disabled = true;
+  btn.textContent = 'Salvando...';
+
+  var ativos = selecionados.map(function(tk) {
+    var ativo = ativosDisponiveis.find(function(a){ return a.ticker === tk; });
+    var preco = cotacoesCache[tk] || null;
+    return {
+      ticker: tk,
+      nome: (ativo && ativo.nome) || tk,
+      classe: (ativo && ativo.classe) || 'acao-br',
+      precoBase: preco,
+      savedAt: new Date().toISOString()
+    };
+  });
+
+  var payload = {
+    ativos: ativos,
+    ciclo: cicloAtivo,
+    cicloKey: c.key,
+    cicloLabel: c.label,
+    savedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    uid: currentUid
+  };
+
+  db.collection('game-g20').doc(currentUid).collection('carteiras').doc(c.key).set(payload).then(function() {
+    carteirasCache[cicloAtivo] = ativos;
+    showToast('Carteira salva com sucesso!', 'success');
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Salvar Carteira';
+    carregarRanking();
+  }).catch(function(err) {
+    showToast('Erro ao salvar: ' + err.message, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Salvar Carteira';
+  });
+}
+
+// ── RANKING ──────────────────────────────────────
+function carregarRanking() {
+  ['mensal','trimestral','anual'].forEach(function(tipo) {
+    carregarRankingTipo(tipo);
+  });
+  var now = new Date();
+  var el = document.getElementById('lastUpdate');
+  if (el) el.textContent = 'Atualizado às ' + now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+}
+
+function carregarRankingTipo(tipo) {
+  var c = getCicloInfo(tipo);
+
+  db.collection('game-g20').where('cicloKey_' + tipo, '==', c.key).get().catch(function(){
+    // tenta via subcollection de todos os usuários
+  });
+
+  // Estratégia: busca todos os documentos no ciclo atual
+  db.collectionGroup('carteiras').where('cicloKey', '==', c.key).get().then(function(snap) {
+    var jogadores = [];
+    var promessas = [];
+
+    snap.forEach(function(doc) {
+      var d = doc.data();
+      if (!d.uid || !d.ativos) return;
+
+      // busca nome do jogador
+      var p = db.collection('users').doc(d.uid).get().then(function(userDoc) {
+        var nome = d.uid;
+        var foto = '';
+        var infinite = false;
+        if (userDoc.exists) {
+          var ud = userDoc.data();
+          var prof = ud.profile || ud;
+          nome = prof.name || prof.nome || ud.email || d.uid;
+          foto = prof.foto || prof.photo || '';
+          infinite = ud.infinite === true;
+        }
+
+        // calcula rentabilidade
+        var rentabilidade = calcularRentabilidade(d.ativos);
+
+        jogadores.push({
+          uid: d.uid,
+          nome: nome,
+          foto: foto,
+          infinite: infinite,
+          ativos: d.ativos,
+          rentabilidade: rentabilidade
+        });
+      });
+      promessas.push(p);
+    });
+
+    Promise.all(promessas).then(function() {
+      jogadores.sort(function(a, b) { return b.rentabilidade - a.rentabilidade; });
+      rankingData[tipo] = jogadores;
+      renderRankingTipo(tipo, jogadores);
+      atualizarMyPosition(tipo, jogadores);
+    });
+  }).catch(function(err) {
+    console.warn('Erro ranking ' + tipo + ':', err);
+    document.getElementById('tbody' + tipo.charAt(0).toUpperCase() + tipo.slice(1)).innerHTML =
+      '<tr><td colspan="3" style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">Erro ao carregar ranking</td></tr>';
+  });
+}
+
+function calcularRentabilidade(ativos) {
+  if (!ativos || !ativos.length) return 0;
+  var total = 0;
+  var count = 0;
+  ativos.forEach(function(a) {
+    var precoBase = parseFloat(a.precoBase);
+    var precoAtual = cotacoesCache[a.ticker] ? parseFloat(cotacoesCache[a.ticker]) : null;
+    if (precoBase && precoAtual && precoBase > 0) {
+      total += (precoAtual - precoBase) / precoBase * 100;
+      count++;
+    }
+  });
+  return count > 0 ? total / count : 0;
+}
+
+function renderRankingTipo(tipo, jogadores) {
+  var id = 'tbody' + tipo.charAt(0).toUpperCase() + tipo.slice(1);
+  var tbody = document.getElementById(id);
+  if (!tbody) return;
+
+  if (!jogadores.length) {
+    tbody.innerHTML = '<tr><td colspan="3" style="padding:28px;text-align:center;color:var(--text-muted);font-size:13px;">Nenhuma carteira cadastrada ainda</td></tr>';
+    return;
+  }
+
+  var html = '';
+  jogadores.forEach(function(j, i) {
+    var pos = i + 1;
+    var isMe = j.uid === currentUid;
+    var posClass = pos === 1 ? 'top1' : pos === 2 ? 'top2' : pos === 3 ? 'top3' : '';
+    var rentClass = j.rentabilidade >= 0 ? 'rentab-positive' : 'rentab-negative';
+    var rentStr = (j.rentabilidade >= 0 ? '+' : '') + j.rentabilidade.toFixed(2) + '%';
+
+    var ini = j.nome.split(' ').map(function(w){ return w[0]||''; }).slice(0,2).join('').toUpperCase();
+
+    html += '<tr class="' + (isMe ? 'my-row' : '') + '" onclick="openModalCarteira(\'' + j.uid + '\',\'' + tipo + '\',\'' + j.nome.replace(/'/g, "\\'") + '\')">';
+    html += '<td class="td-pos ' + posClass + '">' + pos + '</td>';
+    html += '<td><div class="td-player">';
+    if (j.foto) {
+      html += '<div class="player-avatar"><img src="' + j.foto + '" onerror="this.style.display=\'none\'"></div>';
+    } else {
+      html += '<div class="player-avatar">' + ini + '</div>';
+    }
+    html += '<span class="player-name">' + j.nome + '</span>';
+    if (j.infinite) html += '<span class="infinite-badge">∞</span>';
+    html += '</div></td>';
+    html += '<td class="' + rentClass + '">' + rentStr + '</td>';
+    html += '</tr>';
+  });
+
+  tbody.innerHTML = html;
+}
+
+function atualizarMyPosition(tipo, jogadores) {
+  var idx = jogadores.findIndex(function(j){ return j.uid === currentUid; });
+  var sufixos = { mensal: 'Mensal', trimestral: 'Trimestral', anual: 'Anual' };
+  var suf = sufixos[tipo];
+
+  var posEl = document.getElementById('myPos' + suf);
+  var rentEl = document.getElementById('myRent' + suf);
+
+  if (idx < 0) {
+    if (posEl) { posEl.textContent = '—'; posEl.className = 'pos-circle neutral'; }
+    if (rentEl) { rentEl.textContent = '—'; rentEl.className = 'pos-rentab neutral'; }
+    return;
+  }
+
+  var pos = idx + 1;
+  var j = jogadores[idx];
+
+  if (posEl) {
+    posEl.textContent = pos;
+    posEl.className = 'pos-circle';
+  }
+
+  if (rentEl) {
+    var r = j.rentabilidade;
+    rentEl.textContent = (r >= 0 ? '+' : '') + r.toFixed(2) + '%';
+    rentEl.className = 'pos-rentab ' + (r >= 0 ? 'positive' : 'negative');
+  }
+}
+
+// ── MODAL CARTEIRA ALUNO ─────────────────────────
+function openModalCarteira(uid, tipo, nome) {
+  var c = getCicloInfo(tipo);
+  document.getElementById('modalTitle').textContent = (uid === currentUid ? 'Minha Carteira' : nome) + ' — ' + (tipo.charAt(0).toUpperCase() + tipo.slice(1));
+  document.getElementById('modalSubtitle').textContent = c.label;
+  document.getElementById('modalOverlay').classList.add('open');
+
+  var tbody = document.getElementById('modalTbody');
+  tbody.innerHTML = '<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-muted);">Carregando...</td></tr>';
+  document.getElementById('modalRentab').textContent = '—';
+  document.getElementById('modalRentab').className = 'value';
+
+  db.collection('game-g20').doc(uid).collection('carteiras').doc(c.key).get().then(function(doc) {
+    if (!doc.exists) {
+      tbody.innerHTML = '<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-muted);">Nenhuma carteira cadastrada para este ciclo</td></tr>';
+      return;
+    }
+
+    var ativos = doc.data().ativos || [];
+    var html = '';
+    var totalRent = 0, count = 0;
+
+    ativos.forEach(function(a) {
+      var slug = gerarSlug(a.ticker, a.classe);
+      var classInfo = CLASS_MAP[a.classe] || CLASS_MAP['acao-br'];
+      var precoAtual = cotacoesCache[a.ticker] ? parseFloat(cotacoesCache[a.ticker]) : null;
+      var precoBase = a.precoBase ? parseFloat(a.precoBase) : null;
+      var rent = (precoBase && precoAtual && precoBase > 0) ? (precoAtual - precoBase) / precoBase * 100 : null;
+      if (rent !== null) { totalRent += rent; count++; }
+
+      var rentStr = rent !== null ? ((rent >= 0 ? '+' : '') + rent.toFixed(2) + '%') : '—';
+      var rentClass = rent === null ? '' : rent >= 0 ? 'rentab-positive' : 'rentab-negative';
+
+      var isUsd = ['stock','etf','reit','cripto'].indexOf(a.classe) >= 0;
+      var precoBaseStr = precoBase ? (isUsd ? '$' : 'R$') + precoBase.toFixed(2) : '—';
+      var precoAtualStr = precoAtual ? (isUsd ? '$' : 'R$') + precoAtual.toFixed(2) : '—';
+
+      html += '<tr>';
+      html += '<td><div style="display:flex;align-items:center;gap:8px;">';
+      html += '<div class="ativo-logo" style="width:28px;height:28px;"><img src="https://s3-symbol-logo.tradingview.com/' + slug + '.svg" onerror="this.style.display=\'none\'"></div>';
+      html += '<span class="ativo-class-tag ' + classInfo.css + '">' + a.ticker + '</span>';
+      html += '</div></td>';
+      html += '<td style="font-size:12px;color:var(--text-muted);">' + (a.nome||'') + '</td>';
+      html += '<td style="font-family:\'JetBrains Mono\',monospace;font-size:13px;">' + precoBaseStr + '</td>';
+      html += '<td style="font-family:\'JetBrains Mono\',monospace;font-size:13px;">' + precoAtualStr + '</td>';
+      html += '<td class="' + rentClass + '">' + rentStr + '</td>';
+      html += '</tr>';
+    });
+
+    tbody.innerHTML = html || '<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text-muted);">Sem ativos</td></tr>';
+
+    if (count > 0) {
+      var med = totalRent / count;
+      var rentEl = document.getElementById('modalRentab');
+      rentEl.textContent = (med >= 0 ? '+' : '') + med.toFixed(2) + '%';
+      rentEl.className = 'value ' + (med >= 0 ? 'rentab-positive' : 'rentab-negative');
+    }
+  }).catch(function(err) {
+    tbody.innerHTML = '<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text-muted);">Erro ao carregar</td></tr>';
+  });
+}
+
+function fecharModal(e) {
+  if (e.target === document.getElementById('modalOverlay')) fecharModalBtn();
+}
+
+function fecharModalBtn() {
+  document.getElementById('modalOverlay').classList.remove('open');
+}
+
+// ESC fecha modal
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') fecharModalBtn();
+});
+
+// ── TOAST ────────────────────────────────────────
+function showToast(msg, tipo) {
+  var t = document.getElementById('toast');
+  var icon = document.getElementById('toastIcon');
+  var msgEl = document.getElementById('toastMsg');
+  t.className = 'toast ' + tipo;
+  msgEl.textContent = msg;
+  icon.innerHTML = tipo === 'success'
+    ? '<polyline points="20 6 9 17 4 12" stroke="currentColor" stroke-width="2.5" fill="none"/>'
+    : '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><line x1="12" y1="8" x2="12" y2="16" stroke="currentColor" stroke-width="2"/><line x1="12" y1="16" x2="12.01" y2="16" stroke="currentColor" stroke-width="2"/>';
+  t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, 3500);
+}
+
+// init lucide icons
+document.addEventListener('DOMContentLoaded', function() {
+  if (window.lucide) lucide.createIcons();
+});
+</script>
+
+<script src="assets/g20-sidebar.js?v=11"></script>
+</body>
+</html>
