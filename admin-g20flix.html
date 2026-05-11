@@ -608,16 +608,42 @@ function abrirEditar(docId){
   var ytThumb='https://img.youtube.com/vi/'+v.id+'/mqdefault.jpg';
   var ytHero='https://img.youtube.com/vi/'+v.id+'/maxresdefault.jpg';
   var ci=document.getElementById('cardMockImg');
-  if(ci){ci.src=v.cardImg||ytThumb;ci.style.opacity='1';}
   var hi=document.getElementById('heroMockImg');
-  if(hi){hi.src=v.heroImg||ytHero;hi.style.opacity='1';}
   // Labels dos mocks
   var epEl=document.getElementById('cardMockEp');if(epEl)epEl.textContent=v.ep?'#'+v.ep:'';
   var ttEl=document.getElementById('cardMockTitle');if(ttEl)ttEl.textContent=v.title||'';
   var hlEl=document.getElementById('heroMockLabel');if(hlEl)hlEl.textContent='EP #'+(v.ep||'')+(v.date?' · '+v.date:'');
   document.getElementById('modalOverlay').classList.add('open');
   setTimeout(_bindImgSliders, 50);
-  _resetImgSliders(v);
+  // Carregar imagens e aplicar posição após load
+  var _v = v;
+  function _loadAndReset() {
+    // Só reseta depois que AMBAS as imagens carregaram
+    var cardLoaded = false, heroLoaded = false;
+    function tryReset() {
+      if (cardLoaded && heroLoaded) _resetImgSliders(_v);
+    }
+    if (ci) {
+      ci.style.opacity = '0.15';
+      ci.onload = function() { ci.style.opacity='1'; cardLoaded=true; tryReset(); };
+      ci.onerror = function() { cardLoaded=true; tryReset(); };
+      // Se já em cache
+      if (ci.complete && ci.naturalWidth) { cardLoaded=true; ci.style.opacity='1'; }
+      ci.src = _v.cardImg || ytThumb;
+      if (ci.complete && ci.naturalWidth) { cardLoaded=true; ci.style.opacity='1'; }
+    } else { cardLoaded=true; }
+    if (hi) {
+      hi.style.opacity = '0.15';
+      hi.onload = function() { hi.style.opacity='1'; heroLoaded=true; tryReset(); };
+      hi.onerror = function() { heroLoaded=true; tryReset(); };
+      if (hi.complete && hi.naturalWidth) { heroLoaded=true; hi.style.opacity='1'; }
+      hi.src = _v.heroImg || ytHero;
+      if (hi.complete && hi.naturalWidth) { heroLoaded=true; hi.style.opacity='1'; }
+    } else { heroLoaded=true; }
+    // Fallback se onload não disparar
+    setTimeout(function(){ cardLoaded=true; heroLoaded=true; tryReset(); }, 3000);
+  }
+  _loadAndReset();
 }
 
 function fecharModal(){document.getElementById('modalOverlay').classList.remove('open');_editingId=null;}
@@ -651,8 +677,16 @@ function salvarVideo(){
   var cSlX=document.getElementById('cSliderX'),cSlY=document.getElementById('cSliderY'),cSlZ=document.getElementById('cSliderZ');
   var hSlX=document.getElementById('hSliderX'),hSlY=document.getElementById('hSliderY'),hSlZ=document.getElementById('hSliderZ');
   var video={id:id,title:title,cat:document.getElementById('fCat').value,season:season,date:date,ep:ep,desc:document.getElementById('fDesc').value.trim(),destaque:destaque,ordem:_editingId?(_videos.find(function(v){return v.docId===_editingId;})||{}).ordem||999:_videos.length+1};
-  if(cardImg){video.cardImg=cardImg;if(cSlX)video.cardImgX=parseInt(cSlX.value);if(cSlY)video.cardImgY=parseInt(cSlY.value);if(cSlZ)video.cardImgZ=parseFloat(cSlZ.value)/100;}
-  if(heroImg){video.heroImg=heroImg;if(hSlX)video.heroImgX=parseInt(hSlX.value);if(hSlY)video.heroImgY=parseInt(hSlY.value);if(hSlZ)video.heroImgZ=parseFloat(hSlZ.value)/100;}
+  // Salvar imagem e posição do card
+  if(cardImg) video.cardImg=cardImg;
+  if(cSlX) video.cardImgX=parseInt(cSlX.value);
+  if(cSlY) video.cardImgY=parseInt(cSlY.value);
+  if(cSlZ) video.cardImgZ=parseFloat(cSlZ.value)/100;
+  // Salvar imagem e posição do hero — mesmo sem URL customizada, salva posição para thumbnail YT
+  if(heroImg) video.heroImg=heroImg;
+  if(hSlX) video.heroImgX=parseInt(hSlX.value);
+  if(hSlY) video.heroImgY=parseInt(hSlY.value);
+  if(hSlZ) video.heroImgZ=parseFloat(hSlZ.value)/100;
   salvarNoFirestore(video,_editingId)
     .then(function(ref){
       if(_editingId){var idx=_videos.findIndex(function(v){return v.docId===_editingId;});if(idx>=0){video.docId=_editingId;_videos[idx]=video;}}
