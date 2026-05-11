@@ -832,40 +832,46 @@ function _bindImgSliders() {
   if(hZ) hZ.oninput = updateHeroImgPosition;
 }
 
-function _calcMinZoom(imgId, frameId) {
-  var img = document.getElementById(imgId);
-  var frame = document.getElementById(frameId);
+function _calcMinZoomDirect(img, frame) {
   if (!img || !frame || !img.naturalWidth) return 100;
   var fw = frame.clientWidth || 160;
   var fh = frame.clientHeight || 192;
-  var minZ = Math.max(fw / img.naturalWidth, fh / img.naturalHeight);
-  return Math.round(minZ * 100);
+  return Math.round(Math.max(fw / img.naturalWidth, fh / img.naturalHeight) * 100);
+}
+
+function _applySliders(prefix, img, frame, x, y, z) {
+  // Calcula minZoom agora que a imagem já carregou
+  var minZ = _calcMinZoomDirect(img, frame);
+  var finalZ = Math.max(z, minZ);
+  var el;
+  if((el=document.getElementById(prefix+'SliderX'))) el.value=x;
+  if((el=document.getElementById(prefix+'SliderY'))) el.value=y;
+  if((el=document.getElementById(prefix+'SliderZ'))) el.value=finalZ;
+  if((el=document.getElementById(prefix+'SliderXVal'))) el.textContent=x+'%';
+  if((el=document.getElementById(prefix+'SliderYVal'))) el.textContent=y+'%';
+  if((el=document.getElementById(prefix+'SliderZVal'))) el.textContent=finalZ+'%';
+  if(prefix==='c') updateCardImgPosition();
+  else updateHeroImgPosition();
 }
 
 function _resetImgSliders(v) {
-  var el;
-  // card
+  var cImg = document.getElementById('cardMockImg');
+  var cFrame = document.getElementById('cardMock');
+  var hImg = document.getElementById('heroMockImg');
+  var hFrame = document.getElementById('heroMockWrap');
   var cx = v.cardImgX!=null ? v.cardImgX : 50;
   var cy = v.cardImgY!=null ? v.cardImgY : 50;
-  var cz = v.cardImgZ!=null ? Math.round(v.cardImgZ*100) : _calcMinZoom('cardMockImg','cardMock');
-  if((el=document.getElementById('cSliderX'))) el.value=cx;
-  if((el=document.getElementById('cSliderY'))) el.value=cy;
-  if((el=document.getElementById('cSliderZ'))) el.value=cz;
-  if((el=document.getElementById('cSliderXVal'))) el.textContent=cx+'%';
-  if((el=document.getElementById('cSliderYVal'))) el.textContent=cy+'%';
-  if((el=document.getElementById('cSliderZVal'))) el.textContent=cz+'%';
-  setTimeout(updateCardImgPosition, 50);
-  // hero
+  var cz = v.cardImgZ!=null ? Math.round(v.cardImgZ*100) : 10;
   var hx = v.heroImgX!=null ? v.heroImgX : 50;
   var hy = v.heroImgY!=null ? v.heroImgY : 50;
-  var hz = v.heroImgZ!=null ? Math.round(v.heroImgZ*100) : _calcMinZoom('heroMockImg','heroMockWrap');
-  if((el=document.getElementById('hSliderX'))) el.value=hx;
-  if((el=document.getElementById('hSliderY'))) el.value=hy;
-  if((el=document.getElementById('hSliderZ'))) el.value=hz;
-  if((el=document.getElementById('hSliderXVal'))) el.textContent=hx+'%';
-  if((el=document.getElementById('hSliderYVal'))) el.textContent=hy+'%';
-  if((el=document.getElementById('hSliderZVal'))) el.textContent=hz+'%';
-  setTimeout(updateHeroImgPosition, 50);
+  var hz = v.heroImgZ!=null ? Math.round(v.heroImgZ*100) : 10;
+  // Aplica quando imagem já carregou
+  function applyCard() { _applySliders('c', cImg, cFrame, cx, cy, cz); }
+  function applyHero() { _applySliders('h', hImg, hFrame, hx, hy, hz); }
+  if (cImg && cImg.complete && cImg.naturalWidth) { applyCard(); }
+  else if (cImg) { cImg.addEventListener('load', applyCard, {once:true}); }
+  if (hImg && hImg.complete && hImg.naturalWidth) { applyHero(); }
+  else if (hImg) { hImg.addEventListener('load', applyHero, {once:true}); }
 }
 
 // ESC fecha modal
