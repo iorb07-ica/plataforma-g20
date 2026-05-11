@@ -272,7 +272,7 @@
       { href: 'g20flix.html',            ico: '🎬', lucide: 'clapperboard',    label: 'G20Flix',        id: 'tut-flix', badge: '80' },
       { href: 'g20cast.html',            ico: '🎧', lucide: 'headphones',      label: 'G20Cast',        id: 'tut-cast' },
       { href: 'carteira.html',           ico: '📊', lucide: 'trending-up',     label: 'Carteira G20',   id: 'tut-carteira' },
-      { href: 'game.html',               ico: '🏆', lucide: 'trophy',          label: 'Game G20',       id: '' }
+      { href: 'game-g20.html',               ico: '🏆', lucide: 'trophy',          label: 'Game G20',       id: '' }
     ]},
     { section: 'Investimentos', cls: 'nav-section--investimentos', items: [
       { href: 'gestao-patrimonial.html', ico: '💰', lucide: 'briefcase',       label: 'Minha Carteira', id: 'tut-gestao' }
