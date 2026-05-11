@@ -96,7 +96,7 @@ body{background:var(--bg);color:var(--text);font-family:"DM Sans",sans-serif;min
 .img-mock-card-body{position:absolute;bottom:0;left:0;right:0;padding:10px}
 .img-mock-card-ep{font-size:9px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#c9a961;margin-bottom:3px}
 .img-mock-card-title{font-size:10px;font-weight:800;color:#fff;line-height:1.25}
-.img-mock-hero{position:relative;width:100%;aspect-ratio:59/24;border-radius:10px;overflow:hidden;background:#1a191e;margin-top:8px}
+.img-mock-hero{position:relative;width:100%;height:314px;border-radius:10px;overflow:hidden;background:#1a191e;margin-top:8px}
 .img-mock-hero-img{position:absolute;display:block;max-width:none;max-height:none}
 .img-mock-hero-overlay{position:absolute;inset:0;background:linear-gradient(to bottom,transparent 0%,transparent 40%,rgba(26,25,30,.6) 70%,rgba(26,25,30,1) 100%),linear-gradient(to right,rgba(26,25,30,.5) 0%,transparent 50%)}
 .img-mock-hero-label{position:absolute;bottom:10px;left:12px;font-size:9px;font-weight:800;color:#c9a961;letter-spacing:1.5px;text-transform:uppercase}
@@ -672,7 +672,38 @@ function onHeroImgInput(url) {
 }
 
 function updateHeroImgPosition() {
-  _applyImgPos('heroMockImg','heroMockWrap','hSliderX','hSliderY','hSliderZ','hSliderXVal','hSliderYVal','hSliderZVal');
+  // Usar dimensões reais do hero para cálculo fiel
+  var img = document.getElementById('heroMockImg');
+  var frame = document.getElementById('heroMockWrap');
+  var slX = document.getElementById('hSliderX');
+  var slY = document.getElementById('hSliderY');
+  var slZ = document.getElementById('hSliderZ');
+  if (!img || !frame || !slX) return;
+  if (!img.complete || !img.naturalWidth) {
+    img.addEventListener('load', updateHeroImgPosition, {once:true});
+    return;
+  }
+  var nw = img.naturalWidth, nh = img.naturalHeight;
+  var pct = parseFloat(slZ.value) || 100;
+  // fw/fh = dimensões REAIS do hero na plataforma (não do preview)
+  // Hero real: window.innerWidth - 200px sidebar, altura 480px
+  // Mas no admin não temos acesso ao g20flix — usamos proporção fixa 1180x480
+  var REAL_FW = 1180, REAL_FH = 480;
+  var iw = Math.round(nw * pct / 100);
+  var ih = Math.round(nh * pct / 100);
+  var ox = (iw <= REAL_FW) ? Math.round((REAL_FW - iw) / 2) : -Math.round((parseFloat(slX.value) / 100) * (iw - REAL_FW));
+  var oy = (ih <= REAL_FH) ? Math.round((REAL_FH - ih) / 2) : -Math.round((parseFloat(slY.value) / 100) * (ih - REAL_FH));
+  // Escalar para o preview (772px / 1180px = 0.654)
+  var scale = frame.clientWidth / REAL_FW;
+  img.style.width  = (iw * scale) + 'px';
+  img.style.height = (ih * scale) + 'px';
+  img.style.left   = (ox * scale) + 'px';
+  img.style.top    = (oy * scale) + 'px';
+  img.style.transform = '';
+  var xv=document.getElementById('hSliderXVal'), yv=document.getElementById('hSliderYVal'), zv=document.getElementById('hSliderZVal');
+  if(xv) xv.textContent = slX.value+'%';
+  if(yv) yv.textContent = slY.value+'%';
+  if(zv) zv.textContent = Math.round(pct)+'%';
 }
 
 function _bindImgSliders() {
