@@ -205,6 +205,16 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .c-etf{background:rgba(241,196,15,.18);color:#f4d03f}
 .c-reit{background:rgba(230,126,34,.18);color:#f0a14a}
 .c-cripto{background:rgba(201,169,97,.18);color:var(--gold-2)}
+
+/* fallback de logo por classe — gradiente igual à carteira */
+.logo-fb-acao-br{background:linear-gradient(135deg,#1e3a5f,#2563eb)}
+.logo-fb-fii{background:linear-gradient(135deg,#064e3b,#10b981)}
+.logo-fb-stock{background:linear-gradient(135deg,#3b0764,#8b5cf6)}
+.logo-fb-etf{background:linear-gradient(135deg,#7c2d12,#f97316)}
+.logo-fb-reit{background:linear-gradient(135deg,#7f1d1d,#ef4444)}
+.logo-fb-cripto{background:linear-gradient(135deg,#78350f,#f7931a)}
+.logo-fb-default{background:linear-gradient(135deg,#1f2937,#374151)}
+.logo-fb-text{display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-family:"JetBrains Mono",monospace;font-weight:700;color:rgba(255,255,255,.9);border-radius:inherit;font-size:11px;letter-spacing:.5px}
 .dot-acao-br{background:#3498db}
 .dot-fii{background:#2ecc71}
 .dot-stock{background:#9b59b6}
@@ -764,7 +774,21 @@ function buildLogoUrlsG20(ticker, classe) {
     // TradingView slug genérico
     urls.push('https://s3-symbol-logo.tradingview.com/'+t.toLowerCase().replace('.','')+'--big.svg');
   } else {
-    // BR: icones-b3 (melhor fonte para B3)
+    // StatusInvest: mapa exato por slug (cover com visual bonito para FIIs)
+    var SI_FII_MAP = {
+      'BCRI11':'banestes-rec-imob','BTHF11':'btg-pactual-fundo-de-fundos',
+      'CPTR11':'capitania-agro','HCTR11':'hectare-ce','HGLG11':'cshg-logistica',
+      'KNCA11':'kinea-credito-agro','KNRI11':'kinea-renda-imobiliaria',
+      'RBRR11':'rb-renda-imobiliaria','SNAG11':'suno-agro','TVRI11':'bb-progressivo-ii',
+      'VISC11':'vinci-shopping-centers','VRTA11':'valora-cri-cdi',
+      'XPCA11':'xp-credito-agro','XPLG11':'xp-log'
+    };
+    if(SI_FII_MAP[t]) {
+      urls.push('https://statusinvest.com.br/img/company/cover/'+SI_FII_MAP[t]+'.jpg');
+    }
+    // StatusInvest genérico por ticker (funciona para Ações BR)
+    urls.push('https://statusinvest.com.br/img/ativo/'+t+'.jpg');
+    // icones-b3 GitHub
     urls.push('https://raw.githubusercontent.com/thefintz/icones-b3/main/icones/'+t+'.png');
     // Yahoo Finance BR
     urls.push('https://query2.finance.yahoo.com/v1/finance/logobycompany?symbol='+t+'.SA&lang=pt-BR');
@@ -814,19 +838,38 @@ function loadLogo(ticker) {
   tryLogoUrls(t, buildLogoUrlsG20(ticker, classe), 0);
 }
 
+function getLogoFbClass(ticker) {
+  var a = CG20.find(function(x){ return x.ticker===ticker; });
+  if(!a) return 'logo-fb-default';
+  return 'logo-fb-'+(a.classe||'default');
+}
+
+function logoFbHtml(ticker, radius) {
+  var fbClass = getLogoFbClass(ticker);
+  var abbr = ticker.replace(/\d+$/,'').slice(0,3);
+  return '<div class="'+fbClass+'" style="width:100%;height:100%;border-radius:'+(radius||'13px')+'"><span class="logo-fb-text" style="font-size:'+(abbr.length>2?'10':'13')+'px">'+abbr+'</span></div>';
+}
+
 function applyLogoFromCache(ticker) {
   var url = _logoCache[ticker];
-  if(!url || url === 'error') return;
-  var style = 'width:100%;height:100%;object-fit:cover;border-radius:13px';
   // Grid principal
   var el = document.getElementById('logo-'+ticker);
-  if(el) el.innerHTML = '<img src="'+url+'" alt="'+ticker+'" style="'+style+'" loading="lazy">';
+  if(el) {
+    if(!url || url==='error') el.innerHTML = logoFbHtml(ticker,'13px');
+    else el.innerHTML = '<img src="'+url+'" alt="'+ticker+'" style="width:100%;height:100%;object-fit:cover;border-radius:13px" loading="lazy">';
+  }
   // Painel selecionados
   var cs = document.getElementById('logo-cs-'+ticker);
-  if(cs) cs.innerHTML = '<img src="'+url+'" alt="'+ticker+'" style="'+style.replace('13px','7px')+'" loading="lazy">';
+  if(cs) {
+    if(!url || url==='error') cs.innerHTML = logoFbHtml(ticker,'7px');
+    else cs.innerHTML = '<img src="'+url+'" alt="'+ticker+'" style="width:100%;height:100%;object-fit:cover;border-radius:7px" loading="lazy">';
+  }
   // Modal
   var ml = document.getElementById('mlogo-'+ticker);
-  if(ml) ml.innerHTML = '<img src="'+url+'" alt="'+ticker+'" style="'+style.replace('13px','11px')+'" loading="lazy">';
+  if(ml) {
+    if(!url || url==='error') ml.innerHTML = logoFbHtml(ticker,'11px');
+    else ml.innerHTML = '<img src="'+url+'" alt="'+ticker+'" style="width:100%;height:100%;object-fit:cover;border-radius:11px" loading="lazy">';
+  }
 }
 
 
@@ -950,9 +993,7 @@ function renderAtivos(){
     if(!disabled)card.onclick=(function(tk){return function(){toggleAtivo(tk);};})(a.ticker);
     card.innerHTML=
       '<div class="ativo-check-mark">✓</div>'+
-      '<div class="ativo-logo-big" id="logo-'+a.ticker+'">'+
-        '<span style="font-size:10px;font-weight:700;color:var(--text2)">'+abbr+'</span>'+
-      '</div>'+
+      '<div class="ativo-logo-big" id="logo-'+a.ticker+'">'+logoFbHtml(a.ticker,'13px')+'</div>'+
       '<div class="ativo-info">'+
         '<div class="ativo-ticker">'+a.ticker+'</div>'+
         '<div class="ativo-nome">'+a.nome+'</div>'+
@@ -994,6 +1035,7 @@ function renderSelecionados(){
     var a=CG20.find(function(x){return x.ticker===tk;})||{nome:tk,classe:'acao-br'};
     var ci=CLASS_INFO[a.classe]||CLASS_INFO['acao-br'];
     html+='<div class="cs-item"><span class="cs-num">'+(i+1)+'</span>';
+    html+='<div class="cs-logo" id="logo-cs-'+tk+'">'+logoFbHtml(tk,'7px')+'</div>';
     html+='<span class="cs-ticker-tag '+ci.css+'">'+tk+'</span>';
     html+='<span class="cs-nome">'+a.nome+'</span>';
     html+='<button class="cs-remove" onclick="removerAtivo(\''+tk+'\')" title="Remover"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>';
@@ -1235,7 +1277,7 @@ function openModal(uid,tipo,nome){
       var logoUrl=tvUrl(a.ticker);var abbr=a.ticker.slice(0,4);
       html+='<div class="m-acard '+rCl+'">';
       var logoUrls=getLogoUrls(a.ticker);
-      html+='<div class="m-alogo" id="mlogo-'+a.ticker+'">'+'<span style="font-size:8px;font-weight:700;color:#6b6862">'+abbr+'</span></div>';
+      html+='<div class="m-alogo" id="mlogo-'+a.ticker+'">'+ logoFbHtml(a.ticker,'11px') +'</div>';
       html+='<div class="m-atk">'+a.ticker+'</div>';
       html+='<div class="m-art '+rCl+'">'+rStr+'</div>';
       html+='<div class="m-abar"><div class="m-abar-fill" style="width:'+barPct.toFixed(0)+'%;background:'+barColor+'"></div></div>';
@@ -1292,4 +1334,3 @@ document.addEventListener('DOMContentLoaded',function(){
 function g20Logout(){auth.signOut().then(function(){location.href='login.html';});}
 </script>
 </body>
-</html>
