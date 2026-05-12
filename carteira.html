@@ -4041,7 +4041,20 @@ function toggleMoeda(){
     btn.style.borderColor = modoMoeda === 'USD' ? 'rgba(100,180,255,0.5)' : '';
     btn.style.color = modoMoeda === 'USD' ? '#64b4ff' : '';
   }
-  renderPosicoes();
+  // Toggle afeta apenas os cards KPI — tabela sempre usa moeda nativa do ativo
+  var pos = calcPosicoes();
+  var divs = loadData('dividendos',[]);
+  var hoje = new Date().toISOString().split('T')[0];
+  var divRec = divs.filter(function(d){return d.data<hoje;})
+    .reduce(function(s,d){ if(d.total!=null) return s+(parseFloat(d.total)||0); var vlr=parseFloat(d.valor!=null?d.valor:(d.valorCota!=null?d.valorCota:0))||0; var qtd=parseFloat(d.qtdEx!=null?d.qtdEx:(d.qtd!=null?d.qtd:0))||0; return s+(vlr*qtd); },0);
+  var inv=0, posVal=0, res=0;
+  pos.forEach(function(p){
+    inv += p.totalInv;
+    var cot = cotacoes[p.ticker];
+    var cotBRL = cot ? (isBR(p.ticker,p.tipo) ? cot.preco : cot.preco*usdBRL) : 0;
+    if(cot){ posVal += p.qtd*cotBRL; res += p.qtd*cotBRL - p.totalInv; }
+  });
+  atualizarStats(inv, posVal||0, res, divRec, divRec);
 }
 
 // ============================================================
@@ -4162,11 +4175,9 @@ function renderPosicoes(){
 
   var fmtBRL = function(v){return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});};
   var fmtUSD = function(v){return '$ '+(v/usdBRL).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});};
+  // Tabela: moeda nativa sempre — BR em R$, US/Cripto em US$ (independente do toggle)
   var fmt = function(v, isUS){
-    if(modoMoeda === 'USD'){
-      return isUS ? fmtUSD(v) : fmtBRL(v);
-    }
-    return fmtBRL(v);
+    return isUS ? fmtUSD(v) : fmtBRL(v);
   };
   var fmtPct = function(v){return (v>=0?'+':'')+v.toFixed(2)+'%';};
 
@@ -4184,10 +4195,11 @@ function renderPosicoes(){
         ? '<span class="mkt-br">BR</span>'
         : '<span class="mkt-us">US</span>';
     var isUS = !isBR(p.ticker, p.tipo);
+    // Cotação: moeda nativa — US/Cripto em USD, BR em R$
     var cotStr = cot
-      ? (modoMoeda==='USD' && isUS
-          ? '<span style="color:#64b4ff">$ '+( (cot.precoUSD||r.cotBRL/usdBRL)).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span>'
-          : fmt(r.cotBRL, false))
+      ? (isUS
+          ? '<span style="color:#64b4ff">$ '+(cot.precoUSD||r.cotBRL/usdBRL).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span>'
+          : fmtBRL(r.cotBRL))
       : '<span class="cot-loading">--</span>';
     var varStr = cot ? '<span class="var-'+(cot.var>=0?'pos':'neg')+'">'+(cot.var>=0?'+':'')+cot.var.toFixed(2)+'%</span>' : '--';
     var posStr = cot ? fmt(r.posVal, isUS) : '--';
