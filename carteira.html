@@ -6313,58 +6313,22 @@ function aplSalvar(){
   fecharModal('modalAporte');
   // Invalida cache do gráfico de evolução para forçar rebusca com novos aportes
   if(window._histMensalCache) window._histMensalCache = {};
-
-  // Re-render imediato com cotações em memória (sem nova requisição)
-  // Se não tiver cotações ou cache expirado, dispara busca
   renderPosicoes();
   if(document.getElementById('tab-aportes').style.display!=='none') renderAportes();
   if(document.getElementById('tab-graficos').style.display!=='none') renderGraficos();
   if(_drawerTicker&&document.getElementById('drawerAtivo').classList.contains('open')) renderDrawerBody();
 
-  // Verifica se cotações estão disponíveis e válidas em memória
-  var _novosTickersSet = {};
-  novos.forEach(function(n){ _novosTickersSet[n.ticker] = n.tipo; });
-  var _temCotacoesCache = Object.keys(cotacoes).length > 0;
-  var _cacheExpirado = (function(){
-    var c = loadData('cotacoesCache', null);
-    if(!c || !c.ts) return true;
-    return (Date.now() - c.ts) > (15 * 60 * 1000);
-  })();
-
-  if(!_temCotacoesCache || _cacheExpirado){
-    // Cache vazio ou expirado — busca completa em background
-    setTimeout(function(){
-      buscarCotacoes();
-    }, 300);
-  } else {
-    // Cotações em memória válidas — apenas garante que os novos tickers têm cotação
-    var _tickersSemCot = Object.keys(_novosTickersSet).filter(function(t){
-      return !cotacoes[t];
-    });
-    if(_tickersSemCot.length > 0){
-      // Busca só os tickers novos sem cotação
-      setTimeout(function(){
-        var pos = calcPosicoes();
-        var erros = [];
-        var brNovos = _tickersSemCot.filter(function(t){ return isBR(t, _novosTickersSet[t]); });
-        var usNovos = _tickersSemCot.filter(function(t){ return !isBR(t, _novosTickersSet[t]) && _novosTickersSet[t] !== 'Cripto'; });
-        var criptoNovos = _tickersSemCot.filter(function(t){ return _novosTickersSet[t] === 'Cripto'; });
-        var ps = [];
-        if(brNovos.length) brNovos.forEach(function(t){ /* busca BR individual */ });
-        if(usNovos.length) ps.push(buscarUSTickersBatch(usNovos, erros));
-        if(criptoNovos.length) ps.push(Promise.all(criptoNovos.map(function(t){ return buscarCotacaoCripto(t); })));
-        if(ps.length) Promise.all(ps).then(function(){ renderPosicoes(); });
-      }, 200);
-    }
-    // Se todos já têm cotação, o renderPosicoes() acima já atualizou tudo
-  }
-
   var tickers={};
   novos.forEach(function(n){tickers[n.ticker]=n.tipo;});
   Object.keys(tickers).forEach(function(t){
     _recalcularQtdExProventos(t);
-    if(isBR(t,tickers[t])) importarProventosBR(t).then(function(){renderDividendos();});
-    else importarProventosUS(t).then(function(){renderDividendos();});
+    if(isBR(t,tickers[t])){
+      importarSplitsBR(t).then(function(n){ if(n>0) renderPosicoes(); });
+      importarProventosBR(t).then(function(){renderDividendos();});
+    } else {
+      importarSplitsUS(t).then(function(n){ if(n>0) renderPosicoes(); });
+      importarProventosUS(t).then(function(){renderDividendos();});
+    }
   });
   showToast('✅ '+novos.length+' transaç'+(novos.length===1?'ão':'ões')+' salva'+(novos.length===1?'':'s')+'!');
 }
@@ -7512,18 +7476,55 @@ function importarSplitsUS(ticker){
     .catch(function(){ return 0; });
 }
 
+// Splits para ações e FIIs brasileiros via Yahoo Finance (.SA)
+function importarSplitsBR(ticker){
+  if(!PROXY_URL) return Promise.resolve(0);
+  var dataCompra = dataPrimeiraCompra(ticker);
+  if(!dataCompra) return Promise.resolve(0);
+
+  // Remove sufixo .SA se já vier, depois adiciona
+  var tickerB3 = ticker.replace(/\.SA$/i,'').toUpperCase();
+  var apiSymbol = tickerB3 + '.SA';
+  var url = PROXY_URL+'/api/splits?symbol='+encodeURIComponent(apiSymbol)+'&from='+dataCompra;
+
+  return fetch(url)
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(!d.splits || !d.splits.length){
+        console.log('[Splits BR] '+tickerB3+': nenhum split encontrado');
+        return 0;
+      }
+      var cache = loadData('splits_cache', {});
+      cache[tickerB3] = d.splits;
+      saveData('splits_cache', cache);
+      var alterados = aplicarSplitsAporte(tickerB3, d.splits);
+      if(alterados > 0){
+        console.log('[Splits BR] '+tickerB3+': '+d.splits.length+' split(s), '+alterados+' aporte(s) ajustado(s)');
+      }
+      return alterados;
+    })
+    .catch(function(e){
+      console.warn('[Splits BR] '+tickerB3+' erro:', e.message);
+      return 0;
+    });
+}
+
 function importarTodosSplits(callback){
   var pos = calcPosicoes();
-  var posUS = pos.filter(function(p){ return !isBR(p.ticker, p.tipo); });
-  if(!posUS.length){ if(callback) callback(0); return; }
+  var posUS = pos.filter(function(p){ return !isBR(p.ticker, p.tipo) && p.tipo !== 'Cripto'; });
+  var posBR = pos.filter(function(p){ return isBR(p.ticker, p.tipo); });
 
-  Promise.all(posUS.map(function(p){
-    return importarSplitsUS(p.ticker);
-  })).then(function(resultados){
+  var promises = [];
+  posUS.forEach(function(p){ promises.push(importarSplitsUS(p.ticker)); });
+  posBR.forEach(function(p){ promises.push(importarSplitsBR(p.ticker)); });
+
+  if(!promises.length){ if(callback) callback(0); return; }
+
+  Promise.all(promises).then(function(resultados){
     var total = resultados.reduce(function(s,n){ return s+(n||0); }, 0);
     if(callback) callback(total);
     if(total > 0){
-      console.log('[Splits] Total de '+total+' aporte(s) ajustado(s) por splits/inplits');
+      console.log('[Splits] Total de '+total+' aporte(s) ajustado(s) por splits/inplits (US+BR)');
       renderPosicoes();
     }
   });
