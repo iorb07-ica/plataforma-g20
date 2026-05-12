@@ -5830,6 +5830,17 @@ function bindValorInput(id){
   // Aguarda Firestore antes de renderizar dados
   _dbOnReady(function(){
     _firstRenderDone = true;
+    // Reseta ordem salva se inválida (número de colunas mudou ou contém 'acoes')
+    (function(){
+      var ordem = loadData('rvColOrdem_v2', null);
+      if(ordem){
+        var validCols = RV_COL_DEFS.map(function(c){ return c.col; });
+        var invalid = ordem.some(function(c){ return c==='acoes' || validCols.indexOf(c)<0; });
+        if(invalid || ordem.length !== validCols.length){
+          saveData('rvColOrdem_v2', null);
+        }
+      }
+    })();
     // Verifica se tem aportes RV; se tiver, adia o renderCharts pra quando as cotações chegarem
     // (evita "flash": chart de custo → chart de mercado)
     var hasRV = (function(){
@@ -8591,9 +8602,7 @@ function rvThDrop(e, targetTh){
     if(after){ tr.insertBefore(movedTd, targetTd.nextSibling); }
     else { tr.insertBefore(movedTd, targetTd); }
   });
-  // Save order
-  var ordem=Array.from(document.querySelectorAll('#rvTheadRow th[data-rvcol]')).map(function(t){return t.dataset.rvcol;});
-  saveData('rvColOrdem_v2', ordem);
+  // Não persiste ordem — evita corrupção entre sessões
 }
 function rvThDragEnd(th){
   th.classList.remove('th-dragging');
