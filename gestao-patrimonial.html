@@ -5168,10 +5168,15 @@ function renderRVPosicoes(){
   rows.forEach(function(r){ _tipoCount[r.p.tipo] = (_tipoCount[r.p.tipo]||0) + 1; });
   var _tipoIdx = {};
 
+  // Lê a ordem atual das colunas do thead
+  var theadRow = document.getElementById('rvTheadRow');
+  var colOrder = theadRow
+    ? Array.from(theadRow.querySelectorAll('th[data-rvcol]')).map(function(t){ return t.dataset.rvcol; })
+    : null;
+
   tbody.innerHTML = rows.map(function(r){
     var p=r.p, cot=r.cot;
     _tipoIdx[p.tipo] = (_tipoIdx[p.tipo]||0) + 1;
-    var numSeq = _tipoIdx[p.tipo];
     var mktBadge = p.tipo==='Cripto'
       ? '<span style="background:rgba(247,147,26,.15);color:#f7931a;border:1px solid rgba(247,147,26,.3);border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700">₿</span>'
       : p.tipo==='UCITs'
@@ -5198,35 +5203,38 @@ function renderRVPosicoes(){
 
     var pctCart = totalPosGlobal>0 ? (r.posVal/totalPosGlobal*100).toFixed(1)+'%' : '--';
 
-    return '<tr style="border-bottom:1px solid rgba(255,255,255,.03)">'
-      +'<td data-rvcol="seq" style="width:32px;min-width:32px;text-align:right;padding-right:8px;font-size:13px;font-weight:700;color:var(--text2);font-family:JetBrains Mono,monospace">'+numSeq+'</td>'
-      +'<td data-rvcol="logo" style="width:44px;min-width:44px;max-width:44px;text-align:center;padding:4px">'+gpLogoHtml(p.ticker,p.tipo)+'</td>'
-      +'<td data-rvcol="ticker" style="padding:10px 12px"><span class="ticker-cell" style="font-weight:700;font-size:14px;letter-spacing:.3px">'+p.ticker+'</span></td>'
-      +'<td data-rvcol="nome"   style="padding:10px 12px;color:var(--text);font-size:13px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+nomeStr+'</td>'
-      +'<td data-rvcol="tipo"   style="padding:10px 12px"><span class="badge badge-'+p.tipo+'">'+p.tipo+'</span></td>'
-      +'<td data-rvcol="mkt"    style="padding:10px 8px">'+mktBadge+'</td>'
-      +'<td data-rvcol="qtd"    style="padding:10px 12px;text-align:right">'+p.qtd.toFixed(p.qtd%1===0?0:4)+'</td>'
-      +'<td data-rvcol="pm"     style="padding:10px 12px;text-align:right;color:var(--text2)">'+fmtPm+'</td>'
-      +'<td data-rvcol="cotacao"style="padding:10px 12px;text-align:right">'+cotStr+'</td>'
-      +'<td data-rvcol="vardia" style="padding:10px 12px;text-align:right">'+varStr+'</td>'
-      +'<td data-rvcol="varsem" style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.refSemana,precoBase)+'</td>'
-      +'<td data-rvcol="var30d" style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.ref30d,precoBase)+'</td>'
-      +'<td data-rvcol="var3m"  style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.ref3m,precoBase)+'</td>'
-      +'<td data-rvcol="var6m"  style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.ref6m,precoBase)+'</td>'
-      +'<td data-rvcol="varano" style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.refYTD,precoBase)+'</td>'
-      +'<td data-rvcol="var5y"  style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.ref5y,precoBase)+'</td>'
-      +'<td data-rvcol="totalInv"style="padding:10px 12px;text-align:right">'+fmt(p.totalInv, !r.isBR)+'</td>'
-      +'<td data-rvcol="posicao" style="padding:10px 12px;text-align:right;font-weight:600">'+posStr+'</td>'
-      +'<td data-rvcol="result"  style="padding:10px 12px;text-align:right">'+resStr+'</td>'
-      +'<td data-rvcol="rentPct" style="padding:10px 12px;text-align:right">'+rentStr+'</td>'
-      +'<td data-rvcol="proventos"style="padding:10px 12px;text-align:right">'+provStr+'</td>'
-      +'<td data-rvcol="totalRet" style="padding:10px 12px;text-align:right">'+trStr+'</td>'
-      +'<td data-rvcol="pctCart" style="padding:10px 12px;text-align:right;color:var(--gold-2);font-size:13px;font-weight:700;font-family:JetBrains Mono,monospace">'+pctCart+'</td>'
-      +'<td data-rvcol="acoes" style="padding:10px 8px;white-space:nowrap">'
-        +'<button class="action-btn rv-btn-drawer" data-ticker="'+String(p.ticker).replace(/"/g,'&quot;')+'" onclick="abrirDrawerRV(this.dataset.ticker)" title="Ver transações" style="margin-right:4px">📋</button>'
-        +'<button class="btn-add-inline rv-btn-aporte" data-ticker="'+String(p.ticker).replace(/"/g,'&quot;')+'" onclick="abrirModalAporte(this.dataset.ticker)" title="Novo aporte">＋</button>'
-      +'</td>'
-      +'</tr>';
+    // Mapa de todas as TDs disponíveis por col key
+    var allTds = {
+      'logo':     '<td data-rvcol="logo" style="width:44px;min-width:44px;max-width:44px;text-align:center;padding:4px">'+gpLogoHtml(p.ticker,p.tipo)+'</td>',
+      'ticker':   '<td data-rvcol="ticker" style="padding:10px 12px"><span class="ticker-cell" style="font-weight:700;font-size:14px;letter-spacing:.3px">'+p.ticker+'</span></td>',
+      'nome':     '<td data-rvcol="nome" style="padding:10px 12px;color:var(--text);font-size:13px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+nomeStr+'</td>',
+      'tipo':     '<td data-rvcol="tipo" style="padding:10px 12px"><span class="badge badge-'+p.tipo+'">'+p.tipo+'</span></td>',
+      'mkt':      '<td data-rvcol="mkt" style="padding:10px 8px">'+mktBadge+'</td>',
+      'qtd':      '<td data-rvcol="qtd" style="padding:10px 12px;text-align:right">'+p.qtd.toFixed(p.qtd%1===0?0:4)+'</td>',
+      'pm':       '<td data-rvcol="pm" style="padding:10px 12px;text-align:right;color:var(--text2)">'+fmtPm+'</td>',
+      'cotacao':  '<td data-rvcol="cotacao" style="padding:10px 12px;text-align:right">'+cotStr+'</td>',
+      'vardia':   '<td data-rvcol="vardia" style="padding:10px 12px;text-align:right">'+varStr+'</td>',
+      'varsem':   '<td data-rvcol="varsem" style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.refSemana,precoBase)+'</td>',
+      'var30d':   '<td data-rvcol="var30d" style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.ref30d,precoBase)+'</td>',
+      'var3m':    '<td data-rvcol="var3m" style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.ref3m,precoBase)+'</td>',
+      'var6m':    '<td data-rvcol="var6m" style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.ref6m,precoBase)+'</td>',
+      'varano':   '<td data-rvcol="varano" style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.refYTD,precoBase)+'</td>',
+      'var5y':    '<td data-rvcol="var5y" style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.ref5y,precoBase)+'</td>',
+      'totalInv': '<td data-rvcol="totalInv" style="padding:10px 12px;text-align:right">'+fmt(p.totalInv, !r.isBR)+'</td>',
+      'posicao':  '<td data-rvcol="posicao" style="padding:10px 12px;text-align:right;font-weight:600">'+posStr+'</td>',
+      'result':   '<td data-rvcol="result" style="padding:10px 12px;text-align:right">'+resStr+'</td>',
+      'rentPct':  '<td data-rvcol="rentPct" style="padding:10px 12px;text-align:right">'+rentStr+'</td>',
+      'proventos':'<td data-rvcol="proventos" style="padding:10px 12px;text-align:right">'+provStr+'</td>',
+      'totalRet': '<td data-rvcol="totalRet" style="padding:10px 12px;text-align:right">'+trStr+'</td>',
+      'pctCart':  '<td data-rvcol="pctCart" style="padding:10px 12px;text-align:right;color:var(--gold-2);font-size:13px;font-weight:700;font-family:JetBrains Mono,monospace">'+pctCart+'</td>',
+      'acoes':    '<td data-rvcol="acoes" style="padding:10px 8px;white-space:nowrap"><button class="action-btn rv-btn-drawer" data-ticker="'+String(p.ticker).replace(/"/g,'&quot;')+'" onclick="abrirDrawerRV(this.dataset.ticker)" title="Ver transações" style="margin-right:4px">📋</button><button class="btn-add-inline rv-btn-aporte" data-ticker="'+String(p.ticker).replace(/"/g,'&quot;')+'" onclick="abrirModalAporte(this.dataset.ticker)" title="Novo aporte">＋</button></td>'
+    };
+    // Monta a linha na ordem real das THs
+    var order = colOrder || Object.keys(allTds);
+    var tds = order.map(function(col){ return allTds[col] || ''; }).join('');
+    // Garante acoes sempre no final se não estiver na ordem
+    if(colOrder && colOrder.indexOf('acoes')<0) tds += allTds['acoes'];
+    return '<tr style="border-bottom:1px solid rgba(255,255,255,.03)">' + tds + '</tr>';
   }).join('');
 
   // BIND IMEDIATAMENTE após innerHTML (antes de qualquer código que possa quebrar)
@@ -8563,23 +8571,22 @@ function rvThDragLeave(th){ th.classList.remove('th-drag-over-left','th-drag-ove
 function rvThDrop(e, targetTh){
   e.preventDefault();
   if(!_rvDragSrcTh || targetTh===_rvDragSrcTh || targetTh.dataset.rvcol==='acoes') return;
-  var row=document.getElementById('rvTheadRow');
-  var ths=Array.from(row.children);
-  var srcIdx=ths.indexOf(_rvDragSrcTh);
-  var tgtIdx=ths.indexOf(targetTh);
+  var srcCol = _rvDragSrcTh.dataset.rvcol;
+  var tgtCol = targetTh.dataset.rvcol;
   var rect=targetTh.getBoundingClientRect();
   var after=e.clientX>rect.left+rect.width/2;
   targetTh.classList.remove('th-drag-over-left','th-drag-over-right');
+  // Reorder thead TH
   if(after){ targetTh.parentNode.insertBefore(_rvDragSrcTh, targetTh.nextSibling); }
   else { targetTh.parentNode.insertBefore(_rvDragSrcTh, targetTh); }
-  // Reorder tbody cells
+  // Reorder tbody TDs by data-rvcol (não por índice — funciona com colunas ocultas)
   var tbody=document.getElementById('rvTbody');
   Array.from(tbody.rows).forEach(function(tr){
-    var tds=Array.from(tr.cells);
-    if(tds.length<ths.length) return;
-    var movedTd=tds[srcIdx]; if(!movedTd) return;
-    if(after){ tr.insertBefore(movedTd, tds[tgtIdx]?tds[tgtIdx].nextSibling:null); }
-    else { tr.insertBefore(movedTd, tds[tgtIdx]||null); }
+    var movedTd = tr.querySelector('td[data-rvcol="'+srcCol+'"]');
+    var targetTd = tr.querySelector('td[data-rvcol="'+tgtCol+'"]');
+    if(!movedTd || !targetTd) return;
+    if(after){ tr.insertBefore(movedTd, targetTd.nextSibling); }
+    else { tr.insertBefore(movedTd, targetTd); }
   });
   // Save order
   var ordem=Array.from(document.querySelectorAll('#rvTheadRow th[data-rvcol]')).map(function(t){return t.dataset.rvcol;});
@@ -8593,8 +8600,17 @@ function rvThDragEnd(th){
 function rvAplicarOrdemColunas(){
   var ordem=loadData('rvColOrdem',null); if(!ordem||!ordem.length) return;
   var row=document.getElementById('rvTheadRow'); if(!row) return;
+  // Reordenar THs
   ordem.forEach(function(col){ var th=row.querySelector('[data-rvcol="'+col+'"]'); if(th) row.appendChild(th); });
   var acoesTh=row.querySelector('[data-rvcol="acoes"]'); if(acoesTh) row.appendChild(acoesTh);
+  // Reordenar TDs do tbody também
+  var tbody=document.getElementById('rvTbody'); if(!tbody) return;
+  Array.from(tbody.rows).forEach(function(tr){
+    ordem.forEach(function(col){
+      var td=tr.querySelector('td[data-rvcol="'+col+'"]'); if(td) tr.appendChild(td);
+    });
+    var acoesTd=tr.querySelector('td[data-rvcol="acoes"]'); if(acoesTd) tr.appendChild(acoesTd);
+  });
 }
 </script>
 
