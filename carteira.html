@@ -4004,6 +4004,62 @@ function calcPosicoes(){
   return Object.values(pos).filter(function(p){return p.qtd>0.001;});
 }
 
+// Calcula ganho/perda realizado de ativos totalmente vendidos
+// Retorna { ganho: número em BRL, ativos: [{ticker, tipo, ganho, pctGanho}] }
+function calcResultadoRealizado(){
+  var aportes = loadData('aportes',[]);
+  var dividendos = loadData('dividendos',[]);
+  var pos = {};
+  aportes.sort(function(a,b){return a.data.localeCompare(b.data);}).forEach(function(a){
+    if(!pos[a.ticker]) pos[a.ticker]={ticker:a.ticker,tipo:a.tipo,qtd:0,totalInv:0,totalVendido:0,totalRecebido:0};
+    var p = pos[a.ticker];
+    var preco = precoBRL(a);
+    if(a.op==='C'){
+      p.qtd += a.qtd;
+      p.totalInv += a.qtd * preco;
+    } else {
+      var pm = p.qtd>0 ? p.totalInv/p.qtd : 0;
+      var custoVenda = a.qtd * pm;
+      var recebido   = a.qtd * preco;
+      p.totalInv     -= custoVenda;
+      p.qtd          -= a.qtd;
+      p.totalVendido += custoVenda;
+      p.totalRecebido+= recebido;
+    }
+  });
+  // Só considera ativos completamente zerados (qtd ≈ 0)
+  var ganhoTotal = 0;
+  var ativos = [];
+  Object.values(pos).forEach(function(p){
+    if(p.qtd > 0.001) return;
+    if(p.totalVendido <= 0) return;
+    // Proventos recebidos enquanto o ativo estava na carteira
+    var proventos = dividendos
+      .filter(function(d){ return d.ticker === p.ticker; })
+      .reduce(function(s,d){
+        if(d.total != null) return s + (parseFloat(d.total)||0);
+        var vlr = parseFloat(d.valor != null ? d.valor : (d.valorCota != null ? d.valorCota : 0)) || 0;
+        var qtd = parseFloat(d.qtdEx != null ? d.qtdEx : (d.qtd != null ? d.qtd : 0)) || 0;
+        var v = vlr * qtd;
+        if(!isBR(p.ticker, p.tipo)) v *= (usdBRL||5.85);
+        return s + v;
+      }, 0);
+    var ganhoCapital = p.totalRecebido - p.totalVendido;
+    var ganhoComProv = ganhoCapital + proventos;
+    var pctCapital   = p.totalVendido > 0 ? (ganhoCapital/p.totalVendido*100) : 0;
+    var pctTotal     = p.totalVendido > 0 ? (ganhoComProv/p.totalVendido*100) : 0;
+    ganhoTotal += ganhoCapital; // KPI cards: ganho de capital (proventos já contam separado)
+    ativos.push({
+      ticker: p.ticker, tipo: p.tipo,
+      custo: p.totalVendido, recebido: p.totalRecebido,
+      ganhoCapital: ganhoCapital, pctCapital: pctCapital,
+      proventos: proventos,
+      ganhoTotal: ganhoComProv, pctTotal: pctTotal
+    });
+  });
+  return {ganho: ganhoTotal, ativos: ativos};
+}
+
 function getProventosAtivo(ticker){
   return loadData('dividendos',[]).filter(function(d){return d.ticker===ticker;});
 }
@@ -4054,6 +4110,9 @@ function toggleMoeda(){
     var cotBRL = cot ? (isBR(p.ticker,p.tipo) ? cot.preco : cot.preco*usdBRL) : 0;
     if(cot){ posVal += p.qtd*cotBRL; res += p.qtd*cotBRL - p.totalInv; }
   });
+  // Inclui ganho/perda realizado de ativos já vendidos
+  var realizado = calcResultadoRealizado();
+  res += realizado.ganho;
   atualizarStats(inv, posVal||0, res, divRec, divRec);
 }
 
@@ -4262,7 +4321,9 @@ function renderPosicoes(){
     varDiaBRL += r.p.qtd * var1dBRL;
   });
 
-  atualizarStats(totalInvGlobal, totalPosGlobal, totalPosGlobal-totalInvGlobal, divRec, totalProvGlobal);
+  // Inclui ganho/perda realizado de ativos já completamente vendidos (B3, Vivo, etc.)
+  var _realizado = calcResultadoRealizado();
+  atualizarStats(totalInvGlobal, totalPosGlobal, (totalPosGlobal-totalInvGlobal)+_realizado.ganho, divRec, totalProvGlobal);
   atualizarVarDia(varDiaBRL, totalPosGlobal);
 
   // Reordena colunas conforme preferência salva do usuário (th + td do tbody)
