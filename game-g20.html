@@ -1087,7 +1087,7 @@ function validarRegras(){
 
 function updateSaveBtn(){
   var btn=document.getElementById('saveBtn');if(!btn)return;
-  var c=getCiclo(cicloAtivo);
+  var c=getCiclo(cicloAtual);
   if(c.fechado){btn.disabled=true;btn.innerHTML='<i data-lucide="lock" style="width:14px;height:14px"></i> Ciclo Encerrado';lucide.createIcons();return;}
   btn.disabled=!validarRegras();
 }
@@ -1099,7 +1099,7 @@ function carregarCarteiras(){
     db.collection('game-g20').doc(currentUid).collection('carteiras').doc(c.key).get().then(function(doc){
       if(doc.exists){
         carteirasCache[tipo]=doc.data().ativos||[];
-        if(tipo===cicloAtivo){
+        if(tipo===cicloAtual){
           selecionados=carteirasCache[tipo].map(function(a){return a.ticker;});
           renderAtivos();renderSelecionados();renderRegras();updateSaveBtn();
         }
@@ -1111,17 +1111,17 @@ function carregarCarteiras(){
 // ── SALVAR ────────────────────────────────────────────
 function salvarCarteira(){
   if(!validarRegras()){showToast('Verifique as regras antes de salvar','error');return;}
-  var c=getCiclo(cicloAtivo);if(c.fechado){showToast('Ciclo encerrado','error');return;}
+  var c=getCiclo(cicloAtual);if(c.fechado){showToast('Ciclo encerrado','error');return;}
   var btn=document.getElementById('saveBtn');btn.disabled=true;btn.textContent='Salvando...';
   var ativos=selecionados.map(function(tk){
     var a=CG20.find(function(x){return x.ticker===tk;})||{nome:tk,classe:'acao-br'};
     return{ticker:tk,nome:a.nome,classe:a.classe,precoBase:cotacoesCache[tk]||null,savedAt:new Date().toISOString()};
   });
   db.collection('game-g20').doc(currentUid).collection('carteiras').doc(c.key).set({
-    ativos:ativos,ciclo:cicloAtivo,cicloKey:c.key,cicloLabel:c.label,
+    ativos:ativos,ciclo:cicloAtual,cicloKey:c.key,cicloLabel:c.label,
     savedAt:firebase.firestore.FieldValue.serverTimestamp(),uid:currentUid
   }).then(function(){
-    carteirasCache[cicloAtivo]=ativos;
+    carteirasCache[cicloAtual]=ativos;
     showToast('Carteira salva!','success');
     btn.disabled=false;
     btn.innerHTML='<i data-lucide="save" style="width:14px;height:14px"></i> Salvar Carteira';
