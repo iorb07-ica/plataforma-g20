@@ -672,6 +672,42 @@ var TV_US_LOGOS={
   'SLG':'https://s3-symbol-logo.tradingview.com/sl-green-realty--big.svg'
 };
 
+// Sistema de logos assíncrono com cache e fallback em cadeia
+var _logoCache={};
+var _logoQueue={};
+
+function loadLogo(ticker){
+  var t=ticker.toUpperCase();
+  if(_logoCache[t]){applyLogoFromCache(t);return;}
+  if(_logoQueue[t]) return;
+  _logoQueue[t]=true;
+  tryLogoUrls(t,getLogoUrls(t),0);
+}
+
+function tryLogoUrls(ticker,urls,idx){
+  if(idx>=urls.length){_logoCache[ticker]='error';_logoQueue[ticker]=false;return;}
+  var img=new Image();
+  img.onload=function(){
+    if(img.naturalWidth<8||img.naturalHeight<8){tryLogoUrls(ticker,urls,idx+1);return;}
+    _logoCache[ticker]=urls[idx];_logoQueue[ticker]=false;
+    applyLogoFromCache(ticker);
+  };
+  img.onerror=function(){tryLogoUrls(ticker,urls,idx+1);};
+  img.src=urls[idx];
+}
+
+function applyLogoFromCache(ticker){
+  var url=_logoCache[ticker];if(!url||url==='error')return;
+  // Aplica no grid principal
+  var el=document.getElementById('logo-'+ticker);
+  if(el)el.innerHTML='<img src="'+url+'" alt="'+ticker+'" style="width:100%;height:100%;object-fit:cover;border-radius:13px">';
+  // Aplica no painel selecionados
+  var cs=document.getElementById('logo-cs-'+ticker);
+  if(cs)cs.innerHTML='<img src="'+url+'" style="width:100%;height:100%;object-fit:cover;border-radius:7px">';
+  // Aplica no modal
+  var ml=document.getElementById('mlogo-'+ticker);
+  if(ml)ml.innerHTML='<img src="'+url+'" style="width:100%;height:100%;object-fit:cover;border-radius:11px">';
+}
 // Retorna lista ordenada de URLs a tentar para cada ticker
 function getLogoUrls(ticker){
   var t=ticker.toUpperCase();
@@ -1007,17 +1043,15 @@ function renderAtivos(){
     var isSel=selecionados.indexOf(a.ticker)>=0;
     var disabled=(!isSel&&selecionados.length>=10)||(!isSel&&a.classe==='cripto'&&criptosNaSel>=maxCripto);
     var ci=CLASS_INFO[a.classe]||CLASS_INFO['acao-br'];
-    var logoUrl=tvUrl(a.ticker);
     var abbr=a.ticker.slice(0,4);
     var cls='ativo-card'+(isSel?' selected':'')+(disabled?' disabled':'');
     var card=document.createElement('div');
     card.className=cls;
-    if(!disabled)card.onclick=function(){toggleAtivo(a.ticker);};
+    if(!disabled)card.onclick=(function(tk){return function(){toggleAtivo(tk);};})(a.ticker);
     card.innerHTML=
       '<div class="ativo-check-mark">✓</div>'+
-      '<div class="ativo-logo-big">'+
-        '<img src="'+logoUrl+'" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'block\'" style="display:block;width:100%;height:100%;object-fit:cover">'+
-        '<span style="display:none;font-size:10px;font-weight:700;color:var(--text2)">'+abbr+'</span>'+
+      '<div class="ativo-logo-big" id="logo-'+a.ticker+'">'+
+        '<span style="font-size:10px;font-weight:700;color:var(--text2)">'+abbr+'</span>'+
       '</div>'+
       '<div class="ativo-info">'+
         '<div class="ativo-ticker">'+a.ticker+'</div>'+
@@ -1028,6 +1062,8 @@ function renderAtivos(){
   });
   el.innerHTML='';
   rows.forEach(function(r){el.appendChild(r);});
+  // Carrega logos assincronamente após render
+  lista.forEach(function(a){loadLogo(a.ticker);});
 }
 
 // ── TOGGLE ATIVO ──────────────────────────────────────
@@ -1299,7 +1335,7 @@ function openModal(uid,tipo,nome){
       var logoUrl=tvUrl(a.ticker);var abbr=a.ticker.slice(0,4);
       html+='<div class="m-acard '+rCl+'">';
       var logoUrls=getLogoUrls(a.ticker);
-      html+='<div class="m-alogo"><img src="'+logoUrls[0]+'" data-ticker="'+a.ticker+'" data-urlindex="0" onerror="(function(el){var t=el.getAttribute(\'data-ticker\'),i=parseInt(el.getAttribute(\'data-urlindex\')||0)+1,urls=getLogoUrls(t);if(i<urls.length){el.setAttribute(\'data-urlindex\',i);el.src=urls[i];}else{el.style.display=\'none\';var s=el.nextSibling;if(s)s.style.display=\'flex\';}})(this)" style="display:block;width:100%;height:100%;object-fit:cover;border-radius:11px"><span style="display:none;font-size:8px;font-weight:700;color:#6b6862;align-items:center;justify-content:center;width:100%;height:100%">'+abbr+'</span></div>';
+      html+='<div class="m-alogo" id="mlogo-'+a.ticker+'">'+'<span style="font-size:8px;font-weight:700;color:#6b6862">'+abbr+'</span></div>';
       html+='<div class="m-atk">'+a.ticker+'</div>';
       html+='<div class="m-art '+rCl+'">'+rStr+'</div>';
       html+='<div class="m-abar"><div class="m-abar-fill" style="width:'+barPct.toFixed(0)+'%;background:'+barColor+'"></div></div>';
@@ -1307,6 +1343,7 @@ function openModal(uid,tipo,nome){
       html+='</div>';
     });
     tbody.innerHTML=html||'<div style="grid-column:1/-1;padding:20px;text-align:center;color:#6b6862">Sem ativos</div>';
+    ativosOrdenados.forEach(function(a){loadLogo(a.ticker);});
     document.getElementById('msAtivos').textContent=ativos.length+'/10';
     document.getElementById('msPos').textContent=pos;
     document.getElementById('msNeg').textContent=neg;
