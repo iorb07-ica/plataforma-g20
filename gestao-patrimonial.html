@@ -4762,29 +4762,29 @@ function buscarCotacoesRV(){
       var sym = ticker.includes('-') ? ticker : ticker+'-USD';
       var qUrl = PROXY_URL_RV+'/api/quote?symbol='+encodeURIComponent(sym);
       var hUrl = PROXY_URL_RV+'/api/history?symbol='+encodeURIComponent(sym);
+      // Cotação primeiro — não depende do histórico
       promises.push(
-        Promise.all([
-          fetch(qUrl).then(function(r){ return r.json(); }).catch(function(){ return null; }),
-          fetch(hUrl).then(function(r){ return r.json(); }).catch(function(){ return null; })
-        ]).then(function(res){
-          var d = res[0], hd = res[1];
-          if(!d) return;
-          var priceUSD = d.price !== undefined ? d.price
-                       : d.preco !== undefined ? d.preco : null;
-          var chgPct = d.changePercent !== undefined ? d.changePercent
-                     : d.chg !== undefined ? d.chg : 0;
-          var chgAbs = d.change !== undefined ? d.change
-                     : d.chgAbs !== undefined ? d.chgAbs : 0;
-          if(priceUSD && priceUSD > 1){
-            var h = hd ? (hd[sym] || hd[ticker] || hd) : {};
+        fetch(qUrl)
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            if(!d || !d.price || d.price <= 0) return;
             rvCotacoes[ticker]={
-              preco:priceUSD, var:parseFloat(chgPct||0), var1d:parseFloat(chgAbs||0),
-              nome:d.name||d.nome||ticker, mkt:'Cripto', precoUSD:priceUSD, ts:Date.now(),
-              refSemana:h.refSemana||null, ref30d:h.ref30d||null, ref3m:h.ref3m||null,
-              ref6m:h.ref6m||null, refYTD:h.refYTD||null, ref5y:h.ref5y||null
+              preco:d.price, var:parseFloat(d.changePercent||0), var1d:parseFloat(d.change||0),
+              nome:d.name||ticker, mkt:'Cripto', precoUSD:d.price, ts:Date.now(),
+              refSemana:null, ref30d:null, ref3m:null, ref6m:null, refYTD:null, ref5y:null
             };
-          }
-        }).catch(function(){})
+            // Histórico em segundo plano
+            fetch(hUrl).then(function(r){ return r.json(); }).then(function(hd){
+              if(!hd||!rvCotacoes[ticker]) return;
+              var h=hd[sym]||hd[ticker]||hd;
+              if(h.refSemana) rvCotacoes[ticker].refSemana=h.refSemana;
+              if(h.ref30d)    rvCotacoes[ticker].ref30d=h.ref30d;
+              if(h.ref3m)     rvCotacoes[ticker].ref3m=h.ref3m;
+              if(h.ref6m)     rvCotacoes[ticker].ref6m=h.ref6m;
+              if(h.refYTD)    rvCotacoes[ticker].refYTD=h.refYTD;
+              if(h.ref5y)     rvCotacoes[ticker].ref5y=h.ref5y;
+            }).catch(function(){});
+          }).catch(function(){})
       );
     });
   }
