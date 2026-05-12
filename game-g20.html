@@ -171,6 +171,15 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .search-input:focus{border-color:var(--gold)}
 .search-input::placeholder{color:var(--text2)}
 .filter-btns{display:flex;gap:6px;flex-wrap:wrap;flex-shrink:0}
+/* ── GUIA DE STATUS ── */
+#guiaStatus{padding:10px 14px;border-radius:12px;font-size:13px;font-weight:500;display:flex;align-items:flex-start;gap:10px;flex-shrink:0}
+#guiaStatus.ok{background:rgba(46,204,113,.1);border:1px solid rgba(46,204,113,.3);color:#2ecc71}
+#guiaStatus.pending{background:rgba(201,169,97,.08);border:1px solid rgba(201,169,97,.25);color:var(--gold-2)}
+#guiaStatus.error{background:rgba(230,57,70,.08);border:1px solid rgba(230,57,70,.25);color:#e63946}
+#guiaStatus .guia-icon{font-size:16px;flex-shrink:0;margin-top:1px}
+#guiaStatus .guia-text{flex:1;line-height:1.5}
+#guiaStatus .guia-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+#guiaStatus .guia-tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:rgba(255,255,255,.08)}
 .filter-btn{padding:7px 16px;background:var(--surface);border:1px solid var(--border);border-radius:20px;color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;font-family:"DM Sans",sans-serif;transition:all .2s;display:flex;align-items:center;gap:6px}
 .filter-btn .fdot{width:7px;height:7px;border-radius:50%}
 .filter-btn:hover{border-color:var(--gold);color:var(--text)}
@@ -492,6 +501,7 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
         </div>
 
         <div class="mc-right">
+          <div id="guiaStatus" style="display:none"></div>
           <div class="search-bar-wrap">
             <div class="search-input-wrap">
               <i data-lucide="search"></i>
@@ -900,7 +910,7 @@ function switchTab(tab){
   if(content)content.classList.add('active');
   var btn=document.getElementById('tab'+tab.split('-').map(function(w){return w.charAt(0).toUpperCase()+w.slice(1);}).join(''));
   if(btn)btn.classList.add('active');
-  if(tab==='minha-carteira'){renderAtivos();renderSelecionados();renderRegras();updateSaveBtn();}
+  if(tab==='minha-carteira'){renderAtivos();renderSelecionados();renderRegras();updateSaveBtn();updateGuia();}
   if(tab==='ranking'){carregarRanking();}
 }
 
@@ -1085,11 +1095,65 @@ function validarRegras(){
   return cn<=3;
 }
 
+function updateGuia(){
+  var el=document.getElementById('guiaStatus');
+  if(!el)return;
+  var n=selecionados.length;
+  var LABELS={'acao-br':'Ação BR','fii':'FII','stock':'Stock','etf':'ETF','reit':'REIT','cripto':'Cripto'};
+  var COLORS={'acao-br':'rgba(52,152,219,.25)','fii':'rgba(46,204,113,.25)','stock':'rgba(155,89,182,.25)',
+    'etf':'rgba(241,196,15,.25)','reit':'rgba(230,126,34,.25)','cripto':'rgba(201,169,97,.25)'};
+  var obrig=['acao-br','fii','stock','etf','reit'];
+  var faltando=[];
+
+  // Verifica obrigatórias faltando
+  obrig.forEach(function(cl){
+    var cnt=selecionados.filter(function(tk){var a=CG20.find(function(x){return x.ticker===tk;});return a&&a.classe===cl;}).length;
+    if(cnt===0) faltando.push({cl:cl,msg:'1 '+LABELS[cl]});
+  });
+  // Cripto acima de 3
+  var cCnt=selecionados.filter(function(tk){var a=CG20.find(function(x){return x.ticker===tk;});return a&&a.classe==='cripto';}).length;
+  var cripto_err=cCnt>3;
+  // Slots restantes
+  var slots=10-n;
+
+  var guiaEl=document.getElementById('guiaStatus');
+  guiaEl.style.display='flex';
+
+  if(n===0){
+    guiaEl.className='pending';
+    guiaEl.innerHTML='<span class="guia-icon">👋</span><div class="guia-text">Monte sua carteira selecionando <strong>10 ativos</strong> ao lado. Precisa ter pelo menos 1 de cada classe.<div class="guia-tags"><span class="guia-tag" style="background:rgba(52,152,219,.2);color:#5db8f0">Ação BR</span><span class="guia-tag" style="background:rgba(46,204,113,.2);color:#2ecc71">FII</span><span class="guia-tag" style="background:rgba(155,89,182,.2);color:#c39bd3">Stock</span><span class="guia-tag" style="background:rgba(241,196,15,.2);color:#f4d03f">ETF</span><span class="guia-tag" style="background:rgba(230,126,34,.2);color:#f0a14a">REIT</span></div></div>';
+    return;
+  }
+  if(cripto_err){
+    guiaEl.className='error';
+    guiaEl.innerHTML='<span class="guia-icon">⚠️</span><div class="guia-text">Máximo de <strong>3 criptos</strong> permitido. Remova '+(cCnt-3)+' cripto'+(cCnt-3>1?'s':'')+'.</div>';
+    return;
+  }
+  if(faltando.length>0){
+    var tagsHtml=faltando.map(function(f){
+      var col=COLORS[f.cl]||'rgba(255,255,255,.15)';
+      return '<span class="guia-tag" style="background:'+col+'">+ '+f.msg+'</span>';
+    }).join('');
+    guiaEl.className='pending';
+    guiaEl.innerHTML='<span class="guia-icon">📋</span><div class="guia-text">Faltam classes obrigatórias:<div class="guia-tags">'+tagsHtml+(slots>0?'<span class="guia-tag" style="background:rgba(255,255,255,.06);color:var(--text2)">'+slots+' slot'+(slots>1?'s':'')+' livre'+(slots>1?'s':'')+'</span>':'')+'</div></div>';
+    return;
+  }
+  if(n<10){
+    guiaEl.className='pending';
+    guiaEl.innerHTML='<span class="guia-icon">🎯</span><div class="guia-text">Quase lá! Selecione mais <strong>'+slots+' ativo'+(slots>1?'s':'')+'</strong> para completar a carteira.</div>';
+    return;
+  }
+  // Tudo ok
+  guiaEl.className='ok';
+  guiaEl.innerHTML='<span class="guia-icon">✅</span><div class="guia-text"><strong>Carteira completa!</strong> Todas as classes cobertas. Clique em Salvar Carteira.</div>';
+}
+
 function updateSaveBtn(){
   var btn=document.getElementById('saveBtn');if(!btn)return;
   var c=getCiclo(cicloAtual);
   if(c.fechado){btn.disabled=true;btn.innerHTML='<i data-lucide="lock" style="width:14px;height:14px"></i> Ciclo Encerrado';lucide.createIcons();return;}
   btn.disabled=!validarRegras();
+  updateGuia();
 }
 
 // ── CARREGAR CARTEIRAS ────────────────────────────────
