@@ -1125,9 +1125,32 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
   transition:width .8s cubic-bezier(.34,1.56,.64,1); }
 .prov-annual-val { font-size:12px; font-weight:700; color:var(--green); text-align:right; }
 
+/* ── NOVAS VISUALIZAÇÕES PROVENTOS ─────────────────────── */
+.prov-card-meta { position:relative; overflow:hidden; }
+.prov-meta-ring { position:relative; display:flex; align-items:center; justify-content:center; }
+.prov-meta-ring svg { transform:rotate(-90deg); }
+.prov-meta-center { position:absolute; text-align:center; }
+.prov-meta-pct { font-size:28px; font-weight:800; color:var(--gold); line-height:1; }
+.prov-meta-label { font-size:10px; color:var(--text3); margin-top:2px; }
+.prov-donut-legend { display:flex; flex-direction:column; gap:6px; }
+.prov-donut-item { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text2); }
+.prov-donut-dot { width:8px; height:8px; border-radius:2px; flex-shrink:0; }
+.prov-proj-bar { display:flex; align-items:flex-end; gap:3px; height:100px; margin-top:8px; }
+.prov-proj-col { flex:1; display:flex; flex-direction:column; align-items:center; gap:2px; }
+.prov-proj-fill { width:100%; border-radius:3px 3px 0 0; min-height:3px; transition:height .5s; }
+.prov-proj-lbl { font-size:8px; color:var(--text3); }
+.prov-hm2d { overflow-x:auto; }
+.prov-hm2d table { border-collapse:collapse; width:100%; font-size:10px; }
+.prov-hm2d th { color:var(--text3); font-weight:600; padding:3px 4px; text-align:center; white-space:nowrap; }
+.prov-hm2d td { padding:2px 3px; text-align:center; }
+.prov-hm2d .hm-cell { width:28px; height:22px; border-radius:3px; display:inline-block; cursor:pointer; transition:transform .15s; }
+.prov-hm2d .hm-cell:hover { transform:scale(1.2); }
+.prov-hm2d .hm-ticker { font-size:10px; font-weight:700; color:var(--text2); text-align:left; padding-right:6px; white-space:nowrap; }
+
 @media(max-width:900px){
   .prov-kpis { grid-template-columns:1fr 1fr; }
   .prov-row2 { grid-template-columns:1fr; }
+  .prov-row3 { grid-template-columns:1fr!important; }
 }
 @media(max-width:600px){
   .prov-kpis { grid-template-columns:1fr 1fr; gap:8px; }
@@ -1643,6 +1666,7 @@ body.pat-hidden .g-kpi-sub::after{justify-content:flex-start;padding-right:0;pad
 <style id="g20-main-scroll">
   .main { height: 100svh !important; overflow-y: auto !important; }
   </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 </head>
 <body>
 
@@ -2135,20 +2159,91 @@ body.pat-hidden .g-kpi-sub::after{justify-content:flex-start;padding-right:0;pad
 
       <div class="prov-dashboard">
 
-        <!-- KPIs -->
+        <!-- KPIs HERO -->
         <div class="prov-kpis" id="provKpis"></div>
 
-        <!-- CALENDÁRIO DE DIVIDENDOS -->
-        <div class="cal-wrap" style="margin-bottom:20px">
+        <!-- LINHA 1: Meta IF + Donut classes + Projeção futura -->
+        <div class="prov-row3" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
 
-          <!-- KPIs do calendário -->
+          <!-- Meta de Independência Financeira -->
+          <div class="prov-card prov-card-meta" id="provMetaIF">
+            <div class="prov-card-title"><span>🎯 Meta de IF</span></div>
+            <div id="provMetaIFContent"></div>
+          </div>
+
+          <!-- Donut por classe de ativo -->
+          <div class="prov-card">
+            <div class="prov-card-title"><span>🥧 Por Classe</span></div>
+            <div id="provDonutClasse" style="display:flex;align-items:center;justify-content:center;gap:20px;min-height:140px"></div>
+          </div>
+
+          <!-- Projeção futura 12 meses -->
+          <div class="prov-card">
+            <div class="prov-card-title"><span>🔮 Projeção 12 meses</span></div>
+            <div id="provProjecao" style="min-height:140px"></div>
+          </div>
+        </div>
+
+        <!-- LINHA 2: Barras mensais (Chart.js) — full width -->
+        <div class="prov-card">
+          <div class="prov-card-title">
+            <span>📊 Evolução mensal de renda passiva</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span style="font-size:10px;color:var(--text3);display:flex;align-items:center;gap:4px">
+                <span style="width:8px;height:8px;border-radius:2px;background:#2ecc71;display:inline-block"></span>Recebido
+                <span style="width:8px;height:8px;border-radius:2px;background:rgba(232,184,75,.5);display:inline-block;margin-left:6px"></span>Previsto
+              </span>
+            </div>
+          </div>
+          <div style="position:relative;height:180px"><canvas id="provChartMensal" role="img" aria-label="Evolução mensal de proventos recebidos"></canvas></div>
+        </div>
+
+        <!-- LINHA 3: Evolução patrimônio vs renda + Ranking maiores pagadores -->
+        <div class="prov-row2">
+          <div class="prov-card">
+            <div class="prov-card-title"><span>📈 Patrimônio vs Renda Passiva</span></div>
+            <div style="position:relative;height:160px"><canvas id="provChartPatrimonio" role="img" aria-label="Evolução do patrimônio vs renda passiva acumulada"></canvas></div>
+          </div>
+          <div class="prov-card">
+            <div class="prov-card-title">
+              <span>🏆 Ranking — maiores pagadores</span>
+              <span id="provTickerTotal" style="font-size:12px;color:var(--green);font-weight:700"></span>
+            </div>
+            <div id="provTickerBreakdown"></div>
+          </div>
+        </div>
+
+        <!-- LINHA 4: Heatmap anos×meses (full width) -->
+        <div class="prov-card">
+          <div class="prov-card-title">
+            <span>🗓️ Heatmap — renda por mês × ativo</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <div class="prov-year-tabs" id="provYearTabs"></div>
+              <label style="font-size:10px;color:var(--text3);display:flex;align-items:center;gap:4px">
+                <input type="checkbox" id="provHmByAtivo" onchange="renderDividendos()" style="width:12px;height:12px"> Por ativo
+              </label>
+            </div>
+          </div>
+          <div id="provHeatmapWrap"></div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:12px">
+            <span style="font-size:10px;color:var(--text3)">Menos</span>
+            <div style="display:flex;gap:3px">
+              <div style="width:14px;height:14px;border-radius:3px;background:var(--bg3)"></div>
+              <div style="width:14px;height:14px;border-radius:3px;background:rgba(201,169,97,.2)"></div>
+              <div style="width:14px;height:14px;border-radius:3px;background:rgba(201,169,97,.45)"></div>
+              <div style="width:14px;height:14px;border-radius:3px;background:rgba(201,169,97,.7)"></div>
+              <div style="width:14px;height:14px;border-radius:3px;background:rgba(201,169,97,1)"></div>
+            </div>
+            <span style="font-size:10px;color:var(--text3)">Mais</span>
+          </div>
+        </div>
+
+        <!-- LINHA 5: Calendário elegante (full width) -->
+        <div class="cal-wrap">
           <div class="cal-kpi-row" id="calKpis"></div>
-
-          <!-- Calendário mensal estilo agenda -->
           <div class="prov-card" style="padding:0;overflow:hidden">
-            <!-- Header do calendário -->
             <div class="cal-agenda-header">
-              <div class="cal-title" style="margin-bottom:0"><span style="background:var(--green)"></span>Calendário de Dividendos</div>
+              <div class="cal-title" style="margin-bottom:0"><span style="background:var(--gold)"></span>Calendário de Dividendos</div>
               <div style="display:flex;align-items:center;gap:12px">
                 <div class="cal-legend">
                   <div class="cal-legend-item"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--green);margin-right:4px"></span>Recebido</div>
@@ -2156,86 +2251,30 @@ body.pat-hidden .g-kpi-sub::after{justify-content:flex-start;padding-right:0;pad
                 </div>
                 <div class="cal-nav">
                   <button onclick="calNavMes(-1)">‹</button>
-                  <span class="cal-month-label" id="calMesLabel">Mar 2026</span>
+                  <span class="cal-month-label" id="calMesLabel">Mai 2026</span>
                   <button onclick="calNavMes(+1)">›</button>
                 </div>
               </div>
             </div>
-
-            <!-- Dias da semana -->
             <div class="cal-weekdays">
               <div>Dom</div><div>Seg</div><div>Ter</div>
               <div>Qua</div><div>Qui</div><div>Sex</div><div>Sáb</div>
             </div>
-
-            <!-- Grid de dias -->
             <div class="cal-days-grid" id="calDaysGrid"></div>
           </div>
-
-          <!-- Linha: próximos pagamentos -->
           <div class="cal-upcoming" id="calUpcoming"></div>
         </div>
 
-        <!-- Linha 2: barras 12 meses + breakdown por ativo -->
-        <div class="prov-row2">
-          <!-- Barras mensais (últimos 12 meses + próximos) -->
-          <div class="prov-card">
-            <div class="prov-card-title">
-              <span>Evolução mensal</span>
-              <div style="display:flex;gap:8px;align-items:center">
-                <span style="font-size:10px;color:var(--text3);display:flex;align-items:center;gap:4px">
-                  <span style="width:8px;height:8px;border-radius:2px;background:var(--green);display:inline-block"></span>Recebido
-                  <span style="width:8px;height:8px;border-radius:2px;background:var(--gold);opacity:.5;display:inline-block;margin-left:6px"></span>Previsto
-                </span>
-              </div>
-            </div>
-            <div class="prov-bars" id="provBars"></div>
-            <canvas id="provLineCanvas" height="0" style="display:none"></canvas>
-          </div>
-
-          <!-- Breakdown por ativo -->
-          <div class="prov-card">
-            <div class="prov-card-title">
-              <span>Por ativo</span>
-              <span id="provTickerTotal" style="font-size:12px;color:var(--green);font-weight:700"></span>
-            </div>
-            <div id="provTickerBreakdown"></div>
-          </div>
-        </div>
-
-        <!-- Linha 3: heatmap anual + histórico anual -->
-        <div class="prov-row2">
-          <!-- Heatmap: cada ano × mês -->
-          <div class="prov-card">
-            <div class="prov-card-title">
-              <span>Heatmap — intensidade por mês</span>
-              <div class="prov-year-tabs" id="provYearTabs"></div>
-            </div>
-            <div class="prov-heatmap" id="provHeatmap"></div>
-            <div style="display:flex;align-items:center;gap:6px;margin-top:12px">
-              <span style="font-size:10px;color:var(--text3)">Menos</span>
-              <div style="display:flex;gap:3px">
-                <div style="width:14px;height:14px;border-radius:3px;background:var(--bg3)"></div>
-                <div style="width:14px;height:14px;border-radius:3px;background:rgba(46,204,113,.2)"></div>
-                <div style="width:14px;height:14px;border-radius:3px;background:rgba(46,204,113,.45)"></div>
-                <div style="width:14px;height:14px;border-radius:3px;background:rgba(46,204,113,.7)"></div>
-                <div style="width:14px;height:14px;border-radius:3px;background:rgba(46,204,113,1)"></div>
-              </div>
-              <span style="font-size:10px;color:var(--text3)">Mais</span>
-            </div>
-          </div>
-
-          <!-- Histórico anual com barras -->
-          <div class="prov-card">
-            <div class="prov-card-title"><span>Evolução anual</span></div>
-            <div id="provAnnual"></div>
-          </div>
-        </div>
-
-        <!-- Linha 4: futuros + recebidos recentes -->
+        <!-- LINHA 6: A receber + Recebidos recentes -->
         <div class="prov-row2">
           <div class="prov-card" id="divFuturos"></div>
           <div class="prov-card" id="divRecebidos"></div>
+        </div>
+
+        <!-- LINHA 7: Evolução anual (mantida) -->
+        <div class="prov-card">
+          <div class="prov-card-title"><span>📅 Evolução anual</span></div>
+          <div id="provAnnual"></div>
         </div>
 
       </div>
@@ -8082,7 +8121,7 @@ function renderDividendos(){
   var filtTick = (document.getElementById('filtroProvTicker')||{value:''}).value;
   var allDivs  = loadData('dividendos',[]);
 
-  // Popular dropdown de tickers
+  // Popular dropdown
   var tickerSel = document.getElementById('filtroProvTicker');
   if(tickerSel){
     var tickersU = [...new Set(allDivs.map(function(d){ return d.ticker; }))].sort();
@@ -8091,29 +8130,24 @@ function renderDividendos(){
       tickersU.map(function(t){ return '<option value="'+t+'"'+(t===valAtual?' selected':'')+'>'+t+'</option>'; }).join('');
   }
 
-  // Aplicar filtros de busca/ticker
   var divs = allDivs.slice();
   if(filtTick) divs = divs.filter(function(d){ return d.ticker === filtTick; });
   if(busca)    divs = divs.filter(function(d){ return d.ticker.toUpperCase().includes(busca); });
 
-  var hoje = new Date().toISOString().split('T')[0];
-  var fmt  = function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
-  var fmtK = function(v){ return v >= 1000 ? 'R$ '+(v/1000).toFixed(1)+'k' : fmt(v); };
+  var hoje    = new Date().toISOString().split('T')[0];
+  var fmt     = function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  var fmtK    = function(v){ return v >= 1000 ? 'R$ '+(v/1000).toFixed(1)+'k' : fmt(v); };
+  var anoAtual = new Date().getFullYear();
+  var mesAtual = new Date().getMonth()+1;
 
   var recebidos = divs.filter(function(d){ return d.data < hoje; });
   var futuros   = divs.filter(function(d){ return d.data >= hoje; });
 
-  // ── KPIs ────────────────────────────────────────────────────
-  var totalRec   = recebidos.reduce(function(s,d){ return s+(parseFloat(d.valor)||0)*(parseFloat(d.qtdEx)||0); }, 0);
-  var totalFut   = futuros.reduce(function(s,d){ return s+(parseFloat(d.valor)||0)*(parseFloat(d.qtdEx)||0); }, 0);
-  var anoAtual   = new Date().getFullYear();
-  var mesAtual   = new Date().getMonth()+1;
-  var recAno     = recebidos.filter(function(d){ return d.data.startsWith(anoAtual+''); }).reduce(function(s,d){ return s+(parseFloat(d.valor)||0)*(parseFloat(d.qtdEx)||0); },0);
-  var recMes     = recebidos.filter(function(d){
-    var p = d.data.split('-'); return parseInt(p[0])===anoAtual && parseInt(p[1])===mesAtual;
-  }).reduce(function(s,d){ return s+(parseFloat(d.valor)||0)*(parseFloat(d.qtdEx)||0); },0);
+  var totalRec = recebidos.reduce(function(s,d){ return s+(parseFloat(d.valor)||0)*(parseFloat(d.qtdEx)||0); },0);
+  var totalFut = futuros.reduce(function(s,d){ return s+(parseFloat(d.valor)||0)*(parseFloat(d.qtdEx)||0); },0);
+  var recAno   = recebidos.filter(function(d){ return d.data.startsWith(anoAtual+''); }).reduce(function(s,d){ return s+(parseFloat(d.valor)||0)*(parseFloat(d.qtdEx)||0); },0);
+  var recMes   = recebidos.filter(function(d){ var p=d.data.split('-'); return parseInt(p[0])===anoAtual&&parseInt(p[1])===mesAtual; }).reduce(function(s,d){ return s+(parseFloat(d.valor)||0)*(parseFloat(d.qtdEx)||0); },0);
 
-  // Média mensal (últimos 12 meses com dados)
   var mesesComDados = {};
   recebidos.forEach(function(d){
     var k = d.data.substring(0,7);
@@ -8122,6 +8156,7 @@ function renderDividendos(){
   var mediaKeys = Object.keys(mesesComDados).sort().slice(-12);
   var mediaMensal = mediaKeys.length ? mediaKeys.reduce(function(s,k){ return s+mesesComDados[k]; },0)/mediaKeys.length : 0;
 
+  // ── KPIs ─────────────────────────────────────────────────────
   var kpiEl = document.getElementById('provKpis');
   if(kpiEl) kpiEl.innerHTML = [
     {label:'Total Recebido', val:fmt(totalRec), sub:'Desde o início', icon:'💰', color:'#2ecc71'},
@@ -8137,68 +8172,235 @@ function renderDividendos(){
     '</div>';
   }).join('');
 
-  // Badge DY
   var dyEl = document.getElementById('provDYBadge');
   if(dyEl) dyEl.textContent = 'Média/mês: '+fmtK(mediaMensal);
 
-  // ── BARRAS MENSAIS (últimos 13 meses + próximos 3) ───────────
-  var now = new Date();
-  var meses = [];
-  for(var i=-12; i<=3; i++){
-    var d = new Date(now.getFullYear(), now.getMonth()+i, 1);
-    meses.push({ key: d.getFullYear()+'-'+(''+(d.getMonth()+1)).padStart(2,'0'),
-                 label: ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][d.getMonth()],
-                 future: i > 0 });
+  // ── META DE IF ───────────────────────────────────────────────
+  var metaEl = document.getElementById('provMetaIFContent');
+  if(metaEl){
+    var metaAnual = (parseFloat(localStorage.getItem('g20_metaIF_anual'))||0) ||
+                    (parseFloat(localStorage.getItem('metaIF'))||0) || 30000;
+    var progPct = Math.min(100, Math.round((recAno / metaAnual)*100));
+    var rendaMensal = mediaMensal;
+    var projecaoAnual = rendaMensal * 12;
+    var mesesRestantes = rendaMensal > 0 ? Math.ceil((metaAnual - totalRec % metaAnual) / rendaMensal) : null;
+    var circ = 2 * Math.PI * 54;
+    var dashArr = (progPct/100)*circ;
+    metaEl.innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:center;gap:20px;padding:8px 0">'+
+        '<div class="prov-meta-ring" style="width:120px;height:120px">'+
+          '<svg width="120" height="120" viewBox="0 0 120 120">'+
+            '<circle cx="60" cy="60" r="54" fill="none" stroke="var(--bg3)" stroke-width="10"/>'+
+            '<circle cx="60" cy="60" r="54" fill="none" stroke="#c9a961" stroke-width="10" stroke-linecap="round" '+
+              'stroke-dasharray="'+dashArr.toFixed(1)+' '+circ.toFixed(1)+'" transform="rotate(-90 60 60)"/>'+
+          '</svg>'+
+          '<div class="prov-meta-center">'+
+            '<div class="prov-meta-pct">'+progPct+'%</div>'+
+            '<div class="prov-meta-label">da meta<br>'+anoAtual+'</div>'+
+          '</div>'+
+        '</div>'+
+        '<div style="display:flex;flex-direction:column;gap:8px">'+
+          '<div><div style="font-size:10px;color:var(--text3)">Meta anual</div><div style="font-size:16px;font-weight:700;color:var(--gold)">'+fmt(metaAnual)+'</div></div>'+
+          '<div><div style="font-size:10px;color:var(--text3)">Recebido em '+anoAtual+'</div><div style="font-size:14px;font-weight:700;color:var(--green)">'+fmt(recAno)+'</div></div>'+
+          '<div><div style="font-size:10px;color:var(--text3)">Projeção '+anoAtual+'</div><div style="font-size:13px;font-weight:600;color:var(--text2)">'+fmt(projecaoAnual)+'</div></div>'+
+        '</div>'+
+      '</div>';
   }
 
-  // Monta mapa de valores por mês (recebidos + futuros)
-  var valPorMes = {};
-  divs.forEach(function(d){
-    var k = d.data.substring(0,7);
-    valPorMes[k] = (valPorMes[k]||0) + (parseFloat(d.valor)||0)*(parseFloat(d.qtdEx)||0);
-  });
+  // ── DONUT POR CLASSE ─────────────────────────────────────────
+  var donutEl = document.getElementById('provDonutClasse');
+  if(donutEl){
+    var porClasse = {FII:0, Acao:0, US:0};
+    var aportes = loadData('aportes',[]);
+    recebidos.forEach(function(d){
+      var ap = aportes.find(function(a){ return a.ticker===d.ticker; });
+      var tipo = ap ? ap.tipo : '';
+      var val = (parseFloat(d.valor)||0)*(parseFloat(d.qtdEx)||0);
+      if(tipo==='FII'||tipo==='FIAGRO') porClasse.FII += val;
+      else if(tipo==='Acao') porClasse.Acao += val;
+      else porClasse.US += val;
+    });
+    var total3 = porClasse.FII + porClasse.Acao + porClasse.US;
+    var cores = {FII:'#c9a961', Acao:'#2ecc71', US:'#3498db'};
+    var nomes = {FII:'FIIs', Acao:'Ações BR', US:'Stocks US'};
+    var circ3 = 2*Math.PI*40;
+    var offset = 0;
+    var segs = Object.keys(porClasse).filter(function(k){ return porClasse[k]>0; }).map(function(k){
+      var pct = total3>0 ? porClasse[k]/total3 : 0;
+      var seg = { k:k, pct:pct, offset:offset, len:pct*circ3 };
+      offset += pct*circ3;
+      return seg;
+    });
+    donutEl.innerHTML =
+      '<svg width="100" height="100" viewBox="0 0 100 100">'+
+        segs.map(function(s){
+          return '<circle cx="50" cy="50" r="40" fill="none" stroke="'+cores[s.k]+'" stroke-width="16" stroke-linecap="butt" '+
+            'stroke-dasharray="'+s.len.toFixed(1)+' '+(circ3-s.len).toFixed(1)+'" '+
+            'stroke-dashoffset="'+(-(s.offset)).toFixed(1)+'" transform="rotate(-90 50 50)"/>';
+        }).join('')+
+      '</svg>'+
+      '<div class="prov-donut-legend">'+
+        Object.keys(porClasse).map(function(k){
+          var pct = total3>0 ? Math.round(porClasse[k]/total3*100) : 0;
+          return '<div class="prov-donut-item">'+
+            '<div class="prov-donut-dot" style="background:'+cores[k]+'"></div>'+
+            '<span style="color:var(--text2)">'+nomes[k]+'</span>'+
+            '<span style="font-weight:700;color:'+cores[k]+'">'+pct+'%</span>'+
+          '</div>';
+        }).join('')+
+        '<div style="margin-top:4px;font-size:10px;color:var(--text3)">Total: '+fmtK(total3)+'</div>'+
+      '</div>';
+  }
 
-  var maxBar = Math.max(1, ...meses.map(function(m){ return valPorMes[m.key]||0; }));
-
-  var barsEl = document.getElementById('provBars');
-  if(barsEl) barsEl.innerHTML = meses.map(function(m){
-    var val = valPorMes[m.key] || 0;
-    var pct = Math.round((val/maxBar)*100);
-    var color = m.future ? 'var(--gold)' : 'var(--green)';
-    var isHoje = m.key === hoje.substring(0,7);
-    return '<div class="prov-bar-wrap">'+
-      '<div class="prov-bar-val">'+(val>0?fmtK(val):'')+'</div>'+
-      '<div class="prov-bar-track">'+
-        '<div class="prov-bar-fill'+(m.future?' future':'')+(isHoje?' current':'')+'" '+
-          'style="height:'+Math.max(3,pct)+'%;background:'+color+';'+
-          (isHoje?'box-shadow:0 0 8px rgba(232,184,75,.5);':'')+
-          (isHoje?'background:linear-gradient(180deg,#f5d07a,#e8b84b);':'')+
-          '" title="'+m.key+': '+fmt(val)+'">'+
-        '</div>'+
+  // ── PROJEÇÃO 12 MESES ────────────────────────────────────────
+  var projEl = document.getElementById('provProjecao');
+  if(projEl){
+    var now2 = new Date();
+    var projMeses = [];
+    for(var i=1; i<=12; i++){
+      var d2 = new Date(now2.getFullYear(), now2.getMonth()+i, 1);
+      var key2 = d2.getFullYear()+'-'+(''+(d2.getMonth()+1)).padStart(2,'0');
+      var label2 = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][d2.getMonth()];
+      var futVal = futuros.filter(function(d){ return d.data.startsWith(key2); })
+                          .reduce(function(s,d){ return s+(parseFloat(d.valor)||0)*(parseFloat(d.qtdEx)||0); },0);
+      var val2 = futVal > 0 ? futVal : mediaMensal;
+      projMeses.push({label:label2, val:val2, confirmed:futVal>0});
+    }
+    var maxProj = Math.max(1, ...projMeses.map(function(m){ return m.val; }));
+    projEl.innerHTML =
+      '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Baseado na média mensal de '+fmtK(mediaMensal)+'/mês</div>'+
+      '<div class="prov-proj-bar">'+
+        projMeses.map(function(m){
+          var h = Math.max(8, Math.round((m.val/maxProj)*90));
+          var cor = m.confirmed ? '#c9a961' : 'rgba(201,169,97,0.4)';
+          return '<div class="prov-proj-col">'+
+            '<div style="font-size:8px;color:var(--text3);white-space:nowrap">'+fmtK(m.val)+'</div>'+
+            '<div class="prov-proj-fill" style="height:'+h+'px;background:'+cor+'"></div>'+
+            '<div class="prov-proj-lbl">'+m.label+'</div>'+
+          '</div>';
+        }).join('')+
       '</div>'+
-      '<div class="prov-bar-month" style="'+(isHoje?'color:var(--gold);font-weight:700':'')+'">'+m.label+'</div>'+
-    '</div>';
-  }).join('');
+      '<div style="display:flex;gap:12px;margin-top:6px;font-size:10px;color:var(--text3)">'+
+        '<span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;background:#c9a961;border-radius:2px;display:inline-block"></span>Confirmado</span>'+
+        '<span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;background:rgba(201,169,97,0.4);border-radius:2px;display:inline-block"></span>Estimado</span>'+
+      '</div>';
+  }
 
-  // ── BREAKDOWN POR ATIVO ─────────────────────────────────────
+  // ── GRÁFICO MENSAL (Chart.js) ────────────────────────────────
+  var now3 = new Date();
+  var meses = [];
+  for(var i=-12; i<=3; i++){
+    var d3 = new Date(now3.getFullYear(), now3.getMonth()+i, 1);
+    meses.push({
+      key: d3.getFullYear()+'-'+(''+(d3.getMonth()+1)).padStart(2,'0'),
+      label: ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][d3.getMonth()]+'/'+(d3.getFullYear()+'').slice(2),
+      future: i > 0
+    });
+  }
+  var valPorMes = {};
+  divs.forEach(function(d){ var k=d.data.substring(0,7); valPorMes[k]=(valPorMes[k]||0)+(parseFloat(d.valor)||0)*(parseFloat(d.qtdEx)||0); });
+
+  var canvasMensal = document.getElementById('provChartMensal');
+  if(canvasMensal){
+    if(window._chartMensal){ window._chartMensal.destroy(); }
+    if(typeof Chart !== 'undefined'){
+      window._chartMensal = new Chart(canvasMensal, {
+        type:'bar',
+        data:{
+          labels: meses.map(function(m){ return m.label; }),
+          datasets:[{
+            label:'Proventos',
+            data: meses.map(function(m){ return +(valPorMes[m.key]||0).toFixed(2); }),
+            backgroundColor: meses.map(function(m){ return m.future ? 'rgba(201,169,97,0.4)' : '#2ecc71'; }),
+            borderColor: meses.map(function(m){ return m.future ? 'rgba(201,169,97,0.7)' : '#27ae60'; }),
+            borderWidth:1, borderRadius:4
+          }]
+        },
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:function(ctx){ return 'R$ '+ctx.parsed.y.toLocaleString('pt-BR',{minimumFractionDigits:2}); } } } },
+          scales:{
+            x:{ ticks:{color:'#8b8499', font:{size:9}}, grid:{display:false}, border:{display:false} },
+            y:{ ticks:{color:'#8b8499', font:{size:9}, callback:function(v){ return v>=1000?'R$'+(v/1000).toFixed(1)+'k':'R$'+v; }}, grid:{color:'rgba(255,255,255,0.04)'}, border:{display:false} }
+          }
+        }
+      });
+    } else {
+      // Fallback sem Chart.js
+      var maxBar = Math.max(1, ...meses.map(function(m){ return valPorMes[m.key]||0; }));
+      canvasMensal.parentElement.innerHTML = '<div class="prov-bars" id="provBars">'+
+        meses.map(function(m){
+          var val=valPorMes[m.key]||0; var pct=Math.round((val/maxBar)*100);
+          return '<div class="prov-bar-wrap">'+
+            '<div class="prov-bar-val">'+(val>0?fmtK(val):'')+'</div>'+
+            '<div class="prov-bar-track"><div class="prov-bar-fill'+(m.future?' future':'')+'\" style="height:'+Math.max(3,pct)+'%;background:'+(m.future?'var(--gold)':'var(--green)')+'"></div></div>'+
+            '<div class="prov-bar-month">'+m.label+'</div>'+
+          '</div>';
+        }).join('')+'</div>';
+    }
+  }
+
+  // ── GRÁFICO PATRIMÔNIO VS RENDA ──────────────────────────────
+  var canvasPat = document.getElementById('provChartPatrimonio');
+  if(canvasPat){
+    if(window._chartPatrimonio){ window._chartPatrimonio.destroy(); }
+    // Acumula renda passiva por ano
+    var porAnoRenda = {};
+    allDivs.filter(function(d){ return d.data < hoje; }).forEach(function(d){
+      var a = d.data.substring(0,4);
+      porAnoRenda[a] = (porAnoRenda[a]||0)+(parseFloat(d.valor)||0)*(parseFloat(d.qtdEx)||0);
+    });
+    var anosR = Object.keys(porAnoRenda).sort();
+    var rendaAcum = [];
+    var acum = 0;
+    anosR.forEach(function(a){ acum+=porAnoRenda[a]; rendaAcum.push(+acum.toFixed(2)); });
+    // Patrimônio por ano (via aportes)
+    var aportes2 = loadData('aportes',[]);
+    var porAnoAporte = {};
+    aportes2.forEach(function(a){
+      var ano = a.data?a.data.substring(0,4):'';
+      if(!ano) return;
+      var val = (parseFloat(a.qtd)||0)*(parseFloat(a.preco)||0)*(a.op==='C'?1:-1);
+      porAnoAporte[ano] = (porAnoAporte[ano]||0)+val;
+    });
+    var patAcum2 = [];
+    var patAcc = 0;
+    anosR.forEach(function(a){ patAcc+=(porAnoAporte[a]||0); patAcum2.push(+patAcc.toFixed(2)); });
+    if(typeof Chart !== 'undefined'){
+      window._chartPatrimonio = new Chart(canvasPat, {
+        type:'line',
+        data:{
+          labels: anosR,
+          datasets:[
+            { label:'Patrimônio investido', data:patAcum2, borderColor:'#3498db', backgroundColor:'rgba(52,152,219,0.08)', fill:true, tension:0.4, pointRadius:3, pointBackgroundColor:'#3498db', borderWidth:2 },
+            { label:'Renda passiva acum.', data:rendaAcum, borderColor:'#c9a961', backgroundColor:'rgba(201,169,97,0.08)', fill:true, tension:0.4, pointRadius:3, pointBackgroundColor:'#c9a961', borderWidth:2 }
+          ]
+        },
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:function(ctx){ return ctx.dataset.label+': R$ '+ctx.parsed.y.toLocaleString('pt-BR',{minimumFractionDigits:2}); } } } },
+          scales:{
+            x:{ ticks:{color:'#8b8499',font:{size:9}}, grid:{display:false}, border:{display:false} },
+            y:{ ticks:{color:'#8b8499',font:{size:9},callback:function(v){ return v>=1000?'R$'+(v/1000).toFixed(1)+'k':'R$'+v; }}, grid:{color:'rgba(255,255,255,0.04)'}, border:{display:false} }
+          }
+        }
+      });
+    }
+  }
+
+  // ── RANKING MAIORES PAGADORES ────────────────────────────────
   var porTicker = {};
-  recebidos.forEach(function(d){
-    porTicker[d.ticker] = (porTicker[d.ticker]||0) + d.valor*(d.qtdEx||0);
-  });
+  recebidos.forEach(function(d){ porTicker[d.ticker]=(porTicker[d.ticker]||0)+d.valor*(d.qtdEx||0); });
   var tickersSorted = Object.keys(porTicker).sort(function(a,b){ return porTicker[b]-porTicker[a]; });
-  var maxTicker = Math.max(1, ...Object.values(porTicker));
-  var COLORS = ['#2ecc71','#3498db','#9b59b6','#e8b84b','#e67e22','#e63946','#1abc9c','#f39c12'];
+  var maxTicker = Math.max(1,...Object.values(porTicker));
+  var COLORS = ['#c9a961','#2ecc71','#3498db','#9b59b6','#e67e22','#1abc9c','#e74c3c','#f39c12'];
 
   var bdEl = document.getElementById('provTickerBreakdown');
   if(bdEl) bdEl.innerHTML = tickersSorted.slice(0,10).map(function(t,i){
-    var val = porTicker[t];
-    var pct = Math.round((val/totalRec)*100);
-    var w   = Math.round((val/maxTicker)*100);
+    var val=porTicker[t]; var pct=Math.round((val/totalRec)*100); var w=Math.round((val/maxTicker)*100);
     return '<div class="prov-ticker-row">'+
       '<div class="prov-ticker-name" style="color:'+COLORS[i%COLORS.length]+'">'+t+'</div>'+
-      '<div class="prov-ticker-bar-bg">'+
-        '<div class="prov-ticker-bar-fill" style="width:'+w+'%;background:'+COLORS[i%COLORS.length]+'"></div>'+
-      '</div>'+
+      '<div class="prov-ticker-bar-bg"><div class="prov-ticker-bar-fill" style="width:'+w+'%;background:'+COLORS[i%COLORS.length]+'"></div></div>'+
       '<div class="prov-ticker-pct">'+pct+'%</div>'+
       '<div class="prov-ticker-total">'+fmtK(val)+'</div>'+
     '</div>';
@@ -8207,62 +8409,80 @@ function renderDividendos(){
   var totEl = document.getElementById('provTickerTotal');
   if(totEl) totEl.textContent = fmt(totalRec);
 
-  // ── HEATMAP: mês × intensidade (ano selecionado ou todos) ───
-  var yearTabsEl = document.getElementById('provYearTabs');
-  var anos = [...new Set(divs.map(function(d){ return d.data.substring(0,4); }))].sort();
-  if(!window._provHmAno || !anos.includes(window._provHmAno)) window._provHmAno = anos[anos.length-1]||''+anoAtual;
+  // ── HEATMAP ANOS × MESES (ou Ativo × Meses) ─────────────────
+  var hmWrap = document.getElementById('provHeatmapWrap');
+  var byAtivo = document.getElementById('provHmByAtivo') && document.getElementById('provHmByAtivo').checked;
+  var anos2 = [...new Set(divs.map(function(d){ return d.data.substring(0,4); }))].sort();
+  if(!window._provHmAno || !anos2.includes(window._provHmAno)) window._provHmAno = anos2[anos2.length-1]||''+anoAtual;
 
-  if(yearTabsEl) yearTabsEl.innerHTML = anos.map(function(a){
+  var yearTabsEl = document.getElementById('provYearTabs');
+  if(yearTabsEl) yearTabsEl.innerHTML = anos2.map(function(a){
     return '<button class="prov-year-btn'+(a===window._provHmAno?' active':'')+
       '" onclick="window._provHmAno=\''+a+'\';renderDividendos()">'+a+'</button>';
   }).join('');
 
-  var hmDivs = divs.filter(function(d){ return d.data.startsWith(window._provHmAno); });
-  var hmPorMes = {};
-  hmDivs.forEach(function(d){
-    var m = parseInt(d.data.split('-')[1]);
-    hmPorMes[m] = (hmPorMes[m]||0) + d.valor*(d.qtdEx||0);
-  });
-  var maxHm = Math.max(1, ...Object.values(hmPorMes));
-  var mLabels = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-
-  var hmEl = document.getElementById('provHeatmap');
-  if(hmEl) hmEl.innerHTML = mLabels.map(function(ml,i){
-    var m = i+1;
-    var val = hmPorMes[m] || 0;
-    var intensity = val > 0 ? Math.max(0.1, val/maxHm) : 0;
-    var bg = val > 0 ? 'rgba(46,204,113,'+intensity+')' : 'var(--bg3)';
-    var tip = val > 0 ? ml+' '+window._provHmAno+': '+fmt(val) : ml+' — sem proventos';
-    return '<div class="prov-hm-month">'+
-      '<div class="prov-hm-cell" style="background:'+bg+'" data-tip="'+tip+'" title="'+tip+'"></div>'+
-      '<div class="prov-hm-label">'+ml+'</div>'+
-    '</div>';
-  }).join('');
+  if(hmWrap){
+    var mLabels = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    if(!byAtivo){
+      // Heatmap simples: meses do ano selecionado
+      var hmDivs = divs.filter(function(d){ return d.data.startsWith(window._provHmAno); });
+      var hmPorMes = {};
+      hmDivs.forEach(function(d){ var m=parseInt(d.data.split('-')[1]); hmPorMes[m]=(hmPorMes[m]||0)+d.valor*(d.qtdEx||0); });
+      var maxHm = Math.max(1,...Object.values(hmPorMes));
+      hmWrap.innerHTML = '<div class="prov-heatmap" id="provHeatmap">'+
+        mLabels.map(function(ml,i){
+          var m=i+1; var val=hmPorMes[m]||0;
+          var intensity=val>0?Math.max(0.1,val/maxHm):0;
+          var bg=val>0?'rgba(201,169,97,'+intensity+')':'var(--bg3)';
+          var tip=val>0?ml+' '+window._provHmAno+': '+fmt(val):ml+' — sem proventos';
+          return '<div class="prov-hm-month">'+
+            '<div class="prov-hm-cell" style="background:'+bg+'" title="'+tip+'"></div>'+
+            '<div class="prov-hm-label">'+ml+'</div>'+
+          '</div>';
+        }).join('')+'</div>';
+    } else {
+      // Heatmap 2D: ativo × mês (ano selecionado)
+      var hmDivs2 = divs.filter(function(d){ return d.data.startsWith(window._provHmAno); });
+      var tickersHm = [...new Set(hmDivs2.map(function(d){ return d.ticker; }))].sort();
+      var hmGrid = {};
+      hmDivs2.forEach(function(d){
+        var m=parseInt(d.data.split('-')[1]);
+        if(!hmGrid[d.ticker]) hmGrid[d.ticker]={};
+        hmGrid[d.ticker][m]=(hmGrid[d.ticker][m]||0)+d.valor*(d.qtdEx||0);
+      });
+      var allVals = [];
+      tickersHm.forEach(function(t){ for(var m=1;m<=12;m++){ if(hmGrid[t][m]) allVals.push(hmGrid[t][m]); } });
+      var maxHm2 = Math.max(1,...allVals);
+      hmWrap.innerHTML = '<div class="prov-hm2d"><table>'+
+        '<thead><tr><th></th>'+mLabels.map(function(ml){ return '<th>'+ml+'</th>'; }).join('')+'</tr></thead>'+
+        '<tbody>'+
+        tickersHm.map(function(t){
+          return '<tr><td class="hm-ticker">'+t+'</td>'+
+            mLabels.map(function(_,i){
+              var m=i+1; var val=(hmGrid[t]&&hmGrid[t][m])||0;
+              var intensity=val>0?Math.max(0.1,val/maxHm2):0;
+              var bg=val>0?'rgba(201,169,97,'+intensity+')':'var(--bg3)';
+              return '<td><span class="hm-cell" style="background:'+bg+'" title="'+t+' '+mLabels[i]+': '+(val>0?fmt(val):'—')+'"></span></td>';
+            }).join('')+'</tr>';
+        }).join('')+
+        '</tbody></table></div>';
+    }
+  }
 
   // ── EVOLUÇÃO ANUAL ───────────────────────────────────────────
-  var porAno = {};
-  recebidos.forEach(function(d){
-    var a = d.data.substring(0,4);
-    porAno[a] = (porAno[a]||0) + d.valor*(d.qtdEx||0);
-  });
-  var anosOrdenados = Object.keys(porAno).sort();
-  var maxAno = Math.max(1, ...Object.values(porAno));
-
+  var porAno3 = {};
+  recebidos.forEach(function(d){ var a=d.data.substring(0,4); porAno3[a]=(porAno3[a]||0)+d.valor*(d.qtdEx||0); });
+  var anosOrdenados3 = Object.keys(porAno3).sort();
+  var maxAno3 = Math.max(1,...Object.values(porAno3));
   var annEl = document.getElementById('provAnnual');
-  if(annEl) annEl.innerHTML = anosOrdenados.map(function(a,i){
-    var val = porAno[a];
-    var w   = Math.round((val/maxAno)*100);
-    var prev = i > 0 ? porAno[anosOrdenados[i-1]] : null;
-    var delta = prev ? ((val-prev)/prev*100) : null;
-    var deltaStr = delta !== null
-      ? '<span style="font-size:10px;color:'+(delta>=0?'var(--green)':'var(--red)')+'">'+
-          (delta>=0?'↑':'↓')+Math.abs(delta).toFixed(0)+'%</span>'
-      : '';
+  if(annEl) annEl.innerHTML = anosOrdenados3.map(function(a,i){
+    var val=porAno3[a]; var w=Math.round((val/maxAno3)*100);
+    var prev=i>0?porAno3[anosOrdenados3[i-1]]:null;
+    var delta=prev?((val-prev)/prev*100):null;
+    var deltaStr=delta!==null?'<span style="font-size:10px;color:'+(delta>=0?'var(--green)':'var(--red)')+'">'+(delta>=0?'↑':'↓')+Math.abs(delta).toFixed(0)+'%</span>':'';
     return '<div class="prov-annual-row">'+
       '<div class="prov-annual-year">'+a+'</div>'+
-      '<div class="prov-annual-bar-bg">'+
-        '<div class="prov-annual-bar-fill" style="width:'+w+'%;background:linear-gradient(90deg,#2ecc71,#3498db)"></div>'+
-      '</div>'+
+      '<div class="prov-annual-bar-bg"><div class="prov-annual-bar-fill" style="width:'+w+'%;background:linear-gradient(90deg,#c9a961,#2ecc71)"></div></div>'+
       '<div class="prov-annual-val">'+fmtK(val)+' '+deltaStr+'</div>'+
     '</div>';
   }).join('') || '<div style="color:var(--text3);font-size:12px;text-align:center;padding:32px">Nenhum provento recebido ainda.</div>';
@@ -8273,24 +8493,16 @@ function renderDividendos(){
     if(futuros.length){
       fEl.innerHTML='<div class="prov-card-title">📅 A Receber <span style="color:var(--gold);font-size:12px">'+fmt(totalFut)+'</span></div>'+
       futuros.sort(function(a,b){ return a.data.localeCompare(b.data); }).slice(0,8).map(function(d){
-        var total = d.valor*(d.qtdEx||0);
-        var isAprv = d.datex && d.datex < hoje;
+        var total=d.valor*(d.qtdEx||0); var isAprv=d.datex&&d.datex<hoje;
         return '<div class="prov-list-item prov-list-future">'+
           '<div class="prov-list-ticker">'+d.ticker+'</div>'+
           '<div class="prov-list-tipo">'+d.tipo+'</div>'+
-          '<div class="prov-list-info">'+
-            (d.datex?'Ex: '+fmtDate(d.datex)+' · ':'')+'R$ '+d.valor.toFixed(4)+'/cota'+
-          '</div>'+
-          '<div>'+
-            '<div class="prov-list-val" style="color:'+(isAprv?'var(--green)':'var(--gold)')+'">'+fmt(total)+'</div>'+
-            '<div class="prov-list-date">Pag: '+fmtDate(d.data)+'</div>'+
-          '</div>'+
+          '<div class="prov-list-info">'+(d.datex?'Ex: '+fmtDate(d.datex)+' · ':'')+'R$ '+d.valor.toFixed(4)+'/cota</div>'+
+          '<div><div class="prov-list-val" style="color:'+(isAprv?'var(--green)':'var(--gold)')+'">'+fmt(total)+'</div><div class="prov-list-date">Pag: '+fmtDate(d.data)+'</div></div>'+
         '</div>';
-      }).join('') +
-      (futuros.length > 8 ? '<div style="text-align:center;font-size:11px;color:var(--text3);padding:8px">+ '+(futuros.length-8)+' mais</div>' : '');
+      }).join('')+(futuros.length>8?'<div style="text-align:center;font-size:11px;color:var(--text3);padding:8px">+ '+(futuros.length-8)+' mais</div>':'');
     } else {
-      fEl.innerHTML = '<div class="prov-card-title">📅 A Receber</div>'+
-        '<div style="text-align:center;padding:32px;color:var(--text3);font-size:12px">Nenhum provento previsto</div>';
+      fEl.innerHTML='<div class="prov-card-title">📅 A Receber</div><div style="text-align:center;padding:32px;color:var(--text3);font-size:12px">Nenhum provento previsto</div>';
     }
   }
 
@@ -8300,26 +8512,20 @@ function renderDividendos(){
     var recentes = recebidos.sort(function(a,b){ return b.data.localeCompare(a.data); }).slice(0,8);
     rEl.innerHTML = '<div class="prov-card-title">✅ Recebidos <span style="color:var(--green);font-size:12px">'+fmt(totalRec)+'</span></div>'+
     (recentes.length ? recentes.map(function(d){
-      // Blindagem: normaliza campos para suportar schemas mistos (valor|valorCota, qtdEx|qtd)
-      var vlr = parseFloat(d.valor != null ? d.valor : (d.valorCota != null ? d.valorCota : 0)) || 0;
-      var qtd = parseFloat(d.qtdEx != null ? d.qtdEx : (d.qtd != null ? d.qtd : 0)) || 0;
-      var total = vlr * qtd;
+      var vlr=parseFloat(d.valor!=null?d.valor:(d.valorCota!=null?d.valorCota:0))||0;
+      var qtd=parseFloat(d.qtdEx!=null?d.qtdEx:(d.qtd!=null?d.qtd:0))||0;
+      var total=vlr*qtd;
       return '<div class="prov-list-item">'+
         '<div class="prov-list-ticker">'+(d.ticker||'')+'</div>'+
         '<div class="prov-list-tipo">'+(d.tipo||'Dividendo')+'</div>'+
         '<div class="prov-list-info">R$ '+vlr.toFixed(4)+'/cota · '+qtd+' cotas</div>'+
-        '<div>'+
-          '<div class="prov-list-val">'+fmt(total)+'</div>'+
-          '<div class="prov-list-date">'+fmtDate(d.data)+'</div>'+
-        '</div>'+
+        '<div><div class="prov-list-val">'+fmt(total)+'</div><div class="prov-list-date">'+fmtDate(d.data)+'</div></div>'+
       '</div>';
-    }).join('') +
-    (recebidos.length > 8 ? '<div style="text-align:center;font-size:11px;color:var(--text3);padding:8px">+ '+(recebidos.length-8)+' mais</div>' : '')
+    }).join('')+(recebidos.length>8?'<div style="text-align:center;font-size:11px;color:var(--text3);padding:8px">+ '+(recebidos.length-8)+' mais</div>':'')
     : '<div style="text-align:center;padding:32px;color:var(--text3);font-size:12px">Nenhum provento recebido ainda.</div>');
   }
 
-
-  // Renderiza o calendário junto
+  // Renderiza calendário
   renderCalendarioDividendos();
 }
 
