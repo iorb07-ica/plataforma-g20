@@ -5244,7 +5244,7 @@ function renderRVPosicoes(){
   _rvBindBtns();
   // Continua com render auxiliar
   try{ rvRenderKpiStrip(rows); }catch(e){ console.error('[rvRenderKpiStrip]', e); }
-  setTimeout(rvAplicarOrdemColunas, 0);
+  // Ordem gerenciada via drag em tempo real (sem persist)
   // Re-bind depois (idempotente graças à flag _rvBound)
   _rvBindBtns();
 }
@@ -5830,17 +5830,7 @@ function bindValorInput(id){
   // Aguarda Firestore antes de renderizar dados
   _dbOnReady(function(){
     _firstRenderDone = true;
-    // Reseta ordem salva se inválida (número de colunas mudou ou contém 'acoes')
-    (function(){
-      var ordem = loadData('rvColOrdem_v2', null);
-      if(ordem){
-        var validCols = RV_COL_DEFS.map(function(c){ return c.col; });
-        var invalid = ordem.some(function(c){ return c==='acoes' || validCols.indexOf(c)<0; });
-        if(invalid || ordem.length !== validCols.length){
-          saveData('rvColOrdem_v2', null);
-        }
-      }
-    })();
+    // Sem persist de ordem de colunas — drag reorganiza em tempo real
     // Verifica se tem aportes RV; se tiver, adia o renderCharts pra quando as cotações chegarem
     // (evita "flash": chart de custo → chart de mercado)
     var hasRV = (function(){
@@ -8610,24 +8600,7 @@ function rvThDragEnd(th){
   _rvDragSrcTh=null;
 }
 function rvAplicarOrdemColunas(){
-  var ordem=loadData('rvColOrdem_v2',null); if(!ordem||!ordem.length) return;
-  // Validar: se a ordem salva contém 'acoes' ou colunas que não existem no thead, descartar
-  var validCols = RV_COL_DEFS.map(function(c){ return c.col; });
-  var hasInvalid = ordem.some(function(c){ return c === 'acoes' || validCols.indexOf(c) < 0; });
-  if(hasInvalid){ saveData('rvColOrdem_v2', null); return; }
-  var row=document.getElementById('rvTheadRow'); if(!row) return;
-  // Reordenar THs
-  var ordemSemAcoes = ordem.filter(function(c){ return c !== 'acoes'; });
-  ordemSemAcoes.forEach(function(col){ var th=row.querySelector('[data-rvcol="'+col+'"]'); if(th) row.appendChild(th); });
-  var acoesTh=row.querySelector('[data-rvcol="acoes"]'); if(acoesTh) row.appendChild(acoesTh);
-  // Reordenar TDs do tbody também (acoes sempre no final)
-  var tbody=document.getElementById('rvTbody'); if(!tbody) return;
-  Array.from(tbody.rows).forEach(function(tr){
-    ordemSemAcoes.forEach(function(col){
-      var td=tr.querySelector('td[data-rvcol="'+col+'"]'); if(td) tr.appendChild(td);
-    });
-    var acoesTd=tr.querySelector('td[data-rvcol="acoes"]'); if(acoesTd) tr.appendChild(acoesTd);
-  });
+  // Ordem não é persistida — thead define a ordem canônica, tbody segue junto via data-rvcol
 }
 </script>
 
