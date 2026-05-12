@@ -3467,7 +3467,7 @@ function buscarCotacoes(){
   if(!pos.length){ alert('Registre aportes primeiro.'); return; }
 
   var tickersBR = pos.filter(function(p){ return isBR(p.ticker, p.tipo); }).map(function(p){ return p.ticker; });
-  var tickersUS = pos.filter(function(p){ return !isBR(p.ticker, p.tipo) && p.tipo !== 'Cripto'; }).map(function(p){
+  var tickersUS = pos.filter(function(p){ return !isBR(p.ticker, p.tipo); }).map(function(p){
     // UCITs sem sufixo: adiciona .L (LSE) para Yahoo Finance
     if(p.tipo === 'UCITs' && !p.ticker.includes('.')) return p.ticker + '.L';
     return p.ticker;
@@ -3642,7 +3642,6 @@ function autoDetectTipo(ticker){
   }
   else if(ETFS_US_CONHECIDOS.includes(t)){ detected='ETF';   msg='🇺🇸 Detectado: ETF (US)'; }
   else if(REITS_CONHECIDOS.includes(t)){   detected='REIT';  msg='🇺🇸 Detectado: REIT (US)'; }
-  else if(['BTC','ETH','SOL','BNB','DOT','LINK','MANA','SAND','HNT','XRP','ADA','AVAX','MATIC','DOGE','LTC','ATOM','UNI','AAVE','MKR','SNX','CRV','SUSHI','COMP','BAL','YFI','ZRX','1INCH','ENJ','CHZ','THETA','FIL','VET','ALGO','XTZ','EOS','TRX','NEO','ZEC','DASH','BCH','BSV','XLM','XMR','IOTA','NANO','ONT','QTUM','ICX','ZIL','SC','DGB','DCR','LSK','WAVES','STEEM','ARK','PIVX','PART','KMD','KIN','BTT','WIN','NPXS','HOT','ENB','FTM','HBAR','ONE','CRO','CELO','ROSE','NEAR','FLOW','ICP','SHIB','PEPE','WIF','BONK'].includes(t)){ detected='Cripto'; msg='₿ Detectado: Cripto'; }
   else if(/^[A-Z]{1,5}$/.test(t)){         detected='Stock'; msg='🇺🇸 Detectado: Stock (US)'; }
 
   if(detected){
@@ -6314,10 +6313,51 @@ function aplSalvar(){
   fecharModal('modalAporte');
   // Invalida cache do gráfico de evolução para forçar rebusca com novos aportes
   if(window._histMensalCache) window._histMensalCache = {};
+
+  // Re-render imediato com cotações em memória (sem nova requisição)
+  // Se não tiver cotações ou cache expirado, dispara busca
   renderPosicoes();
   if(document.getElementById('tab-aportes').style.display!=='none') renderAportes();
   if(document.getElementById('tab-graficos').style.display!=='none') renderGraficos();
   if(_drawerTicker&&document.getElementById('drawerAtivo').classList.contains('open')) renderDrawerBody();
+
+  // Verifica se cotações estão disponíveis e válidas em memória
+  var _novosTickersSet = {};
+  novos.forEach(function(n){ _novosTickersSet[n.ticker] = n.tipo; });
+  var _temCotacoesCache = Object.keys(cotacoes).length > 0;
+  var _cacheExpirado = (function(){
+    var c = loadData('cotacoesCache', null);
+    if(!c || !c.ts) return true;
+    return (Date.now() - c.ts) > (15 * 60 * 1000);
+  })();
+
+  if(!_temCotacoesCache || _cacheExpirado){
+    // Cache vazio ou expirado — busca completa em background
+    setTimeout(function(){
+      buscarCotacoes();
+    }, 300);
+  } else {
+    // Cotações em memória válidas — apenas garante que os novos tickers têm cotação
+    var _tickersSemCot = Object.keys(_novosTickersSet).filter(function(t){
+      return !cotacoes[t];
+    });
+    if(_tickersSemCot.length > 0){
+      // Busca só os tickers novos sem cotação
+      setTimeout(function(){
+        var pos = calcPosicoes();
+        var erros = [];
+        var brNovos = _tickersSemCot.filter(function(t){ return isBR(t, _novosTickersSet[t]); });
+        var usNovos = _tickersSemCot.filter(function(t){ return !isBR(t, _novosTickersSet[t]) && _novosTickersSet[t] !== 'Cripto'; });
+        var criptoNovos = _tickersSemCot.filter(function(t){ return _novosTickersSet[t] === 'Cripto'; });
+        var ps = [];
+        if(brNovos.length) brNovos.forEach(function(t){ /* busca BR individual */ });
+        if(usNovos.length) ps.push(buscarUSTickersBatch(usNovos, erros));
+        if(criptoNovos.length) ps.push(Promise.all(criptoNovos.map(function(t){ return buscarCotacaoCripto(t); })));
+        if(ps.length) Promise.all(ps).then(function(){ renderPosicoes(); });
+      }, 200);
+    }
+    // Se todos já têm cotação, o renderPosicoes() acima já atualizou tudo
+  }
 
   var tickers={};
   novos.forEach(function(n){tickers[n.ticker]=n.tipo;});
