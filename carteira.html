@@ -4453,14 +4453,92 @@ function renderDrawerTx(){
 
   var addBtn = '<button class="dtx-add-btn" data-ticker="'+_drawerTicker+'" data-action="aporte">+ Nova Transação</button>';
 
-  var rowsHtml = aportes.length
-    ? aportes.map(function(a){
+  // Coleta eventos de split para este ticker
+  var splitCache = loadData('splits_cache', {});
+  var splitEvts = [];
+  var seenSplits = {};
+  aportes.forEach(function(a){
+    if(a._splits_ajustados && a._splits_ajustados.length){
+      a._splits_ajustados.forEach(function(dataEvt){
+        var key = dataEvt;
+        if(seenSplits[key]) return;
+        seenSplits[key] = true;
+        var cached = splitCache[_drawerTicker] || splitCache[_drawerTicker.replace(/\.SA$/i,'')];
+        var sp = cached && cached.find(function(s){ return s.date===dataEvt; });
+        var ratio = sp ? sp.ratio : null;
+        splitEvts.push({data: dataEvt, ratio: ratio});
+      });
+    }
+  });
+
+  // Coleta bonificações para este ticker
+  var bonEvts = [];
+  var seenBon = {};
+  aportes.forEach(function(a){
+    if(a._bonificacao_id && !seenBon[a._bonificacao_id]){
+      seenBon[a._bonificacao_id] = true;
+      bonEvts.push({data: a.data, qtd: a.qtd, preco: a.preco, obs: a.obs, bonId: a._bonificacao_id});
+    }
+  });
+
+  // Monta lista unificada ordenada por data desc
+  var allEntries = [];
+  aportes.filter(function(a){ return !a._bonificacao_id; })
+    .forEach(function(a){ allEntries.push({tipo:'aporte', data:a.data, item:a}); });
+  splitEvts.forEach(function(e){ allEntries.push({tipo:'split', data:e.data, item:e}); });
+  bonEvts.forEach(function(e){ allEntries.push({tipo:'bon', data:e.data, item:e}); });
+  allEntries.sort(function(a,b){ return b.data.localeCompare(a.data); });
+
+  var rowsHtml = allEntries.length
+    ? allEntries.map(function(entry){
+        if(entry.tipo === 'split'){
+          var e = entry.item;
+          var ratio = e.ratio;
+          var label, icon, bg, borderColor;
+          if(!ratio){
+            label = 'Desdobramento/Grupamento'; icon = '🔀'; bg = 'rgba(201,169,97,.07)'; borderColor = 'var(--gold)';
+          } else if(ratio > 1){
+            label = 'Desdobramento ×'+ratio.toFixed(0)+' ('+ratio.toFixed(0)+':1)'; icon = '🔀'; bg = 'rgba(52,152,219,.07)'; borderColor = '#3498db';
+          } else {
+            label = 'Grupamento 1:'+Math.round(1/ratio); icon = '🔁'; bg = 'rgba(230,126,34,.07)'; borderColor = '#e67e22';
+          }
+          return '<div class="dtx-row" style="background:'+bg+';border-left:3px solid '+borderColor+';opacity:.9">'+
+            '<div class="dtx-op" style="background:'+borderColor+';color:#fff;font-size:14px;padding:0">'+icon+'</div>'+
+            '<div class="dtx-info">'+
+              '<div class="dtx-date" style="color:'+borderColor+'">'+fmtDate(e.data)+'</div>'+
+              '<div class="dtx-qty" style="color:var(--text2)">'+label+' — quantidades ajustadas automaticamente</div>'+
+            '</div>'+
+            '<div class="dtx-total"><div class="lbl" style="color:'+borderColor+'">Sistema</div></div>'+
+            '<div class="dtx-actions"></div>'+
+          '</div>';
+        }
+        if(entry.tipo === 'bon'){
+          var e = entry.item;
+          var pctMatch = (e.obs||'').match(/(\d+(?:\.\d+)?)%/);
+          var pctStr = pctMatch ? pctMatch[1]+'%' : '';
+          var qtdStr = e.qtd ? e.qtd.toFixed(e.qtd%1===0?0:4) : '?';
+          var custoStr = e.preco > 0 ? ' · VP R$ '+e.preco.toFixed(2) : '';
+          return '<div class="dtx-row" style="background:rgba(46,204,113,.07);border-left:3px solid var(--green);opacity:.9">'+
+            '<div class="dtx-op" style="background:var(--green);color:#fff;font-size:14px;padding:0">🎁</div>'+
+            '<div class="dtx-info">'+
+              '<div class="dtx-date" style="color:var(--green)">'+fmtDate(e.data)+'</div>'+
+              '<div class="dtx-qty" style="color:var(--text2)">Bonificação '+pctStr+' · +'+qtdStr+' ações'+custoStr+'</div>'+
+            '</div>'+
+            '<div class="dtx-total"><div class="lbl" style="color:var(--green)">Sistema</div></div>'+
+            '<div class="dtx-actions"></div>'+
+          '</div>';
+        }
+        var a = entry.item;
         var opLabel = a.op==='C'?'C':'V';
         var opText  = a.op==='C'?'Compra':'Venda';
+        var origem  = a.id && a.id.indexOf('import')>=0 ? 'Importação' : 'Manual';
         return '<div class="dtx-row">'+
           '<div class="dtx-op '+opLabel+'" title="'+opText+'">'+opLabel+'</div>'+
           '<div class="dtx-info">'+
-            '<div class="dtx-date">'+fmtDate(a.data)+(a.obs?' · <span style="color:var(--text3)">'+a.obs+'</span>':'')+'</div>'+
+            '<div class="dtx-date">'+fmtDate(a.data)+
+              (a.obs?' · <span style="color:var(--text3)">'+a.obs+'</span>':'')+
+              ' <span style="font-size:10px;color:var(--text3)">'+origem+'</span>'+
+            '</div>'+
             '<div class="dtx-qty">'+a.qtd.toFixed(a.qtd%1===0?0:4)+' un <span style="font-weight:400;color:var(--text2)">× '+fmtAporte(a)+'</span></div>'+
           '</div>'+
           '<div class="dtx-total"><div class="val">'+fmtTotal(a)+'</div><div class="lbl">'+opText+'</div></div>'+
