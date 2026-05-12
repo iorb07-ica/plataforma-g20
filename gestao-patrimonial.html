@@ -4620,6 +4620,7 @@ function toggleRVMoeda(){
   if(thPos) thPos.textContent = rvModoMoeda==='BRL' ? 'Posicao (R$)' : 'Posicao (US$)';
   if(thRes) thRes.textContent = rvModoMoeda==='BRL' ? 'Result. (R$)' : 'Result. (US$)';
   renderRVPosicoes();
+    rvImportarTodosSplits(function(n){ if(n>0) renderRVPosicoes(); });
 }
 
 function rvIsBR(ticker, tipo){
@@ -4700,9 +4701,10 @@ function buscarCotacoesRV(){
     .catch(function(){});
 
   var tickersBR = pos.filter(function(p){ return rvIsBR(p.ticker,p.tipo); }).map(function(p){ return p.ticker; });
-  var tickersUS = pos.filter(function(p){ return !rvIsBR(p.ticker,p.tipo); }).map(function(p){
+  var tickersUS = pos.filter(function(p){ return !rvIsBR(p.ticker,p.tipo) && p.tipo !== 'Cripto'; }).map(function(p){
     return p.tipo==='UCITs'&&!p.ticker.includes('.')?p.ticker+'.L':p.ticker;
   });
+  var tickersCripto = pos.filter(function(p){ return p.tipo === 'Cripto'; }).map(function(p){ return p.ticker; });
 
   var promises = [];
 
@@ -4751,6 +4753,27 @@ function buscarCotacoesRV(){
         );
       })(tickersUS.slice(i,i+BATCH));
     }
+  }
+
+  // Busca criptos via endpoint específico (evita confusão com ETFs homônimos)
+  if(tickersCripto.length){
+    tickersCripto.forEach(function(ticker){
+      var sym = ticker.includes('-') ? ticker : ticker+'-USD';
+      promises.push(
+        fetch(PROXY_URL_RV+'/api/quote?symbol='+encodeURIComponent(sym))
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            if(!d) return;
+            var price = d.preco !== undefined ? d.preco : d.price;
+            var chgPct = d.chg !== undefined ? d.chg : d.changePercent;
+            var chgAbs = d.chgAbs !== undefined ? d.chgAbs : d.change;
+            if(price>0){
+              rvCotacoes[ticker]={preco:price,var:parseFloat(chgPct||0),var1d:parseFloat(chgAbs||0),
+                nome:d.nome||d.name||ticker,mkt:'Cripto',precoUSD:price,ts:Date.now()};
+            }
+          }).catch(function(){})
+      );
+    });
   }
 
   Promise.all(promises).then(function(){
@@ -4965,6 +4988,86 @@ document.addEventListener('keydown', function(e){
     if(btnDl){ e.preventDefault(); var idxD=parseInt(btnDl.getAttribute('data-idx'),10); try{ excluirTransacaoRV(idxD); }catch(err){ console.error('[excluirTransacaoRV]',err); } return; }
   });
 })();
+
+// ── SPLITS BR (Yahoo Finance via proxy) ─────────────────────────────
+function rvAplicarSplitsAporte(ticker, splits){
+  if(!splits||!splits.length) return 0;
+  var aportes = loadRVAportes();
+  var alterados = 0;
+  splits.forEach(function(sp){
+    var ratio = sp.ratio;
+    aportes.forEach(function(a){
+      if(a.ticker !== ticker) return;
+      if(a.data >= sp.date) return;
+      if(a._splits_ajustados && a._splits_ajustados.indexOf(sp.date)>=0) return;
+      a.qtd   = parseFloat((a.qtd * ratio).toFixed(8));
+      a.preco = parseFloat((a.preco / ratio).toFixed(8));
+      a._splits_ajustados = a._splits_ajustados || [];
+      a._splits_ajustados.push(sp.date);
+      alterados++;
+    });
+  });
+  if(alterados>0) saveRVAportes(aportes);
+  return alterados;
+}
+
+function rvImportarSplitsBR(ticker){
+  if(!PROXY_URL_RV) return Promise.resolve(0);
+  var aportes = loadRVAportes().filter(function(a){ return a.ticker===ticker; });
+  if(!aportes.length) return Promise.resolve(0);
+  var datas = aportes.map(function(a){ return a.data; }).sort();
+  var dataCompra = datas[0];
+  var apiSymbol = ticker.replace(/\.SA$/i,'').toUpperCase()+'.SA';
+  var url = PROXY_URL_RV+'/api/splits?symbol='+encodeURIComponent(apiSymbol)+'&from='+dataCompra;
+  return fetch(url)
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(!d.splits||!d.splits.length) return 0;
+      var cache = loadData('splits_cache',{});
+      cache[ticker] = d.splits;
+      saveData('splits_cache', cache);
+      var n = rvAplicarSplitsAporte(ticker, d.splits);
+      if(n>0) console.log('[Splits BR RV] '+ticker+': '+n+' aporte(s) ajustado(s)');
+      return n;
+    }).catch(function(){ return 0; });
+}
+
+function rvImportarSplitsUS(ticker){
+  if(!PROXY_URL_RV) return Promise.resolve(0);
+  var aportes = loadRVAportes().filter(function(a){ return a.ticker===ticker; });
+  if(!aportes.length) return Promise.resolve(0);
+  var datas = aportes.map(function(a){ return a.data; }).sort();
+  var dataCompra = datas[0];
+  var apiSymbol = ticker === 'BRK.B' ? 'BRK-B' : ticker;
+  var url = PROXY_URL_RV+'/api/splits?symbol='+encodeURIComponent(apiSymbol)+'&from='+dataCompra;
+  return fetch(url)
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(!d.splits||!d.splits.length) return 0;
+      var cache = loadData('splits_cache',{});
+      cache[ticker] = d.splits;
+      saveData('splits_cache', cache);
+      var n = rvAplicarSplitsAporte(ticker, d.splits);
+      if(n>0) console.log('[Splits US RV] '+ticker+': '+n+' aporte(s) ajustado(s)');
+      return n;
+    }).catch(function(){ return 0; });
+}
+
+function rvImportarTodosSplits(callback){
+  var pos = calcRVPosicoes();
+  var posBR = pos.filter(function(p){ return rvIsBR(p.ticker, p.tipo); });
+  var posUS = pos.filter(function(p){ return !rvIsBR(p.ticker, p.tipo) && p.tipo !== 'Cripto'; });
+  var promises = [];
+  posBR.forEach(function(p){ promises.push(rvImportarSplitsBR(p.ticker)); });
+  posUS.forEach(function(p){ promises.push(rvImportarSplitsUS(p.ticker)); });
+  if(!promises.length){ if(callback) callback(0); return; }
+  Promise.all(promises).then(function(res){
+    var total = res.reduce(function(s,n){ return s+(n||0); },0);
+    if(callback) callback(total);
+    if(total>0){ console.log('[Splits RV] '+total+' aporte(s) ajustado(s)'); renderRVPosicoes(); }
+  });
+}
+
 
 function renderRVPosicoes(){
   aplicarRVCols();
@@ -5324,11 +5427,34 @@ function abrirDrawerRV(ticker){
   });
   var pm = qtd>0 ? totInv/qtd : 0;
   var isBR = rvIsBR(ticker, aportes[0].a.tipo);
-  var precoAtual = cot ? (isBR ? cot.preco : cot.preco*rvUsdBRL) : 0;
+  var precoAtual = cot ? (isBR ? cot.preco : (aportes[0].a.tipo==='Cripto' ? cot.preco : cot.preco*rvUsdBRL)) : 0;
   var posVal = qtd*precoAtual;
   var rent = totInv>0 ? ((posVal-totInv)/totInv*100) : 0;
 
   var tkEsc = String(ticker).replace(/"/g,'&quot;');
+
+  // Coleta eventos de split para este ticker
+  var rvSplitCache = loadData('splits_cache',{});
+  var rvSplitEvts = [];
+  var rvSeenSplits = {};
+  aportes.forEach(function(x){
+    var a=x.a;
+    if(a._splits_ajustados&&a._splits_ajustados.length){
+      a._splits_ajustados.forEach(function(dataEvt){
+        if(rvSeenSplits[dataEvt]) return;
+        rvSeenSplits[dataEvt]=true;
+        var cached=rvSplitCache[ticker];
+        var sp=cached&&cached.find(function(s){ return s.date===dataEvt; });
+        rvSplitEvts.push({data:dataEvt, ratio:sp?sp.ratio:null});
+      });
+    }
+  });
+  // Lista unificada: aportes + eventos, ordenada por data desc
+  var rvAllEntries = [];
+  aportes.forEach(function(x){ rvAllEntries.push({tipo:'aporte',data:x.a.data,item:x}); });
+  rvSplitEvts.forEach(function(e){ rvAllEntries.push({tipo:'split',data:e.data,item:e}); });
+  rvAllEntries.sort(function(a,b){ return b.data.localeCompare(a.data); });
+
   var bodyHtml =
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;background:var(--surface);border-radius:12px;padding:14px">'+
       '<div><div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Qtd</div>'+
@@ -5345,7 +5471,30 @@ function abrirDrawerRV(ticker){
       '<button class="btn-sm btn-outline rv-dr-clear" data-ticker="'+tkEsc+'" onclick="excluirRVAtivo(this.dataset.ticker)" style="border-color:rgba(230,57,70,.4);color:#e63946;font-size:12px" title="Excluir todas">🗑️ Limpar tudo</button>'+
     '</div>'+
     '<div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:10px">Transações</div>'+
-    aportes.slice().reverse().map(function(x){
+    rvAllEntries.map(function(entry){
+      // Evento de split
+      if(entry.tipo==='split'){
+        var e=entry.item;
+        var ratio=e.ratio;
+        var label,icon,bgColor,borderC;
+        if(!ratio){ label='Desdobramento/Grupamento'; icon='🔀'; bgColor='rgba(201,169,97,.07)'; borderC='var(--gold)'; }
+        else if(ratio>1){ label='Desdobramento ×'+ratio.toFixed(0)+' ('+ratio.toFixed(0)+':1)'; icon='🔀'; bgColor='rgba(52,152,219,.07)'; borderC='#3498db'; }
+        else{ label='Grupamento 1:'+Math.round(1/ratio); icon='🔁'; bgColor='rgba(230,126,34,.07)'; borderC='#e67e22'; }
+        var dataFmt2=new Date(e.data+'T12:00:00').toLocaleDateString('pt-BR');
+        return '<div class="aporte-item" style="background:'+bgColor+';border-left:3px solid '+borderC+';opacity:.9">'+
+          '<div class="aporte-item-header">'+
+            '<div style="display:flex;align-items:center;gap:10px">'+
+              '<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:16px;">'+icon+'</span>'+
+              '<div>'+
+                '<div style="font-size:12px;font-weight:700;color:'+borderC+'">'+dataFmt2+'</div>'+
+                '<div style="font-size:11px;color:var(--text2)">'+label+' — qtd ajustada automaticamente</div>'+
+              '</div>'+
+            '</div>'+
+            '<div style="font-size:11px;color:var(--text3);font-weight:600">Sistema</div>'+
+          '</div>'+
+        '</div>';
+      }
+      var x=entry.item;
       var a=x.a;
       var isC=a.op==='C'||!a.op;
       var corOp=isC?'var(--green)':'var(--red)';
@@ -5360,7 +5509,7 @@ function abrirDrawerRV(ticker){
             '<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:800;background:'+bgOp+';color:'+corOp+';border:1px solid '+corOp+'33">'+labelOp+'</span>'+
             '<div>'+
               '<div style="font-size:12px;font-weight:700;color:var(--text)">'+dataFmt+'</div>'+
-              '<div style="font-size:11px;color:var(--text3)">'+a.qtd.toFixed(a.qtd%1===0?0:4)+' × '+(a.moeda==='USD'?fmtUSDv(a.preco):fmtBRLv(a.preco))+(a.moeda==='USD'?' (US$)':'')+'</div>'+
+              '<div style="font-size:11px;color:var(--text2)">'+a.qtd.toFixed(a.qtd%1===0?0:4)+' × '+(a.moeda==='USD'?fmtUSDv(a.preco):fmtBRLv(a.preco))+(a.moeda==='USD'?' (US$)':'')+'</div>'+
             '</div>'+
           '</div>'+
           '<div style="display:flex;gap:6px">'+
@@ -6441,6 +6590,7 @@ function autoDetectTipo(ticker){
   else if(typeof rvIsUCITs==='function' && rvIsUCITs(ticker)){ detected='UCITs'; msg='🇪🇺 Detectado: UCITs (Europa)'; }
   else if(RV_ETFS_CONHECIDOS.includes(t)){ detected='ETF';   msg='🇺🇸 Detectado: ETF (US)'; }
   else if(RV_REITS_CONHECIDOS.includes(t)){   detected='REIT';  msg='🇺🇸 Detectado: REIT (US)'; }
+  else if(['BTC','ETH','SOL','BNB','DOT','LINK','MANA','SAND','HNT','XRP','ADA','AVAX','MATIC','DOGE','LTC','ATOM','UNI','AAVE','FIL','THETA','VET','ALGO','XTZ','TRX','NEO','ZEC','DASH','BCH','XLM','XMR','EOS','IOTA','NANO','WAVES','ARK','FTM','HBAR','ONE','CRO','CELO','ROSE','NEAR','FLOW','ICP','SHIB','PEPE','WIF','BONK','SAND','MANA','ENJ','CHZ'].includes(t)){ detected='Cripto'; msg='₿ Detectado: Cripto'; }
   else if(/^[A-Z]{1,5}$/.test(t)){         detected='Stock'; msg='🇺🇸 Detectado: Stock (US)'; }
 
   if(detected){
