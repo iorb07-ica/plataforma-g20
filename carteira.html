@@ -3437,31 +3437,48 @@ function calcularRefsBR(symbolSA, cotObj){
 function buscarCotacaoCripto(ticker){
   if(!PROXY_URL) return;
   var sym = ticker.includes('-') ? ticker : ticker+'-USD';
-  var url = PROXY_URL+'/api/quote?symbol='+encodeURIComponent(sym);
-  return fetch(url)
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      if(!d) return;
-      // Aceita AMBOS formatos do proxy: legado (price/changePercent/change) e atual (preco/chg/chgAbs)
-      var price = d.preco !== undefined ? d.preco : d.price;
-      var chgPct = d.chg !== undefined ? d.chg : d.changePercent;
-      var chgAbs = d.chgAbs !== undefined ? d.chgAbs : d.change;
-      if(price){
-        cotacoes[ticker] = {
-          preco:    price,
-          var:      parseFloat(chgPct||0),
-          var1d:    parseFloat(chgAbs||0),
-          nome:     d.nome || d.name || ticker,
-          dy:       0,
-          mkt:      'Cripto',
-          precoUSD: price,
-          fonte:    'Proxy-Cripto',
-          ts:       Date.now()
-        };
-      }
-    })
-    .catch(function(){});
+  var quoteUrl = PROXY_URL+'/api/quote?symbol='+encodeURIComponent(sym);
+  var histUrl  = PROXY_URL+'/api/history?symbol='+encodeURIComponent(sym);
+  return Promise.all([
+    fetch(quoteUrl).then(function(r){ return r.json(); }).catch(function(){ return null; }),
+    fetch(histUrl).then(function(r){ return r.json(); }).catch(function(){ return null; })
+  ]).then(function(results){
+    var d  = results[0];
+    var hd = results[1];
+    if(!d) return;
+    // Proxy retorna preço em USD para BTC-USD, ETH-USD etc.
+    var priceUSD = d.price !== undefined ? d.price
+                 : d.preco !== undefined ? d.preco
+                 : null;
+    var chgPct = d.changePercent !== undefined ? d.changePercent
+               : d.chg !== undefined ? d.chg : 0;
+    var chgAbs = d.change !== undefined ? d.change
+               : d.chgAbs !== undefined ? d.chgAbs : 0;
+    if(priceUSD && priceUSD > 1){
+      // histórico: hd pode ser objeto direto {refSemana,...} ou aninhado
+      var h = hd ? (hd[sym] || hd[ticker] || hd) : {};
+      cotacoes[ticker] = {
+        preco:     priceUSD,   // USD — render multiplica por usdBRL para BRL
+        var:       parseFloat(chgPct||0),
+        var1d:     parseFloat(chgAbs||0),
+        nome:      d.name || d.nome || ticker,
+        dy:        0,
+        mkt:       'Cripto',
+        precoUSD:  priceUSD,
+        fonte:     'Proxy-Cripto',
+        ts:        Date.now(),
+        // refs históricas em USD — calcVar compara USD vs USD (% é igual em BRL ou USD)
+        refSemana: h.refSemana || null,
+        ref30d:    h.ref30d    || null,
+        ref3m:     h.ref3m     || null,
+        ref6m:     h.ref6m     || null,
+        refYTD:    h.refYTD    || null,
+        ref5y:     h.ref5y     || null
+      };
+    }
+  }).catch(function(){});
 }
+
 
 function buscarCotacoes(){
   var pos = calcPosicoes();
@@ -4196,7 +4213,9 @@ function renderPosicoes(){
     var v = ((precoAtual - ref.close)/ref.close*100);
     return '<span class="var-'+(v>=0?'pos':'neg')+'">'+(v>=0?'+':'')+v.toFixed(2)+'%</span>';
   }
-  var precoBase = cot ? (isBR(p.ticker,p.tipo) ? cot.preco : cot.preco * usdBRL) : 0;
+  // Para cripto: ref histórico está em USD, preço também em USD → comparar em USD
+  // Para BR: tudo em BRL. Para US: precoBase em BRL, refs em USD → usar USD puro
+  var precoBase = cot ? (p.tipo==='Cripto' ? cot.preco : (isBR(p.ticker,p.tipo) ? cot.preco : cot.preco)) : 0;
   return '<td data-col="varsem" class="r">'+calcVar(cot&&cot.refSemana,precoBase)+'</td>'
         +'<td data-col="var30d" class="r">'+calcVar(cot&&cot.ref30d,precoBase)+'</td>'
         +'<td data-col="var3m"  class="r">'+calcVar(cot&&cot.ref3m,precoBase)+'</td>'
