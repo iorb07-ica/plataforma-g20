@@ -2735,8 +2735,58 @@ function loadData(k, defaultVal){
 }
 
 // saveData — local imediato + Firestore com debounce + retry + alerta em falha
+// ── CHAVES CRÍTICAS QUE FAZEM BACKUP AUTOMÁTICO ──────────
+var _CHAVES_CRITICAS = ['dividendos','aportes','rendaFixa','rfData','rvAportes','rvDividendos'];
+var _BACKUP_MAX = 3; // Mantém últimos 3 backups por chave
+
+function _fazerBackup(k, v){
+  if(_CHAVES_CRITICAS.indexOf(k) < 0) return;
+  if(!Array.isArray(v) || v.length === 0) return; // Nunca faz backup de array vazio
+  try{
+    var backupKey = 'g20_backup_'+k;
+    var backups = [];
+    try{ backups = JSON.parse(localStorage.getItem(backupKey)||'[]'); }catch(e){}
+    backups.unshift({ ts: new Date().toISOString(), count: v.length, data: v });
+    if(backups.length > _BACKUP_MAX) backups = backups.slice(0, _BACKUP_MAX);
+    localStorage.setItem(backupKey, JSON.stringify(backups));
+  }catch(e){ console.warn('[Backup] Falha ao fazer backup de '+k+':', e.message); }
+}
+
+function listarBackups(k){
+  try{
+    var backups = JSON.parse(localStorage.getItem('g20_backup_'+k)||'[]');
+    backups.forEach(function(b,i){ console.log(i+': '+b.ts+' — '+b.count+' registros'); });
+    return backups;
+  }catch(e){ return []; }
+}
+
+function restaurarBackup(k, indice){
+  var backups = listarBackups(k);
+  if(!backups[indice]){ console.error('Backup '+indice+' não encontrado'); return; }
+  var dados = backups[indice].data;
+  if(!confirm('Restaurar backup de '+backups[indice].ts+' com '+dados.length+' registros de "'+k+'"?')) return;
+  saveData(k, dados, {immediate:true});
+  forcarSaveFirestore(k).then(function(){ 
+    console.log('✅ Backup restaurado: '+dados.length+' registros de '+k);
+    alert('✅ Backup restaurado com sucesso! '+dados.length+' registros de "'+k+'".');
+  });
+}
+
 function saveData(k, v, opts){
   opts = opts || {};
+  // Proteção: nunca salvar array vazio em chaves críticas sem confirmação explícita
+  if(_CHAVES_CRITICAS.indexOf(k) >= 0 && Array.isArray(v) && v.length === 0 && !opts.forcarVazio){
+    var atual = loadData(k, []);
+    if(Array.isArray(atual) && atual.length > 10){
+      console.error('[PROTEÇÃO] Tentativa de zerar "'+k+'" com '+atual.length+' registros bloqueada! Use opts.forcarVazio=true se intencional.');
+      return;
+    }
+  }
+  // Faz backup antes de sobrescrever
+  if(_CHAVES_CRITICAS.indexOf(k) >= 0 && Array.isArray(v) && v.length > 0){
+    var atual2 = loadData(k, []);
+    if(Array.isArray(atual2) && atual2.length > 0) _fazerBackup(k, atual2);
+  }
   _db_cache[k] = v;
   try{ localStorage.setItem('g20_'+k, JSON.stringify(v)); }catch(e){}
   if(!_dbIsUserKey(k) || !_db_ref) return;
