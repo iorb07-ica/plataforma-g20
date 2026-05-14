@@ -4861,11 +4861,17 @@ function buscarCotacoesRV(){
       rvSetCotStatus(found>0 ? '✅ '+found+' cotações atualizadas · USD/BRL: R$ '+rvUsdBRL.toFixed(2) : '⚠️ Sem cotações');
       renderRVPosicoes();
       renderKPIs(); renderCharts();
-      // Dispara busca silenciosa de proventos em background (B3 + Polygon via proxy)
-      // Roda depois das cotações pra garantir que _getQtdNaData tenha posições corretas
-      if(typeof buscarProventosAuto === 'function'){
-        setTimeout(function(){ buscarProventosAuto(true); }, 600);
-      }
+
+      // Cadeia: splits → proventos (igual à CG20)
+      // Splits primeiro para garantir qtdEx correto nos proventos
+      setTimeout(function(){
+        rvImportarTodosSplits(function(splitsAjustados){
+          if(splitsAjustados > 0) renderRVPosicoes();
+          if(typeof buscarProventosAuto === 'function'){
+            buscarProventosAuto(true, false);
+          }
+        });
+      }, 600);
     });
   });
 }
@@ -5097,17 +5103,32 @@ function rvImportarSplitsUS(ticker){
 }
 
 function rvImportarTodosSplits(callback){
-  var pos = calcRVPosicoes();
-  var posBR = pos.filter(function(p){ return rvIsBR(p.ticker, p.tipo); });
-  var posUS = pos.filter(function(p){ return !rvIsBR(p.ticker, p.tipo) && p.tipo !== 'Cripto'; });
+  // Inclui TODOS os tickers que já passaram pela carteira — ativos e vendidos
+  var aportes = loadRVAportes();
+  var posMap = {};
+  aportes.forEach(function(a){ posMap[a.ticker] = a.tipo || 'Acao'; });
+
+  var posBR = Object.entries(posMap).filter(function(e){
+    return ['Acao','FII','FIAGRO'].indexOf(e[1]) >= 0;
+  }).map(function(e){ return e[0]; });
+
+  var posUS = Object.entries(posMap).filter(function(e){
+    return ['Stock','REIT','ETF','UCITs'].indexOf(e[1]) >= 0;
+  }).map(function(e){ return e[0]; });
+
   var promises = [];
-  posBR.forEach(function(p){ promises.push(rvImportarSplitsBR(p.ticker)); });
-  posUS.forEach(function(p){ promises.push(rvImportarSplitsUS(p.ticker)); });
+  posBR.forEach(function(tk){ promises.push(rvImportarSplitsBR(tk)); });
+  posUS.forEach(function(tk){ promises.push(rvImportarSplitsUS(tk)); });
+
   if(!promises.length){ if(callback) callback(0); return; }
+
   Promise.all(promises).then(function(res){
     var total = res.reduce(function(s,n){ return s+(n||0); },0);
+    if(total > 0){
+      console.log('[Splits RV] '+total+' aporte(s) ajustado(s)');
+      renderRVPosicoes();
+    }
     if(callback) callback(total);
-    if(total>0){ console.log('[Splits RV] '+total+' aporte(s) ajustado(s)'); renderRVPosicoes(); }
   });
 }
 
