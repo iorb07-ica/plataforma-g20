@@ -4643,7 +4643,12 @@ function renderDrawerTx(){
         var cached = splitCache[_drawerTicker] || splitCache[_drawerTicker.replace(/\.SA$/i,'')];
         var sp = cached && cached.find(function(s){ return s.date===dataEvt; });
         var ratio = sp ? sp.ratio : null;
-        splitEvts.push({data: dataEvt, ratio: ratio});
+        var tipoEvento = sp ? (sp.tipo || (ratio > 1 ? 'desdobramento' : 'grupamento')) : null;
+        // Bonificações do cache não precisam aparecer no drawer como split
+        // — já aparecem como bonificação separada via _bonificacao_id
+        if(tipoEvento === 'bonificacao') return;
+        splitEvts.push({data: dataEvt, ratio: ratio, tipoEvento: tipoEvento,
+          numerator: sp ? sp.numerator : null, denominator: sp ? sp.denominator : null});
       });
     }
   });
@@ -4674,10 +4679,14 @@ function renderDrawerTx(){
           // Não mostrar badge para splits bloqueados (sem ratio no cache = split falso marcado como ajustado)
           if(!ratio) return '';
           var label, icon, bg, borderColor;
-          if(ratio > 1){
-            label = 'Desdobramento ×'+ratio.toFixed(0)+' ('+ratio.toFixed(0)+':1)'; icon = '🔀'; bg = 'rgba(52,152,219,.07)'; borderColor = '#3498db';
-          } else {
+          var tipoEvento = e.tipoEvento || (ratio > 1 ? 'desdobramento' : 'grupamento');
+          if(tipoEvento === 'bonificacao'){
+            var pct = Math.round((ratio-1)*100);
+            label = 'Bonificação '+pct+'% ('+e.numerator+':'+e.denominator+')'; icon = '🎁'; bg = 'rgba(46,204,113,.07)'; borderColor = '#2ecc71';
+          } else if(tipoEvento === 'grupamento' || ratio < 1){
             label = 'Grupamento 1:'+Math.round(1/ratio); icon = '🔁'; bg = 'rgba(230,126,34,.07)'; borderColor = '#e67e22';
+          } else {
+            label = 'Desdobramento ×'+ratio.toFixed(0)+' ('+ratio.toFixed(0)+':1)'; icon = '🔀'; bg = 'rgba(52,152,219,.07)'; borderColor = '#3498db';
           }
           return '<div class="dtx-row" style="background:'+bg+';border-left:3px solid '+borderColor+';opacity:.9">'+
             '<div class="dtx-op" style="background:'+borderColor+';color:#fff;font-size:14px;padding:0">'+icon+'</div>'+
@@ -6934,8 +6943,18 @@ function renderAportes(){
       var e = entry.item;
       var cached = splitData[e.ticker];
       var ratio = cached ? (cached.find(function(s){ return s.date===e.data; })||{}).ratio : null;
-      var ratioStr = ratio ? (ratio > 1 ? 'Split '+ratio.toFixed(0)+':1' : 'Inplit 1:'+Math.round(1/ratio)) : 'Split/Inplit';
-      return '<tr style="background:rgba(232,184,75,0.06);border-left:3px solid var(--gold)">'+
+            var cached = splitData[e.ticker];
+      var splitEvt = cached ? (cached.find(function(s){ return s.date===e.data; })||null) : null;
+      var tipoEvt = splitEvt ? (splitEvt.tipo || (ratio>1?'desdobramento':'grupamento')) : (ratio>1?'desdobramento':'grupamento');
+      var ratioStr;
+      if(tipoEvt === 'bonificacao'){
+        var pctB = splitEvt ? Math.round((splitEvt.ratio-1)*100) : Math.round((ratio-1)*100);
+        ratioStr = 'Bonificação '+pctB+'%';
+      } else if(ratio && ratio < 1){
+        ratioStr = 'Grupamento 1:'+Math.round(1/ratio);
+      } else {
+        ratioStr = ratio ? 'Desdobramento '+ratio.toFixed(0)+':1' : 'Split/Inplit';
+      } return '<tr style="background:rgba(232,184,75,0.06);border-left:3px solid var(--gold)">'+
         '<td><span style="font-size:11px;color:var(--gold)">'+fmtDate(e.data)+'</span></td>'+
         '<td><span class="ticker-cell">'+e.ticker+'</span></td>'+
         '<td colspan="6"><span style="color:var(--gold);font-size:12px">🔀 '+ratioStr+' — Quantidades ajustadas automaticamente</span></td>'+
@@ -7679,6 +7698,12 @@ function aplicarSplitsAporte(ticker, splits){
 
   splits.forEach(function(sp){
     var ratio = sp.ratio;
+    var tipo  = sp.tipo || (ratio > 1 ? 'desdobramento' : 'grupamento');
+
+    // Bonificações NÃO ajustam qtd/preco dos aportes antigos
+    // São ações adicionadas ao custo zero — tratadas pelo importarBonificacoes()
+    if(tipo === 'bonificacao') return;
+
     aportes.forEach(function(a){
       if(a.ticker !== ticker) return;
       if(a.data >= sp.date) return;

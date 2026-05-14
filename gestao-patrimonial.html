@@ -5036,6 +5036,9 @@ function rvAplicarSplitsAporte(ticker, splits){
   var alterados = 0;
   splits.forEach(function(sp){
     var ratio = sp.ratio;
+    var tipo  = sp.tipo || (ratio > 1 ? 'desdobramento' : 'grupamento');
+    // Bonificações NÃO ajustam qtd/preco — são ações ao custo zero
+    if(tipo === 'bonificacao') return;
     aportes.forEach(function(a){
       if(a.ticker !== ticker) return;
       if(a.data >= sp.date) return;
@@ -5511,7 +5514,10 @@ function abrirDrawerRV(ticker){
         rvSeenSplits[dataEvt]=true;
         var cached=rvSplitCache[ticker];
         var sp=cached&&cached.find(function(s){ return s.date===dataEvt; });
-        rvSplitEvts.push({data:dataEvt, ratio:sp?sp.ratio:null});
+        var tipoEvento = sp ? (sp.tipo || (sp.ratio>1?'desdobramento':'grupamento')) : null;
+        if(tipoEvento === 'bonificacao') return;
+        rvSplitEvts.push({data:dataEvt, ratio:sp?sp.ratio:null, tipoEvento:tipoEvento,
+          numerator:sp?sp.numerator:null, denominator:sp?sp.denominator:null});
       });
     }
   });
@@ -5543,9 +5549,13 @@ function abrirDrawerRV(ticker){
         var e=entry.item;
         var ratio=e.ratio;
         var label,icon,bgColor,borderC;
+        var tipoEvento = ev.tipoEvento || (ratio > 1 ? 'desdobramento' : 'grupamento');
         if(!ratio){ label='Desdobramento/Grupamento'; icon='🔀'; bgColor='rgba(201,169,97,.07)'; borderC='var(--gold)'; }
-        else if(ratio>1){ label='Desdobramento ×'+ratio.toFixed(0)+' ('+ratio.toFixed(0)+':1)'; icon='🔀'; bgColor='rgba(52,152,219,.07)'; borderC='#3498db'; }
-        else{ label='Grupamento 1:'+Math.round(1/ratio); icon='🔁'; bgColor='rgba(230,126,34,.07)'; borderC='#e67e22'; }
+        else if(tipoEvento === 'bonificacao'){
+          var pctBon = Math.round((ratio-1)*100);
+          label='Bonificação '+pctBon+'%'; icon='🎁'; bgColor='rgba(46,204,113,.07)'; borderC='#2ecc71';
+        } else if(ratio < 1){ label='Grupamento 1:'+Math.round(1/ratio); icon='🔁'; bgColor='rgba(230,126,34,.07)'; borderC='#e67e22'; }
+        else{ label='Desdobramento ×'+ratio.toFixed(0)+' ('+ratio.toFixed(0)+':1)'; icon='🔀'; bgColor='rgba(52,152,219,.07)'; borderC='#3498db'; }
         var dataFmt2=new Date(e.data+'T12:00:00').toLocaleDateString('pt-BR');
         return '<div class="aporte-item" style="background:'+bgColor+';border-left:3px solid '+borderC+';opacity:.9">'+
           '<div class="aporte-item-header">'+
@@ -6024,7 +6034,7 @@ input[type="text"].apl-inp-preco{text-align:right}
         <option value="C">Compra</option><option value="V">Venda</option>
       </select>
       <input type="date" id="apl_data0" class="apl-inp"
-        onclick="try{this.showPicker();}catch(e){}" onchange="aplCalc();aplOnDataChange('0')">
+        onchange="aplCalc();aplOnDataChange('0')">
       <div class="apl-tk-wrap">
         <input id="aporte_ticker" class="apl-inp" placeholder="PETR4, AAPL..."
           autocomplete="off" style="font-weight:700;font-size:14px"
@@ -6249,7 +6259,6 @@ function aplAddLinha(){
 
   // Data
   var dt=mk('input',{type:'date',id:'aplDt'+r,className:'apl-inp',value:today});
-  dt.addEventListener('click',function(){try{this.showPicker();}catch(e){}});
   dt.addEventListener('change',function(){aplCalc();aplOnDataChange(r);});
   div.appendChild(dt);
 
