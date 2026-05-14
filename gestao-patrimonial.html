@@ -200,7 +200,7 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 }
 
 /* KPIs PATRIMONIAIS */
-.pat-kpi-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:20px}
+.pat-kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
 /* Botão olho (ocultar valores) */
 .pat-hide-btn{background:var(--sur2);border:1px solid var(--border);border-radius:8px;width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;color:var(--text2);transition:.15s;padding:0;line-height:1;flex-shrink:0}
 .pat-hide-btn:hover{border-color:var(--gold);color:var(--gold);background:rgba(201,169,97,.08)}
@@ -237,7 +237,7 @@ body.pat-hidden [data-rvcol="result"]::after,
 body.pat-hidden [data-rvcol="proventos"]::after{content:'••••';position:absolute;left:0;top:0;right:0;bottom:0;display:flex;align-items:center;justify-content:flex-end;color:#7a8599;letter-spacing:3px;font-size:inherit;font-weight:inherit;padding-right:12px}
 body.pat-hidden .pat-kpi-val::after{justify-content:flex-start;padding-right:0}
 body.pat-hidden .pat-kpi-sub .kpi-money::after{justify-content:flex-start;padding-right:0;align-items:baseline}
-@media(max-width:1200px){.pat-kpi-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:1200px){.pat-kpi-grid{grid-template-columns:repeat(4,1fr)}}
 @media(max-width:600px){.pat-kpi-grid{grid-template-columns:1fr 1fr}}
 .pat-kpi{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;position:relative;overflow:hidden;box-shadow:var(--shadow-elev);transition:transform .25s ease, box-shadow .25s ease}
 .pat-kpi:hover{transform:translateY(-2px);box-shadow:var(--shadow-card),0 8px 24px rgba(201,169,97,.12)}
@@ -3159,13 +3159,23 @@ function renderKPIs(){
 
   // Envolve R$ em .kpi-money para ocultar só os valores (preserva descrições e %)
   var money = function(s){ return '<span class="kpi-money">'+s+'</span>'; };
+  // Proventos recebidos e a receber
+  var _provLista = loadProventos();
+  var _provHoje = new Date().toISOString().split('T')[0];
+  function _pNorm(p){ if(p.total>0) return p.total; var v=p.valor!=null?p.valor:(p.valorCota||0); var q=p.qtdEx!=null?p.qtdEx:(p.qtd||0); return (v||0)*(q||0); }
+  var _provRec = _provLista.filter(function(p){ return p.data <= _provHoje && p.status !== 'futuro'; }).reduce(function(s,p){ return s+_pNorm(p); }, 0);
+  var _provFut = _provLista.filter(function(p){ return p.data > _provHoje || p.status === 'futuro'; });
+  var _provFutTotal = _provFut.reduce(function(s,p){ return s+_pNorm(p); }, 0);
+
   var kpis=[
     {label:'Patrimônio Total',      val:money(fmtBRL(total)),       sub:'renda fixa + bens + RV',          color:'#c9a961'},
     {label:'Renda Fixa (líquido)',    val:money(fmtBRL(rfLiq)),       sub:'Rendendo: '+(rfRentPct>=0?'+':'')+rfRentPct.toFixed(2)+'% bruto · '+money(fmtBRL(rfRend))+' líq.', color:'#10b981'},
     {label:'Bens Patrimoniais',      val:money(fmtBRL(bensVal)),     sub:'Líquido: '+money(fmtBRL(bensLiq)),       color:'#3b82f6'},
     {label:'Financiamentos',         val:money(fmtBRL(bensDivida)),  sub:'saldo devedor total',              color:'#ef4444'},
     {label:'Renda Variável (RV)',    val:rvAtual>0?money(fmtBRL(rvAtual)):'—', sub:rvSub,                   color:'#8b5cf6'},
-    {label:'Lucro Realizado (RF)',   val:money((lucroRealizado>=0?'+':'')+fmtBRL(lucroRealizado)), sub:'resgates concluídos', color:lucroRealizado>=0?'#2ecc71':'#e63946'}
+    {label:'Lucro Realizado (RF)',   val:money((lucroRealizado>=0?'+':'')+fmtBRL(lucroRealizado)), sub:'resgates concluídos', color:lucroRealizado>=0?'#2ecc71':'#e63946'},
+    {label:'✅ Proventos Recebidos', val:money(fmtBRL(_provRec)),    sub:'histórico acumulado',              color:'#2ecc71'},
+    {label:'⏳ Proventos a Receber', val:money(fmtBRL(_provFutTotal)),sub:_provFut.length+' aprovados',     color:'#c9a961'}
   ];
 
   var grid=document.getElementById('patKpiGrid');
@@ -8036,11 +8046,20 @@ function renderProvKpis(){
   Object.values(posMap).forEach(function(p){ if(p.qtd>0) totalInvRV+=p.totalInv; });
   var yoc = totalInvRV > 0 ? (totalAno / totalInvRV * 100) : 0;
 
+  // A Receber
+  var _hoje2 = new Date().toISOString().split('T')[0];
+  var _futuros = lista.filter(function(p){ return p.data > _hoje2 || p.status === 'futuro'; });
+  var totalFuturo = _futuros.reduce(function(s,p){ return s+_normTotal(p); }, 0);
+
+  // Ajusta grid para 5 colunas
+  grid.style.gridTemplateColumns = 'repeat(5,1fr)';
+
   grid.innerHTML = [
-    { label:'Total Histórico',   val: fmtBRL(totalGeral), cor:'var(--gold)',  ico:'💰' },
-    { label:'Recebido em '+ano,  val: fmtBRL(totalAno),   cor:'#10b981',     ico:'📅' },
-    { label:'Média Mensal',      val: fmtBRL(mediaAnual), cor:'#3b82f6',     ico:'📊' },
-    { label:'Yield on Cost '+ano,val: yoc.toFixed(2)+'%', cor:'#a855f7',     ico:'🎯' },
+    { label:'Total Histórico',   val: fmtBRL(totalGeral),  cor:'var(--gold)',  ico:'💰' },
+    { label:'Recebido em '+ano,  val: fmtBRL(totalAno),    cor:'#10b981',     ico:'📅' },
+    { label:'Média Mensal',      val: fmtBRL(mediaAnual),  cor:'#3b82f6',     ico:'📊' },
+    { label:'Yield on Cost '+ano,val: yoc.toFixed(2)+'%',  cor:'#a855f7',     ico:'🎯' },
+    { label:'A Receber ('+_futuros.length+' aprovados)', val: fmtBRL(totalFuturo), cor:'var(--gold)', ico:'⏳' },
   ].map(function(k){
     return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;border-top:2px solid '+k.cor+'">'+
       '<div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:5px">'+k.ico+' '+k.label+'</div>'+
