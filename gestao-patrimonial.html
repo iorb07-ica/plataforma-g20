@@ -1485,6 +1485,8 @@ body:not(.light) .asset-logo{background:transparent;border-color:rgba(255,255,25
             <button class="filter-pill" id="provBtn36m" onclick="setProvRange(36,this)">36M</button>
             <button class="btn-sm btn-outline" onclick="limparProventosInvalidos()" style="font-size:11px;color:var(--text3);margin-left:4px" title="Limpar registros com valor zero">🧹</button>
             <button class="btn-sm btn-gold" onclick="abrirModalProvento()" style="font-size:12px" title="Lançar provento manual">＋ Manual</button>
+            <button id="btnRVImportarProventos" class="btn-sm" onclick="buscarProventosAuto(false, true)" style="font-size:12px;background:rgba(201,169,97,.15);border:1px solid rgba(201,169,97,.4);color:var(--gold);border-radius:6px;padding:4px 10px;cursor:pointer" title="Importar proventos históricos (Statusinvest + B3 + Polygon)">📥 Importar</button>
+            <button id="btnRVHistCompleto" class="btn-sm" onclick="rvImportarHistoricoCompleto()" style="font-size:12px;background:rgba(201,169,97,.1);border:1px solid rgba(201,169,97,.3);color:var(--gold);border-radius:6px;padding:4px 10px;cursor:pointer" title="Buscar histórico completo US (>2 anos via FMP)">📜 Hist. Completo US</button>
           </div>
         </div>
         <div style="position:relative;height:240px"><canvas id="chartProventos"></canvas></div>
@@ -1869,7 +1871,7 @@ var _firstRenderDone = false;
 var _DB_LOCAL_ONLY = ['indBCB_cache','indMkt_cache','cotacoesCache',
   'bonificacoes_cache','splits_cache'];
 
-var _DB_USER_KEYS = ['aportes','dividendos','rendaFixa','carteiraMeta',
+var _DB_USER_KEYS = ['aportes','rvDividendos','rendaFixa','carteiraMeta',
   'splits','patrimonioBens','patrimonioSnaps','rvAportes',
   'tokenBrapi','tokenFmp','tokenLogoDev','tokenTwelve',
   'colsVisiveis','colOrdem','g20-theme'];
@@ -5129,10 +5131,15 @@ function renderRVPosicoes(){
     var result = cot ? posVal-p.totalInv : 0;
     var rentPct= p.totalInv>0 ? (result/p.totalInv*100) : 0;
     // Proventos do ativo (usa dividendos salvos)
-    var divs = loadData('dividendos',[]);
+    var divs = loadData('rvDividendos',[]);
     var hoje = new Date().toISOString().split('T')[0];
     var prov = divs.filter(function(d){ return d.ticker===p.ticker && d.data<hoje; })
-                   .reduce(function(s,d){ return s+((d.valor||0)*(d.qtdEx||0)); }, 0);
+                   .reduce(function(s,d){
+                     // Suporta schema antigo (valorCota+qtd) e novo (valor+qtdEx)
+                     var v = d.valor != null ? d.valor : (d.valorCota||0);
+                     var q = d.qtdEx != null ? d.qtdEx : (d.qtd||0);
+                     return s + (d.total || (v * q));
+                   }, 0);
     var totalRet    = cot ? result+prov : 0;
     var totalRetPct = p.totalInv>0 ? (totalRet/p.totalInv*100) : 0;
     if(cot) totalPosGlobal += posVal;
@@ -6921,6 +6928,13 @@ function aplSalvar(){
   // Atualiza cotações de todo o portfólio para refletir os novos ativos/transações
   if(typeof buscarCotacoesRV === 'function') setTimeout(buscarCotacoesRV, 300);
   showToast('✅ '+novos.length+' transaç'+(novos.length===1?'ão':'ões')+' salva'+(novos.length===1?'':'s')+'! Atualizando cotações…');
+
+  // Trigger proventos: recalcula qtdEx e importa proventos dos tickers afetados
+  // (necessário quando aporte antigo é lançado — pode haver dividendos históricos)
+  setTimeout(function(){
+    novos.forEach(function(n){ if(typeof _rvRecalcularQtdEx==='function') _rvRecalcularQtdEx(n.ticker); });
+    if(typeof buscarProventosAuto === 'function') buscarProventosAuto(true, true);
+  }, 800);
 }
 </script>
 
@@ -7501,8 +7515,8 @@ function renderRebalAll(){
 var _provFiltro  = 'todos';
 var _provMeses   = 12;
 
-function loadProventos(){ return loadData('dividendos', []); }
-function saveProventos(d){ saveData('dividendos', d); }
+function loadProventos(){ return loadData('rvDividendos', []); }
+function saveProventos(d){ saveData('rvDividendos', d); }
 
 function setProvRange(m, btn){
   _provMeses = m;
@@ -7600,7 +7614,13 @@ function excluirProvento(idx){
 function limparProventosInvalidos(){
   var lista = loadProventos();
   var antes = lista.length;
-  lista = lista.filter(function(p){ return p.valorCota > 0 && p.qtd > 0 && p.total > 0; });
+  lista = lista.filter(function(p){
+    // Suporta schema antigo (valorCota+qtd) e novo (valor+qtdEx)
+    var v = p.valor!=null ? p.valor : (p.valorCota||0);
+    var q = p.qtdEx!=null ? p.qtdEx : (p.qtd||0);
+    var t = p.total || (v*q);
+    return v > 0 && q > 0 && t > 0;
+  });
   var removidos = antes - lista.length;
   if(removidos === 0){ showToast('Nenhum registro inválido encontrado'); return; }
   saveProventos(lista);
@@ -7610,142 +7630,385 @@ function limparProventosInvalidos(){
   showToast('🧹 '+removidos+' registro'+(removidos>1?'s':'')+' inválido'+(removidos>1?'s':'')+' removido'+(removidos>1?'s':''));
 }
 
-// ── Busca automática via Yahoo Finance ──
-// silent=true: usado no disparo automático ao abrir a página (não exibe toasts de "sem ativos")
-function buscarProventosAuto(silent){
+// ============================================================
+// PROVENTOS AUTOMÁTICOS — ARQUITETURA COMPLETA
+// (idêntica à Carteira G20: Statusinvest primário + B3 fallback,
+//  dataPrimeiraCompra, cache incremental, dedup cross-fonte, recalcQtdEx)
+// ============================================================
+
+// ── helpers de data de compra / cache incremental ──
+
+function _rvDataPrimeiraCompra(ticker){
+  var aportes = loadRVAportes().filter(function(a){ return a.ticker===ticker && a.op==='C'; });
+  if(!aportes.length) return null;
+  return aportes.sort(function(a,b){ return a.data.localeCompare(b.data); })[0].data;
+}
+
+function _rvDataProventoMaisRecente(ticker){
+  var stored = loadProventos();
+  var doTicker = stored.filter(function(d){ return d.ticker === ticker; });
+  if(!doTicker.length) return null;
+  return doTicker.reduce(function(max,d){
+    var dt = d.data || d.datex || '';
+    return dt > max ? dt : max;
+  }, '') || null;
+}
+
+function _rvDataProventoMaisAntigo(ticker){
+  var stored = loadProventos();
+  var doTicker = stored.filter(function(d){ return d.ticker === ticker; });
+  if(!doTicker.length) return null;
+  return doTicker.reduce(function(min,d){
+    var dt = d.data || d.datex || '';
+    if(!dt) return min;
+    return (!min || dt < min) ? dt : min;
+  }, '') || null;
+}
+
+function _rvCalcDataInicio(ticker, dataCompra){
+  var dtUltimo = _rvDataProventoMaisRecente(ticker);
+  if(!dtUltimo) return dataCompra;
+  var dtAntigo = _rvDataProventoMaisAntigo(ticker);
+  if(dtAntigo && dataCompra < dtAntigo) return dataCompra; // gap histórico
+  var d = new Date(dtUltimo); d.setDate(d.getDate()-7);
+  var dtSegura = d.toISOString().split('T')[0];
+  return dtSegura < dataCompra ? dataCompra : dtSegura;
+}
+
+// ── recalcularQtdEx ao lançar aporte antigo ──
+function _rvRecalcularQtdEx(ticker){
+  var divs = loadProventos();
+  var alterados = 0;
+  divs.forEach(function(d){
+    if(d.ticker !== ticker) return;
+    var dataRef = d.datex || d.data || '';
+    var qtdCorreta = _getQtdNaData(ticker, dataRef);
+    // Suporta schema antigo (qtd) e novo (qtdEx)
+    var qtdAtual = d.qtdEx != null ? d.qtdEx : (d.qtd != null ? d.qtd : 0);
+    if(qtdCorreta > 0 && Math.abs(qtdAtual - qtdCorreta) > 0.001){
+      d.qtdEx = qtdCorreta;
+      d.qtd   = qtdCorreta; // mantém compatibilidade schema antigo
+      d.total = (d.valor != null ? d.valor : (d.valorCota||0)) * qtdCorreta;
+      alterados++;
+    }
+  });
+  if(alterados > 0){
+    saveProventos(divs);
+    console.log('[Proventos GP] Recalculado qtdEx para '+alterados+' registro(s) de '+ticker);
+  }
+}
+
+// ── dedup genérico (mês-ano + valor + tipo) ──
+function _rvDedupProventos(divs){
+  var seen = {};
+  return divs.filter(function(d){
+    var data  = (d.payment_date||'').substring(0,10);
+    var valor = parseFloat(d.value||d.rate||d.amount||0).toFixed(6);
+    var tipo  = String(d.type||d.label||'Dividendo').toUpperCase();
+    var k = data+'|'+valor+'|'+tipo;
+    if(seen[k]) return false;
+    seen[k] = true; return true;
+  });
+}
+
+// ── salvar proventos BR (Statusinvest ou B3) — schema unificado ──
+function _rvSalvarProventosBR(ticker, divs, dataCompra, fonte){
+  if(!divs || !divs.length) return 0;
+  var stored = loadProventos();
+  var novos  = 0;
+  divs.forEach(function(dv){
+    var dataPag = (dv.payment_date||dv.paymentDate||dv.date||'').substring(0,10);
+    var dataEx  = (dv.ex_date||dv.lastDatePrior||dv.exDate||dataPag).substring(0,10);
+    var valor   = parseFloat(dv.value||dv.rate||dv.amount||0);
+    var tipo    = dv.type||dv.label||dv.kind||'Dividendo';
+    var fonteReg = dv.source||fonte||'B3';
+    if(!dataPag || !valor) return;
+    if(dataPag < dataCompra) return;
+    var qtd = _getQtdNaData(ticker, dataEx||dataPag);
+    if(qtd <= 0) return;
+    var mesAno = dataPag.substring(0,7);
+    var existe = stored.find(function(x){
+      if(x.ticker !== ticker) return false;
+      var vx = x.valor != null ? x.valor : (x.valorCota||0);
+      if(Math.abs(vx - valor) > 0.0001) return false;
+      return (x.data||'').substring(0,7) === mesAno;
+    });
+    if(existe){
+      var qtdAtual = existe.qtdEx != null ? existe.qtdEx : (existe.qtd||0);
+      if(Math.abs(qtdAtual - qtd) > 0.001){
+        existe.qtdEx = qtd; existe.qtd = qtd;
+        existe.total = (existe.valor != null ? existe.valor : (existe.valorCota||0)) * qtd;
+        novos++;
+      }
+      if(fonteReg==='Statusinvest' && (existe.fonte||'').indexOf('B3')>=0){
+        existe.fonte='Auto-Statusinvest'; existe.datex=dataEx; existe.tipo=tipo; novos++;
+      }
+      return;
+    }
+    stored.push({
+      id:Date.now().toString()+Math.random(),
+      ticker:ticker, tipo:tipo, data:dataPag, datex:dataEx,
+      valor:valor, valorCota:valor,
+      qtdEx:qtd, qtd:qtd,
+      total:valor*qtd,
+      fonte:'Auto-'+fonteReg
+    });
+    novos++;
+  });
+  if(novos > 0) saveProventos(stored);
+  return novos;
+}
+
+// ── salvar proventos US (Polygon) ──
+function _rvSalvarProventosUS(ticker, divList, fonte){
+  var stored = loadProventos();
+  var novos  = 0;
+  divList.forEach(function(dv){
+    var dataPag = (dv.payment_date||dv.date||'').substring(0,10);
+    var dataEx  = (dv.ex_date||dv.date||dataPag).substring(0,10);
+    var amount  = parseFloat(dv.amount||dv.value||0);
+    if(!dataPag || !amount) return;
+    var qtd = _getQtdNaData(ticker, dataEx||dataPag);
+    if(qtd <= 0) return;
+    var mesAno = dataPag.substring(0,7);
+    var existe = stored.find(function(x){
+      if(x.ticker !== ticker) return false;
+      var vx = x.valor != null ? x.valor : (x.valorCota||0);
+      if(Math.abs(vx - amount) > 0.01) return false;
+      return (x.data||'').substring(0,7) === mesAno;
+    });
+    if(existe){
+      var qtdAtual = existe.qtdEx != null ? existe.qtdEx : (existe.qtd||0);
+      if(Math.abs(qtdAtual-qtd)>0.001){ existe.qtdEx=qtd; existe.qtd=qtd; existe.total=(existe.valor||0)*qtd; novos++; }
+      if(dataEx&&dataEx!==dataPag&&(!existe.datex||existe.datex===existe.data)){ existe.datex=dataEx; novos++; }
+      return;
+    }
+    stored.push({
+      id:Date.now().toString()+Math.random(),
+      ticker:ticker, tipo:dv.type||'Dividendo', data:dataPag, datex:dataEx||dataPag,
+      valor:amount, valorCota:amount,
+      qtdEx:qtd, qtd:qtd,
+      total:amount*qtd,
+      fonte:'Auto-'+fonte,
+      moeda:'USD'
+    });
+    novos++;
+  });
+  if(novos > 0) saveProventos(stored);
+  return novos;
+}
+
+// ── importar proventos BR (Statusinvest primário + B3 fallback) ──
+function _rvImportarProventosBR(ticker){
+  var dataCompra = _rvDataPrimeiraCompra(ticker);
+  if(!dataCompra) return Promise.resolve(0);
+  var dataInicio = _rvCalcDataInicio(ticker, dataCompra);
+  var urlSI = PROXY_URL_RV+'/api/provents-si?symbol='+encodeURIComponent(ticker)+'&from='+encodeURIComponent(dataInicio);
+  var urlB3 = PROXY_URL_RV+'/api/dividends-br?symbol='+encodeURIComponent(ticker)+'&from='+encodeURIComponent(dataInicio);
+  return fetch(urlSI)
+    .then(function(r){ return r.ok ? r.json() : []; })
+    .catch(function(){ return []; })
+    .then(function(divs){
+      if(Array.isArray(divs)) return divs;
+      if(divs && Array.isArray(divs.data)) return divs.data;
+      return [];
+    })
+    .then(function(divsSI){
+      if(divsSI.length > 0){
+        divsSI = _rvDedupProventos(divsSI);
+        return _rvSalvarProventosBR(ticker, divsSI, dataCompra, 'Statusinvest');
+      }
+      return fetch(urlB3)
+        .then(function(r){ return r.ok ? r.json() : []; })
+        .catch(function(){ return []; })
+        .then(function(divsB3){
+          divsB3 = Array.isArray(divsB3) ? divsB3 : [];
+          divsB3 = _rvDedupProventos(divsB3);
+          return _rvSalvarProventosBR(ticker, divsB3, dataCompra, 'B3');
+        });
+    });
+}
+
+// ── importar proventos US (Polygon) ──
+function _rvImportarProventosUS(ticker){
+  var dataCompra = _rvDataPrimeiraCompra(ticker);
+  if(!dataCompra) return Promise.resolve(0);
+  var dataInicio = _rvCalcDataInicio(ticker, dataCompra);
+  var apiSym = ticker === 'BRK.B' ? 'BRK-B' : ticker;
+  var urlDiv = PROXY_URL_RV+'/api/dividends?symbol='+encodeURIComponent(apiSym)+'&from='+dataInicio;
+  return fetch(urlDiv)
+    .then(function(r){ return r.ok ? r.json() : {}; })
+    .catch(function(){ return {}; })
+    .then(function(d){ return _rvSalvarProventosUS(ticker, d.dividends||[], 'Polygon'); })
+    .catch(function(){ return 0; });
+}
+
+// ── importar histórico US completo (>2 anos, via FMP/dividends-yahoo) ──
+function _rvImportarProventosUSHistorico(ticker){
+  var dataCompra = _rvDataPrimeiraCompra(ticker);
+  if(!dataCompra) return Promise.resolve(0);
+  var hoje = new Date();
+  var dataFim = new Date(hoje.getFullYear()-2, hoje.getMonth(), hoje.getDate()+30).toISOString().split('T')[0];
+  if(dataCompra >= dataFim) return Promise.resolve(0);
+  var apiSym = ticker === 'BRK.B' ? 'BRK-B' : ticker;
+  var url = PROXY_URL_RV+'/api/dividends-yahoo?symbol='+encodeURIComponent(apiSym)+'&from='+dataCompra+'&to='+dataFim;
+  return fetch(url)
+    .then(function(r){ return r.ok ? r.json() : {}; })
+    .catch(function(){ return {}; })
+    .then(function(d){ return _rvSalvarProventosUS(ticker, d.dividends||[], 'FMP'); })
+    .catch(function(){ return 0; });
+}
+
+// ── cache diário (evita re-importar várias vezes no mesmo dia) ──
+function _rvJaRodouHoje(){
+  var ultima = localStorage.getItem('g20_rv_prov_last_import');
+  var status = localStorage.getItem('g20_rv_prov_last_status');
+  return ultima === new Date().toISOString().split('T')[0] && status === 'complete';
+}
+function _rvMarcarEmProgresso(){
+  localStorage.setItem('g20_rv_prov_last_status','in_progress');
+  localStorage.setItem('g20_rv_prov_last_start', new Date().toISOString());
+}
+function _rvMarcarCompleto(){
+  localStorage.setItem('g20_rv_prov_last_import', new Date().toISOString().split('T')[0]);
+  localStorage.setItem('g20_rv_prov_last_status','complete');
+  localStorage.removeItem('g20_rv_prov_last_start');
+}
+
+// ── histórico completo US (botão) ──
+function rvImportarHistoricoCompleto(){
+  var aportes = loadRVAportes();
+  var posMap = {};
+  aportes.forEach(function(a){ posMap[a.ticker] = a.tipo||'Acao'; });
+  var hoje = new Date().toISOString().split('T')[0];
+  var doisAnos = new Date(); doisAnos.setFullYear(doisAnos.getFullYear()-2);
+  var doisAnosStr = doisAnos.toISOString().split('T')[0];
+
+  var posUS = Object.entries(posMap)
+    .filter(function(e){ var t=e[1]; return ['Stock','REIT','ETF'].indexOf(t)>=0 && _getQtdNaData(e[0],hoje)>0; })
+    .filter(function(e){ var dc=_rvDataPrimeiraCompra(e[0]); return dc && dc < doisAnosStr; })
+    .map(function(e){ return e[0]; });
+
+  if(!posUS.length){ showToast('Nenhum ativo US com aportes anteriores a 2 anos.'); return; }
+  if(!confirm('Buscar histórico completo (>2 anos) via FMP para '+posUS.length+' ativo(s)?
+
+'+posUS.join(', ')+'
+
+Isso cobre o período que o Polygon grátis não alcança.')) return;
+
+  var btn = document.getElementById('btnRVHistCompleto');
+  if(btn){ btn.textContent='⏳ Buscando...'; btn.disabled=true; }
+
+  Promise.all(posUS.map(function(tk){
+    return _rvImportarProventosUSHistorico(tk).then(function(n){
+      console.log('[GP Histórico] '+tk+': '+n+' provento(s)');
+      return n||0;
+    });
+  })).then(function(res){
+    var total = res.reduce(function(s,n){return s+n;},0);
+    if(btn){ btn.textContent='📜 Histórico Completo'; btn.disabled=false; }
+    if(total>0){
+      renderProventos(); renderProventosChart(); renderProvKpis();
+      showToast('✅ '+total+' proventos históricos importados!','#10b981');
+    } else {
+      showToast('Nenhum provento histórico novo encontrado.');
+    }
+  });
+}
+
+// ── importação completa (trigger principal) ──
+// Estratégia idêntica à Carteira G20:
+//   BR: Statusinvest primário + B3 fallback, todos em paralelo
+//   US: Polygon, grupos de 5 com 61s entre grupos (rate limit free)
+//   Cache diário: pula se já rodou (exceto forcarRefresh=true)
+function buscarProventosAuto(silent, forcarRefresh){
   var aportes = loadRVAportes();
   if(!aportes.length){ if(!silent) showToast('⚠️ Nenhum ativo em RV cadastrado'); return; }
 
+  if(!forcarRefresh && _rvJaRodouHoje()){
+    console.log('[Proventos GP] Já importado hoje — cache diário ativo.');
+    return;
+  }
+
+  _rvMarcarEmProgresso();
+
+  // Recalcula qtdEx dos proventos existentes (corrige aportes antigos lançados depois)
+  var tickersUnicos = {};
+  aportes.forEach(function(a){ tickersUnicos[a.ticker] = true; });
+  Object.keys(tickersUnicos).forEach(function(tk){ _rvRecalcularQtdEx(tk); });
+
   var hoje = new Date().toISOString().split('T')[0];
   var posMap = {};
-  aportes.forEach(function(a){ posMap[a.ticker] = { ticker: a.ticker, tipo: a.tipo || 'Acao' }; });
-  var ativos = Object.values(posMap).filter(function(p){
-    return _getQtdNaData(p.ticker, hoje) > 0;
-  });
+  aportes.forEach(function(a){ posMap[a.ticker] = a.tipo||'Acao'; });
 
-  if(!ativos.length){ if(!silent) showToast('⚠️ Nenhum ativo com posição ativa'); return; }
+  var posBR = Object.entries(posMap).filter(function(e){
+    return ['Acao','FII','FIAGRO'].indexOf(e[1])>=0 && _getQtdNaData(e[0],hoje)>0;
+  }).map(function(e){ return e[0]; });
+
+  var posUS = Object.entries(posMap).filter(function(e){
+    return ['Stock','REIT','ETF'].indexOf(e[1])>=0 && _getQtdNaData(e[0],hoje)>0;
+  }).map(function(e){ return e[0]; });
 
   var status = document.getElementById('provBuscarStatus');
-  if(status) status.textContent = '⏳ Atualizando proventos...';
+  var btn    = document.getElementById('btnRVImportarProventos');
 
-  var fromDate = new Date(); fromDate.setFullYear(fromDate.getFullYear()-2);
-  var fromStr  = fromDate.toISOString().split('T')[0];
+  if(status) status.textContent = '⏳ Buscando proventos...';
+  if(btn){ btn.textContent='⏳ Buscando...'; btn.disabled=true; }
 
-  var fetches = ativos.map(function(p){
-    var isBR = (p.tipo==='Acao'||p.tipo==='FII'||p.tipo==='FIAGRO'||/\d$/.test(p.ticker));
-    var sym  = isBR ? p.ticker.toUpperCase()+'.SA' : p.ticker.toUpperCase();
-    var ep   = isBR ? '/api/dividends-br' : '/api/dividends';
-    return fetch(PROXY_URL_RV + ep + '?symbol='+encodeURIComponent(sym)+'&from='+fromStr)
-      .then(function(r){ return r.ok ? r.json() : {}; })
-      .then(function(d){ return { ticker:p.ticker, tipo:p.tipo, raw:d }; })
-      .catch(function(){ return { ticker:p.ticker, tipo:p.tipo, raw:{} }; });
+  console.log('[Proventos GP] Iniciando: '+posBR.length+' BR + '+posUS.length+' US');
+  var totalImportado = 0;
+
+  // 1) BR: todos em paralelo (Statusinvest sem rate limit)
+  Promise.all(posBR.map(function(tk){
+    return _rvImportarProventosBR(tk).then(function(n){ return n||0; });
+  })).then(function(resBR){
+    var novBR = resBR.reduce(function(s,n){return s+n;},0);
+    totalImportado += novBR;
+    if(novBR > 0){ renderProventos(); renderProventosChart(); renderProvKpis(); renderRVPosicoes(); renderKPIs(); }
+    console.log('[Proventos GP BR] Concluído: '+novBR+' novo(s)');
+
+    if(posUS.length === 0){ _finalizarGP(); return; }
+    _processarGrupoUS(posUS, 0);
   });
 
-  Promise.all(fetches).then(function(results){
-    // Limpa registros inválidos (valorCota=0 ou qtd=0 ou total=0) que vieram de buscas anteriores com bug
-    // Cobre fontes antigas ('auto') e novas ('Auto-B3', 'Auto-Polygon')
-    var lista = loadProventos().filter(function(p){
-      var isAuto = p.fonte === 'auto' || (p.fonte && p.fonte.indexOf('Auto-') === 0);
-      return !isAuto || (p.valorCota > 0 && p.qtd > 0);
+  function _processarGrupoUS(lista, inicio){
+    var grupo = lista.slice(inicio, inicio+5);
+    var restantes = lista.length - inicio - grupo.length;
+    if(btn) btn.textContent = '⏳ US '+(inicio+grupo.length)+'/'+lista.length+'...';
+    if(restantes>0) console.log('[Proventos GP US] Grupo '+(Math.floor(inicio/5)+1)+' ('+grupo.length+' ativos), '+restantes+' restantes');
+    else console.log('[Proventos GP US] Último grupo ('+grupo.length+' ativos)');
+
+    Promise.all(grupo.map(function(tk){
+      return _rvImportarProventosUS(tk).then(function(n){ return n||0; });
+    })).then(function(resUS){
+      var novUS = resUS.reduce(function(s,n){return s+n;},0);
+      totalImportado += novUS;
+      if(novUS>0){ renderProventos(); renderProventosChart(); renderProvKpis(); renderRVPosicoes(); renderKPIs(); }
+
+      var prox = inicio + grupo.length;
+      if(prox >= lista.length){ _finalizarGP(); return; }
+
+      console.log('[Proventos GP US] Aguardando 61s (rate limit Polygon)...');
+      if(btn) btn.textContent='⏳ Aguardando... ('+prox+'/'+lista.length+')';
+      if(status) status.textContent='⏳ Aguardando API US...';
+      setTimeout(function(){ _processarGrupoUS(lista, prox); }, 61000);
     });
+  }
 
-    var novos = 0;
-
-    results.forEach(function(r){
-      // Normaliza: a API pode retornar {dividends:[...]} ou {historical:[...]} ou [{...}]
-      var divList = [];
-      if(Array.isArray(r.raw)) divList = r.raw;
-      else if(Array.isArray(r.raw.dividends)) divList = r.raw.dividends;
-      else if(Array.isArray(r.raw.historical)) divList = r.raw.historical;
-      else if(Array.isArray(r.raw.data)) divList = r.raw.data;
-
-      divList.forEach(function(div){
-        // ── Extrai data ──
-        // Pode vir como string 'YYYY-MM-DD', timestamp Unix (number), ou campo paymentDate
-        var dataRaw = div.paymentDate || div.date || div.exDate || div.ex_dividend_date || '';
-        var dataStr = '';
-        if(typeof dataRaw === 'number' && dataRaw > 1000000000){
-          // Timestamp Unix em segundos
-          var d = new Date(dataRaw * 1000);
-          dataStr = d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate();
-        } else if(typeof dataRaw === 'string' && dataRaw){
-          // Normaliza para YYYY-MM-DD
-          dataStr = dataRaw.substring(0,10);
-        }
-        if(!dataStr || dataStr < fromStr) return;
-
-        // ── Extrai valor por cota ──
-        // Yahoo pode retornar em vários campos dependendo do endpoint
-        var valorRaw = div.amount || div.adjDividend || div.dividend ||
-                       div.value  || div.adjAmount   || div.dividends ||
-                       div.cash_amount || div.regular_dividend || 0;
-        var valorCota = parseFloat(valorRaw);
-        if(isNaN(valorCota) || valorCota <= 0) return;
-
-        // ── Qtd na data ──
-        // Usa a data de ex-dividendo ou pagamento para pegar posição correta
-        // Se não tinha posição na data do pagamento, tenta ex-date
-        var qtd = _getQtdNaData(r.ticker, dataStr);
-        if(qtd <= 0){
-          // Tenta 5 dias antes (janela entre ex-date e payment-date)
-          var dTent = new Date(dataStr);
-          dTent.setDate(dTent.getDate()-5);
-          var dStr2 = dTent.getFullYear()+'-'+(dTent.getMonth()<9?'0':'')+(dTent.getMonth()+1)+'-'+(dTent.getDate()<10?'0':'')+dTent.getDate();
-          qtd = _getQtdNaData(r.ticker, dStr2);
-        }
-        // Se ainda 0, usa posição atual (pode ser que o aporte foi após o ex-date)
-        if(qtd <= 0) qtd = _getQtdNaData(r.ticker, hoje);
-        if(qtd <= 0) return;
-
-        // ── Checa duplicata ──
-        var dup = lista.some(function(p){
-          return p.ticker===r.ticker &&
-                 p.data.substring(0,10)===dataStr &&
-                 Math.abs(p.valorCota-valorCota)<0.00001;
-        });
-        if(dup) return;
-
-        // Tipo de provento + fonte rastreável
-        var tipoDiv = 'Dividendo';
-        if(r.tipo==='FII'||r.tipo==='FIAGRO') tipoDiv='Rendimento';
-        var typeStr = (div.type||div.dividendType||div.label||'').toLowerCase();
-        if(typeStr.includes('jcp')||typeStr.includes('juros')) tipoDiv='JCP';
-        else if(typeStr.includes('rend')||typeStr.includes('amort')) tipoDiv='Rendimento';
-
-        // Fonte explícita: BR = B3 via proxy, US = Polygon via proxy
-        var isRBR = (r.tipo==='Acao'||r.tipo==='FII'||r.tipo==='FIAGRO'||/\d$/.test(r.ticker));
-        var fonteProv = isRBR ? 'Auto-B3' : 'Auto-Polygon';
-
-        lista.push({
-          ticker: r.ticker,
-          tipo:   tipoDiv,
-          data:   dataStr,
-          valorCota: valorCota,
-          qtd:    qtd,
-          total:  valorCota * qtd,
-          obs:    '',
-          fonte:  fonteProv
-        });
-        novos++;
-      });
-    });
-
-    lista.sort(function(a,b){ return b.data.localeCompare(a.data); });
-    saveProventos(lista);
-    // Só re-renderiza se houve novos proventos (evita 'pisca duplo' na abertura da aba)
-    if(novos>0){
-      renderProventos();
-      renderProventosChart();
-      renderProvKpis();
-    }
-
+  function _finalizarGP(){
+    _rvMarcarCompleto();
+    if(btn){ btn.textContent='📥 Importar'; btn.disabled=false; }
+    console.log('[Proventos GP] ✅ Concluído. Total: '+totalImportado+' novo(s)');
     if(status){
-      status.textContent = novos>0
-        ? '✅ '+novos+' novo'+(novos>1?'s':'')+' importado'+(novos>1?'s':'')
+      status.textContent = totalImportado>0
+        ? '✅ '+totalImportado+' provento'+(totalImportado>1?'s':'')+' importado'+(totalImportado>1?'s':'')
         : '✅ Atualizado';
-      setTimeout(function(){ if(status) status.textContent=''; }, 4000);
+      setTimeout(function(){ if(status) status.textContent=''; }, 5000);
     }
-  });
+    if(!silent && totalImportado>0){
+      showToast('✅ '+totalImportado+' proventos importados!','#10b981');
+    }
+  }
 }
 
 // ── KPIs ──
@@ -7757,9 +8020,11 @@ function renderProvKpis(){
   var mesAtual = hoje.getFullYear()+'-'+(hoje.getMonth()<9?'0':'')+(hoje.getMonth()+1);
   var ano = hoje.getFullYear();
 
-  var totalGeral = lista.reduce(function(s,p){ return s+(p.total||0); }, 0);
-  var totalAno   = lista.filter(function(p){ return p.data && p.data.startsWith(ano+''); }).reduce(function(s,p){ return s+(p.total||0); }, 0);
-  var totalMes   = lista.filter(function(p){ return p.data && p.data.startsWith(mesAtual); }).reduce(function(s,p){ return s+(p.total||0); }, 0);
+  // Normaliza total para schema dual (antigo: valorCota*qtd, novo: valor*qtdEx ou total direto)
+  function _normTotal(p){ if(p.total>0) return p.total; var v=p.valor!=null?p.valor:(p.valorCota||0); var q=p.qtdEx!=null?p.qtdEx:(p.qtd||0); return v*q; }
+  var totalGeral = lista.reduce(function(s,p){ return s+_normTotal(p); }, 0);
+  var totalAno   = lista.filter(function(p){ return p.data && p.data.startsWith(ano+''); }).reduce(function(s,p){ return s+_normTotal(p); }, 0);
+  var totalMes   = lista.filter(function(p){ return p.data && p.data.startsWith(mesAtual); }).reduce(function(s,p){ return s+_normTotal(p); }, 0);
   var mediaAnual = totalAno / 12;
 
   // Yield on cost: total recebido / total investido em RV
@@ -7803,7 +8068,10 @@ function renderProventosChart(){
   lista.forEach(function(p){
     if(!p.data) return;
     var mes = p.data.substring(0,7);
-    if(byMes.hasOwnProperty(mes)) byMes[mes] += (p.total||0);
+    if(byMes.hasOwnProperty(mes)){
+      var v=p.valor!=null?p.valor:(p.valorCota||0); var q=p.qtdEx!=null?p.qtdEx:(p.qtd||0);
+      byMes[mes] += (p.total||(v*q)||0);
+    }
   });
 
   var mn = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
@@ -7898,16 +8166,16 @@ function renderProventos(){
       '<td style="padding:10px 14px;white-space:nowrap;color:var(--text2);font-size:12px">'+fmtData(p.data)+'</td>'+
       '<td style="padding:10px 12px;font-weight:700;white-space:nowrap">'+p.ticker+autoTag+'</td>'+
       '<td style="padding:10px 12px;white-space:nowrap"><span style="font-size:11px;font-weight:700;color:'+cor+'">'+p.tipo+'</span></td>'+
-      '<td style="padding:10px 12px;text-align:right;font-size:12px">R$ '+(p.valorCota||0).toFixed(4)+'</td>'+
-      '<td style="padding:10px 12px;text-align:right;font-size:12px;color:var(--text2)">'+(p.qtd||0).toLocaleString('pt-BR')+'</td>'+
-      '<td style="padding:10px 14px;text-align:right;font-weight:700;color:#10b981">'+fmtBRL(p.total||0)+'</td>'+
+      '<td style="padding:10px 12px;text-align:right;font-size:12px">R$ '+((p.valorCota!=null?p.valorCota:(p.valor||0))||0).toFixed(4)+'</td>'+
+      '<td style="padding:10px 12px;text-align:right;font-size:12px;color:var(--text2)">'+((p.qtd!=null?p.qtd:(p.qtdEx||0))||0).toLocaleString('pt-BR')+'</td>'+
+      '<td style="padding:10px 14px;text-align:right;font-weight:700;color:#10b981">'+fmtBRL(p.total||(((p.valorCota!=null?p.valorCota:(p.valor||0)))*(p.qtd!=null?p.qtd:(p.qtdEx||0)))||0)+'</td>'+
       '<td style="padding:10px 8px;text-align:center">'+
         '<button onclick="excluirProvento('+realIdx+')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;padding:2px 4px" title="Excluir">🗑️</button>'+
       '</td>'+
     '</tr>';
   }).join('');
 
-  var soma = lista.reduce(function(s,p){ return s+(p.total||0); }, 0);
+  var soma = lista.reduce(function(s,p){ var v=p.valor!=null?p.valor:(p.valorCota||0); var q=p.qtdEx!=null?p.qtdEx:(p.qtd||0); return s+(p.total||(v*q)||0); }, 0);
   if(total) total.textContent = lista.length+' registro'+(lista.length!==1?'s':'')+' · Total: '+fmtBRL(soma);
 }
 
