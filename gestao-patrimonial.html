@@ -1952,6 +1952,19 @@ function saveData(k, v){
 }
 // ═══════════════════════════════════════════════════════════
 
+// Força save imediato do rvDividendos no Firestore (sem debounce)
+// Retorna Promise — usado para checkpoints e validação pós-importação
+function _rvForcarSaveFirestore(){
+  return new Promise(function(resolve, reject){
+    if(!_db_ref){ resolve(); return; }
+    var dados = loadProventos();
+    _db_ref.doc('rvDividendos').set({
+      value: dados,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }).then(resolve).catch(reject);
+  });
+}
+
 function fmtBRL(v){return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function toggleResgateHist(el){
   var body = el.nextElementSibling;
@@ -7722,7 +7735,7 @@ function _rvDedupProventos(divs){
 }
 
 // ── salvar proventos BR (Statusinvest ou B3) — schema unificado ──
-function _rvSalvarProventosBR(ticker, divs, dataCompra, fonte){
+function _rvSalvarProventosBR(ticker, divs, dataCompra, fonte, dataVenda){
   if(!divs || !divs.length) return 0;
   var stored = loadProventos();
   var novos  = 0;
@@ -7734,6 +7747,8 @@ function _rvSalvarProventosBR(ticker, divs, dataCompra, fonte){
     var fonteReg = dv.source||fonte||'B3';
     if(!dataPag || !valor) return;
     if(dataPag < dataCompra) return;
+    // Para ativos vendidos: só inclui proventos até a data de venda
+    if(dataVenda && dataPag > dataVenda) return;
     var qtd = _getQtdNaData(ticker, dataEx||dataPag);
     if(qtd <= 0) return;
     var mesAno = dataPag.substring(0,7);
@@ -7809,7 +7824,7 @@ function _rvSalvarProventosUS(ticker, divList, fonte){
 }
 
 // ── importar proventos BR (Statusinvest primário + B3 fallback) ──
-function _rvImportarProventosBR(ticker){
+function _rvImportarProventosBR(ticker, dataVenda){
   var dataCompra = _rvDataPrimeiraCompra(ticker);
   if(!dataCompra) return Promise.resolve(0);
   var dataInicio = _rvCalcDataInicio(ticker, dataCompra);
@@ -7826,7 +7841,7 @@ function _rvImportarProventosBR(ticker){
     .then(function(divsSI){
       if(divsSI.length > 0){
         divsSI = _rvDedupProventos(divsSI);
-        return _rvSalvarProventosBR(ticker, divsSI, dataCompra, 'Statusinvest');
+        return _rvSalvarProventosBR(ticker, divsSI, dataCompra, 'Statusinvest', dataVenda);
       }
       return fetch(urlB3)
         .then(function(r){ return r.ok ? r.json() : []; })
@@ -7834,13 +7849,13 @@ function _rvImportarProventosBR(ticker){
         .then(function(divsB3){
           divsB3 = Array.isArray(divsB3) ? divsB3 : [];
           divsB3 = _rvDedupProventos(divsB3);
-          return _rvSalvarProventosBR(ticker, divsB3, dataCompra, 'B3');
+          return _rvSalvarProventosBR(ticker, divsB3, dataCompra, 'B3', dataVenda);
         });
     });
 }
 
 // ── importar proventos US (Polygon) ──
-function _rvImportarProventosUS(ticker){
+function _rvImportarProventosUS(ticker, dataVenda){
   var dataCompra = _rvDataPrimeiraCompra(ticker);
   if(!dataCompra) return Promise.resolve(0);
   var dataInicio = _rvCalcDataInicio(ticker, dataCompra);
@@ -7849,7 +7864,13 @@ function _rvImportarProventosUS(ticker){
   return fetch(urlDiv)
     .then(function(r){ return r.ok ? r.json() : {}; })
     .catch(function(){ return {}; })
-    .then(function(d){ return _rvSalvarProventosUS(ticker, d.dividends||[], 'Polygon'); })
+    .then(function(d){
+      var divs = (d.dividends||[]).filter(function(dv){
+        if(!dataVenda) return true;
+        return (dv.payment_date||dv.date||'') <= dataVenda;
+      });
+      return _rvSalvarProventosUS(ticker, divs, 'Polygon');
+    })
     .catch(function(){ return 0; });
 }
 
@@ -7885,6 +7906,24 @@ function _rvMarcarCompleto(){
   localStorage.removeItem('g20_rv_prov_last_start');
 }
 
+// ── histórico US via FMP (>2 anos) ──
+function _rvImportarProventosUSHistorico(ticker, dataVenda){
+  var dataCompra = _rvDataPrimeiraCompra(ticker);
+  if(!dataCompra) return Promise.resolve(0);
+  var hoje = new Date();
+  var dataFim = new Date(hoje.getFullYear()-2, hoje.getMonth(), hoje.getDate()+30).toISOString().split('T')[0];
+  // Se ativo foi vendido antes de 2 anos atrás, usa data de venda como limite
+  if(dataVenda && dataVenda < dataFim) dataFim = dataVenda;
+  if(dataCompra >= dataFim) return Promise.resolve(0);
+  var apiSym = ticker === 'BRK.B' ? 'BRK-B' : ticker;
+  var url = PROXY_URL_RV+'/api/dividends-yahoo?symbol='+encodeURIComponent(apiSym)+'&from='+dataCompra+'&to='+dataFim;
+  return fetch(url)
+    .then(function(r){ return r.ok ? r.json() : {}; })
+    .catch(function(){ return {}; })
+    .then(function(d){ return _rvSalvarProventosUS(ticker, d.dividends||[], 'FMP'); })
+    .catch(function(){ return 0; });
+}
+
 // ── histórico completo US (botão) ──
 function rvImportarHistoricoCompleto(){
   var aportes = loadRVAportes();
@@ -7906,7 +7945,7 @@ function rvImportarHistoricoCompleto(){
   if(btn){ btn.textContent='⏳ Buscando...'; btn.disabled=true; }
 
   Promise.all(posUS.map(function(tk){
-    return _rvImportarProventosUSHistorico(tk).then(function(n){
+    return _rvImportarProventosUSHistorico(tk, null).then(function(n){
       console.log('[GP Histórico] '+tk+': '+n+' provento(s)');
       return n||0;
     });
@@ -7938,21 +7977,31 @@ function buscarProventosAuto(silent, forcarRefresh){
 
   _rvMarcarEmProgresso();
 
-  // Recalcula qtdEx dos proventos existentes (corrige aportes antigos lançados depois)
+  // Recalcula qtdEx dos proventos existentes
   var tickersUnicos = {};
   aportes.forEach(function(a){ tickersUnicos[a.ticker] = true; });
   Object.keys(tickersUnicos).forEach(function(tk){ _rvRecalcularQtdEx(tk); });
 
   var hoje = new Date().toISOString().split('T')[0];
+
+  // Mapa de todos os tickers + tipo (inclui vendidos)
   var posMap = {};
   aportes.forEach(function(a){ posMap[a.ticker] = a.tipo||'Acao'; });
 
+  // Data de última venda por ticker
+  function _rvUltimaVenda(ticker){
+    var vendas = aportes.filter(function(a){ return a.ticker===ticker && a.op==='V'; });
+    if(!vendas.length) return null;
+    return vendas.sort(function(a,b){ return b.data.localeCompare(a.data); })[0].data;
+  }
+
+  // Inclui todos os tickers — ativos e vendidos
   var posBR = Object.entries(posMap).filter(function(e){
-    return ['Acao','FII','FIAGRO'].indexOf(e[1])>=0 && _getQtdNaData(e[0],hoje)>0;
+    return ['Acao','FII','FIAGRO'].indexOf(e[1])>=0;
   }).map(function(e){ return e[0]; });
 
   var posUS = Object.entries(posMap).filter(function(e){
-    return ['Stock','REIT','ETF'].indexOf(e[1])>=0 && _getQtdNaData(e[0],hoje)>0;
+    return ['Stock','REIT','ETF'].indexOf(e[1])>=0;
   }).map(function(e){ return e[0]; });
 
   var status = document.getElementById('provBuscarStatus');
@@ -7964,14 +8013,20 @@ function buscarProventosAuto(silent, forcarRefresh){
   console.log('[Proventos GP] Iniciando: '+posBR.length+' BR + '+posUS.length+' US');
   var totalImportado = 0;
 
-  // 1) BR: todos em paralelo (Statusinvest sem rate limit)
+  // 1) BR: todos em paralelo
   Promise.all(posBR.map(function(tk){
-    return _rvImportarProventosBR(tk).then(function(n){ return n||0; });
+    return _rvImportarProventosBR(tk, _rvUltimaVenda(tk)).then(function(n){ return n||0; });
   })).then(function(resBR){
     var novBR = resBR.reduce(function(s,n){return s+n;},0);
     totalImportado += novBR;
-    if(novBR > 0){ renderProventos(); renderProventosChart(); renderProvKpis(); renderRVPosicoes(); renderKPIs(); }
     console.log('[Proventos GP BR] Concluído: '+novBR+' novo(s)');
+    if(novBR > 0){
+      renderProventos(); renderProventosChart(); renderProvKpis(); renderRVPosicoes(); renderKPIs();
+      // CHECKPOINT BR
+      _rvForcarSaveFirestore().then(function(){
+        console.log('[Proventos GP] 💾 Checkpoint BR salvo no Firestore.');
+      }).catch(function(e){ console.warn('[Proventos GP] Checkpoint BR falhou:', e.message); });
+    }
 
     if(posUS.length === 0){ _finalizarGP(); return; }
     _processarGrupoUS(posUS, 0);
@@ -7985,11 +8040,16 @@ function buscarProventosAuto(silent, forcarRefresh){
     else console.log('[Proventos GP US] Último grupo ('+grupo.length+' ativos)');
 
     Promise.all(grupo.map(function(tk){
-      return _rvImportarProventosUS(tk).then(function(n){ return n||0; });
+      return _rvImportarProventosUS(tk, _rvUltimaVenda(tk)).then(function(n){ return n||0; });
     })).then(function(resUS){
       var novUS = resUS.reduce(function(s,n){return s+n;},0);
       totalImportado += novUS;
       if(novUS>0){ renderProventos(); renderProventosChart(); renderProvKpis(); renderRVPosicoes(); renderKPIs(); }
+
+      // CHECKPOINT US por grupo
+      _rvForcarSaveFirestore().then(function(){
+        console.log('[Proventos GP] 💾 Checkpoint US grupo '+(Math.floor(inicio/5)+1)+' salvo no Firestore.');
+      }).catch(function(e){ console.warn('[Proventos GP] Checkpoint US falhou:', e.message); });
 
       var prox = inicio + grupo.length;
       if(prox >= lista.length){ _finalizarGP(); return; }
@@ -8002,22 +8062,64 @@ function buscarProventosAuto(silent, forcarRefresh){
   }
 
   function _finalizarGP(){
+    // Após Polygon, verificar se há ativos US com >2 anos que precisam do FMP
+    var doisAnos = new Date();
+    doisAnos.setFullYear(doisAnos.getFullYear()-2);
+    var doisAnosStr = doisAnos.toISOString().split('T')[0];
+    var precisamFMP = posUS.filter(function(tk){
+      var dc = _rvDataPrimeiraCompra(tk);
+      return dc && dc < doisAnosStr;
+    });
+    if(precisamFMP.length > 0){
+      console.log('[Proventos GP] Buscando histórico FMP para '+precisamFMP.length+' ativo(s) com >2 anos...');
+      Promise.all(precisamFMP.map(function(tk){
+        return _rvImportarProventosUSHistorico(tk, _rvUltimaVenda(tk)).then(function(n){
+          if(n>0) console.log('[Proventos GP FMP] '+tk+': '+n+' histórico(s)');
+          return n||0;
+        });
+      })).then(function(resFMP){
+        var novFMP = resFMP.reduce(function(s,n){return s+n;},0);
+        totalImportado += novFMP;
+        if(novFMP>0){ renderProventos(); renderProventosChart(); renderProvKpis(); renderRVPosicoes(); renderKPIs(); }
+        _rvMarcarCompleto();
+      });
+    }
     _rvMarcarCompleto();
     if(btn){ btn.textContent='📥 Importar'; btn.disabled=false; }
     console.log('[Proventos GP] ✅ Concluído. Total: '+totalImportado+' novo(s)');
+
+    // VALIDAÇÃO FIRESTORE — igual à CG20
+    _rvForcarSaveFirestore().then(function(){
+      console.log('[Proventos GP] ✅ Save Firestore final confirmado.');
+      setTimeout(function(){
+        _db_ref.doc('rvDividendos').get({ source: 'server' }).then(function(doc){
+          if(doc.exists){
+            var salvos = (doc.data().value || []).length;
+            var local  = loadProventos().length;
+            console.log('[Proventos GP] 🔍 VALIDAÇÃO: local='+local+' | Firestore='+salvos);
+            if(salvos === local){
+              _rvMarcarCompleto();
+              if(totalImportado > 0 && !silent){
+                showToast('✅ '+totalImportado+' proventos importados e confirmados na nuvem ('+salvos+' total).', '#10b981');
+              }
+            } else {
+              console.warn('[Proventos GP] ⚠️ DIVERGÊNCIA: local='+local+' | Firestore='+salvos+'. Será retentado.');
+            }
+          }
+        }).catch(function(e){ console.warn('[Proventos GP] Validação Firestore falhou:', e.message); });
+      }, 1500);
+    }).catch(function(e){
+      console.error('[Proventos GP] ❌ Save Firestore falhou:', e);
+    });
+
     if(status){
       status.textContent = totalImportado>0
         ? '✅ '+totalImportado+' provento'+(totalImportado>1?'s':'')+' importado'+(totalImportado>1?'s':'')
         : '✅ Atualizado';
       setTimeout(function(){ if(status) status.textContent=''; }, 5000);
     }
-    if(!silent && totalImportado>0){
-      showToast('✅ '+totalImportado+' proventos importados!','#10b981');
-    }
   }
 }
-
-// ── KPIs ──
 function renderProvKpis(){
   var grid = document.getElementById('provKpiGrid');
   if(!grid) return;
