@@ -300,7 +300,6 @@
         var match = allItems.find(function(item){ return item.label === tooltip; });
         if (match && match.href !== '#') {
           a.href = match.href;
-          // Remover onclick que bloqueia navegação para links reais
           a.onclick = null;
           a.removeAttribute('onclick');
         }
@@ -308,6 +307,33 @@
         if (href !== '#' && href === currentPage) a.classList.add('active');
         else a.classList.remove('active');
       });
+
+      // Adiciona itens que estão no NAV_ITEMS mas ainda não existem na sidebar
+      NAV_ITEMS.forEach(function(sec) {
+        var secEl = sidebar.querySelector('.' + sec.cls);
+        if (!secEl) return;
+        sec.items.forEach(function(item) {
+          // Verifica se o item já existe (por href ou data-tooltip)
+          var exists = secEl.querySelector('[href="' + item.href + '"], [data-tooltip="' + item.label + '"]');
+          if (exists) return;
+          // Cria e insere o item faltante
+          var a = document.createElement('a');
+          a.href = item.href;
+          a.className = 'nav-item' + (item.href !== '#' && currentPage === item.href ? ' active' : '');
+          if (item.id) a.id = item.id;
+          a.setAttribute('data-tooltip', item.label);
+          var ico = document.createElement('span');
+          ico.className = 'ico';
+          ico.textContent = item.ico;
+          a.appendChild(ico);
+          var span = document.createElement('span');
+          span.className = 'nav-item-text';
+          span.textContent = item.label;
+          a.appendChild(span);
+          secEl.appendChild(a);
+        });
+      });
+
       return;
     }
 
