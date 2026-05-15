@@ -1116,8 +1116,13 @@ function getStableOffsets(markers){
   // Cache key: só filtro + zoom bucket (NÃO inclui rotação — causava recalc todo frame)
   const zKey=Math.round(currentZoom*3)/3;
   const key=activeFilter+'_'+zKey+'_'+markers.length;
-  if(key===_lastOffsetKey){
+  // Só usa cache quando o globo está parado (não arrastando, não rotacionando)
+  if(key===_lastOffsetKey && !isDragging && !autoRotate){
     markers.forEach(m=>{const o=_offsetCache[m.a.ticker];if(o){m.sx=m.ox+o.dx;m.sy=m.oy+o.dy;}});
+    return;
+  }
+  // Se está em movimento, não aplica separação (logos ficam fixos no globo)
+  if(isDragging || autoRotate){
     return;
   }
 
@@ -1293,15 +1298,7 @@ function drawSingle(sx,sy,baseR,col,a,fade,ci,isHov){
   oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);
   oc.strokeStyle=isHovered?'#e8c766':col+'bb';oc.lineWidth=isHovered?2.5:1.2;oc.stroke();
   if(isHovered){oc.beginPath();oc.arc(sx,sy,baseR+6,0,Math.PI*2);oc.strokeStyle='#e8c766';oc.lineWidth=2;oc.stroke();}
-  // Label — só no LOD 3 e apenas para logos maiores
-  if(fade>.4&&baseR>=14){
-    const fs=Math.round(Math.max(8,baseR*.65));
-    oc.font=`600 ${fs}px DM Sans,sans-serif`;oc.textAlign='center';oc.textBaseline='middle';
-    const lx=sx,ly=sy+baseR+8,tw=oc.measureText(a.ticker).width+8;
-    oc.fillStyle='rgba(5,3,12,.78)';
-    oc.beginPath();if(oc.roundRect)oc.roundRect(lx-tw/2,ly-5,tw,12,3);else oc.rect(lx-tw/2,ly-5,tw,12);oc.fill();
-    oc.fillStyle='#f0ece0';oc.globalAlpha=fade;oc.fillText(a.ticker,lx,ly);oc.globalAlpha=1;
-  }
+  // Label removido — apenas logo
 }
 
 /* ══ DRAW OVERLAY ══ */
@@ -1461,6 +1458,7 @@ container.addEventListener('mousemove',e=>{
     earthMesh.rotation.y+=(e.clientX-prevMouse.x)*.003;
     earthMesh.rotation.x=Math.max(-Math.PI/2,Math.min(Math.PI/2,earthMesh.rotation.x+(e.clientY-prevMouse.y)*.003));
     syncGroups();prevMouse={x:e.clientX,y:e.clientY};
+    _offsetCache={}; // invalida offsets ao arrastar — logos ficam fixos no globo
     _lastOffsetKey='';
   }
 
