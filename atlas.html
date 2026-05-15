@@ -1353,15 +1353,25 @@ function drawOverlay(dt){
       const pos3=ll3(cl.lat,cl.lon,GLOBE_R).applyEuler(earthMesh.rotation);
       const sp=w2s(pos3);
       const dot=pos3.clone().normalize().dot(camDir.clone().negate());
-      if(dot<.05)return;
-      const n=cl.assets.length,col=cl.color,fade=Math.min(1,dot*2.5);
+      if(dot<=0)return;
+      // Fade suave no horizonte: começa a desaparecer em dot=0.32, some em dot=0
+      const _t_cl=Math.min(1,Math.max(0,dot/0.32));
+      const _hf_cl=_t_cl*_t_cl*(3-2*_t_cl); // smoothstep
+      if(_hf_cl<=0)return;
+      const n=cl.assets.length,col=cl.color,fade=_hf_cl;
       const {x:sx,y:sy}=sp;
       const key=clusterKey(cl);
       const isExploded=explodedClusters.has(key);
 
       if(n===1){
-        drawSingle(sx,sy,baseRFn(cl.assets[0].pct),col,cl.assets[0],fade,ci,false);
-        window._clusterHits.push({cl,sx,sy,cr:baseRFn(cl.assets[0].pct)+4,single:true});
+        const _r1=baseRFn(cl.assets[0].pct)*Math.pow(fade,0.6);
+        if(_r1<4.5){
+          oc.beginPath();oc.arc(sx,sy,Math.max(1.5,_r1),0,Math.PI*2);
+          oc.fillStyle=col+Math.round(fade*200).toString(16).padStart(2,'0');oc.fill();
+        } else {
+          drawSingle(sx,sy,_r1,col,cl.assets[0],fade,ci,false);
+        }
+        window._clusterHits.push({cl,sx,sy,cr:_r1+4,single:true});
 
       } else if(isExploded){
         // HUB pequeno + ativos em órbita
@@ -1419,33 +1429,67 @@ function drawOverlay(dt){
     return;
   }
 
-  // MODO INDIVIDUAL — separação com força, todos os logos visíveis
-  // Durante rotação mostra mais ativos (threshold menor)
-  const dotThresh=0.05; // threshold único — logos visíveis se dot>0.05 (quase toda a frente)
-  const frontM=allM.filter(m=>m.dot>=dotThresh);
-  getStableOffsets(frontM);
+  // MODO INDIVIDUAL — logos somem suavemente no horizonte (fade + encolhe)
+  //
+  // SISTEMA DE FADE NO HORIZONTE:
+  // dot >= FADE_START → logo 100% visível (centro do globo)
+  // dot FADE_START→FADE_END → fade suave: logo encolhe + fica transparente
+  // dot < FADE_END → invisível (vai para o verso)
+  //
+  const FADE_START = 0.32; // começa a desvanecer aqui (antes era tudo ou nada)
+  const FADE_END   = 0.0;  // some completamente no horizonte exato
 
-  // Linhas de conexão para logos movidos
-  frontM.forEach(m=>{
-    const moved=Math.hypot(m.sx-m.ox,m.sy-m.oy)>5;
-    if(!moved)return;
-    oc.beginPath();oc.moveTo(m.ox,m.oy);oc.lineTo(m.sx,m.sy);
-    oc.strokeStyle=m.col+'33';oc.lineWidth=.6;oc.setLineDash([2,3]);oc.stroke();oc.setLineDash([]);
-    oc.beginPath();oc.arc(m.ox,m.oy,2.5,0,Math.PI*2);oc.fillStyle=m.col+'77';oc.fill();
+  function horizonFactor(dot){
+    if(dot >= FADE_START) return 1.0;
+    if(dot <= FADE_END)   return 0.0;
+    // curva suave (ease-in) — some devagar primeiro, depois rápido
+    const t = (dot - FADE_END) / (FADE_START - FADE_END);
+    return t * t * (3 - 2 * t); // smoothstep
+  }
+
+  // Participam da separação apenas os bem visíveis (evita logos do horizonte se empurrando)
+  const frontM = allM.filter(m => m.dot > FADE_END);
+  const separateM = allM.filter(m => m.dot >= FADE_START * 0.5);
+  getStableOffsets(separateM);
+  // Propaga posições separadas
+  separateM.forEach(s => {
+    const m = frontM.find(f => f.a.ticker === s.a.ticker);
+    if(m){ m.sx = s.sx; m.sy = s.sy; }
   });
 
-  // Desenha todos — frente primeiro (maior pct = mais importante = desenhado por último = acima)
-  const sorted=frontM.sort((a,b)=>a.a.pct-b.a.pct);
-  sorted.forEach(m=>{
-    const {a,i,ox,oy,sx,sy,dot,r:baseR,col}=m;
-    drawSingle(sx,sy,baseR,col,a,Math.min(1,dot*2.5),i,false);
+  // Linhas de conexão — também fadeiam
+  frontM.forEach(m => {
+    const hf = horizonFactor(m.dot);
+    if(hf < 0.35) return;
+    const moved = Math.hypot(m.sx - m.ox, m.sy - m.oy) > 5;
+    if(!moved) return;
+    oc.beginPath(); oc.moveTo(m.ox, m.oy); oc.lineTo(m.sx, m.sy);
+    oc.strokeStyle = m.col + Math.round(hf * 0.18 * 255).toString(16).padStart(2,'0');
+    oc.lineWidth = .6; oc.setLineDash([2,3]); oc.stroke(); oc.setLineDash([]);
+    oc.beginPath(); oc.arc(m.ox, m.oy, 2.5, 0, Math.PI*2);
+    oc.fillStyle = m.col + Math.round(hf * 0.4 * 255).toString(16).padStart(2,'0'); oc.fill();
   });
 
-  // Ativos no horizonte (dot baixo) — pequeno ponto pulsante
-  allM.filter(m=>m.dot>=-.1&&m.dot<dotThresh).forEach((m,i)=>{
-    const alpha=Math.max(0,(.15+m.dot)/.25),hr=Math.max(2,m.r*.25);
-    oc.beginPath();oc.arc(m.ox,m.oy,hr,0,Math.PI*2);
-    oc.fillStyle=m.col+Math.round(alpha*160).toString(16).padStart(2,'0');oc.fill();
+  // Desenha em ordem: dot menor = mais perto do horizonte = desenhado primeiro (fica embaixo)
+  const sorted = frontM.sort((a, b) => a.dot - b.dot);
+  sorted.forEach(m => {
+    const {a, i, sx, sy, dot, r:baseR, col} = m;
+    const hf = horizonFactor(dot);
+    if(hf <= 0) return;
+
+    // Logo encolhe conforme vai pro horizonte — curva suave
+    const scaledR = baseR * Math.pow(hf, 0.6);
+
+    // Perto do horizonte vira ponto luminoso apenas
+    if(scaledR < 4.5){
+      const pr = Math.max(1.2, scaledR);
+      oc.beginPath(); oc.arc(sx, sy, pr, 0, Math.PI*2);
+      oc.fillStyle = col + Math.round(hf * 200).toString(16).padStart(2,'0');
+      oc.fill();
+      return;
+    }
+
+    drawSingle(sx, sy, scaledR, col, a, hf, i, false);
   });
 }
 
