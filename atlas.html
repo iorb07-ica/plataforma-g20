@@ -1110,13 +1110,25 @@ function getRegionBounds(region){
   return null;
 }
 
+// Calcula o círculo do globo em coordenadas de tela
+// Retorna {cx, cy, r} — centro e raio do disco visível do globo
+function getGlobeScreenCircle(){
+  const center = w2s(new THREE.Vector3(0,0,0));
+  // Ponto na borda equatorial do globo (lado direito)
+  const edge3 = new THREE.Vector3(GLOBE_R, 0, 0).applyEuler(earthMesh?.rotation||new THREE.Euler());
+  // A borda projetada do disco é melhor calculada pelo FOV e distância da câmera
+  // raio do disco na tela = GLOBE_R / camera.position.z * (clientWidth / (2*tan(fov/2)))
+  const fovRad = camera.fov * Math.PI / 180;
+  const screenR = (GLOBE_R / camera.position.z) * (container.clientWidth / (2 * Math.tan(fovRad/2)));
+  return { cx: container.clientWidth/2, cy: container.clientHeight/2, r: screenR };
+}
+
 function getStableOffsets(markers){
   if(!earthMesh) return;
   // Sempre reseta para posição real do globo
   markers.forEach(m=>{m.sx=m.ox;m.sy=m.oy;});
 
   // Ao arrastar: aplica offsets do cache à nova posição projetada
-  // Logos mantêm a separação enquanto arrasta (não colapsam)
   if(isDragging){
     markers.forEach(m=>{
       const o=_offsetCache[m.a.ticker];
@@ -1125,8 +1137,6 @@ function getStableOffsets(markers){
     return;
   }
 
-  // Parado: separação completa com cache
-  // Rotacionando: separação leve sem cache (recalcula todo frame)
   const zKey=Math.round(currentZoom*3)/3;
   const key=activeFilter+'_'+zKey+'_'+markers.length;
   if(key===_lastOffsetKey && !autoRotate){
@@ -1134,7 +1144,23 @@ function getStableOffsets(markers){
     return;
   }
 
-  // Separação: 120 iter parado, 25 iter rotacionando (leve, sem jitter)
+  // Calcula círculo do globo para containment
+  const globe = getGlobeScreenCircle();
+
+  // Função que limita um ponto a não ultrapassar o círculo do globo
+  // Permite que o logo ultrapasse no máximo logoR pixels além da borda (para logos na borda aparecerem meio-dentro)
+  function clampToGlobe(m){
+    const dx = m.sx - globe.cx, dy = m.sy - globe.cy;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    const maxDist = globe.r - m.r * 0.3; // logos ficam dentro do globo com pequena margem
+    if(dist > maxDist && dist > 0){
+      const scale = maxDist / dist;
+      m.sx = globe.cx + dx * scale;
+      m.sy = globe.cy + dy * scale;
+    }
+  }
+
+  // Separação: 120 iter parado, 25 iter rotacionando
   const ITERS=autoRotate?25:120, DAMP=autoRotate?0.4:0.55;
   for(let it=0;it<ITERS;it++){
     for(let a=0;a<markers.length;a++){
@@ -1142,7 +1168,7 @@ function getStableOffsets(markers){
         const A=markers[a],B=markers[b];
         const dx=B.sx-A.sx, dy=B.sy-A.sy;
         const d=Math.sqrt(dx*dx+dy*dy)||.001;
-        const minD=A.r+B.r+8; // gap maior entre logos
+        const minD=A.r+B.r+8;
         if(d<minD){
           const f=(minD-d)/2*DAMP, nx=dx/d, ny=dy/d;
           A.sx-=nx*f; A.sy-=ny*f;
@@ -1150,6 +1176,8 @@ function getStableOffsets(markers){
         }
       }
     }
+    // Após cada iteração: contém todos dentro do globo
+    markers.forEach(m => clampToGlobe(m));
   }
 
   _offsetCache={};
@@ -1447,15 +1475,9 @@ function drawOverlay(dt){
     return t * t * (3 - 2 * t); // smoothstep
   }
 
-  // Participam da separação apenas os bem visíveis (evita logos do horizonte se empurrando)
+  // Participam da separação todos os visíveis — getStableOffsets agora tem clampToGlobe interno
   const frontM = allM.filter(m => m.dot > FADE_END);
-  const separateM = allM.filter(m => m.dot >= FADE_START * 0.5);
-  getStableOffsets(separateM);
-  // Propaga posições separadas
-  separateM.forEach(s => {
-    const m = frontM.find(f => f.a.ticker === s.a.ticker);
-    if(m){ m.sx = s.sx; m.sy = s.sy; }
-  });
+  getStableOffsets(frontM);
 
   // Linhas de conexão — também fadeiam
   frontM.forEach(m => {
