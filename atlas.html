@@ -1014,17 +1014,23 @@ function drawSingle(sx,sy,baseR,col,a,fade,ci,isHov){
 }
 
 /* ══ DRAW OVERLAY ══ */
+// Estado de clusters explodidos — Map de clusterKey → true
+let explodedClusters = new Map(); // key = lat+lon string → cluster explodido
+
+function clusterKey(cl){ return `${cl.lat.toFixed(2)}_${cl.lon.toFixed(2)}_${cl.region}`; }
+
 function drawOverlay(dt){
   if(!oc||!earthMesh)return;
   pulseClock+=dt;
   oc.clearRect(0,0,container.clientWidth,container.clientHeight);
   window._clusterHits=[];
+  window._explodedHits=[];
   const filtered=getActiveAssets();
   const camDir=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
 
-  // Raio base proporcional ao zoom — maior zoom = bolinhas maiores
-  const zoomScale = Math.max(0.5, Math.min(2.5, 5.0/currentZoom));
-  const baseRFn = (pct) => (7 + pct*0.45) * zoomScale;
+  // Zoom scale: currentZoom=2 (perto) → scale=2.0, currentZoom=6 (longe) → scale=0.67
+  const zoomScale = Math.max(0.5, Math.min(3.0, (currentZoom < 3 ? 3.0/currentZoom : 2.0/currentZoom)*1.2));
+  const baseRFn = (pct) => Math.max(10, (8 + pct*0.5) * zoomScale);
 
   const allM=[];
   filtered.forEach((a,i)=>{
@@ -1036,16 +1042,58 @@ function drawOverlay(dt){
   });
 
   if(clusterMode){
-    // Modo cluster
-    buildGeoClusters(filtered).forEach((cl,ci)=>{
+    const clusters=buildGeoClusters(filtered);
+    clusters.forEach((cl,ci)=>{
       const pos3=ll3(cl.lat,cl.lon,GLOBE_R).applyEuler(earthMesh.rotation);
       const sp=w2s(pos3);
       const dot=pos3.clone().normalize().dot(camDir.clone().negate());
       if(dot<.05)return;
       const n=cl.assets.length,col=cl.color,fade=Math.min(1,dot*2.5);
       const {x:sx,y:sy}=sp;
-      if(n===1){drawSingle(sx,sy,baseRFn(cl.assets[0].pct),col,cl.assets[0],fade,ci,false);}
-      else{
+      const key=clusterKey(cl);
+      const isExploded=explodedClusters.has(key);
+
+      if(n===1){
+        // Ativo individual — desenha normal
+        drawSingle(sx,sy,baseRFn(cl.assets[0].pct),col,cl.assets[0],fade,ci,false);
+        window._clusterHits.push({cl,sx,sy,cr:baseRFn(cl.assets[0].pct)+4,single:true});
+      } else if(isExploded){
+        // CLUSTER EXPLODIDO — bolinha central + ativos em órbita
+        const storedEx=explodedClusters.get(key);
+        const cr=20+Math.min(n*1.5,24);
+
+        // Bolinha central menor (cluster hub)
+        oc.beginPath();oc.arc(sx,sy,cr,0,Math.PI*2);
+        oc.fillStyle=`rgba(6,4,16,.92)`;oc.fill();
+        oc.beginPath();oc.arc(sx,sy,cr,0,Math.PI*2);
+        oc.strokeStyle=col+'cc';oc.lineWidth=2.5;oc.stroke();
+        oc.font=`700 11px JetBrains Mono,monospace`;oc.textAlign='center';oc.textBaseline='middle';
+        oc.fillStyle=col;oc.globalAlpha=fade;oc.fillText(n,sx,sy);oc.globalAlpha=1;
+
+        // Ring de fechar
+        oc.beginPath();oc.arc(sx,sy,cr+5,0,Math.PI*2);
+        oc.strokeStyle='#e8c76655';oc.lineWidth=1;oc.stroke();
+
+        // Ativos em órbita ao redor
+        const orbitR=cr+baseRFn(2)+40;
+        cl.assets.forEach((a,ai)=>{
+          const angle=(ai/cl.assets.length)*Math.PI*2-Math.PI/2;
+          const ax=sx+Math.cos(angle)*orbitR;
+          const ay=sy+Math.sin(angle)*orbitR;
+          const ar=baseRFn(a.pct)*0.85;
+
+          // Linha de conexão
+          oc.beginPath();oc.moveTo(sx,sy);oc.lineTo(ax,ay);
+          oc.strokeStyle=col+'30';oc.lineWidth=0.7;oc.stroke();
+
+          drawSingle(ax,ay,ar,col,a,fade,ci*100+ai,false);
+          window._explodedHits.push({a,sx:ax,sy:ay,r:ar+4,clKey:key});
+        });
+
+        // Hit area do hub para fechar
+        window._clusterHits.push({cl,sx,sy,cr:cr+5,key,canClose:true});
+      } else {
+        // CLUSTER FECHADO — bolinha normal clicável
         const cr=16+Math.min(n*2.5,30);
         const ph=(pulseClock*.25+ci*.3)%1;
         oc.beginPath();oc.arc(sx,sy,cr+ph*cr*.5,0,Math.PI*2);
@@ -1059,13 +1107,13 @@ function drawOverlay(dt){
         oc.font=`800 ${cr>28?15:12}px JetBrains Mono,monospace`;oc.textAlign='center';oc.textBaseline='middle';
         oc.fillStyle=col;oc.globalAlpha=fade;oc.fillText(n,sx,sy-1);oc.globalAlpha=1;
         if(cr>22){oc.font='500 8px DM Sans,sans-serif';oc.fillStyle=col+'88';oc.globalAlpha=fade;oc.fillText('ativos',sx,sy+10);oc.globalAlpha=1;}
-        window._clusterHits.push({cl,sx,sy,cr});
+        window._clusterHits.push({cl,sx,sy,cr,key,canClose:false});
       }
     });
     return;
   }
 
-  // Modo individual
+  // Modo individual — sem clusters
   const frontM=allM.filter(m=>m.dot>=.18);
   separateMarkers(frontM);
   frontM.forEach(m=>{
@@ -1112,15 +1160,41 @@ container.addEventListener('mouseup',()=>{isDragging=false;canvas3.style.cursor=
 container.addEventListener('mouseleave',()=>{isDragging=false;hoveredAsset=null;document.getElementById('tooltip').classList.remove('show')});
 container.addEventListener('wheel',e=>{e.preventDefault();targetZoom=Math.max(ZOOM_MIN,Math.min(ZOOM_MAX,targetZoom+e.deltaY*.005));},{passive:false});
 container.addEventListener('click',e=>{
-  if(!clusterMode||!window._clusterHits)return;
+  if(!clusterMode) return;
   const rect=canvas3.getBoundingClientRect(),mx=e.clientX-rect.left,my=e.clientY-rect.top;
-  for(const h of window._clusterHits){
-    if(Math.hypot(mx-h.sx,my-h.sy)<h.cr+6){
-      clusterMode=false;document.getElementById('btn-cluster').classList.remove('on');
-      flyTarget={rotY:Math.PI/2-(h.cl.lon+180)*Math.PI/180,rotX:h.cl.lat*Math.PI/180};
-      flyProgress=0;break;
+
+  // Verifica hit em ativos explodidos primeiro
+  if(window._explodedHits){
+    for(const h of window._explodedHits){
+      if(Math.hypot(mx-h.sx,my-h.sy)<h.r){
+        // Clicou num ativo de cluster explodido — mostra tooltip
+        hoveredAsset=h.a;showTooltip(h.a,e.clientX,e.clientY);return;
+      }
     }
   }
+
+  // Verifica hit em cluster
+  if(window._clusterHits){
+    for(const h of window._clusterHits){
+      if(Math.hypot(mx-h.sx,my-h.sy)<(h.cr||20)+6){
+        if(h.single) return; // ativo individual — ignora
+        const key=h.key;
+        if(h.canClose===true && explodedClusters.has(key)){
+          // Fecha cluster
+          explodedClusters.delete(key);
+        } else if(!explodedClusters.has(key)){
+          // Abre cluster — explode localmente
+          explodedClusters.set(key, true);
+        } else {
+          // Já aberto, fecha
+          explodedClusters.delete(key);
+        }
+        return;
+      }
+    }
+  }
+  // Clique em área vazia — fecha todos os clusters explodidos
+  if(explodedClusters.size>0) explodedClusters.clear();
 });
 
 function syncGroups(){if(!earthMesh)return;[atmMesh,glowMesh,atmRingMesh,markerGroup,arcGroup].forEach(o=>{if(o){o.rotation.y=earthMesh.rotation.y;o.rotation.x=earthMesh.rotation.x;}});}
@@ -1245,7 +1319,7 @@ function toggleArcos(){showArcos=!showArcos;document.getElementById('btn-arcos')
 function toggleAuto(){autoRotate=!autoRotate;document.getElementById('btn-auto').classList.toggle('on',autoRotate);}
 function toggleAtm(){showAtm=!showAtm;if(atmMesh)atmMesh.visible=showAtm;if(glowMesh)glowMesh.visible=showAtm;if(atmRingMesh)atmRingMesh.visible=showAtm;document.getElementById('btn-atm').classList.toggle('on',showAtm);}
 function setFilter(f,btn){activeFilter=f;document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');buildMarkers();buildArcs();updateClassPanel();}
-function toggleCluster(){clusterMode=!clusterMode;document.getElementById('btn-cluster').classList.toggle('on',clusterMode);buildMarkers();}
+function toggleCluster(){clusterMode=!clusterMode;explodedClusters.clear();document.getElementById('btn-cluster').classList.toggle('on',clusterMode);buildMarkers();}
 
 /* ══ DIA/NOITE ══ */
 function toggleDay(){
