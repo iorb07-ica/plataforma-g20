@@ -772,7 +772,7 @@ function mostrarMinhaCarteiraVazia(){
 }
 
 const FLAG_CODES={'🇺🇸':'us','🇧🇷':'br','🇨🇳':'cn','🇬🇧':'gb','🇯🇵':'jp','🇰🇷':'kr','🇩🇪':'de','🇫🇷':'fr','🇹🇼':'tw','🇳🇱':'nl','🇩🇰':'dk','🇨🇭':'ch','🇸🇬':'sg'};
-const flagImgs={},logoImgs={};
+const flagImgs={};let logoImgs={};
 
 // Slugs TradingView — confirmados funcionando no browser
 const TV_SLUGS={
@@ -819,9 +819,10 @@ const TV_SLUGS={
 };
 
 function loadLogo(ticker){
+  // Usa APENAS TV_SLUGS — ignora a.logo que tem slugs legados incorretos
   const slug=TV_SLUGS[ticker];
-  if(!slug) return;
-  const base=`https://s3-symbol-logo.tradingview.com/`;
+  if(!slug) return; // sem slug mapeado = fallback de iniciais no drawSingle
+  const base='https://s3-symbol-logo.tradingview.com/';
   const img=new Image();
   img.src=base+slug+'.svg';
   img.onload=()=>{ logoImgs[ticker]=img; };
@@ -833,13 +834,16 @@ function loadLogo(ticker){
 }
 
 function preloadAssets(){
+  // Flags
   [...new Set(ASSETS.map(a=>FLAG_CODES[a.flag]).filter(Boolean))].forEach(cc=>{
     if(flagImgs[cc]?.complete&&flagImgs[cc]?.naturalWidth>0) return;
     const img=new Image();
     img.src=`https://flagcdn.com/w40/${cc}.png`;
     img.onload=()=>{ flagImgs[cc]=img; };
   });
-  ASSETS.forEach(a=>{ if(!logoImgs[a.ticker]) loadLogo(a.ticker); });
+  // Logos — força reload de todos os assets atuais
+  logoImgs={}; // limpa cache para forçar recarregamento com slugs corretos
+  ASSETS.forEach(a=>{ loadLogo(a.ticker); });
 }
 preloadAssets();
 
@@ -1011,8 +1015,9 @@ function getRegionBounds(region){
 
 function getStableOffsets(markers){
   if(!earthMesh) return;
-  const zKey=Math.round(currentZoom*4)/4;
-  const key=activeFilter+'_'+zKey+'_'+markers.length+'_'+Math.round(earthMesh.rotation.y*10);
+  // Cache key: só filtro + zoom bucket (NÃO inclui rotação — causava recalc todo frame)
+  const zKey=Math.round(currentZoom*3)/3;
+  const key=activeFilter+'_'+zKey+'_'+markers.length;
   if(key===_lastOffsetKey){
     markers.forEach(m=>{const o=_offsetCache[m.a.ticker];if(o){m.sx=m.ox+o.dx;m.sy=m.oy+o.dy;}});
     return;
@@ -1020,22 +1025,21 @@ function getStableOffsets(markers){
 
   markers.forEach(m=>{m.sx=m.ox;m.sy=m.oy;});
 
-  // Força-repulsão pura: 60 iterações, damping suave
-  const ITERS=60, DAMP=0.4;
+  // Separação agressiva — 80 iterações sem mola restritiva
+  const ITERS=80, DAMP=0.5;
   for(let it=0;it<ITERS;it++){
     for(let a=0;a<markers.length;a++){
       for(let b=a+1;b<markers.length;b++){
         const A=markers[a],B=markers[b];
         const dx=B.sx-A.sx, dy=B.sy-A.sy;
         const d=Math.sqrt(dx*dx+dy*dy)||.001;
-        const minD=A.r+B.r+4;
+        const minD=A.r+B.r+6;
         if(d<minD){
           const f=(minD-d)/2*DAMP, nx=dx/d, ny=dy/d;
           A.sx-=nx*f; A.sy-=ny*f;
           B.sx+=nx*f; B.sy+=ny*f;
         }
       }
-      // Sem mola — deixa espalhar livremente
     }
   }
 
@@ -1623,7 +1627,11 @@ function animate(){
 animate(); // inicia imediatamente
 
 // Carrega dados reais da CG20 do localStorage
-setTimeout(carregarCG20, 500);
+setTimeout(()=>{
+  carregarCG20();
+  // Segunda chamada garante logos após assets carregarem
+  setTimeout(preloadAssets, 1500);
+}, 500);
 
 window.addEventListener('resize',()=>{const w=container.clientWidth,h=container.clientHeight;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);resizeOv();});
 canvas3.style.cursor='grab';
