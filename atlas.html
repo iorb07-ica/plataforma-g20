@@ -1115,6 +1115,9 @@ function buildGeoClusters(assets){
 /* ══ DRAW SINGLE MARKER ══ */
 let pulseClock=0;
 function drawSingle(sx,sy,baseR,col,a,fade,ci,isHov){
+  // Registra posição real para hit detection
+  if(!window._drawnMarkers) window._drawnMarkers=[];
+  window._drawnMarkers.push({a,sx,sy,r:baseR});
   const ph1=(pulseClock*.45+ci*.52)%1;
   oc.beginPath();oc.arc(sx,sy,baseR+ph1*baseR*1.1,0,Math.PI*2);
   oc.strokeStyle=col+Math.round((1-ph1)*.38*fade*255).toString(16).padStart(2,'0');oc.lineWidth=1.1;oc.stroke();
@@ -1182,6 +1185,7 @@ function drawOverlay(dt){
   oc.clearRect(0,0,container.clientWidth,container.clientHeight);
   window._clusterHits=[];
   window._explodedHits=[];
+  window._drawnMarkers=[]; // reset hit detection a cada frame
   const filtered=getActiveAssets();
   const camDir=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
 
@@ -1302,27 +1306,61 @@ function drawOverlay(dt){
   });
 }
 
-/* ══ RAYCASTING ══ */
+/* ══ HIT DETECTION 2D — usa posições reais dos logos no canvas overlay ══ */
+// Registra os marcadores desenhados no último frame para hit detection precisa
+window._drawnMarkers = []; // [{a, sx, sy, r}]
+
+/* ══ RAYCASTING + 2D FALLBACK ══ */
 const raycaster=new THREE.Raycaster(),mouse2=new THREE.Vector2();
 container.addEventListener('mousemove',e=>{
-  const rect=canvas3.getBoundingClientRect();
+  const rect=container.getBoundingClientRect();
+  const mx=e.clientX-rect.left, my=e.clientY-rect.top;
+
   mouse2.x=((e.clientX-rect.left)/rect.width)*2-1;
   mouse2.y=-((e.clientY-rect.top)/rect.height)*2+1;
+
   if(isDragging&&earthMesh){
     earthMesh.rotation.y+=(e.clientX-prevMouse.x)*.003;
     earthMesh.rotation.x=Math.max(-Math.PI/2,Math.min(Math.PI/2,earthMesh.rotation.x+(e.clientY-prevMouse.y)*.003));
     syncGroups();prevMouse={x:e.clientX,y:e.clientY};
-    _lastOffsetKey=''; // invalida cache ao rodar o globo
+    _lastOffsetKey='';
   }
-  if(!earthMesh)return;
-  raycaster.setFromCamera(mouse2,camera);
-  const hit=raycaster.intersectObjects(markerGroup.children).find(h=>h.object.userData.asset);
-  if(hit){hoveredAsset=hit.object.userData.asset;showTooltip(hoveredAsset,e.clientX,e.clientY);canvas3.style.cursor='pointer';}
-  else{hoveredAsset=null;document.getElementById('tooltip').classList.remove('show');canvas3.style.cursor=isDragging?'grabbing':'grab';}
+
+  if(!earthMesh){return;}
+
+  // Hit detection no canvas 2D — muito mais preciso que raycaster
+  let hit=null;
+  // Verifica ativos em clusters explodidos primeiro
+  if(window._explodedHits){
+    for(const h of window._explodedHits){
+      if(Math.hypot(mx-h.sx,my-h.sy)<=h.r+2){hit={asset:h.a};break;}
+    }
+  }
+  // Verifica marcadores desenhados no overlay
+  if(!hit && window._drawnMarkers){
+    // Percorre de trás para frente (maior prioridade = último desenhado = mais na frente)
+    for(let i=window._drawnMarkers.length-1;i>=0;i--){
+      const m=window._drawnMarkers[i];
+      if(Math.hypot(mx-m.sx,my-m.sy)<=m.r+2){hit={asset:m.a};break;}
+    }
+  }
+
+  if(hit){
+    hoveredAsset=hit.asset;
+    showTooltip(hoveredAsset,e.clientX,e.clientY);
+    canvas3.style.cursor='pointer';
+  } else {
+    hoveredAsset=null;
+    document.getElementById('tooltip').classList.remove('show');
+    canvas3.style.cursor=isDragging?'grabbing':'grab';
+  }
 });
 container.addEventListener('mousedown',e=>{isDragging=true;prevMouse={x:e.clientX,y:e.clientY};canvas3.style.cursor='grabbing'});
 container.addEventListener('mouseup',()=>{isDragging=false;canvas3.style.cursor='grab'});
-container.addEventListener('mouseleave',()=>{isDragging=false;hoveredAsset=null;document.getElementById('tooltip').classList.remove('show')});
+container.addEventListener('mouseleave',()=>{
+  isDragging=false;hoveredAsset=null;
+  document.getElementById('tooltip').classList.remove('show');
+});
 container.addEventListener('wheel',e=>{e.preventDefault();targetZoom=Math.max(ZOOM_MIN,Math.min(ZOOM_MAX,targetZoom+e.deltaY*.005));},{passive:false});
 container.addEventListener('click',e=>{
   if(!clusterMode) return;
