@@ -444,6 +444,8 @@ body.day .a-ticker{color:#111113}
 <!-- Sidebar G20 -->
 <script src="assets/g20-sidebar.js?v=11"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<!-- Mesmos logos que a Carteira G20 usa — slugs verificados para todos os tickers -->
+<script src="assets/tradingview-logos.js"></script>
 <script>
 /* ══ FIREBASE ══ */
 try{
@@ -919,11 +921,15 @@ function preloadAssets(){
     if(logoImgs[a.ticker]) return;
     const img=new Image();
     // Cripto: usa CoinGecko. Outros: TV CDN sem crossOrigin (igual carteira.html)
-    // 1. Cripto → CoinGecko
-    // 2. Slug na whitelist → TV CDN direto (sem crossOrigin)
-    // 3. Qualquer outra coisa → Google Favicon fallback
-    const url = CRYPTO_LOGOS[a.ticker]
-      || (a.logo && TV_WHITELIST.has(a.logo) ? `https://s3-symbol-logo.tradingview.com/${a.logo}.svg?v=3` : null)
+    // 1. TV_LOGOS.getUrl() — igual à Carteira G20 (fonte principal)
+    // 2. Slug local confirmado → TV CDN
+    // 3. Cripto → CoinGecko
+    // 4. Google Favicon fallback
+    const tvUrl = (window.TV_LOGOS && window.TV_LOGOS.getUrl) ? window.TV_LOGOS.getUrl(a.ticker) : null;
+    const tvSlug = (a.logo && TV_WHITELIST.has(a.logo)) ? a.logo : null;
+    const url = tvUrl
+      || (tvSlug ? `https://s3-symbol-logo.tradingview.com/${tvSlug}.svg?v=3` : null)
+      || CRYPTO_LOGOS[a.ticker]
       || getFallbackLogoUrl(a.ticker);
     if(!url) return;
     img.onerror=()=>{ logoImgs[a.ticker]=null; };
@@ -1552,7 +1558,7 @@ function buildAssetList(){
     grp.sort((a,b)=>b.pct-a.pct).forEach(a=>{
       html+=`<div class="a-item" onmouseenter="highlightAsset('${a.ticker}')" onmouseleave="highlightAsset(null)">
         <div class="a-logo">
-          <img src="${CRYPTO_LOGOS[a.ticker]||(a.logo&&TV_WHITELIST.has(a.logo)?'https://s3-symbol-logo.tradingview.com/'+a.logo+'.svg?v=3':'')||getFallbackLogoUrl(a.ticker)||''}"
+          <img src="${(window.TV_LOGOS&&window.TV_LOGOS.getUrl?window.TV_LOGOS.getUrl(a.ticker):'')||(a.logo&&TV_WHITELIST.has(a.logo)?'https://s3-symbol-logo.tradingview.com/'+a.logo+'.svg?v=3':'')||CRYPTO_LOGOS[a.ticker]||getFallbackLogoUrl(a.ticker)||''}"
                style="width:24px;height:24px;object-fit:contain"
                onerror="this.style.display='none'">
         </div>
@@ -1611,7 +1617,7 @@ function showTooltip(a,cx,cy){
   document.getElementById('tt-posv').textContent=a.pos;
   document.getElementById('tt-pct').textContent=a.pct.toFixed(1)+'%';
   const cb=document.getElementById('tt-chg-big');cb.textContent=a.chg;cb.className='tt-chg-big '+(a.up?'tt-up':'tt-dn');
-  const ttLogoUrl=CRYPTO_LOGOS[a.ticker]||(a.logo&&TV_WHITELIST.has(a.logo)?`https://s3-symbol-logo.tradingview.com/${a.logo}.svg?v=3`:'')||getFallbackLogoUrl(a.ticker)||'';
+  const ttLogoUrl=(window.TV_LOGOS&&window.TV_LOGOS.getUrl?window.TV_LOGOS.getUrl(a.ticker):'')||(a.logo&&TV_WHITELIST.has(a.logo)?`https://s3-symbol-logo.tradingview.com/${a.logo}.svg?v=3`:'')||CRYPTO_LOGOS[a.ticker]||getFallbackLogoUrl(a.ticker)||'';
   document.getElementById('tt-logo').innerHTML=`<img src="${ttLogoUrl}" style="width:40px;height:40px;object-fit:contain" onerror="this.style.display='none'">`;
   const badge=document.getElementById('tt-badge');badge.textContent=a.type.toUpperCase();badge.className='tt-badge '+a.type;
   document.getElementById('tt-city').textContent='📍 '+a.city;
