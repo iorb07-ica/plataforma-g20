@@ -1,400 +1,2355 @@
-/* G20 — Sidebar colapsável compartilhada */
-(function(){
-  'use strict';
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Atlas G20 — Distribuição Global</title>
+<link rel="stylesheet" href="assets/g20-sidebar.css?v=10">
+<link rel="stylesheet" href="assets/g20-topbar-v21.css?v=12">
+<link rel="stylesheet" href="assets/g20-scrollbar.css?v=10">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#1a191e;--surface:#27252c;--gold:#c9a961;--gold2:#e8c766;
+  --text:#f0ece0;--muted:#8b8499;--border:#3a3740;
+  --eua:#60a5fa;--brasil:#4ade80;--europa:#c084fc;--asia:#fb923c;
+}
+body.day{--bg:#f5f5f7;--surface:#fff;--text:#111113;--muted:#6b6b72;--border:#d8d8dc;}
+html,body{width:100%;height:100%;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;overflow:hidden}
 
-  var COLLAPSED_KEY = 'g20_sidebar_collapsed';
-  var isDesktop = window.innerWidth > 768;
+/* Layout principal: sidebar + main */
+/* ── Layout dashboard-compatible */
+:root{--sidebar:200px;--sidebar-collapsed:68px}
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99}
+.overlay.show{display:block}
+/* Main */
+.main{margin-left:var(--sidebar);display:flex;flex-direction:column;height:100vh;overflow:hidden;transition:margin-left .4s cubic-bezier(.4,0,.2,1)}
+.sidebar.sidebar-collapsed~.main{margin-left:var(--sidebar-collapsed)}
+@media(max-width:768px){.main{margin-left:0!important}}
+/* Topbar */
+.topbar{height:52px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 20px;border-bottom:1px solid var(--border);background:rgba(26,25,30,.96);backdrop-filter:blur(12px);z-index:50}
+body.day .topbar{background:rgba(245,245,247,.97)}
+.topbar-left{display:flex;align-items:center;gap:10px;flex:1}
+.topbar-right{display:flex;align-items:center;gap:10px;justify-content:flex-end}
+.btn-menu{background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:4px 8px;transition:color .15s}
+.btn-menu:hover{color:#fff}
+.page-title{font-size:15px;font-weight:700;color:var(--text)}
+/* Atlas main — flex row: globo + painel direito */
+.atlas-main{flex:1;position:relative;overflow:hidden;display:flex;flex-direction:row;background:radial-gradient(ellipse at 50% 48%,#0c0b1e 0%,#03020a 100%)}
+body.day .atlas-main{background:radial-gradient(ellipse at 50% 48%,#d8dae8 0%,#bcc0d4 100%)}
+body.cinema .topbar{display:none}
+body.cinema .atlas-main{height:100vh;background:#000}
+/* gc ocupa todo o espaço restante */
+#gc{flex:1;position:relative;overflow:hidden}
+.live-badge{display:flex;align-items:center;gap:5px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.2);border-radius:20px;padding:3px 10px;font-size:9px;color:#4ade80;letter-spacing:1px}
+.live-dot{width:5px;height:5px;border-radius:50%;background:#4ade80;animation:ldot 2s infinite}
+@keyframes ldot{0%,100%{opacity:1}50%{opacity:.3}}
+.hashtag{font-size:11px;color:var(--gold);letter-spacing:1px;font-weight:500}
 
-  // 1) Aplicar estado collapsed o MAIS CEDO POSSÍVEL pra evitar flash.
-  //    - Adiciona classe no <html> (já existe quando o script roda)
-  //    - <body> ainda não existe nesse ponto, então usamos MutationObserver pra adicionar
-  //      a classe assim que ele aparecer no DOM.
-  //    - Injeta <style> com transition:none pra bloquear qualquer animação durante o boot.
-  var earlyStyle = null;
-  var saved = null;
-  try { saved = localStorage.getItem(COLLAPSED_KEY); } catch(e) {}
-  var shouldCollapse = isDesktop && saved !== '0';
+/* Globo */
+#three-canvas{position:absolute;top:0;left:0;width:100%;height:100%;cursor:grab}
 
-  if (shouldCollapse) {
-    try {
-      // Adiciona classe no <html> (sempre disponível)
-      document.documentElement.classList.add('sidebar-collapsed');
+/* Overlay canvas (bolinhas) */
+/* CONTROLES */
+.controls-bar{position:absolute;top:14px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:4px;z-index:10;background:rgba(14,13,20,.92);border:1px solid var(--border);border-radius:24px;padding:6px 14px;backdrop-filter:blur(10px)}
+body.day .controls-bar{background:rgba(245,245,247,.92);border-color:#d8d8dc}
+.ctrl-btn{font-size:10px;letter-spacing:1px;padding:5px 13px;border-radius:20px;border:1px solid transparent;background:transparent;color:var(--muted);cursor:pointer;transition:all .2s;font-family:'DM Sans',sans-serif;white-space:nowrap}
+.ctrl-btn:hover{color:var(--gold)}.ctrl-btn.on{border-color:var(--gold);color:var(--gold);background:rgba(201,169,97,.1)}
+.ctrl-sep{width:1px;height:14px;background:var(--border)}
+.ctrl-btn.timeline-on{border-color:#c084fc;color:#c084fc;background:rgba(192,132,252,.1)}
 
-      // Tenta adicionar no body (pode ainda não existir)
-      if (document.body) {
-        document.body.classList.add('sidebar-collapsed');
+.mode-toggle{position:absolute;top:14px;right:14px;z-index:10;display:flex;align-items:center;gap:6px;background:rgba(14,13,20,.92);border:1px solid var(--border);border-radius:20px;padding:5px 14px;backdrop-filter:blur(10px);cursor:pointer;font-size:10px;color:var(--muted);letter-spacing:1px;font-family:'DM Sans',sans-serif;transition:all .2s}
+.mode-toggle:hover{color:var(--gold);border-color:var(--gold)}
+body.day .mode-toggle{background:rgba(245,245,247,.92);border-color:#d8d8dc}
+
+.filters-bar{position:absolute;top:60px;left:14px;display:flex;gap:6px;z-index:10;flex-wrap:wrap}
+.filter-btn{font-size:11px;padding:6px 16px;border-radius:20px;border:1px solid var(--border);background:rgba(14,13,20,.9);color:var(--muted);cursor:pointer;transition:all .2s;font-family:'DM Sans',sans-serif;letter-spacing:1px;backdrop-filter:blur(8px)}
+.filter-btn.active{background:var(--gold);color:#1a191e;border-color:var(--gold);font-weight:700}
+body.day .filter-btn{background:rgba(245,245,247,.92);border-color:#d8d8dc;color:#555560}
+
+.classes-panel{position:absolute;left:14px;top:108px;z-index:10;background:rgba(8,6,16,.92);border:1px solid var(--border);border-radius:16px;padding:20px 26px;min-width:270px;backdrop-filter:blur(12px)}
+body.day .classes-panel{background:rgba(245,245,247,.95);border-color:#d8d8dc}
+.cp-title{font-size:9px;color:var(--muted);letter-spacing:2px;margin-bottom:14px;font-weight:600}
+.cp-row{display:flex;align-items:center;gap:10px;margin-bottom:11px}.cp-row:last-child{margin-bottom:0}
+.cp-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.cp-lbl{font-size:14px;color:#e8e4f8;flex:1;font-weight:500}
+body.day .cp-lbl{color:#222228}
+.cp-bar-w{width:68px;height:5px;background:var(--border);border-radius:2px;overflow:hidden}
+.cp-bar{height:100%;border-radius:2px}
+.cp-val{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;color:#f0ece0;width:42px;text-align:right}
+body.day .cp-val{color:#111113}
+
+.region-tabs{position:absolute;left:0;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;border-right:1px solid var(--border);background:rgba(14,13,20,.92);backdrop-filter:blur(12px);border-radius:0 16px 16px 0;overflow:hidden;width:200px;z-index:10}
+body.day .region-tabs{background:rgba(245,245,247,.96);border-right-color:#d8d8dc}
+.region-tab{padding:20px 24px;cursor:pointer;transition:background .2s;border-bottom:1px solid var(--border)}
+.region-tab:last-child{border-bottom:none}
+.region-tab:hover,.region-tab.active{background:rgba(201,169,97,.08)}
+.rt-lbl{font-size:13px;color:var(--muted);letter-spacing:2px;display:flex;align-items:center;gap:6px;font-weight:700}
+.rt-dot{width:6px;height:6px;border-radius:50%}
+.rt-pct{font-family:'JetBrains Mono',monospace;font-size:34px;font-weight:800;margin-top:6px}
+.rt-st{font-size:11px;letter-spacing:1px;margin-top:3px}
+.st-open{color:#4ade80}.st-closed{color:#f87171}.st-pre{color:#fbbf24}
+
+/* TOOLTIP */
+#tooltip{position:absolute;z-index:50;background:rgba(8,6,16,.97);border:1px solid var(--border);border-radius:18px;padding:22px;width:370px;pointer-events:none;opacity:0;transition:opacity .2s,transform .2s;transform:translateY(8px) scale(.97);box-shadow:0 24px 56px rgba(0,0,0,.85),0 0 0 1px rgba(201,169,97,.08)}
+body.day #tooltip{background:rgba(255,255,255,.99);border-color:#d8d8dc}
+#tooltip.show{opacity:1;transform:translateY(0) scale(1)}
+.tt-head{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+.tt-logo{width:54px;height:54px;border-radius:13px;background:var(--surface);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;border:1px solid var(--border)}
+.tt-logo img{width:40px;height:40px;object-fit:contain}
+.tt-ticker{font-size:21px;font-weight:700;letter-spacing:-.3px;color:#f0ece0}
+body.day .tt-ticker{color:#111113}
+.tt-co{font-size:11px;color:var(--muted);margin-top:2px}
+.tt-chg-big{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;margin-top:3px}
+.tt-div{border:none;border-top:1px solid var(--border);margin:11px 0}
+.tt-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px}
+.tt-lbl{font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase}
+.tt-v{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:600;margin-top:3px;color:#f0ece0}
+body.day .tt-v{color:#111113}
+.tt-pct{font-family:'JetBrains Mono',monospace;font-size:15px;color:var(--gold2);font-weight:700;margin-top:3px}
+.tt-up{color:#4ade80}.tt-dn{color:#f87171}
+.tt-spark{margin-top:12px}.tt-spark-lbl{font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:5px}
+.tt-foot{display:flex;align-items:center;justify-content:space-between;margin-top:11px}
+.tt-badge{font-size:10px;padding:3px 10px;border-radius:6px;letter-spacing:1px;font-weight:700}
+.tt-badge.stock{background:rgba(96,165,250,.12);color:#60a5fa;border:1px solid rgba(96,165,250,.3)}
+.tt-badge.reit{background:rgba(74,222,128,.12);color:#4ade80;border:1px solid rgba(74,222,128,.3)}
+.tt-badge.etf{background:rgba(192,132,252,.12);color:#c084fc;border:1px solid rgba(192,132,252,.3)}
+.tt-badge.fii{background:rgba(232,199,102,.12);color:#e8c766;border:1px solid rgba(232,199,102,.3)}
+.tt-city{font-size:10px;color:var(--muted)}
+.tt-social{display:flex;align-items:center;gap:6px;margin-top:10px;padding:8px 12px;background:rgba(201,169,97,.06);border:1px solid rgba(201,169,97,.15);border-radius:10px;font-size:10px;color:var(--muted)}
+.tt-social-count{font-family:'JetBrains Mono',monospace;font-weight:700;color:var(--gold2);font-size:12px}
+
+/* CINEMA */
+body.cinema .filters-bar,body.cinema .classes-panel,body.cinema .region-tabs,body.cinema .controls-bar,body.cinema .mode-toggle{display:none}
+body.cinema .atlas-main{background:#000}
+.cinema-btn{position:absolute;bottom:16px;right:16px;z-index:20;background:rgba(14,13,20,.9);border:1px solid var(--border);border-radius:20px;padding:6px 14px;font-size:10px;color:var(--muted);cursor:pointer;letter-spacing:1px;backdrop-filter:blur(8px);font-family:'DM Sans',sans-serif;transition:all .2s;display:flex;align-items:center;gap:6px}
+.cinema-btn:hover{color:var(--gold);border-color:var(--gold)}
+.cinema-exit{position:fixed;top:14px;right:14px;z-index:200;background:rgba(14,13,20,.92);border:1px solid var(--border);border-radius:20px;padding:6px 16px;font-size:11px;color:var(--muted);cursor:pointer;letter-spacing:1px;display:none;font-family:'DM Sans',sans-serif}
+body.cinema .cinema-exit{display:block}
+
+/* TIMELINE */
+.timeline-bar{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);z-index:20;background:rgba(8,6,18,.95);border:1px solid var(--border);border-radius:14px;padding:14px 20px;backdrop-filter:blur(12px);display:none;min-width:460px}
+.timeline-bar.show{display:block}
+.tl-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.tl-title{font-size:9px;color:var(--gold);letter-spacing:2px;font-weight:600}
+.tl-date{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;color:var(--text)}
+.tl-close{cursor:pointer;color:var(--muted);font-size:14px}
+.tl-slider{width:100%;appearance:none;height:4px;border-radius:2px;outline:none;cursor:pointer;background:linear-gradient(to right,var(--gold) 0%,var(--gold) calc(var(--pct,100%)),var(--border) calc(var(--pct,100%)));margin-bottom:8px}
+.tl-slider::-webkit-slider-thumb{appearance:none;width:16px;height:16px;border-radius:50%;background:var(--gold2);border:2px solid #1a191e;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+.tl-labels{display:flex;justify-content:space-between;font-size:8px;color:var(--muted);letter-spacing:.5px}
+.tl-count{font-size:9px;color:var(--muted);margin-top:6px;text-align:center}
+
+/* SHARE */
+.share-btn{position:absolute;bottom:16px;right:120px;z-index:20;background:linear-gradient(135deg,var(--gold),var(--gold2));border:none;border-radius:20px;padding:7px 16px;font-size:10px;color:#1a191e;font-weight:700;cursor:pointer;letter-spacing:1px;font-family:'DM Sans',sans-serif;transition:all .2s;display:flex;align-items:center;gap:6px}
+.share-btn:hover{transform:scale(1.05);box-shadow:0 4px 20px rgba(201,169,97,.4)}
+#share-overlay{position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.85);backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center;flex-direction:column;gap:16px}
+#share-overlay.show{display:flex}
+.share-card{background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:24px;text-align:center;max-width:400px;width:90%;box-shadow:0 24px 60px rgba(0,0,0,.8)}
+.share-preview{width:100%;aspect-ratio:1/1;border-radius:12px;overflow:hidden;background:#0a0910;margin-bottom:16px;display:flex;align-items:center;justify-content:center}
+.share-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px}
+.share-sub{font-size:11px;color:var(--muted);margin-bottom:16px}
+.share-actions{display:flex;gap:10px;justify-content:center}
+.share-dl{background:linear-gradient(135deg,var(--gold),var(--gold2));border:none;border-radius:10px;padding:9px 20px;font-size:12px;color:#1a191e;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif}
+.share-cancel{background:transparent;border:1px solid var(--border);border-radius:10px;padding:9px 20px;font-size:12px;color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif}
+/* TOGGLE CARTEIRA */
+.portfolio-toggle{
+  display:flex;align-items:center;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:20px;padding:3px;gap:2px;
+}
+.pt-btn{
+  font-size:10px;font-weight:600;padding:5px 14px;border-radius:16px;
+  border:none;cursor:pointer;transition:all .2s;letter-spacing:.5px;
+  font-family:'DM Sans',sans-serif;background:transparent;color:var(--muted);
+}
+.pt-btn.active{
+  background:linear-gradient(135deg,var(--gold),var(--gold2));
+  color:#1a191e;box-shadow:0 2px 8px rgba(201,169,97,.35);
+}
+.pt-btn:hover:not(.active){color:var(--text)}
+/* Badge da carteira ativa */
+.atlas-page-sub span{
+  display:inline-block;background:rgba(201,169,97,.15);
+  border:1px solid rgba(201,169,97,.3);border-radius:8px;
+  padding:1px 8px;font-size:8px;color:var(--gold);
+  margin-left:6px;letter-spacing:1px;vertical-align:middle;
+}
+
+.zoom-hint{position:absolute;bottom:16px;right:16px;font-size:9px;color:var(--muted);letter-spacing:1px;opacity:.4;z-index:5;pointer-events:none}
+
+/* PAINEL DIREITO */
+.right-panel{
+  width:420px;flex-shrink:0;
+  border-left:1px solid var(--border);
+  display:flex;flex-direction:column;
+  background:var(--bg);overflow:hidden;
+  transition:background .5s;
+}
+body.cinema .right-panel{display:none}
+.rp-topbar{
+  padding:16px 22px;border-bottom:1px solid var(--border);
+  font-size:11px;color:var(--muted);letter-spacing:2px;font-weight:600;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.sum-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border-bottom:1px solid var(--border)}
+.sum-card{background:var(--bg);padding:18px 22px;transition:background .5s}
+.sc-lbl{font-size:10px;color:#b8b4cc;letter-spacing:1.5px;font-weight:600}
+.sc-v{font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:800;margin-top:4px;color:#ffffff}
+body.day .sc-v{color:#111113}
+.sc-sub{font-size:11px;color:var(--gold);margin-top:3px}.sc-neg{color:#f87171}
+.asset-list{flex:1;overflow-y:auto}
+.asset-list::-webkit-scrollbar{width:3px}
+.asset-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+/* Barra de busca */
+.rp-search{padding:10px 16px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:6;background:var(--bg)}
+.rp-search-inner{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:7px 12px;transition:border-color .2s}
+.rp-search-inner:focus-within{border-color:rgba(201,169,97,.4)}
+.rp-search-icon{color:var(--muted);font-size:13px;flex-shrink:0}
+.rp-search-input{background:none;border:none;outline:none;color:#f0ece0;font-size:13px;font-family:'DM Sans',sans-serif;flex:1;min-width:0}
+.rp-search-input::placeholder{color:var(--muted)}
+body.day .rp-search-input{color:#111113}
+.rp-search-clear{background:none;border:none;cursor:pointer;color:var(--muted);font-size:14px;padding:0 2px;line-height:1;display:none;flex-shrink:0;transition:color .15s}
+.rp-search-clear:hover{color:#f0ece0}
+.rp-search-clear.visible{display:block}
+/* Cabeçalho colapsável */
+.rg-head{
+  display:flex;align-items:center;gap:8px;padding:12px 22px 10px;
+  font-size:10px;color:var(--muted);letter-spacing:2px;font-weight:700;
+  position:sticky;top:53px;background:var(--bg);z-index:5;
+  border-top:3px solid var(--border);
+  border-bottom:1px solid var(--border);cursor:pointer;
+  transition:background .15s;user-select:none;
+}
+.rg-head:first-child{border-top:none}
+.rg-head:hover{background:rgba(201,169,97,.05)}
+body.day .rg-head{background:#f5f5f7;color:#333338}
+.rg-dot{width:8px;height:8px;border-radius:50%}
+.rg-pct{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;color:#e8e4f8}
+.rg-chevron{margin-left:6px;font-size:10px;transition:transform .2s;color:#b8b4cc}
+.rg-head.collapsed .rg-chevron{transform:rotate(-90deg)}
+.rg-body{overflow:hidden;transition:max-height .3s ease}
+.rg-body.collapsed{max-height:0!important}
+.rg-body .a-item:last-child{border-bottom:none;margin-bottom:1px}
+.a-item{
+  display:flex;align-items:center;gap:12px;padding:12px 22px;
+  border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s;
+}
+.a-item:hover{background:var(--surface)}
+.a-item.selected{background:rgba(201,169,97,.08);border-left:2px solid var(--gold)}
+.a-logo{width:42px;height:42px;border-radius:10px;background:var(--surface);
+  display:flex;align-items:center;justify-content:center;overflow:hidden;
+  flex-shrink:0;border:1px solid var(--border)}
+.a-logo img{width:42px;height:42px;object-fit:cover;border-radius:10px}
+.a-main{flex:1;min-width:0}
+.a-ticker{font-size:17px;font-weight:700;color:#ffffff}
+body.day .a-ticker{color:#111113}
+.a-name{font-size:12px;color:#b8b4cc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.a-right{text-align:right;flex-shrink:0}
+.a-pct{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700}
+.a-pos{font-size:12px;color:#c8c4dc;margin-top:2px;font-weight:500}
+.a-badge{font-size:9px;padding:3px 8px;border-radius:5px;margin-top:3px;display:inline-block;font-weight:600;letter-spacing:.5px}
+.a-badge.stock{background:rgba(96,165,250,.12);color:#60a5fa;border:1px solid rgba(96,165,250,.3)}
+.a-badge.reit{background:rgba(74,222,128,.12);color:#4ade80;border:1px solid rgba(74,222,128,.3)}
+.a-badge.etf{background:rgba(192,132,252,.12);color:#c084fc;border:1px solid rgba(192,132,252,.3)}
+.a-badge.cripto{background:rgba(251,146,60,.12);color:#fb923c;border:1px solid rgba(251,146,60,.3)}position:absolute;inset:0;z-index:30;background:rgba(10,9,16,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;transition:opacity .5s}
+.ld-logo{font-size:22px;font-weight:800;color:var(--gold);letter-spacing:-1px}
+.ld-bar-w{width:150px;height:2px;background:#1a1828;border-radius:2px;overflow:hidden}
+.ld-bar{height:100%;background:linear-gradient(90deg,var(--gold),var(--gold2));border-radius:2px;animation:ldprog 3s ease forwards}
+@keyframes ldprog{from{width:0}to{width:100%}}
+.ld-txt{font-size:9px;color:#3a3858;letter-spacing:2px}
+</style>
+</head>
+<body>
+
+<div class="overlay" id="overlay" onclick="closeSidebar()"></div>
+
+<!-- SIDEBAR gerada pelo g20-sidebar.js -->
+<div id="g20-sidebar-container"></div>
+
+<!-- MAIN -->
+<div class="main">
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="btn-menu" onclick="toggleSidebar()">☰</button>
+      <span class="page-title">🌍 Atlas G20</span>
+    </div>
+    <div class="topbar-right">
+      <div class="portfolio-toggle">
+        <button class="pt-btn active" id="pt-cg20" onclick="switchPortfolio('cg20')">Carteira G20</button>
+        <button class="pt-btn" id="pt-minha" onclick="switchPortfolio('minha')">Minha Carteira</button>
+      </div>
+      <div class="live-badge"><div class="live-dot"></div> TEMPO REAL</div>
+    </div>
+  </header>
+
+  <!-- conteúdo do atlas abaixo da topbar -->
+  <div class="atlas-main">
+    <!-- GLOBO -->
+    <div id="gc">
+      <canvas id="three-canvas"></canvas>
+
+      <!-- Loading -->
+      <div id="globe-loading">
+        <div class="ld-logo">G20</div>
+        <div class="ld-bar-w"><div class="ld-bar"></div></div>
+        <div class="ld-txt">CARREGANDO ATLAS GLOBAL...</div>
+      </div>
+
+      <!-- Filtros -->
+      <div class="filters-bar">
+        <button class="filter-btn active" onclick="setFilter('all',this)">TODOS</button>
+        <button class="filter-btn" onclick="setFilter('acoes',this)">AÇÕES BR</button>
+        <button class="filter-btn" onclick="setFilter('stock',this)">STOCKS US</button>
+        <button class="filter-btn" onclick="setFilter('reit',this)">REITs</button>
+        <button class="filter-btn" onclick="setFilter('etf',this)">ETFs</button>
+        <button class="filter-btn" onclick="setFilter('fii',this)">FIIs</button>
+        <button class="filter-btn" onclick="setFilter('cripto',this)">CRIPTO</button>
+      </div>
+
+      <!-- Toggle noite/dia -->
+      <div class="mode-toggle" onclick="toggleDay()" id="modeBtn">🌙 NOTURNO</div>
+
+      <!-- Controles -->
+      <div class="controls-bar">
+        <button class="ctrl-btn" id="btn-arcos" onclick="toggleArcos()">⟡ ARCOS</button>
+        <div class="ctrl-sep"></div>
+        <button class="ctrl-btn" id="btn-auto" onclick="toggleAuto()">⟳ AUTO</button>
+        <div class="ctrl-sep"></div>
+        <button class="ctrl-btn on" id="btn-atm" onclick="toggleAtm()">◎ ATMOSFERA</button>
+        <div class="ctrl-sep"></div>
+        <button class="ctrl-btn" id="btn-timeline" onclick="toggleTimeline()">⏱ TIMELINE</button>
+        <div class="ctrl-sep"></div>
+        <button class="ctrl-btn" id="btn-cluster" onclick="toggleCluster()">◎ CLUSTERS</button>
+      </div>
+
+      <!-- Painel de classes -->
+      <div class="classes-panel">
+        <div class="cp-title">POR CLASSE</div>
+        <div class="cp-row"><div class="cp-dot" style="background:#4ade80"></div><span class="cp-lbl">AÇÕES BR</span><div class="cp-bar-w"><div class="cp-bar" id="cpb-acoes" style="background:#4ade80"></div></div><span class="cp-val" id="cp-acoes">--</span></div>
+        <div class="cp-row"><div class="cp-dot" style="background:#60a5fa"></div><span class="cp-lbl">STOCKS US</span><div class="cp-bar-w"><div class="cp-bar" id="cpb-stocks" style="background:#60a5fa"></div></div><span class="cp-val" id="cp-stocks">--</span></div>
+        <div class="cp-row"><div class="cp-dot" style="background:#4ade80"></div><span class="cp-lbl">REITs</span><div class="cp-bar-w"><div class="cp-bar" id="cpb-reits" style="background:#4ade80"></div></div><span class="cp-val" id="cp-reits">--</span></div>
+        <div class="cp-row"><div class="cp-dot" style="background:#c084fc"></div><span class="cp-lbl">ETFs</span><div class="cp-bar-w"><div class="cp-bar" id="cpb-etfs" style="background:#c084fc"></div></div><span class="cp-val" id="cp-etfs">--</span></div>
+        <div class="cp-row"><div class="cp-dot" style="background:#e8c766"></div><span class="cp-lbl">FIIs</span><div class="cp-bar-w"><div class="cp-bar" id="cpb-fiis" style="background:#e8c766"></div></div><span class="cp-val" id="cp-fiis">--</span></div>
+        <div class="cp-row"><div class="cp-dot" style="background:#fb923c"></div><span class="cp-lbl">CRIPTO</span><div class="cp-bar-w"><div class="cp-bar" id="cpb-cripto" style="background:#fb923c"></div></div><span class="cp-val" id="cp-cripto">--</span></div>
+      </div>
+
+      <!-- Regiões -->
+      <div class="region-tabs">
+        <div class="region-tab active" onclick="flyTo('eua',this)">
+          <div class="rt-lbl"><span class="rt-dot" style="background:var(--eua)"></span>EUA</div>
+          <div class="rt-pct" style="color:var(--eua)" id="rt-eua">60.2%</div>
+          <div class="rt-st" id="ms-eua">● --</div>
+        </div>
+        <div class="region-tab" onclick="flyTo('brasil',this)">
+          <div class="rt-lbl"><span class="rt-dot" style="background:var(--brasil)"></span>BRASIL</div>
+          <div class="rt-pct" style="color:var(--brasil)" id="rt-br">20.8%</div>
+          <div class="rt-st" id="ms-br">● --</div>
+        </div>
+        <div class="region-tab" onclick="flyTo('europa',this)">
+          <div class="rt-lbl"><span class="rt-dot" style="background:var(--europa)"></span>EUROPA</div>
+          <div class="rt-pct" style="color:var(--europa)" id="rt-eu">7.8%</div>
+          <div class="rt-st" id="ms-eu">● --</div>
+        </div>
+        <div class="region-tab" onclick="flyTo('asia',this)">
+          <div class="rt-lbl"><span class="rt-dot" style="background:var(--asia)"></span>ÁSIA</div>
+          <div class="rt-pct" style="color:var(--asia)" id="rt-as">11.2%</div>
+          <div class="rt-st" id="ms-as">● --</div>
+        </div>
+      </div>
+
+      <!-- Tooltip -->
+      <div id="tooltip">
+        <div class="tt-head">
+          <div class="tt-logo" id="tt-logo"></div>
+          <div>
+            <div class="tt-ticker" id="tt-ticker"></div>
+            <div class="tt-co" id="tt-co"></div>
+            <div class="tt-chg-big" id="tt-chg-big"></div>
+          </div>
+        </div>
+        <hr class="tt-div">
+        <div class="tt-grid">
+          <div><div class="tt-lbl">PREÇO</div><div class="tt-v" id="tt-price"></div></div>
+          <div><div class="tt-lbl">POSIÇÃO</div><div class="tt-v" id="tt-posv"></div></div>
+          <div><div class="tt-lbl">QUANTIDADE</div><div class="tt-v" id="tt-qty"></div></div>
+          <div><div class="tt-lbl">% CARTEIRA</div><div class="tt-pct" id="tt-pct"></div></div>
+        </div>
+        <div class="tt-spark">
+          <div class="tt-spark-lbl">DESEMPENHO 30 DIAS</div>
+          <canvas id="sparkline" width="326" height="48"></canvas>
+        </div>
+        <div class="tt-foot">
+          <span class="tt-badge" id="tt-badge"></span>
+          <div style="display:flex;align-items:center;gap:7px">
+            <img id="tt-flag" style="height:14px;border-radius:2px;display:none;box-shadow:0 1px 3px rgba(0,0,0,.4)">
+            <span class="tt-city" id="tt-city"></span>
+          </div>
+        </div>
+        <div class="tt-social" id="tt-social" style="display:none">
+          🎓 <span class="tt-social-count" id="tt-social-count">0</span>&nbsp;alunos G20 têm esse ativo
+        </div>
+      </div>
+
+      <!-- Timeline -->
+      <div class="timeline-bar" id="timelineBar">
+        <div class="tl-head">
+          <div class="tl-title">📅 LINHA DO TEMPO — CARTEIRA G20</div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="tl-date" id="tlDate">Hoje</div>
+            <span class="tl-close" onclick="toggleTimeline()">✕</span>
+          </div>
+        </div>
+        <input type="range" class="tl-slider" id="tlSlider" min="0" max="8" value="8" step="1" oninput="onTimelineChange(this.value)" style="--pct:100%">
+        <div class="tl-labels" id="tlLabels"></div>
+        <div class="tl-count" id="tlCount"></div>
+      </div>
+
+      <!-- Botões flutuantes -->
+      <button class="share-btn" onclick="openShare()">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        COMPARTILHAR
+      </button>
+      <button class="cinema-btn" onclick="toggleCinema()">🎬 CINEMA</button>
+      <div class="zoom-hint">scroll = zoom</div>
+    </div><!-- /#gc -->
+
+  <!-- PAINEL DIREITO — Posições da Carteira -->
+  <div class="right-panel">
+    <div class="rp-topbar">
+      <span>POSIÇÕES DA CARTEIRA</span>
+    </div>
+    <!-- Cards resumo -->
+    <div class="sum-grid">
+      <div class="sum-card">
+        <div class="sc-lbl">PATRIMÔNIO</div>
+        <div class="sc-v" id="rp-patrimonio">R$199k</div>
+        <div class="sc-sub">▲ +2.4% hoje</div>
+      </div>
+      <div class="sum-card">
+        <div class="sc-lbl">ATIVOS</div>
+        <div class="sc-v" id="rp-ativos">8</div>
+        <div class="sc-sub" id="rp-regioes">4 regiões</div>
+      </div>
+      <div class="sum-card">
+        <div class="sc-lbl">DIVIDENDOS/MÊS</div>
+        <div class="sc-v">R$1.2k</div>
+        <div class="sc-sub">yield 5.1%</div>
+      </div>
+      <div class="sum-card">
+        <div class="sc-lbl">CÂMBIO BRL/USD</div>
+        <div class="sc-v" id="rp-cambio">--</div>
+        <div class="sc-sub" id="rp-cambio-sub">carregando...</div>
+      </div>
+    </div>
+    <!-- Busca + Lista de ativos -->
+    <div class="asset-list" id="assetList">
+      <div class="rp-search">
+        <div class="rp-search-inner">
+          <span class="rp-search-icon">🔍</span>
+          <input class="rp-search-input" id="assetSearch" placeholder="Buscar ativo..." oninput="filterAssetList(this.value)">
+          <button class="rp-search-clear" id="assetSearchClear" onclick="clearAssetSearch()" title="Limpar">✕</button>
+        </div>
+      </div>
+      <div id="assetListBody"></div>
+    </div>
+  </div><!-- /.right-panel -->
+
+  </div><!-- /.atlas-main -->
+</div><!-- /.main -->
+
+<!-- Cinema exit -->
+<button class="cinema-exit" onclick="toggleCinema()">✕ SAIR DO CINEMA</button>
+
+<!-- Share overlay -->
+<div id="share-overlay">
+  <div class="share-card">
+    <div class="share-preview" id="share-preview"></div>
+    <div class="share-title">Carteira G20 Masterclass</div>
+    <div class="share-sub">#nãofoisorte — Compartilhe sua visão global</div>
+    <div class="share-actions">
+      <button class="share-dl" onclick="downloadShare()">⬇ Baixar imagem</button>
+      <button class="share-cancel" onclick="closeShare()">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<!-- Three.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- Sidebar G20 -->
+<script src="assets/g20-sidebar.js?v=11"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<!-- Mesmos logos que a Carteira G20 usa — slugs verificados para todos os tickers -->
+<script src="assets/tradingview-logos.js"></script>
+<script>
+/* ══ FIREBASE ══ */
+try{
+  var _cfg={apiKey:"AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",authDomain:"g20-masterclass.firebaseapp.com",projectId:"g20-masterclass",storageBucket:"g20-masterclass.firebasestorage.app",messagingSenderId:"1052719482127",appId:"1:1052719482127:web:537c1d67c96532be8a2a7a"};
+  if(!firebase.apps.length)firebase.initializeApp(_cfg);
+  var auth=firebase.auth(),db=firebase.firestore();
+  auth.onAuthStateChanged(function(user){
+    if(!user){
+      // Só redireciona no GitHub Pages — não localmente
+      if(location.hostname.includes('github.io'))location.href='login.html';
+      return;
+    }
+    db.collection('users').doc(user.uid).get().then(function(doc){
+      if(!doc.exists)return;
+      var d=doc.data();
+      if(d.aprovado===false&&location.hostname.includes('github.io')){location.href='aguardando.html';return;}
+      var name=(d.profile&&d.profile.name)||d.name||user.email;
+      var el=document.getElementById('sidebarName');
+      if(el){var nt=el.querySelector('.user-name-text');if(nt)nt.textContent=name;}
+      var ini=name.split(' ').map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
+      var eli=document.getElementById('sidebarInitials');if(eli)eli.textContent=ini;
+      try{localStorage.setItem('g20_user_profile',JSON.stringify({name,role:d.role||'',turma:d.turma||'',photo:'',infinite:d.infinite===true}));}catch(e){}
+      document.querySelectorAll('.sidebar-item').forEach(function(el){
+        if(el.getAttribute('href')==='atlas.html')el.classList.add('active');
+      });
+    });
+  });
+}catch(e){console.warn('Firebase indisponível (preview local):', e);}
+
+// Aqui virão os dados reais do Firestore g20_aportes
+// Por ora: dados estáticos da carteira G20 atual
+const ASSETS=[
+  {ticker:'AAPL',  name:'Apple',            region:'eua',   type:'stock',lat:37.3, lon:-122.0,price:'US$ 189',qty:'25 ações', pos:'R$ 23.800',pct:11.9,chg:'+1.23%',up:true, city:'Cupertino, EUA', color:'#60a5fa',logo:'apple',        flag:'🇺🇸',spark:[142,148,155,150,162,159,170,168,175,178,172,180,185,183,189]},
+  {ticker:'MSFT',  name:'Microsoft',         region:'eua',   type:'stock',lat:47.6, lon:-122.1,price:'US$ 415',qty:'12 ações', pos:'R$ 24.900',pct:12.5,chg:'+0.87%',up:true, city:'Redmond, EUA',   color:'#60a5fa',logo:'microsoft',    flag:'🇺🇸',spark:[310,318,325,320,335,332,340,345,352,358,348,360,370,368,415]},
+  {ticker:'O',     name:'Realty Income',      region:'eua',   type:'reit', lat:32.7, lon:-117.1,price:'US$ 58', qty:'40 cotas', pos:'R$ 11.600',pct:5.8, chg:'-0.31%',up:false,city:'San Diego, EUA', color:'#4ade80',logo:'realty-income',flag:'🇺🇸',spark:[60,59,61,60,58,57,59,58,60,59,57,58,59,58,58]},
+  {ticker:'VNQ',   name:'Vanguard REIT ETF',  region:'eua',   type:'etf',  lat:40.7, lon:-74.0, price:'US$ 82', qty:'30 cotas', pos:'R$ 12.300',pct:6.2, chg:'+0.44%',up:true, city:'Nova York, EUA', color:'#c084fc',logo:'vanguard',    flag:'🇺🇸',spark:[78,79,80,79,81,80,82,81,83,82,80,81,82,81,82]},
+  {ticker:'KNRI11',name:'Kinea Renda Imob.',  region:'brasil',type:'fii',  lat:-22.9,lon:-43.2, price:'R$ 148', qty:'60 cotas', pos:'R$ 8.880', pct:4.5, chg:'+0.12%',up:true, city:'Rio de Janeiro', color:'#e8c766',logo:'',       flag:'🇧🇷',spark:[140,141,143,142,145,144,146,145,147,146,145,147,148,147,148]},
+  {ticker:'ITUB4', name:'Itaú Unibanco',      region:'brasil',type:'stock',lat:-23.5,lon:-46.6, price:'R$ 38',  qty:'200 ações',pos:'R$ 7.600', pct:3.8, chg:'-0.55%',up:false,city:'São Paulo, BR',  color:'#4ade80',logo:'itau-unibanco',flag:'🇧🇷',spark:[42,41,40,39,38,39,40,38,37,38,39,37,38,37,38]},
+  {ticker:'BABA',  name:'Alibaba',            region:'asia',  type:'stock',lat:30.2, lon:120.1, price:'US$ 650',qty:'8 ações',  pos:'R$ 5.200', pct:2.6, chg:'+2.15%',up:true, city:'Hangzhou, CN',  color:'#fb923c',logo:'alibaba',     flag:'🇨🇳',spark:[580,590,610,600,620,615,625,630,640,638,645,648,650,649,650]},
+  {ticker:'VGK',   name:'Vanguard Europe ETF',region:'europa',type:'etf',  lat:51.51,lon:-0.13, price:'US$ 72', qty:'25 cotas', pos:'R$ 9.000', pct:4.5, chg:'+0.22%',up:true, city:'Londres, UK',   color:'#c084fc',logo:'vanguard',    flag:'🇬🇧',spark:[68,69,70,69,71,70,72,71,73,72,70,71,72,71,72]},
+];
+
+// ── TABELA COMPLETA — todos os 113 tickers da CG20
+// Nomes completos das empresas — usado no tooltip quando o aporte não traz nome
+const COMPANY_NAMES={
+  // EUA Stocks
+  'AAPL':'Apple Inc.','ACN':'Accenture plc','ADBE':'Adobe Inc.','AMZN':'Amazon.com, Inc.',
+  'ANF':'Abercrombie & Fitch Co.','BLK':'BlackRock, Inc.','BRK.B':'Berkshire Hathaway Inc.',
+  'CEG':'Constellation Energy Corp.','COIN':'Coinbase Global, Inc.','CROX':'Crocs, Inc.',
+  'DELL':'Dell Technologies Inc.','DIS':'The Walt Disney Company','DPZ':'Domino\'s Pizza, Inc.',
+  'DUOL':'Duolingo, Inc.','ENPH':'Enphase Energy, Inc.','FTNT':'Fortinet, Inc.',
+  'GOOG':'Alphabet Inc.','IIPR':'Innovative Industrial Properties','INTR':'Inter & Co, Inc.',
+  'JNJ':'Johnson & Johnson','LULU':'lululemon athletica inc.','MELI':'MercadoLibre, Inc.',
+  'META':'Meta Platforms, Inc.','MNST':'Monster Beverage Corp.','MSFT':'Microsoft Corporation',
+  'NFLX':'Netflix, Inc.','NKE':'Nike, Inc.','NU':'Nu Holdings Ltd.',
+  'NVDA':'NVIDIA Corporation','O':'Realty Income Corporation','PLD':'Prologis, Inc.',
+  'PYPL':'PayPal Holdings, Inc.','QBTS':'D-Wave Quantum Inc.','RGTI':'Rigetti Computing, Inc.',
+  'ROL':'Rollins, Inc.','SKT':'Tanger Factory Outlet Centers','SKX':'Skechers USA, Inc.',
+  'SLG':'SL Green Realty Corp.','STOR':'STORE Capital Corporation','TSLA':'Tesla, Inc.',
+  'UNH':'UnitedHealth Group Inc.','VST':'Vistra Corp.','WFC':'Wells Fargo & Company',
+  'XP':'XP Inc.','DOC':'Healthpeak Properties, Inc.','ESS':'Essex Property Trust, Inc.',
+  'EQIX':'Equinix, Inc.','NNN':'NNN REIT, Inc.',
+  // EUA ETFs
+  'VNQ':'Vanguard Real Estate ETF','VNQI':'Vanguard Intl Real Estate ETF',
+  'QQQ':'Invesco QQQ Trust','QYLD':'Global X NASDAQ 100 Covered Call ETF',
+  'XYLD':'Global X S&P 500 Covered Call ETF','SCHA':'Schwab U.S. Small-Cap ETF',
+  'XBI':'SPDR S&P Biotech ETF','XLU':'SPDR Utilities Select Sector ETF',
+  'URA':'Global X Uranium ETF','NOBL':'ProShares S&P 500 Dividend Aristocrats ETF',
+  'MCHI':'iShares MSCI China ETF','IEUR':'iShares Core MSCI Europe ETF',
+  'CIBR':'First Trust NASDAQ Cybersecurity ETF','ARGT':'Global X MSCI Argentina ETF',
+  'HERO':'Global X Video Games & Esports ETF',
+  // Cripto
+  'BTC':'Bitcoin','BTC-USD':'Bitcoin USD','ETH':'Ethereum','BNB':'Binance Coin',
+  'SOL':'Solana','DOT':'Polkadot','LINK':'Chainlink','MANA':'Decentraland',
+  'SAND':'The Sandbox','HNT':'Helium',
+  // Europa / Ásia
+  'NVO':'Novo Nordisk A/S','ASML':'ASML Holding N.V.',
+  'BABA':'Alibaba Group Holding','TSM':'Taiwan Semiconductor Mfg.',
+  // Brasil Ações
+  'AUAU3':'Ouro Fino Saúde Animal','AZZA3':'Azzas 2154 S.A.',
+  'B3SA3':'B3 S.A. – Brasil Bolsa Balcão','BMOB3':'Bemobi Mobile Tech S.A.',
+  'BPAC11':'BTG Pactual Participations','BRAV3':'Brava Energia S.A.',
+  'BRKM5':'Braskem S.A.','CMIG4':'CEMIG – Cia Energética de MG',
+  'CVCB3':'CVC Brasil Operadora e Agência','EGIE3':'Engie Brasil Energia S.A.',
+  'EMBJ3':'Embraer S.A.','ENEV3':'Eneva S.A.',
+  'GMAT3':'Grupo Mateus S.A.','INTB3':'Intelbras S.A.',
+  'ITSA4':'Itaúsa S.A.','ITUB4':'Itaú Unibanco Holding S.A.',
+  'LOGG3':'Log Commercial Properties','LREN3':'Lojas Renner S.A.',
+  'MGLU3':'Magazine Luiza S.A.','MOVI3':'Movida Participações S.A.',
+  'NATU3':'Natura & Co Holding S.A.','PETR4':'Petróleo Brasileiro S.A. – Petrobras',
+  'PRIO3':'PRIO S.A.','QUAL3':'Qualicorp Consultoria e Corretora',
+  'RADL3':'Raia Drogasil S.A.','RENT3':'Localiza Rent a Car S.A.',
+  'SAPR11':'Sanepar – Cia de Saneamento do Paraná','SBFG3':'SBF Grupo S.A. (Centauro)',
+  'SQIA3':'TOTVS S.A.','STBP3':'Santos Brasil Participações S.A.',
+  'SUZB3':'Suzano S.A.','SYNE3':'Sinergia Energia S.A.',
+  'TRIS3':'Trisul S.A.','VALE3':'Vale S.A.',
+  'VIVA3':'Vivara Participações S.A.','VIVT3':'Telefônica Brasil S.A. (Vivo)',
+  'VULC3':'Vulcabras Azaleia S.A.','WEGE3':'WEG S.A.',
+  'WIZC3':'Wiz Soluções e Corretagem de Seguros',
+  // Brasil FIIs
+  'BCRI11':'Banestes Recebíveis Imobiliários FII','BTHF11':'BTG Pactual Logística FII',
+  'BTRA11':'BTG Pactual Renda Corporativa FII','CPTR11':'Capitania Securities II FII',
+  'HCTR11':'Hectare CE FII','HGLG11':'CSHG Logística FII',
+  'IRDM11':'Iridium Recebíveis Imobiliários FII','KNCA11':'Kinea CRI Imobiliário FII',
+  'KNRI11':'Kinea Renda Imobiliária FII','RBRR11':'RBR Rendimento High Grade FII',
+  'SNAG11':'Suno Agências FII','TVRI11':'TG Ativo Real FII',
+  'VISC11':'Vinci Shopping Centers FII','VRTA11':'Fator Veritá FII',
+  'XPCA11':'XP Crédito Imobiliário FII','XPLG11':'XP Log FII',
+};
+
+const COORDS_TABLE={
+  // ── EUA — Stocks (espalhados pelo país inteiro)
+  'AAPL':{lat:37.33,lon:-122.03,region:'eua',type:'stock',color:'#60a5fa',logo:'apple',flag:'🇺🇸',city:'Cupertino, EUA'},
+  'ACN': {lat:41.88,lon:-87.63, region:'eua',type:'stock',color:'#60a5fa',logo:'accenture',flag:'🇺🇸',city:'Chicago, EUA'},
+  'ADBE':{lat:32.72,lon:-117.15,region:'eua',type:'stock',color:'#60a5fa',logo:'adobe',flag:'🇺🇸',city:'Sacramento, EUA'},
+  'AMZN':{lat:47.61,lon:-122.33,region:'eua',type:'stock',color:'#60a5fa',logo:'amazon',flag:'🇺🇸',city:'Seattle, EUA'},
+  'ANF': {lat:40.09,lon:-82.76, region:'eua',type:'stock',color:'#60a5fa',logo:'abercrombie-and-fitch',flag:'🇺🇸',city:'Columbus, EUA'},
+  'BLK': {lat:40.71,lon:-74.01, region:'eua',type:'stock',color:'#60a5fa',logo:'blackrock',flag:'🇺🇸',city:'Nova York, EUA'},
+  'BRK.B':{lat:41.26,lon:-95.94,region:'eua',type:'stock',color:'#60a5fa',logo:'berkshire-hathaway',flag:'🇺🇸',city:'Omaha, EUA'},
+  'CEG': {lat:41.52,lon:-81.68, region:'eua',type:'stock',color:'#60a5fa',logo:'constellation-energy',flag:'🇺🇸',city:'Cleveland, EUA'},
+  'COIN':{lat:39.52,lon:-119.81,region:'eua',type:'stock',color:'#60a5fa',logo:'coinbase',flag:'🇺🇸',city:'San Francisco, EUA'},
+  'CROX':{lat:40.0,lon:-105.27,region:'eua',type:'stock',color:'#60a5fa',logo:'crocs',flag:'🇺🇸',city:'Broomfield, EUA'},
+  'DELL':{lat:32.41,lon:-99.73, region:'eua',type:'stock',color:'#60a5fa',logo:'dell',flag:'🇺🇸',city:'Round Rock, EUA'},
+  'DIS': {lat:28.38,lon:-81.57,region:'eua',type:'stock',color:'#60a5fa',logo:'walt-disney',flag:'🇺🇸',city:'Burbank, EUA'},
+  'DOC': {lat:36.17,lon:-115.14,region:'eua',type:'reit',color:'#4ade80',logo:'healthpeak-properties',flag:'🇺🇸',city:'Las Vegas, EUA'},
+  'DPZ': {lat:42.24,lon:-83.35, region:'eua',type:'stock',color:'#60a5fa',logo:'dominos-pizza',flag:'🇺🇸',city:'Ann Arbor, EUA'},
+  'DUOL':{lat:40.44,lon:-79.99, region:'eua',type:'stock',color:'#60a5fa',logo:'duolingo',flag:'🇺🇸',city:'Pittsburgh, EUA'},
+  'ENPH':{lat:35.69,lon:-105.94,region:'eua',type:'stock',color:'#60a5fa',logo:'enphase-energy',flag:'🇺🇸',city:'Santa Fe, EUA'},
+  'EQIX':{lat:44.05,lon:-121.31,region:'eua',type:'reit',color:'#4ade80',logo:'equinix',flag:'🇺🇸',city:'Redwood City, EUA'},
+  'ESS': {lat:37.78,lon:-119.58,region:'eua',type:'reit',color:'#4ade80',logo:'essex-property-trust',flag:'🇺🇸',city:'Los Angeles, EUA'},
+  'FTNT':{lat:35.22,lon:-80.84, region:'eua',type:'stock',color:'#60a5fa',logo:'fortinet',flag:'🇺🇸',city:'Charlotte, EUA'},
+  'GOOG':{lat:38.58,lon:-121.49,region:'eua',type:'stock',color:'#60a5fa',logo:'alphabet',flag:'🇺🇸',city:'Mountain View, EUA'},
+  'HERO':{lat:44.06,lon:-103.23, region:'eua',type:'etf', color:'#c084fc',logo:'global-x',flag:'🇺🇸',city:'Syracuse, EUA'},
+  'IIPR':{lat:34.42,lon:-119.7,region:'eua',type:'reit',color:'#4ade80',logo:'innovative-industrial-properties',flag:'🇺🇸',city:'San Diego, EUA'},
+  'INTR':{lat:-19.92,lon:-43.94,region:'eua',type:'stock',color:'#60a5fa',logo:'inter',flag:'🇧🇷',city:'Belo Horizonte, BR'},
+  'JNJ': {lat:40.69,lon:-74.54, region:'eua',type:'stock',color:'#60a5fa',logo:'johnson-and-johnson',flag:'🇺🇸',city:'New Brunswick, EUA'},
+  'LULU':{lat:50.85,lon:-126.96,region:'eua',type:'stock',color:'#60a5fa',logo:'lululemon-athletica',flag:'🇨🇦',city:'Vancouver, CA'},
+  'MELI':{lat:-34.90,lon:-56.19,region:'eua',type:'stock',color:'#60a5fa',logo:'mercadolibre',flag:'🇺🇾',city:'Montevidéu, UY'},
+  'META':{lat:36.6,lon:-121.9,region:'eua',type:'stock',color:'#60a5fa',logo:'meta',flag:'🇺🇸',city:'Menlo Park, EUA'},
+  'MNST':{lat:33.45,lon:-112.07,region:'eua',type:'stock',color:'#60a5fa',logo:'monster-beverage',flag:'🇺🇸',city:'Phoenix, EUA'},
+  'MSFT':{lat:47.64,lon:-122.13,region:'eua',type:'stock',color:'#60a5fa',logo:'microsoft',flag:'🇺🇸',city:'Redmond, EUA'},
+  'NFLX':{lat:36.33,lon:-119.3,region:'eua',type:'stock',color:'#60a5fa',logo:'netflix',flag:'🇺🇸',city:'Los Angeles, EUA'},
+  'NKE': {lat:45.51,lon:-122.85,region:'eua',type:'stock',color:'#60a5fa',logo:'nike',flag:'🇺🇸',city:'Beaverton, EUA'},
+  'NNN': {lat:26.12,lon:-80.14, region:'eua',type:'reit',color:'#4ade80',logo:'national-retail-properties',flag:'🇺🇸',city:'Orlando, EUA'},
+  'NU':  {lat:-23.55,lon:-46.63,region:'eua',type:'stock',color:'#60a5fa',logo:'nu-holdings',flag:'🇧🇷',city:'São Paulo, BR'},
+  'NVDA':{lat:40.44,lon:-122.29,region:'eua',type:'stock',color:'#60a5fa',logo:'nvidia',flag:'🇺🇸',city:'Santa Clara, EUA'},
+  'NVO': {lat:55.75,lon:12.39,  region:'europa',type:'stock',color:'#c084fc',logo:'novo-nordisk',flag:'🇩🇰',city:'Bagsværd, DK'},
+  'O':   {lat:31.55,lon:-110.3,region:'eua',type:'reit',color:'#4ade80',logo:'realty-income',flag:'🇺🇸',city:'San Diego, EUA'},
+  'PLD': {lat:39.95,lon:-75.17, region:'eua',type:'reit',color:'#4ade80',logo:'prologis',flag:'🇺🇸',city:'Philadelphia, EUA'},
+  'PYPL':{lat:29.76,lon:-95.37, region:'eua',type:'stock',color:'#60a5fa',logo:'paypal',flag:'🇺🇸',city:'Austin, EUA'},
+  'QBTS':{lat:46.6,lon:-112.03,region:'eua',type:'stock',color:'#60a5fa',logo:'d-wave-quantum',flag:'🇨🇦',city:'Victoria, CA'},
+  'RGTI':{lat:46.87,lon:-96.78, region:'eua',type:'stock',color:'#60a5fa',logo:'rigetti-computing',flag:'🇺🇸',city:'Fargo, EUA'},
+  'ROL': {lat:33.75,lon:-84.39, region:'eua',type:'stock',color:'#60a5fa',logo:'rollins',flag:'🇺🇸',city:'Atlanta, EUA'},
+  'SKT': {lat:34.85,lon:-77.01, region:'eua',type:'reit',color:'#4ade80',logo:'tanger',flag:'🇺🇸',city:'Greensboro, EUA'},
+  'SKX': {lat:33.82,lon:-118.27,region:'eua',type:'stock',color:'#60a5fa',logo:'skechers-usa',flag:'🇺🇸',city:'Manhattan Beach, EUA'},
+  'SLG': {lat:41.76,lon:-72.69, region:'eua',type:'reit',color:'#4ade80',logo:'sl-green-realty',flag:'🇺🇸',city:'Nova York, EUA'},
+  'STOR':{lat:34.97,lon:-101.92,region:'eua',type:'reit',color:'#4ade80',logo:'store-capital',flag:'🇺🇸',city:'Scottsdale, EUA'},
+  'TSLA':{lat:30.22,lon:-97.62, region:'eua',type:'stock',color:'#60a5fa',logo:'tesla',flag:'🇺🇸',city:'Austin, EUA'},
+  'UNH': {lat:44.77,lon:-93.43, region:'eua',type:'stock',color:'#60a5fa',logo:'unitedhealth',flag:'🇺🇸',city:'Minnetonka, EUA'},
+  'VST': {lat:32.8,lon:-96.8, region:'eua',type:'stock',color:'#60a5fa',logo:'vistra-energy',flag:'🇺🇸',city:'Irving, EUA'},
+  'VNQ': {lat:36.17,lon:-86.78, region:'eua',type:'etf', color:'#c084fc',logo:'vanguard',flag:'🇺🇸',city:'Nashville, EUA'},
+  'VNQI':{lat:43.05,lon:-76.14, region:'eua',type:'etf', color:'#c084fc',logo:'vanguard',flag:'🇺🇸',city:'Cincinnati, EUA'},
+  'WFC': {lat:47.25,lon:-122.44,region:'eua',type:'stock',color:'#60a5fa',logo:'wells-fargo',flag:'🇺🇸',city:'Portland, EUA'},
+  'XP':  {lat:-22.91,lon:-43.20,region:'eua',type:'stock',color:'#60a5fa',logo:'xp-inc',flag:'🇧🇷',city:'Rio de Janeiro, BR'},
+  // ── EUA — ETFs — espalhados por regiões diferentes
+  'ARGT':{lat:35.47,lon:-97.52, region:'eua',type:'etf', color:'#c084fc',logo:'global-x',flag:'🇺🇸',city:'Oklahoma City, EUA'},
+  'CIBR':{lat:38.89,lon:-77.04, region:'eua',type:'etf', color:'#c084fc',logo:'first-trust',flag:'🇺🇸',city:'Washington DC, EUA'},
+  'IEUR':{lat:46.88,lon:-96.79, region:'eua',type:'etf', color:'#c084fc',logo:'ishares',flag:'🇺🇸',city:'Minneapolis, EUA'},
+  'MCHI':{lat:43.55,lon:-116.25, region:'eua',type:'etf', color:'#c084fc',logo:'ishares',flag:'🇺🇸',city:'Omaha, EUA'},
+  'NOBL':{lat:38.83,lon:-104.82,region:'eua',type:'etf', color:'#c084fc',logo:'proshares',flag:'🇺🇸',city:'Denver, EUA'},
+  'QQQ': {lat:42.36,lon:-71.06, region:'eua',type:'etf', color:'#c084fc',logo:'invesco',flag:'🇺🇸',city:'Nova York, EUA'},
+  'QYLD':{lat:29.76,lon:-95.37, region:'eua',type:'etf', color:'#c084fc',logo:'global-x',flag:'🇺🇸',city:'Houston, EUA'},
+  'SCHA':{lat:35.47,lon:-97.52, region:'eua',type:'etf', color:'#c084fc',logo:'schwab',flag:'🇺🇸',city:'Dallas, EUA'},
+  'URA': {lat:42.87,lon:-106.31,region:'eua',type:'etf', color:'#c084fc',logo:'global-x',flag:'🇺🇸',city:'Boise, EUA'},
+  'XBI': {lat:37.54,lon:-77.44, region:'eua',type:'etf', color:'#c084fc',logo:'spdr',flag:'🇺🇸',city:'Boston, EUA'},
+  'XLU': {lat:38.25,lon:-85.76, region:'eua',type:'etf', color:'#c084fc',logo:'spdr',flag:'🇺🇸',city:'Louisville, EUA'},
+  'XYLD':{lat:48.76,lon:-117.52,region:'eua',type:'etf', color:'#c084fc',logo:'global-x',flag:'🇺🇸',city:'Spokane, EUA'},
+  // ── EUROPA
+  'ASML':{lat:51.42,lon:5.46,   region:'europa',type:'stock',color:'#c084fc',logo:'asml',flag:'🇳🇱',city:'Veldhoven, NL'},
+  // ── ÁSIA
+  'BABA':{lat:30.27,lon:120.15, region:'asia',type:'stock',color:'#fb923c',logo:'alibaba',flag:'🇨🇳',city:'Hangzhou, CN'},
+  'TSM': {lat:24.78,lon:120.97, region:'asia',type:'stock',color:'#fb923c',logo:'taiwan-semiconductor',flag:'🇹🇼',city:'Hsinchu, TW'},
+  // ── CRIPTO — espalhadas para não sobrepor
+  'BTC':    {lat:25.77,lon:-80.19,region:'eua',type:'stock',color:'#f59e0b',logo:'bitcoin',flag:'🇺🇸',city:'Miami, EUA'},
+  'BTC-USD':{lat:26.9,lon:-80.1,region:'eua',type:'stock',color:'#f59e0b',logo:'',flag:'🇺🇸',city:'Miami, EUA'},
+  'ETH':    {lat:43.15,lon:-77.62,region:'eua',type:'stock',color:'#6366f1',logo:'ethereum',flag:'🇺🇸',city:'Boston, EUA'},
+  'BNB':    {lat:1.35,lon:103.82, region:'asia',type:'stock',color:'#f59e0b',logo:'binance-coin',flag:'🇸🇬',city:'Singapura'},
+  'SOL':    {lat:28.02,lon:-97.03,region:'eua',type:'stock',color:'#9945ff',logo:'solana',flag:'🇺🇸',city:'Austin, EUA'},
+  'DOT':    {lat:47.17,lon:8.52,   region:'europa',type:'stock',color:'#e6007a',logo:'polkadot',flag:'🇨🇭',city:'Zug, CH'},
+  'LINK':   {lat:36.15,lon:-95.99,region:'eua',type:'stock',color:'#2a5ada',logo:'chainlink',flag:'🇺🇸',city:'Global'},
+  'MANA':   {lat:35.96,lon:-83.92,region:'eua',type:'stock',color:'#ff2d55',logo:'decentraland',flag:'🇺🇸',city:'Global'},
+  'SAND':   {lat:36.85,lon:-76.29,region:'eua',type:'stock',color:'#04adef',logo:'the-sandbox',flag:'🇺🇸',city:'Global'},
+  'HNT':    {lat:32.72,lon:-114.62,region:'eua',type:'stock',color:'#474dff',logo:'helium',flag:'🇺🇸',city:'Global'},
+  // ── BRASIL EXTRA — tickers comuns não mapeados anteriormente
+  // ── FIIs EXTRAS
+  // SP/RJ/MG = sedes confirmadas
+  // Nordeste = plantas industriais, operações regionais
+  // Norte = Zona Franca de Manaus, operações extrativistas
+  // Centro-Oeste = agro, logística, Brasília
+  // Sul = plantas manufatura, energia
+  'AUAU3':{lat:-16.68,lon:-49.25,region:'brasil',type:'stock',color:'#4ade80',logo:'ouro-fino',flag:'🇧🇷',city:'Goiânia, GO'},         // sede Goiânia
+  'AZZA3':{lat:-12.25,lon:-45.0,region:'brasil',type:'stock',color:'#4ade80',logo:'azzas-2154',flag:'🇧🇷',city:'São Paulo, SP'},
+  'B3SA3':{lat:-14.3,lon:-49.3,region:'brasil',type:'stock',color:'#4ade80',logo:'b3',flag:'🇧🇷',city:'São Paulo, SP'},
+  'BMOB3':{lat:-3.1, lon:-60.02,region:'brasil',type:'stock',color:'#4ade80',logo:'bemobi',flag:'🇧🇷',city:'Manaus, AM'},              // operações mobile Zona Franca
+  'BPAC11':{lat:-20.31,lon:-40.34,region:'brasil',type:'stock',color:'#4ade80',logo:'btg-pactual',flag:'🇧🇷',city:'São Paulo, SP'},
+  'BRAV3':{lat:-8.05,lon:-42.81,region:'brasil',type:'stock',color:'#4ade80',logo:'3r-petroleum',flag:'🇧🇷',city:'Rio de Janeiro, RJ'}, // sede RJ
+  'BRKM5':{lat:-12.7,lon:-38.35,region:'brasil',type:'stock',color:'#4ade80',logo:'braskem',flag:'🇧🇷',city:'Camaçari, BA'},            // polo petroquímico Camaçari
+  'CMIG4':{lat:-20.45, lon:-44.15,region:'brasil',type:'stock',color:'#4ade80',logo:'cemig',flag:'🇧🇷',city:'Belo Horizonte, MG'},
+  'CVCB3':{lat:-9.97,lon:-67.81,region:'brasil',type:'stock',color:'#4ade80',logo:'cvc',flag:'🇧🇷',city:'Santo André, SP'},            // sede Grande SP
+  'EGIE3':{lat:-28.26,lon:-52.41,region:'brasil',type:'stock',color:'#4ade80',logo:'engie',flag:'🇧🇷',city:'Florianópolis, SC'},        // usinas hidrelétricas SC
+  'EMBJ3':{lat:-15.78,lon:-47.93,region:'brasil',type:'stock',color:'#4ade80',logo:'embraer',flag:'🇧🇷',city:'São José dos Campos, SP'}, // fábrica SJC
+  'ENEV3':{lat:-2.54, lon:-44.3,region:'brasil',type:'stock',color:'#4ade80',logo:'eneva',flag:'🇧🇷',city:'São Luís, MA'},             // usinas termelétricas MA
+  'GMAT3':{lat:-4.05, lon:-43.35,region:'brasil',type:'stock',color:'#4ade80',logo:'grupo-mateus',flag:'🇧🇷',city:'São Luís, MA'},       // sede São Luís, MA
+  'INTB3':{lat:-27.63,lon:-48.68,region:'brasil',type:'stock',color:'#4ade80',logo:'intelbras',flag:'🇧🇷',city:'São José, SC'},
+  'ITSA4':{lat:-24.95,lon:-53.46,region:'brasil',type:'stock',color:'#4ade80',logo:'itausa',flag:'🇧🇷',city:'São Paulo, SP'},
+  'ITUB4':{lat:-23.55,lon:-46.63,region:'brasil',type:'stock',color:'#4ade80',logo:'itau-unibanco',flag:'🇧🇷',city:'São Paulo, SP'},
+  'LOGG3':{lat:-12.64,lon:-55.67,region:'brasil',type:'stock',color:'#4ade80',logo:'log-commercial-properties',flag:'🇧🇷',city:'Brasília, DF'}, // galpões logísticos DF
+  'LREN3':{lat:-30.03,lon:-51.23,region:'brasil',type:'stock',color:'#4ade80',logo:'lojas-renner',flag:'🇧🇷',city:'Porto Alegre, RS'},
+  'MGLU3':{lat:-21.16,lon:-47.81,region:'brasil',type:'stock',color:'#4ade80',logo:'magazine-luiza',flag:'🇧🇷',city:'Franca, SP'},       // sede histórica Franca SP
+  'MOVI3':{lat:-15.6,lon:-56.1,region:'brasil',type:'stock',color:'#4ade80',logo:'movida',flag:'🇧🇷',city:'Brasília, DF'},             // operações aeroporto BSB
+  'NATU3':{lat:-1.8,lon:-63.03,region:'brasil',type:'stock',color:'#4ade80',logo:'natura',flag:'🇧🇷',city:'São Paulo, SP'},
+  'PETR4':{lat:-22.91,lon:-43.17,region:'brasil',type:'stock',color:'#4ade80',logo:'petrobras',flag:'🇧🇷',city:'Rio de Janeiro, RJ'},
+  'PRIO3':{lat:-17.86,lon:-39.3,region:'brasil',type:'stock',color:'#4ade80',logo:'prio',flag:'🇧🇷',city:'Rio de Janeiro, RJ'},
+  'QUAL3':{lat:-2.44, lon:-54.7,region:'brasil',type:'stock',color:'#4ade80',logo:'qualicorp',flag:'🇧🇷',city:'Manaus, AM'},            // operações Norte
+  'RADL3':{lat:-18.92,lon:-48.28,region:'brasil',type:'stock',color:'#4ade80',logo:'raia-drogasil',flag:'🇧🇷',city:'São Paulo, SP'},
+  'RENT3':{lat:-17.86,lon:-44.61,region:'brasil',type:'stock',color:'#4ade80',logo:'localiza',flag:'🇧🇷',city:'Belo Horizonte, MG'},
+  'SAPR11':{lat:-25.45,lon:-49.27,region:'brasil',type:'stock',color:'#4ade80',logo:'sanepar',flag:'🇧🇷',city:'Curitiba, PR'},
+  'SBFG3':{lat:-10.9, lon:-37.05,region:'brasil',type:'stock',color:'#4ade80',logo:'sbf',flag:'🇧🇷',city:'Recife, PE'},                // hub Nordeste esportivo
+  'SQIA3':{lat:-10.93,lon:-57.02,region:'brasil',type:'stock',color:'#4ade80',logo:'totvs',flag:'🇧🇷',city:'São Paulo, SP'},
+  'STBP3':{lat:-2.52,lon:-44.3,region:'brasil',type:'stock',color:'#4ade80',logo:'santos-brasil',flag:'🇧🇷',city:'Santos, SP'},       // porto de Santos
+  'SUZB3':{lat:-11.4,lon:-41.7,region:'brasil',type:'stock',color:'#4ade80',logo:'suzano',flag:'🇧🇷',city:'Barreiras, BA'},           // celulose cerrado baiano
+  'SYNE3':{lat:-9.97, lon:-67.81,region:'brasil',type:'stock',color:'#4ade80',logo:'sinergia-energia',flag:'🇧🇷',city:'Rio Branco, AC'}, // energia Acre
+  'TRIS3':{lat:-24.07,lon:-52.37,region:'brasil',type:'stock',color:'#4ade80',logo:'trisul',flag:'🇧🇷',city:'Jaraguá do Sul, SC'},      // construtora SC
+  'VALE3':{lat:-6.08, lon:-50.01,region:'brasil',type:'stock',color:'#4ade80',logo:'vale',flag:'🇧🇷',city:'Parauapebas, PA'},          // mina Carajás PA
+  'VIVA3':{lat:-9.4,lon:-40.5,region:'brasil',type:'stock',color:'#4ade80',logo:'vivara',flag:'🇧🇷',city:'São Paulo, SP'},
+  'VIVT3':{lat:-7.23,lon:-36.0,region:'brasil',type:'stock',color:'#4ade80',logo:'telefonica-brasil',flag:'🇧🇷',city:'São Paulo, SP'},
+  'VULC3':{lat:-7.23, lon:-39.32,region:'brasil',type:'stock',color:'#4ade80',logo:'vulcabras',flag:'🇧🇷',city:'Juazeiro do Norte, CE'}, // fábrica calçados CE
+  'WEGE3':{lat:-26.9,lon:-49.07,region:'brasil',type:'stock',color:'#4ade80',logo:'weg',flag:'🇧🇷',city:'Jaraguá do Sul, SC'},
+  'WIZC3':{lat:-20.45,lon:-54.62,region:'brasil',type:'stock',color:'#4ade80',logo:'wiz',flag:'🇧🇷',city:'Brasília, DF'},              // fintech seguros BSB
+  // ── BRASIL — FIIs (imóveis/propriedades por região)
+  // Critério: localização dos imóveis do portfólio, não sede do gestor
+  'BCRI11':{lat:-22.71,lon:-47.65,region:'brasil',type:'fii',color:'#e8c766',logo:'btg-pactual',flag:'🇧🇷',city:'São Paulo, SP'},       // CRI — crédito imob SP
+  'BTHF11':{lat:-5.79,lon:-35.21,region:'brasil',type:'fii',color:'#e8c766',logo:'btg-pactual',flag:'🇧🇷',city:'Rio de Janeiro, RJ'},  // hotéis RJ
+  'BTRA11':{lat:-10.0,lon:-37.5,region:'brasil',type:'fii',color:'#e8c766',logo:'btg-pactual',flag:'🇧🇷',city:'Brasília, DF'},        // torres corporativas BSB
+  'CPTR11':{lat:-3.72,lon:-38.5,region:'brasil',type:'fii',color:'#e8c766',logo:'capitania',flag:'🇧🇷',city:'Belo Horizonte, MG'},    // CRI diversificado MG
+  'HCTR11':{lat:-31.33,lon:-54.11,region:'brasil',type:'fii',color:'#e8c766',logo:'hectare-capital',flag:'🇧🇷',city:'Porto Alegre, RS'}, // imóveis Sul
+  'HGLG11':{lat:-19.73,lon:-47.93,region:'brasil',type:'fii',color:'#e8c766',logo:'cshg',flag:'🇧🇷',city:'Cajamar, SP'},              // galpões logísticos Cajamar
+  'IRDM11':{lat:-21.76,lon:-43.35,region:'brasil',type:'fii',color:'#e8c766',logo:'iridium',flag:'🇧🇷',city:'Rio de Janeiro, RJ'},      // CRI imóveis RJ
+  'KNCA11':{lat:-9.75, lon:-36.65,region:'brasil',type:'fii',color:'#e8c766',logo:'kinea',flag:'🇧🇷',city:'Recife, PE'},               // shoppings Nordeste
+  'KNRI11':{lat:-3.1, lon:-60.02,region:'brasil',type:'fii',color:'#e8c766',logo:'kinea',flag:'🇧🇷',city:'Manaus, AM'},               // galpões industriais AM
+  'RBRR11':{lat:-13.75,lon:-41.33,region:'brasil',type:'fii',color:'#e8c766',logo:'rb-capital',flag:'🇧🇷',city:'Curitiba, PR'},        // CRI Sul
+  'SNAG11':{lat:-14.86,lon:-40.85,region:'brasil',type:'fii',color:'#e8c766',logo:'suno',flag:'🇧🇷',city:'Salvador, BA'},              // imóveis Nordeste
+  'TVRI11':{lat:-7.5,lon:-46.07,region:'brasil',type:'fii',color:'#e8c766',logo:'btg-pactual',flag:'🇧🇷',city:'Goiânia, GO'},        // shopping Goiânia
+  'VISC11':{lat:-29.05,lon:-51.18,region:'brasil',type:'fii',color:'#e8c766',logo:'vinci-partners',flag:'🇧🇷',city:'Florianópolis, SC'},
+  'VRTA11':{lat:-31.33,lon:-54.11,region:'brasil',type:'fii',color:'#e8c766',logo:'fator',flag:'🇧🇷',city:'São Bernardo, SP'},
+  'XPCA11':{lat:-4.5,lon:-37.8,region:'brasil',type:'fii',color:'#e8c766',logo:'xp-investimentos',flag:'🇧🇷',city:'Mossoró, RN'},
+  'XPLG11':{lat:-1.45, lon:-48.5,region:'brasil',type:'fii',color:'#e8c766',logo:'xp-investimentos',flag:'🇧🇷',city:'Belém, PA'},
+  // ── EUA extra
+  'CIO':  {lat:41.49,lon:-81.69, region:'eua',type:'reit',color:'#4ade80',logo:'city-office-reit',flag:'🇺🇸',city:'Cleveland, EUA'},
+};
+
+// Âncoras geográficas para ativos sem coords no COORDS_TABLE
+const BR_ANCHORS = [
+  {lat:-23.5,lon:-46.6},{lat:-22.9,lon:-43.2},{lat:-19.9,lon:-43.9},
+  {lat:-3.1, lon:-60.0},{lat:-8.0, lon:-34.9},{lat:-15.8,lon:-47.9},
+  {lat:-27.6,lon:-48.5},{lat:-30.0,lon:-51.2},{lat:-12.9,lon:-38.5},
+  {lat:-1.5, lon:-48.5},
+];
+const EUA_ANCHORS = [
+  {lat:37.4, lon:-122.1},{lat:47.6, lon:-122.3},{lat:40.7, lon:-74.0},
+  {lat:41.9, lon:-87.6}, {lat:33.7, lon:-84.4}, {lat:29.8, lon:-95.4},
+  {lat:34.0, lon:-118.2},{lat:44.8, lon:-93.4}, {lat:47.6, lon:-117.4},
+  {lat:39.7, lon:-104.9},
+];
+function assignAnchorCoord(idx, total, anchors){
+  const anchorIdx = idx % anchors.length;
+  const anchor = anchors[anchorIdx];
+  const subIdx = Math.floor(idx / anchors.length);
+  const subTotal = Math.ceil(total / anchors.length);
+  if(subTotal <= 0) return {lat:anchor.lat, lon:anchor.lon};
+  const golden=2.399963;
+  const r = 3.5 * Math.sqrt(subIdx / Math.max(subTotal,1));
+  const theta = subIdx * golden;
+  return { lat: anchor.lat + r*Math.cos(theta), lon: anchor.lon + r*Math.sin(theta)*1.4 };
+}
+
+function carregarCG20(){
+  try{
+    const raw=localStorage.getItem('g20_aportes');
+    if(!raw) return;
+    const aportes=JSON.parse(raw);
+    if(!Array.isArray(aportes)||!aportes.length) return;
+
+    const grouped={};
+    aportes.forEach(a=>{
+      const t=(a.ticker||'').trim().toUpperCase();
+      if(!t) return;
+      const qtd=parseFloat(a.qtd||a.quantidade||0);
+      const preco=parseFloat(a.preco||a.precoMedio||0);
+      const isVenda=(a.op||'').toUpperCase()==='V';
+      if(!grouped[t]) grouped[t]={ticker:t,custo:0,qtd:0,qtdV:0,tipo:a.tipo||'Stock',moeda:a.moeda||'BRL',nome:a.nome||t};
+      if(isVenda){ grouped[t].qtdV+=qtd; } else { grouped[t].custo+=qtd*preco; grouped[t].qtd+=qtd; }
+    });
+    Object.values(grouped).forEach(g=>{ g.qtd=g.qtd-g.qtdV; });
+
+    const total=Object.values(grouped).reduce((s,v)=>s+v.custo,0)||1;
+
+    // Conta quantos ativos BR/EUA não têm coords — para distribuir em grade
+    const semCoordsBR=[], semCoordsEUA=[];
+    Object.values(grouped).filter(g=>g.qtd>0.001&&g.custo>0.01).forEach(g=>{
+      if(COORDS_TABLE[g.ticker]) return;
+      if(g.moeda==='BRL') semCoordsBR.push(g.ticker);
+      else semCoordsEUA.push(g.ticker);
+    });
+
+    // Grade espiral ao redor do centróide — distribui ativos sem coords
+    const novos=Object.values(grouped)
+      .filter(g=>g.qtd>0.001&&g.custo>0.01)
+      .map(g=>{
+        const coords=COORDS_TABLE[g.ticker];
+        const tipo=detectTipo(g.ticker,g.tipo);
+        const col=tipo==='fii'?'#e8c766':tipo==='reit'?'#4ade80':tipo==='etf'?'#c084fc':'#60a5fa';
+        const pct=(g.custo/total)*100;
+
+        let lat, lon;
+        if(coords){ lat=coords.lat; lon=coords.lon; }
+        else if(g.moeda==='BRL'){
+          const idx=semCoordsBR.indexOf(g.ticker);
+          const sp=assignAnchorCoord(idx,semCoordsBR.length,BR_ANCHORS);
+          lat=sp.lat; lon=sp.lon;
+        } else {
+          const idx=semCoordsEUA.indexOf(g.ticker);
+          const sp=assignAnchorCoord(idx,semCoordsEUA.length,EUA_ANCHORS);
+          lat=sp.lat; lon=sp.lon;
+        }
+
+        return{
+          ticker:g.ticker, name: COMPANY_NAMES[g.ticker] || g.nome || g.ticker,
+          region:coords?coords.region:(g.moeda==='BRL'?'brasil':'eua'),
+          type:tipo, lat, lon,
+          price:(g.moeda==='USD'?'US$ ':'R$ ')+(g.custo/g.qtd).toFixed(2),
+          qty:g.qtd.toFixed(0)+' cotas',
+          pos:(g.moeda==='BRL'?'R$ ':'US$ ')+(g.custo).toFixed(0),
+          pct:+pct.toFixed(2), chg:'0%', up:true,
+          city:coords?coords.city:(g.moeda==='BRL'?'Brasil':'EUA'),
+          color:coords?coords.color:col,
+          logo:coords?coords.logo:g.ticker.toLowerCase(),
+          flag:coords?coords.flag:(g.moeda==='BRL'?'🇧🇷':'🇺🇸'),
+          spark:[100,101,99,102,101,103,102,104,103,105,104,103,105,104,106],
+        };
+      })
+      .filter(a=>a.pct>=0.01)
+      .sort((a,b)=>b.pct-a.pct);
+
+    if(novos.length){
+      ASSETS.length=0;
+      novos.forEach(a=>ASSETS.push(a));
+      ASSETS_CG20=[...ASSETS];
+      preloadAssets();
+      buildMarkers();buildArcs();updateClassPanel();updateRegionPanel();
+    }
+  }catch(e){console.warn('Erro ao carregar CG20:',e);}
+}
+
+function detectTipo(ticker,tipoRaw){
+  const t=(tipoRaw||'').toLowerCase();
+  // Cripto
+  const CRIPTO=['BTC','BTC-USD','ETH','BNB','SOL','DOT','LINK','MANA','SAND','HNT','ADA','MATIC','AVAX'];
+  if(CRIPTO.includes(ticker)) return 'cripto';
+  if(t.includes('cripto')||t.includes('crypto')) return 'cripto';
+  if(t.includes('fii')||t.includes('fundo')) return 'fii';
+  if(t.includes('reit')) return 'reit';
+  if(t.includes('etf')) return 'etf';
+  if(/11$/.test(ticker)&&!['BPAC11','TAEE11','SAPR11','KLBN11','ENGI11'].includes(ticker)) return 'fii';
+  if(['VNQ','VTI','VOO','QQQ','SPY','IVV','SCHD','VGK','EWG','ARGT','CIBR','IEUR','MCHI','NOBL','QYLD','SCHA','URA','XBI','XLU','XYLD','VNQI'].includes(ticker)) return 'etf';
+  if(['O','SPG','AMT','PLD','NNN','SKT','SLG','ESS','EQIX','IIPR','DOC','STOR'].includes(ticker)) return 'reit';
+  return 'stock';
+}
+
+function carregarMinhaCarteira(){
+  try{
+    const raw=localStorage.getItem('g20_rvAportes');
+    if(!raw){mostrarMinhaCarteiraVazia();return;}
+    const aportes=JSON.parse(raw);
+    if(!Array.isArray(aportes)||!aportes.length){mostrarMinhaCarteiraVazia();return;}
+
+    const compras=aportes.filter(a=>a.op==='C'||!a.op);
+    const grouped={};
+    compras.forEach(a=>{
+      const t=(a.ticker||'').trim().toUpperCase();
+      if(!t)return;
+      const qtd=parseFloat(a.qtd||a.quantidade||0);
+      const preco=parseFloat(a.preco||a.precoMedio||0);
+      if(!grouped[t])grouped[t]={ticker:t,custo:0,qtd:0,tipo:a.tipo||'Stock',moeda:a.moeda||'BRL',nome:a.nome||t};
+      grouped[t].custo+=qtd*preco;grouped[t].qtd+=qtd;
+    });
+
+    const semCoordsBR2=[], semCoordsEUA2=[];
+    Object.values(grouped).filter(g=>g.custo>0).forEach(g=>{
+      if(COORDS_TABLE[g.ticker]) return;
+      if(g.moeda==='BRL') semCoordsBR2.push(g.ticker); else semCoordsEUA2.push(g.ticker);
+    });
+
+    const total=Object.values(grouped).reduce((s,v)=>s+v.custo,0)||1;
+    const novos=Object.values(grouped).filter(g=>g.custo>0).map(g=>{
+      const coords=COORDS_TABLE[g.ticker];
+      const tipo=detectTipo(g.ticker,g.tipo);
+      const pct=(g.custo/total)*100;
+      let lat,lon;
+      if(coords){lat=coords.lat;lon=coords.lon;}
+      else if(g.moeda==='BRL'){
+        const idx=semCoordsBR2.indexOf(g.ticker);
+        const sp=assignAnchorCoord(idx,semCoordsBR2.length,BR_ANCHORS);
+        lat=sp.lat;lon=sp.lon;
       } else {
-        // body ainda não existe — observa o DOM até ele aparecer
-        var bodyObs = new MutationObserver(function(mutations, obs){
-          if (document.body) {
-            document.body.classList.add('sidebar-collapsed');
-            obs.disconnect();
-          }
-        });
-        bodyObs.observe(document.documentElement, { childList: true });
+        const idx=semCoordsEUA2.indexOf(g.ticker);
+        const sp=assignAnchorCoord(idx,semCoordsEUA2.length,EUA_ANCHORS);
+        lat=sp.lat;lon=sp.lon;
       }
+      return{
+        ticker:g.ticker,name: COMPANY_NAMES[g.ticker] || g.nome || g.ticker,
+        region:coords?coords.region:(g.moeda==='BRL'?'brasil':'eua'),type:tipo,
+        lat,lon,
+        price:(g.moeda==='USD'?'US$ ':'R$ ')+(g.custo/g.qtd).toFixed(2),
+        qty:g.qtd.toFixed(0)+' cotas',pos:(g.moeda==='BRL'?'R$ ':'US$ ')+(g.custo).toFixed(0),
+        pct:+pct.toFixed(2),chg:'0%',up:true,
+        city:coords?coords.city:(g.moeda==='BRL'?'Brasil':'EUA'),
+        color:coords?coords.color:(tipo==='fii'?'#e8c766':tipo==='reit'?'#4ade80':tipo==='etf'?'#c084fc':'#60a5fa'),
+        logo:coords?coords.logo:g.ticker.toLowerCase(),
+        flag:coords?coords.flag:(g.moeda==='BRL'?'🇧🇷':'🇺🇸'),
+        spark:[100,101,99,102,101,103,102,104,103,105,104,103,105,104,106],
+      };
+    }).filter(a=>a.pct>=0.01).sort((a,b)=>b.pct-a.pct);
 
-      // Style early — bloqueia transition e FORÇA largura collapsed durante o boot
-      earlyStyle = document.createElement('style');
-      earlyStyle.id = 'g20-sidebar-early';
-      earlyStyle.textContent =
-        'html.sidebar-collapsed .sidebar,body.sidebar-collapsed .sidebar{' +
-        'transition:none !important;width:68px !important;min-width:68px !important;max-width:68px !important}' +
-        'html.sidebar-collapsed .main,body.sidebar-collapsed .main,html.sidebar-collapsed main,body.sidebar-collapsed main{' +
-        'transition:none !important;margin-left:68px !important}';
-      document.head.appendChild(earlyStyle);
-    } catch(e) {}
+    if(!novos.length){mostrarMinhaCarteiraVazia();return;}
+    ASSETS.length=0;novos.forEach(a=>ASSETS.push(a));
+    preloadAssets();buildMarkers();buildArcs();updateClassPanel();updateRegionPanel();
+  }catch(e){console.warn('Erro ao carregar Minha Carteira:',e);mostrarMinhaCarteiraVazia();}
+}
+
+function switchPortfolio(which){
+  activePortfolio=which;
+  document.getElementById('pt-cg20').classList.toggle('active',which==='cg20');
+  document.getElementById('pt-minha').classList.toggle('active',which==='minha');
+  const lbl=document.getElementById('portfolio-label');
+  if(lbl)lbl.textContent=which==='cg20'?'CARTEIRA G20':'MINHA CARTEIRA';
+  if(which==='minha') carregarMinhaCarteira();
+  else carregarCG20();
+}
+
+function mostrarMinhaCarteiraVazia(){
+  ASSETS.length=0;buildMarkers();buildArcs();updateClassPanel();updateRegionPanel();
+  const toast=document.createElement('div');
+  toast.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(14,13,20,.95);border:1px solid var(--border);border-radius:12px;padding:12px 20px;font-size:12px;color:var(--muted);z-index:100;backdrop-filter:blur(10px);text-align:center;white-space:nowrap';
+  toast.innerHTML='Minha Carteira sem dados. <a href="gestao-patrimonial.html" style="color:var(--gold);text-decoration:none">Acesse Gestão Patrimonial</a> para cadastrar seus ativos.';
+  document.body.appendChild(toast);setTimeout(()=>toast.remove(),5000);
+}
+
+const FLAG_CODES={'🇺🇸':'us','🇧🇷':'br','🇨🇳':'cn','🇬🇧':'gb','🇯🇵':'jp','🇰🇷':'kr','🇩🇪':'de','🇫🇷':'fr','🇹🇼':'tw','🇳🇱':'nl','🇩🇰':'dk','🇨🇭':'ch','🇸🇬':'sg','🇨🇦':'ca','🇦🇷':'ar','🇺🇾':'uy','🇮🇪':'ie','🇸🇪':'se','🇫🇮':'fi'};
+const flagImgs={};
+
+
+const TV_SLUGS={
+  // ══ EUA Stocks ══
+  'AAPL':'apple','MSFT':'microsoft','AMZN':'amazon','GOOGL':'alphabet','GOOG':'alphabet',
+  'NVDA':'nvidia','META':'meta','TSLA':'tesla','NFLX':'netflix',
+  'NKE':'nike','V':'visa','MA':'mastercard','JNJ':'johnson-and-johnson',
+  'UNH':'unitedhealth','BLK':'blackrock','WFC':'wells-fargo','JPM':'jpmorgan-chase',
+  'COIN':'coinbase','PYPL':'paypal','ADBE':'adobe','LULU':'lululemon-athletica',
+  'MELI':'mercadolibre','NU':'nu-holdings','NVO':'novo-nordisk','CROX':'crocs',
+  'DPZ':'dominos-pizza','DUOL':'duolingo','MNST':'monster-beverage','FTNT':'fortinet',
+  'ENPH':'enphase-energy','ACN':'accenture','BRK.B':'berkshire-hathaway',
+  'DELL':'dell','ROL':'rollins','SKX':'skechers-usa',
+  'VST':'vistra-energy','CEG':'constellation-energy','ANF':'abercrombie-and-fitch',
+  'ASML':'asml','TSM':'taiwan-semiconductor','BABA':'alibaba','XP':'xp',
+  'DIS':'the-walt-disney','QBTS':'d-wave-quantum','RGTI':'rigetti-computing',
+  'INTR':'brazil/inter-co','SKT':'tanger-factory-outlet-centers','ESS':'essex-property-trust',
+  'EQIX':'equinix','PLD':'prologis','O':'realty-income',
+  'NNN':'national-retail-properties','DOC':'healthpeak-properties','IIPR':'innovative-industrial-properties',
+  'SLG':'sl-green-realty','STOR':'store-capital','CIO':'city-office-reit',
+  'URA':'global-x','HERO':'global-x',
+
+  // ══ ETFs ══
+  'VNQ':'vanguard','VNQI':'vanguard','QQQ':'invesco',
+  'XBI':'spdr','XLU':'spdr','CIBR':'first-trust',
+  'ARGT':'global-x','MCHI':'ishares','IEUR':'ishares',
+  'NOBL':'proshares','QYLD':'global-x','XYLD':'global-x',
+  'SCHA':'schwab','XL':'xl',
+
+  // ══ Brasil Stocks ══
+  'ITUB4':'itau-unibanco','ITSA4':'itausa',
+  'PETR4':'brazil/petroleo-brasileiro','PETR3':'brazil/petroleo-brasileiro',
+  'VALE3':'vale','WEGE3':'weg',
+  'BBDC4':'banco-bradesco','BBDC3':'banco-bradesco',
+  'BBAS3':'banco-do-brasil','BPAC11':'brazil/btg-pactual',
+  'SUZB3':'suzano','MGLU3':'brazil/magazine-luiza',
+  'LREN3':'lojas-renner','CMIG4':'cemig','CMIG3':'cemig',
+  'RADL3':'brazil/raia-drogasil','VIVT3':'telefonica-brasil',
+  'RENT3':'localiza','NATU3':'brazil/natura',
+  'B3SA3':'brazil/b3','SAPR11':'sanepar','PRIO3':'brazil/prio',
+  'ENEV3':'eneva','EGIE3':'brazil/engie-brasil','EMBJ3':'embraer',
+  'INTB3':'brazil/intelbras','VIVA3':'brazil/vivara','MOVI3':'brazil/movida',
+  'BRKM5':'braskem','STBP3':'brazil/santos-brasil',
+  'QUAL3':'brazil/qualicorp','SQIA3':'totvs','VULC3':'vulcabras',
+  'WIZC3':'brazil/wiz-co','LOGG3':'log-commercial-properties',
+  'TRIS3':'trisul','SBFG3':'brazil/sbf','BMOB3':'brazil/bemobi',
+  'CVCB3':'brazil/cvc','BRAV3':'3r-petroleum','GMAT3':'brazil/grupo-mateus',
+  'SYNE3':'brazil/syne','AZZA3':'brazil/azzas-2154',
+
+  // ══ Brasil FIIs ══
+  'KNRI11':'brazil/kinea','KNCA11':'brazil/kinea',
+  'HGLG11':'brazil/cshg','VISC11':'brazil/vinci-partners',
+  'XPCA11':'brazil/xp','XPLG11':'brazil/xp',
+  'CPTR11':'brazil/capitania','SNAG11':'brazil/suno',
+  'BCRI11':'brazil/btg-pactual','BTHF11':'brazil/btg-pactual',
+  'BTRA11':'brazil/btg-pactual','TVRI11':'brazil/btg-pactual',
+  'HCTR11':'brazil/hectare-capital','IRDM11':'brazil/iridium',
+  'RBRR11':'brazil/rb-capital','VRTA11':'brazil/votorantim',
+
+  // ══ Cripto — prefixo XTVC ══
+  'BTC':'crypto/bitcoin','BTC-USD':'crypto/bitcoin','ETH':'crypto/ethereum',
+  'BNB':'crypto/binance-coin','SOL':'crypto/solana','DOT':'crypto/polkadot',
+  'LINK':'crypto/chainlink','MANA':'crypto/decentraland','SAND':'crypto/the-sandbox',
+  'HNT':'crypto/helium',
+};
+
+// Cache por SLUG (igual ao globo-g20-v4.html que funciona)
+// Slugs CONFIRMADOS no TV CDN (testados no browser)
+const TV_WHITELIST=new Set([
+  'apple','microsoft','amazon','nvidia','meta','tesla','netflix','nike',
+  'visa','mastercard','coinbase','paypal','adobe','lululemon-athletica',
+  'mercadolibre','novo-nordisk','crocs','dominos-pizza','duolingo',
+  'monster-beverage','fortinet','enphase-energy','accenture',
+  'berkshire-hathaway','dell','rollins','constellation-energy',
+  'abercrombie-and-fitch','asml','taiwan-semiconductor','alibaba',
+  'vale','weg','braskem','lojas-renner','localiza','suzano','cemig',
+  'telefonica-brasil','embraer','totvs','vulcabras','itau-unibanco',
+  'itausa','sanepar','banco-bradesco','banco-do-brasil','realty-income',
+  'vanguard','equinix','prologis','invesco','ishares','proshares',
+  'engie','inter','eneva','skechers-usa','vistra-energy',
+  'essex-property-trust','walt-disney','blackrock','unitedhealth',
+  'wells-fargo','johnson-and-johnson','schwab','first-trust',
+  'global-x','3r-petroleum','ouro-fino','trisul','log-commercial-properties',
+  'xp-inc','nu-holdings','alphabet',
+]);
+
+// Logos fallback via Google Favicons — para empresas sem slug no TV CDN
+const FALLBACK_LOGOS={
+  'PETR4':'petrobras.com.br','PETR3':'petrobras.com.br',
+  'PRIO3':'prioilgas.com.br','BRAV3':'bravaenergia.com.br',
+  'HCTR11':'hectare.com.br','KNRI11':'kinea.com.br','KNCA11':'kinea.com.br',
+  'SYNE3':'sinergiaenergia.com.br',
+  'BPAC11':'btgpactual.com','BTRA11':'btgpactual.com',
+  'BCRI11':'btgpactual.com','BTHF11':'btgpactual.com','TVRI11':'btgpactual.com',
+  'NATU3':'naturaeco.com','SQIA3':'totvs.com',
+  'B3SA3':'b3.com.br','MGLU3':'magazineluiza.com.br',
+  'INTB3':'intelbras.com.br','MOVI3':'movida.com.br','VIVA3':'vivara.com.br',
+  'RADL3':'raiadrogasil.com.br','QUAL3':'qualicorp.com.br',
+  'EGIE3':'engie.com.br','BMOB3':'bemobi.com',
+  'AZZA3':'azzas2154.com.br','WIZC3':'wiz.com.br',
+  'GMAT3':'grupomateus.com.br','CVCB3':'cvc.com.br','SBFG3':'sbfgrupo.com.br',
+  'HGLG11':'cshg.com.br','VISC11':'vincipartners.com.br',
+  'XPCA11':'xpinvestimentos.com.br','XPLG11':'xpinvestimentos.com.br',
+  'CPTR11':'capitania.com.br','SNAG11':'suno.com.br',
+  'RBRR11':'rbcapital.com.br',
+  'VRTA11':'btgpactual.com','AUAU3':'ourofino.com.br',
+  'LOGG3':'logcp.com.br','TRIS3':'trisul.com.br',
+  'NU':'nu.com.br','XP':'xp.com','INTR':'inter.co',
+  'QBTS':'dwavesys.com','RGTI':'rigetti.com',
+  'SLG':'slgreen.com','STOR':'storecapital.com','DOC':'healthpeak.com',
+  'IIPR':'iipr.com','SKT':'tanger.com','NNN':'nnnreit.com',
+  'ESS':'essexproperty.com','WFC':'wellsfargo.com',
+  'BLK':'blackrock.com','JPM':'jpmorganchase.com',
+
+  'XBI':'ssga.com','XLU':'ssga.com',
+  'IRDM11':'iridiumri.com.br',};
+function getFallbackLogoUrl(ticker){
+  const d=FALLBACK_LOGOS[ticker];
+  return d?`https://www.google.com/s2/favicons?domain=${d}&sz=64`:null;
+}
+
+// Logos cripto via CoinGecko (TV CDN não serve cripto)
+const CRYPTO_LOGOS={
+  'BTC': 'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
+  'BTC-USD': 'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
+  'ETH': 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
+  'SOL': 'https://assets.coingecko.com/coins/images/4128/small/solana.png',
+  'BNB': 'https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png',
+  'DOT': 'https://assets.coingecko.com/coins/images/12171/small/polkadot.png',
+  'LINK': 'https://assets.coingecko.com/coins/images/877/small/chainlink-new-logo.png',
+  'MANA': 'https://assets.coingecko.com/coins/images/878/small/decentraland-mana.png',
+  'SAND': 'https://assets.coingecko.com/coins/images/12129/small/sandbox_logo.jpg',
+  'HNT': 'https://assets.coingecko.com/coins/images/4284/small/Helium_HNT.png',
+};
+
+const logoImgs={};
+function preloadAssets(){
+  [...new Set(ASSETS.map(a=>FLAG_CODES[a.flag]).filter(Boolean))].forEach(cc=>{
+    if(flagImgs[cc]) return;
+    const img=new Image();
+    img.src=`https://flagcdn.com/w40/${cc}.png`;
+    img.onload=()=>{flagImgs[cc]=img};
+  });
+  ASSETS.forEach(a=>{
+    if(logoImgs[a.ticker]) return;
+    const img=new Image();
+    // Cripto: usa CoinGecko. Outros: TV CDN sem crossOrigin (igual carteira.html)
+    // 1. TV_LOGOS.getUrl() — igual à Carteira G20 (fonte principal)
+    // 2. Slug local confirmado → TV CDN
+    // 3. Cripto → CoinGecko
+    // 4. Google Favicon fallback
+    const tvUrl = (window.TV_LOGOS && window.TV_LOGOS.getUrl) ? window.TV_LOGOS.getUrl(a.ticker) : null;
+    const tvSlug = (a.logo && TV_WHITELIST.has(a.logo)) ? a.logo : null;
+    const url = tvUrl
+      || (tvSlug ? `https://s3-symbol-logo.tradingview.com/${tvSlug}.svg?v=3` : null)
+      || CRYPTO_LOGOS[a.ticker]
+      || getFallbackLogoUrl(a.ticker);
+    if(!url) return;
+    img.onerror=()=>{ logoImgs[a.ticker]=null; };
+    img.src=url;
+    logoImgs[a.ticker]=img;
+  });
+}
+preloadAssets();
+
+const SOCIAL_COUNTS={'AAPL':47,'MSFT':52,'O':18,'VNQ':23,'KNRI11':31,'ITUB4':58,'BABA':12,'VGK':9};
+const TIMELINE_SNAPSHOTS=[
+  {label:'Jan 2022',assets:['AAPL','ITUB4']},
+  {label:'Mar 2022',assets:['AAPL','MSFT','ITUB4']},
+  {label:'Jun 2022',assets:['AAPL','MSFT','ITUB4','KNRI11']},
+  {label:'Set 2022',assets:['AAPL','MSFT','ITUB4','KNRI11','VGK']},
+  {label:'Jan 2023',assets:['AAPL','MSFT','ITUB4','KNRI11','VGK','O']},
+  {label:'Mai 2023',assets:['AAPL','MSFT','ITUB4','KNRI11','VGK','O','VNQ']},
+  {label:'Set 2023',assets:['AAPL','MSFT','ITUB4','KNRI11','VGK','O','VNQ','BABA']},
+  {label:'Jan 2024',assets:['AAPL','MSFT','ITUB4','KNRI11','VGK','O','VNQ','BABA']},
+  {label:'Hoje',    assets:['AAPL','MSFT','ITUB4','KNRI11','VGK','O','VNQ','BABA']},
+];
+
+/* ══ ESTADO ══ */
+let activeFilter='all',showArcos=false,autoRotate=false,showAtm=true,isDayMode=false;
+let isDragging=false,prevMouse={x:0,y:0};
+let flyTarget=null,flyProgress=0,hoveredAsset=null;
+let currentZoom=3.2,targetZoom=3.2;
+const ZOOM_MIN=1.8,ZOOM_MAX=5.5;
+let clusterMode=false;
+let cinemaMode=false,cinemaAudio=null;
+let timelineActive=false,timelineIndex=8;
+let shareCanvas=null;
+
+function getActiveAssets(){
+  const snap=TIMELINE_SNAPSHOTS[timelineIndex];
+  const tlF=timelineActive?snap.assets:ASSETS.map(a=>a.ticker);
+  return ASSETS.filter(a=>{
+    if(!tlF.includes(a.ticker)) return false;
+    if(activeFilter==='all') return true;
+    if(activeFilter==='cripto') return a.type==='cripto';
+    if(activeFilter==='fii') return a.type==='fii';
+    if(activeFilter==='reit') return a.type==='reit';
+    if(activeFilter==='etf') return a.type==='etf';
+    if(activeFilter==='acoes') return a.type==='stock' && a.region==='brasil';
+    if(activeFilter==='stock') return a.type==='stock' && a.region!=='brasil';
+    return a.type===activeFilter;
+  });
+}
+
+function updateClassPanel(){
+  const all=ASSETS; // usa todos os ativos, não só os filtrados
+  const totals={acoes:0,stock:0,reit:0,etf:0,fii:0,cripto:0};
+  all.forEach(x=>{
+    if(x.type==='cripto') totals.cripto+=x.pct;
+    else if(x.type==='fii') totals.fii+=x.pct;
+    else if(x.type==='reit') totals.reit+=x.pct;
+    else if(x.type==='etf') totals.etf+=x.pct;
+    else if(x.type==='stock'&&x.region==='brasil') totals.acoes+=x.pct;
+    else if(x.type==='stock') totals.stock+=x.pct;
+  });
+  const total=Object.values(totals).reduce((s,v)=>s+v,0)||1;
+  const cats=['acoes','stock','reit','etf','fii','cripto'];
+  cats.forEach(t=>{
+    const pct=totals[t]||0, pctR=(pct/total*100).toFixed(0)+'%';
+    const el=document.getElementById('cp-'+t+'s')||document.getElementById('cp-'+t);
+    if(el)el.textContent=pctR;
+    const bar=document.getElementById('cpb-'+t+'s')||document.getElementById('cpb-'+t);
+    if(bar)bar.style.width=(pct/total*100).toFixed(0)+'%';
+  });
+}
+
+function updateRegionPanel(){
+  const a=getActiveAssets();
+  const rg={eua:0,brasil:0,europa:0,asia:0};
+  a.forEach(x=>rg[x.region]=(rg[x.region]||0)+x.pct);
+  const total=Object.values(rg).reduce((s,v)=>s+v,0)||1;
+  Object.entries(rg).forEach(([r,p])=>{
+    const el=document.getElementById('rt-'+{eua:'eua',brasil:'br',europa:'eu',asia:'as'}[r]);
+    if(el)el.textContent=(p/total*100).toFixed(1)+'%';
+  });
+}
+
+/* ══ THREE.JS SETUP ══ */
+const container=document.getElementById('gc'),canvas3=document.getElementById('three-canvas');
+const renderer=new THREE.WebGLRenderer({canvas:canvas3,antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setSize(container.clientWidth,container.clientHeight);
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(38,container.clientWidth/container.clientHeight,0.1,1000);
+camera.position.z=currentZoom;
+const GLOBE_R=1.0;
+const markerGroup=new THREE.Group(),arcGroup=new THREE.Group();
+scene.add(markerGroup,arcGroup);
+
+let backTopLight;
+const ambLight=new THREE.AmbientLight(0xffffff,.75);scene.add(ambLight);
+const sunLight=new THREE.DirectionalLight(0xfff0e0,1.0);sunLight.position.set(5,2,4);scene.add(sunLight);
+const fillLight=new THREE.DirectionalLight(0x3355cc,.45);fillLight.position.set(-4,-1,-3);scene.add(fillLight);
+backTopLight=new THREE.DirectionalLight(0x224488,.3);backTopLight.position.set(0,5,-4);scene.add(backTopLight);
+
+const sv=[];for(let i=0;i<1800;i++){const r=320;sv.push((Math.random()-.5)*r*2,(Math.random()-.5)*r*2,(Math.random()-.5)*r*2);}
+const sg=new THREE.BufferGeometry();sg.setAttribute('position',new THREE.Float32BufferAttribute(sv,3));
+const stars=new THREE.Points(sg,new THREE.PointsMaterial({color:0xffffff,size:.3,transparent:true,opacity:.45}));
+scene.add(stars);
+
+/* ══ TEXTURAS ══ */
+const loader=new THREE.TextureLoader();loader.crossOrigin='anonymous';
+let texNight,texDay,texBump,loadedCount=0,initiated=false;
+let earthMesh,atmMesh,glowMesh,atmRingMesh;
+
+function tryInit(){
+  if(initiated)return;initiated=true;
+  if(!texNight||!texNight.image){texNight=new THREE.DataTexture(new Uint8Array([8,12,28,255]),1,1);texNight.needsUpdate=true;}
+  if(!texDay||!texDay.image){texDay=new THREE.DataTexture(new Uint8Array([28,72,148,255]),1,1);texDay.needsUpdate=true;}
+  if(!texBump||!texBump.image){texBump=new THREE.DataTexture(new Uint8Array([128,128,128,255]),1,1);texBump.needsUpdate=true;}
+  buildEarth();
+}
+function onTex(w){return function(t){if(w==='night')texNight=t;if(w==='day')texDay=t;if(w==='bump')texBump=t;loadedCount++;if(loadedCount>=3)tryInit();};}
+function onTexErr(){loadedCount++;if(loadedCount>=3)tryInit();}
+
+// CDN primário: unpkg
+loader.load('https://unpkg.com/three-globe@2.31.2/example/img/earth-night.jpg',onTex('night'),undefined,onTexErr);
+loader.load('https://unpkg.com/three-globe@2.31.2/example/img/earth-blue-marble.jpg',onTex('day'),undefined,onTexErr);
+loader.load('https://unpkg.com/three-globe@2.31.2/example/img/earth-topology.png',onTex('bump'),undefined,onTexErr);
+
+// Força abertura em 1.5s — não espera textura carregar
+setTimeout(()=>{ if(!initiated) tryInit(); }, 1500);
+// Segunda garantia em 4s
+setTimeout(()=>{ if(!earthMesh) { initiated=false; tryInit(); } }, 4000);
+
+function buildEarth(){
+  earthMesh=new THREE.Mesh(new THREE.SphereGeometry(GLOBE_R,72,72),new THREE.MeshPhongMaterial({
+    map:texNight,bumpMap:texBump,bumpScale:.02,
+    specular:new THREE.Color(0x112244),shininess:6,
+    emissiveMap:texNight,emissive:new THREE.Color(0x886633),emissiveIntensity:1.1,
+  }));
+  scene.add(earthMesh);
+  atmMesh=new THREE.Mesh(new THREE.SphereGeometry(GLOBE_R*1.018,64,64),new THREE.MeshPhongMaterial({color:0x1a44cc,transparent:true,opacity:.055,side:THREE.FrontSide}));scene.add(atmMesh);
+  glowMesh=new THREE.Mesh(new THREE.SphereGeometry(GLOBE_R*1.065,64,64),new THREE.MeshPhongMaterial({color:0x0a2288,transparent:true,opacity:.04,side:THREE.BackSide}));scene.add(glowMesh);
+  atmRingMesh=new THREE.Mesh(new THREE.SphereGeometry(GLOBE_R*1.005,64,64),new THREE.ShaderMaterial({
+    uniforms:{glowColor:{value:new THREE.Color(0x4488ff)},intensity:{value:1.1}},
+    vertexShader:`varying vec3 vN,vV;void main(){vN=normalize(normalMatrix*normal);vec4 mv=modelViewMatrix*vec4(position,1.);vV=-mv.xyz;gl_Position=projectionMatrix*mv;}`,
+    fragmentShader:`uniform vec3 glowColor;uniform float intensity;varying vec3 vN,vV;void main(){float c=dot(normalize(vN),normalize(vV));float r=pow(1.-abs(c),2.8)*intensity;gl_FragColor=vec4(glowColor*r,r*.6);}`,
+    transparent:true,side:THREE.FrontSide,blending:THREE.AdditiveBlending,depthWrite:false,
+  }));scene.add(atmRingMesh);
+  const ld=document.getElementById('globe-loading');if(ld){ld.style.opacity='0';setTimeout(()=>ld.style.display='none',500);}
+}
+setTimeout(()=>{const ld=document.getElementById('globe-loading');if(ld&&ld.style.display!=='none'){ld.style.opacity='0';setTimeout(()=>ld.style.display='none',400);}},4000);
+
+/* ══ OVERLAY CANVAS ══ */
+const ov=document.createElement('canvas');
+ov.style.cssText='position:absolute;top:0;left:0;pointer-events:none;z-index:5;';
+container.appendChild(ov);let oc=null;
+function resizeOv(){const d=window.devicePixelRatio||1;ov.width=container.clientWidth*d;ov.height=container.clientHeight*d;ov.style.width=container.clientWidth+'px';ov.style.height=container.clientHeight+'px';oc=ov.getContext('2d');oc.scale(d,d);}
+resizeOv();
+
+function ll3(lat,lon,r){const p=(90-lat)*Math.PI/180,t=(lon+180)*Math.PI/180;return new THREE.Vector3(-r*Math.sin(p)*Math.cos(t),r*Math.cos(p),r*Math.sin(p)*Math.sin(t));}
+function w2s(v){const p=v.clone().project(camera);return{x:(p.x+1)/2*container.clientWidth,y:(-p.y+1)/2*container.clientHeight};}
+
+/* ══ SEPARAÇÃO ESTÁVEL COM BOUNDS DE TERRITÓRIO ══ */
+let _offsetCache={}, _lastOffsetKey='';
+
+// Limites de tela por região — mantém logos dentro do território
+function getRegionBounds(region){
+  // Retorna {minX,maxX,minY,maxY} em coordenadas de tela
+  // Usamos posições geográficas extremas de cada país
+  const eua_tl=w2s(ll3(49,-125,1.01).applyEuler(earthMesh?.rotation||new THREE.Euler()));
+  const eua_br=w2s(ll3(25,-65,1.01).applyEuler(earthMesh?.rotation||new THREE.Euler()));
+  const br_tl=w2s(ll3(-5,-73,1.01).applyEuler(earthMesh?.rotation||new THREE.Euler()));
+  const br_br=w2s(ll3(-33,-35,1.01).applyEuler(earthMesh?.rotation||new THREE.Euler()));
+  if(region==='eua') return {minX:Math.min(eua_tl.x,eua_br.x),maxX:Math.max(eua_tl.x,eua_br.x),minY:Math.min(eua_tl.y,eua_br.y),maxY:Math.max(eua_tl.y,eua_br.y)};
+  if(region==='brasil') return {minX:Math.min(br_tl.x,br_br.x),maxX:Math.max(br_tl.x,br_br.x),minY:Math.min(br_tl.y,br_br.y),maxY:Math.max(br_tl.y,br_br.y)};
+  return null;
+}
+
+// Calcula o círculo do globo em coordenadas de tela
+// Retorna {cx, cy, r} — centro e raio do disco visível do globo
+function getGlobeScreenCircle(){
+  const center = w2s(new THREE.Vector3(0,0,0));
+  // Ponto na borda equatorial do globo (lado direito)
+  const edge3 = new THREE.Vector3(GLOBE_R, 0, 0).applyEuler(earthMesh?.rotation||new THREE.Euler());
+  // A borda projetada do disco é melhor calculada pelo FOV e distância da câmera
+  // raio do disco na tela = GLOBE_R / camera.position.z * (clientWidth / (2*tan(fov/2)))
+  const fovRad = camera.fov * Math.PI / 180;
+  const screenR = (GLOBE_R / camera.position.z) * (container.clientWidth / (2 * Math.tan(fovRad/2)));
+  return { cx: container.clientWidth/2, cy: container.clientHeight/2, r: screenR };
+}
+
+function getStableOffsets(markers){
+  if(!earthMesh||!markers.length) return;
+  markers.forEach(m=>{m.sx=m.ox;m.sy=m.oy;});
+
+  // Cache key inclui rotação do globo quantizada a 3°
+  // → recalcula separação só quando o globo girou mais de 3°, não todo frame
+  const zKey  = Math.round(currentZoom*3)/3;
+  const rotKey= Math.round(earthMesh.rotation.y*(180/Math.PI)/3); // graus, step 3°
+  const key   = activeFilter+'_'+zKey+'_'+markers.length+'_'+rotKey;
+
+  if(key===_lastOffsetKey){
+    // Cache válido: aplica offsets salvos às novas posições projetadas
+    markers.forEach(m=>{
+      const o=_offsetCache[m.a.ticker];
+      if(o){m.sx=m.ox+o.dx;m.sy=m.oy+o.dy;}
+    });
+    return;
   }
 
-  function aplicarEstado(){
-    if (!isDesktop) return;
-    var saved = localStorage.getItem(COLLAPSED_KEY);
-    var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
-    var main = document.querySelector('.main') || document.querySelector('main');
-    if (saved !== '0') {
-      document.documentElement.classList.add('sidebar-collapsed');
-      document.body.classList.add('sidebar-collapsed');
-      if (sb) {
-        sb.classList.add('sidebar-collapsed');
-        // Inline style — especificidade máxima, ganha qualquer CSS
-        sb.style.setProperty('width', '68px', 'important');
-        sb.style.setProperty('min-width', '68px', 'important');
-        sb.style.setProperty('max-width', '68px', 'important');
+  // Cache miss: recalcula separação
+  // Menos iterações durante autoRotate (mais rápido, jitter imperceptível a 3° de rotação)
+  const ITERS = autoRotate ? 40 : 120;
+  const DAMP  = autoRotate ? 0.45 : 0.55;
+
+  for(let it=0;it<ITERS;it++){
+    for(let a=0;a<markers.length;a++){
+      for(let b=a+1;b<markers.length;b++){
+        const A=markers[a],B=markers[b];
+        const dx=B.sx-A.sx, dy=B.sy-A.sy;
+        const d=Math.sqrt(dx*dx+dy*dy)||.001;
+        const minD=A.r+B.r+6;
+        if(d<minD){
+          const f=(minD-d)/2*DAMP, nx=dx/d, ny=dy/d;
+          A.sx-=nx*f; A.sy-=ny*f;
+          B.sx+=nx*f; B.sy+=ny*f;
+        }
       }
-      if (main) main.style.setProperty('margin-left', '68px', 'important');
+    }
+  }
+
+  _offsetCache={};
+  markers.forEach(m=>{_offsetCache[m.a.ticker]={dx:m.sx-m.ox,dy:m.sy-m.oy};});
+  _lastOffsetKey=key;
+}
+
+/* ══ TAMANHO PROPORCIONAL AO PESO ══ */
+// Grande peso → logo grande | pequeno peso → logo pequeno
+function getRadius(pct, zoomScale){
+  if(pct >= 8)  return Math.max(16, 16 + pct*1.2) * zoomScale;
+  if(pct >= 3)  return Math.max(13, 13 + pct*1.0) * zoomScale;
+  if(pct >= 1)  return Math.max(10, 10 + pct*1.5) * zoomScale;
+  return Math.max(7,  7  + pct*3.0) * zoomScale;
+}
+
+/* ══ GEO CLUSTERS — automático por zoom ══ */
+const MAX_PER_CLUSTER = 8; // NUNCA mais que 8 ativos por cluster
+
+function getSubregion(a){
+  if(a.region==='eua'){
+    if(a.lon<-115) return 'west_coast';
+    if(a.lon<-105) return 'sw_eua';
+    if(a.lat<32)   return 'south';
+    if(a.lon<-87)  return 'midwest';
+    if(a.lat<35)   return 'southeast';
+    return 'east_coast';
+  }
+  if(a.region==='brasil'){
+    if(a.lat<-25)            return 'sul';
+    if(a.lat<-18&&a.lon>-46) return 'mg';
+    if(a.lat>-10)            return 'nordeste';
+    if(a.lon<-48&&a.lat>-22) return 'centro';
+    if(a.lat<-22&&a.lon<-44) return 'rj';
+    return 'sp';
+  }
+  return a.region;
+}
+
+function buildGeoClusters(assets){
+  if(currentZoom <= 3.2 && !clusterMode)
+    return assets.map(a=>({assets:[a],lat:a.lat,lon:a.lon,color:a.color,region:a.region,totalPct:a.pct}));
+
+  // Raio por zoom — agressivo o suficiente para agrupar mas com cap
+  // zoom 3.2→3° | zoom 4.0→6° | zoom 5.0→10° | zoom 6.5→15°
+  const deg = Math.min(15, (currentZoom - 1.5) * 2.8);
+
+  const used = new Array(assets.length).fill(false);
+  const cls = [];
+
+  for(let i=0;i<assets.length;i++){
+    if(used[i]) continue;
+    const a = assets[i];
+    const cl = {assets:[a], lat:a.lat, lon:a.lon, color:a.color, region:a.region, totalPct:a.pct};
+    used[i] = true;
+
+    for(let j=i+1;j<assets.length;j++){
+      if(used[j]) continue;
+      if(cl.assets.length >= MAX_PER_CLUSTER) break;
+      const b = assets[j];
+      if(b.region !== a.region) continue;
+      if(Math.abs(cl.lat-b.lat)<deg && Math.abs(cl.lon-b.lon)<deg){
+        cl.assets.push(b);
+        cl.totalPct += b.pct;
+        cl.lat = (cl.lat*(cl.assets.length-1)+b.lat)/cl.assets.length;
+        cl.lon = (cl.lon*(cl.assets.length-1)+b.lon)/cl.assets.length;
+        used[j] = true;
+      }
+    }
+    cls.push(cl);
+  }
+  return cls;
+}
+
+/* ══ DRAW SINGLE MARKER ══ */
+let pulseClock=0;
+function drawSingle(sx,sy,baseR,col,a,fade,ci,isHov){
+  // Registra para hit detection
+  if(!window._drawnMarkers) window._drawnMarkers=[];
+  window._drawnMarkers.push({a,sx,sy,r:baseR});
+
+  const isHovered  = hoveredAsset  && hoveredAsset.ticker  === a.ticker;
+  const isSelected = selectedAsset && selectedAsset.ticker === a.ticker;
+
+  // Pulse rings para ativo selecionado — desenhados ANTES do logo (ficam embaixo)
+  if(isSelected){
+    for(let pi=0;pi<3;pi++){
+      const ph = ((pulseClock * 0.8 + pi * 0.33) % 1);
+      const pr = baseR + 6 + ph * 24;
+      const pa = (1 - ph) * 0.55 * fade;
+      oc.beginPath(); oc.arc(sx, sy, pr, 0, Math.PI*2);
+      oc.strokeStyle = '#e8c766' + Math.round(pa * 255).toString(16).padStart(2,'0');
+      oc.lineWidth = 2.5 - ph * 1.5;
+      oc.stroke();
+    }
+  }
+
+  // ── LOD 1: PONTO (zoom muito longe, baseR < 7)
+  if(baseR < 7){
+    const r=Math.max(2.5, baseR);
+    oc.beginPath();oc.arc(sx,sy,r,0,Math.PI*2);
+    oc.fillStyle=col+Math.round(fade*220).toString(16).padStart(2,'0');
+    oc.fill();
+    if(isHovered){
+      oc.beginPath();oc.arc(sx,sy,r+3,0,Math.PI*2);
+      oc.strokeStyle='#e8c766';oc.lineWidth=1.5;oc.stroke();
+    }
+    return;
+  }
+
+  // ── LOD 2: BOLINHA COM LOGO (zoom médio, baseR 7-16)
+  if(baseR < 16){
+    oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);
+    oc.fillStyle=col+Math.round(fade*210).toString(16).padStart(2,'0');oc.fill();
+    const imgM=logoImgs[a.ticker];
+    if(imgM&&imgM.complete&&imgM.naturalWidth>0){
+      oc.save();oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);oc.clip();
+      oc.globalAlpha=fade*.92;oc.drawImage(imgM,sx-baseR,sy-baseR,baseR*2,baseR*2);oc.restore();
     } else {
-      document.documentElement.classList.remove('sidebar-collapsed');
-      document.body.classList.remove('sidebar-collapsed');
-      if (sb) {
-        sb.classList.remove('sidebar-collapsed');
-        sb.style.removeProperty('width');
-        sb.style.removeProperty('min-width');
-        sb.style.removeProperty('max-width');
-      }
-      if (main) main.style.removeProperty('margin-left');
+      oc.font=`700 ${Math.max(6,Math.round(baseR*.7))}px DM Sans,sans-serif`;
+      oc.textAlign='center';oc.textBaseline='middle';
+      oc.fillStyle='rgba(255,255,255,.85)';oc.globalAlpha=fade;
+      oc.fillText(a.ticker[0],sx,sy+.5);oc.globalAlpha=1;
     }
-    // Remove o style de emergência (bloqueava transitions no boot)
-    if (earlyStyle && earlyStyle.parentNode) {
-      earlyStyle.parentNode.removeChild(earlyStyle);
-      earlyStyle = null;
-    }
+    oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);
+    oc.strokeStyle=isHovered?'#e8c766':col+'99';oc.lineWidth=isHovered?2:1;oc.stroke();
+    if(isHovered){oc.beginPath();oc.arc(sx,sy,baseR+4,0,Math.PI*2);oc.strokeStyle='#e8c76688';oc.lineWidth=1.5;oc.stroke();}
+    return;
   }
 
-  function atualizarLegendaBtn(){
-    var btn = document.querySelector('.sidebar-collapse-btn');
-    if (!btn) return;
-    var collapsed = document.body.classList.contains('sidebar-collapsed');
-    var txt = collapsed ? 'Expandir menu' : 'Recolher menu';
-    btn.title = txt;
-    btn.setAttribute('aria-label', txt);
+  // ── LOD 3: LOGO COMPLETO (zoom perto, baseR >= 12)
+  oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);
+  oc.fillStyle=col+Math.round(fade*200).toString(16).padStart(2,'0');oc.fill();
+  const img=logoImgs[a.ticker];
+  if(img&&img.complete&&img.naturalWidth>0&&img.naturalHeight>0){
+    oc.save();oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);oc.clip();
+    oc.globalAlpha=fade*.96;oc.drawImage(img,sx-baseR,sy-baseR,baseR*2,baseR*2);oc.restore();
+  } else {
+    oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);
+    oc.fillStyle=col+'cc';oc.fill();
+    const fz=Math.round(Math.max(9,baseR*.72));
+    oc.font=`700 ${fz}px DM Sans,sans-serif`;oc.textAlign='center';oc.textBaseline='middle';
+    oc.fillStyle='rgba(255,255,255,.92)';oc.globalAlpha=fade;
+    oc.fillText(a.ticker.slice(0,2),sx,sy+1);oc.globalAlpha=1;
+  }
+  // Bandeirinha
+  // Bandeirinha pequena no canto (só para não-cripto)
+  if(a.type!=='cripto'){
+    const cc=FLAG_CODES[a.flag];const fi=cc?flagImgs[cc]:null;
+    if(fi&&fi.complete&&fi.naturalWidth>0&&baseR>13){
+      const fw=baseR*.55,fh=Math.round(fw*fi.naturalHeight/(fi.naturalWidth||1));
+      const fx=sx+baseR*.44,fy=sy+baseR*.44;
+      oc.save();
+      const rr=1.5;
+      oc.beginPath();
+      oc.moveTo(fx+rr,fy);oc.lineTo(fx+fw-rr,fy);oc.quadraticCurveTo(fx+fw,fy,fx+fw,fy+rr);
+      oc.lineTo(fx+fw,fy+fh-rr);oc.quadraticCurveTo(fx+fw,fy+fh,fx+fw-rr,fy+fh);
+      oc.lineTo(fx+rr,fy+fh);oc.quadraticCurveTo(fx,fy+fh,fx,fy+fh-rr);
+      oc.lineTo(fx,fy+rr);oc.quadraticCurveTo(fx,fy,fx+rr,fy);
+      oc.closePath();oc.clip();
+      oc.globalAlpha=fade*.85;oc.drawImage(fi,fx,fy,fw,fh);oc.restore();
+    }
+  }
+  // Borda
+  oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);
+  oc.strokeStyle=isHovered?'#e8c766':col+'bb';oc.lineWidth=isHovered?2.5:1.2;oc.stroke();
+  if(isHovered){oc.beginPath();oc.arc(sx,sy,baseR+6,0,Math.PI*2);oc.strokeStyle='#e8c766';oc.lineWidth=2;oc.stroke();}
+  // Label removido — apenas logo
+}
+
+/* ══ DRAW OVERLAY ══ */
+// Estado de clusters explodidos — Map de clusterKey → true
+let explodedClusters = new Map(); // key = lat+lon string → cluster explodido
+
+function clusterKey(cl){ return `${cl.lat.toFixed(2)}_${cl.lon.toFixed(2)}_${cl.region}`; }
+
+function drawOverlay(dt){
+  if(!oc||!earthMesh)return;
+  pulseClock+=dt;
+  oc.clearRect(0,0,container.clientWidth,container.clientHeight);
+  window._clusterHits=[];
+  window._explodedHits=[];
+  window._drawnMarkers=[];
+  const filtered=getActiveAssets();
+  const camDir=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
+
+  // ── CLIP PATH DO GLOBO ──
+  // Tudo desenhado fora do disco do globo é cortado automaticamente
+  // → logos no horizonte aparecem "afundando na Terra", não flutuando no espaço
+  const fovRad2=camera.fov*Math.PI/180;
+  const globeScreenR=(GLOBE_R/camera.position.z)*(container.clientWidth/(2*Math.tan(fovRad2/2)));
+  const gcx=container.clientWidth/2, gcy=container.clientHeight/2;
+  oc.save();
+  oc.beginPath();
+  oc.arc(gcx, gcy, globeScreenR * 0.995, 0, Math.PI*2); // 0.5% menor para esconder a borda
+  oc.clip();
+
+  // TAMANHO PERSPECTIVA REAL: como se o logo fosse um disco físico na superfície do globo
+  // worldSize = tamanho do disco em unidades 3D (proporcional ao peso)
+  // screenRadius = worldSize * (focalLength / cameraZ) — perspectiva real
+  const fovRad = camera.fov * Math.PI / 180;
+  const focalLen = (container.clientHeight / 2) / Math.tan(fovRad / 2);
+
+  function worldSize(pct){
+    if(pct >= 8)  return 0.028 + pct * 0.002;
+    if(pct >= 3)  return 0.022 + pct * 0.0015;
+    if(pct >= 1)  return 0.018 + pct * 0.002;
+    return 0.015 + pct * 0.003;
   }
 
-  // Fallback — o dashboard pode definir o seu próprio toggleSidebarCollapse
-  if (!window.toggleSidebarCollapse) {
-    window.toggleSidebarCollapse = function(){
-      if (window.innerWidth <= 768) return;
-      var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
-      var main = document.querySelector('.main') || document.querySelector('main');
-      var collapsed = !document.body.classList.contains('sidebar-collapsed');
-      try { localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0'); } catch(e) {}
-      if (collapsed) {
-        document.documentElement.classList.add('sidebar-collapsed');
-        document.body.classList.add('sidebar-collapsed');
-        if (sb) {
-          sb.classList.add('sidebar-collapsed');
-          sb.style.setProperty('width', '68px', 'important');
-          sb.style.setProperty('min-width', '68px', 'important');
-          sb.style.setProperty('max-width', '68px', 'important');
+  function screenR(pct, depth){
+    const raw = worldSize(pct) * focalLen / Math.max(depth, 0.5);
+    // Cap: mínimo 5px (visível), máximo 46px (não enorme no super zoom)
+    return Math.max(5, Math.min(46, raw));
+  }
+
+  // Clusters APENAS quando botão CLUSTERS está explicitamente ativo — nunca por zoom
+  // De longe: logos ficam pequenos (perspectiva real), não viram bolinhas com número
+  const useClusters = clusterMode;
+
+  const allM=[];
+  filtered.forEach((a,i)=>{
+    const pos3=ll3(a.lat,a.lon,GLOBE_R).applyEuler(earthMesh.rotation);
+    const sp=w2s(pos3);
+    const dot=pos3.clone().normalize().dot(camDir.clone().negate());
+    const depth = camera.position.z - pos3.z;
+    const r = screenR(a.pct, depth);
+    allM.push({a,i,ox:sp.x,oy:sp.y,sx:sp.x,sy:sp.y,dot,r,col:a.color});
+  });
+
+  if(useClusters){
+    const clusters=buildGeoClusters(filtered);
+    clusters.forEach((cl,ci)=>{
+      const pos3=ll3(cl.lat,cl.lon,GLOBE_R).applyEuler(earthMesh.rotation);
+      const sp=w2s(pos3);
+      const dot=pos3.clone().normalize().dot(camDir.clone().negate());
+      if(dot<=0.0)return;
+      const _t_cl=Math.min(1,dot/0.30);
+      const _hf_cl=_t_cl*_t_cl*(3-2*_t_cl);
+      if(_hf_cl<=0)return;
+      const n=cl.assets.length,col=cl.color,fade=_hf_cl;
+      const {x:sx,y:sy}=sp;
+      const key=clusterKey(cl);
+      const isExploded=explodedClusters.has(key);
+
+      if(n===1){
+        const depth = camera.position.z - pos3.z;
+        const _r1=screenR(cl.assets[0].pct, depth)*Math.pow(fade,0.5);
+        if(_r1<2.5){
+          oc.beginPath();oc.arc(sx,sy,Math.max(1.5,_r1),0,Math.PI*2);
+          oc.fillStyle=col+Math.round(fade*200).toString(16).padStart(2,'0');oc.fill();
+        } else {
+          drawSingle(sx,sy,_r1,col,cl.assets[0],fade,ci,false);
         }
-        if (main) main.style.setProperty('margin-left', '68px', 'important');
+        window._clusterHits.push({cl,sx,sy,cr:_r1+4,single:true});
+
+      } else if(isExploded){
+        // HUB pequeno + ativos em órbita
+        const HUB=20;
+        // Fundo colorido do hub
+        oc.beginPath();oc.arc(sx,sy,HUB,0,Math.PI*2);
+        oc.fillStyle=col+'33';oc.fill();
+        oc.beginPath();oc.arc(sx,sy,HUB,0,Math.PI*2);
+        oc.strokeStyle=col+'ee';oc.lineWidth=2;oc.stroke();
+        oc.font='700 10px JetBrains Mono,monospace';
+        oc.textAlign='center';oc.textBaseline='middle';
+        oc.fillStyle='#ffffff';oc.globalAlpha=fade*.9;oc.fillText(n,sx,sy);oc.globalAlpha=1;
+        // Órbita
+        const depth2 = camera.position.z - pos3.z;
+        const ORBIT=HUB+screenR(1,depth2)+28;
+        cl.assets.forEach((a,ai)=>{
+          const angle=(ai/cl.assets.length)*Math.PI*2-Math.PI/2;
+          const ax=sx+Math.cos(angle)*ORBIT, ay=sy+Math.sin(angle)*ORBIT;
+          const ar=Math.max(10,screenR(a.pct,depth2)*.75);
+          oc.beginPath();oc.moveTo(sx,sy);oc.lineTo(ax,ay);
+          oc.strokeStyle=col+'22';oc.lineWidth=.5;oc.stroke();
+          drawSingle(ax,ay,ar,a.color,a,fade,ci*100+ai,false);
+          window._explodedHits.push({a,sx:ax,sy:ay,r:ar+4,clKey:key});
+        });
+        window._clusterHits.push({cl,sx,sy,cr:HUB+4,key,canClose:true});
+
       } else {
-        document.documentElement.classList.remove('sidebar-collapsed');
-        document.body.classList.remove('sidebar-collapsed');
-        if (sb) {
-          sb.classList.remove('sidebar-collapsed');
-          sb.style.removeProperty('width');
-          sb.style.removeProperty('min-width');
-          sb.style.removeProperty('max-width');
-        }
-        if (main) main.style.removeProperty('margin-left');
+        // CLUSTER FECHADO — mini bolinha colorida com número
+        // Tamanho FIXO pequeno: 18-28px, não cresce com zoom
+        const cr = Math.min(28, 16 + n * 1.0);
+
+        // Fundo colorido semi-transparente (não preto!)
+        oc.beginPath();oc.arc(sx,sy,cr,0,Math.PI*2);
+        oc.fillStyle=col+'28';oc.fill();
+
+        // Borda colorida sólida
+        oc.beginPath();oc.arc(sx,sy,cr,0,Math.PI*2);
+        oc.strokeStyle=col+'dd';oc.lineWidth=2;oc.stroke();
+
+        // Número branco no centro
+        const fs=cr>22?13:11;
+        oc.font=`800 ${fs}px JetBrains Mono,monospace`;
+        oc.textAlign='center';oc.textBaseline='middle';
+        oc.fillStyle='#ffffff';oc.globalAlpha=fade*.95;
+        oc.fillText(n,sx,sy);oc.globalAlpha=1;
+
+        // Pulse ring colorido
+        const ph=(pulseClock*.25+ci*.5)%1;
+        oc.beginPath();oc.arc(sx,sy,cr+ph*10,0,Math.PI*2);
+        oc.strokeStyle=col+Math.round((1-ph)*.25*fade*255).toString(16).padStart(2,'0');
+        oc.lineWidth=1.2;oc.stroke();
+
+        window._clusterHits.push({cl,sx,sy,cr,key,canClose:false});
       }
-      atualizarLegendaBtn();
-    };
-  }
-
-  function injectCollapseBtn(){
-    var sidebar = document.querySelector('.sidebar');
-    if (!sidebar || sidebar.querySelector('.sidebar-collapse-btn')) return;
-    var btn = document.createElement('button');
-    btn.className = 'sidebar-collapse-btn';
-    btn.type = 'button';
-    btn.onclick = window.toggleSidebarCollapse;
-    btn.innerHTML = '<svg class="collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>';
-    sidebar.appendChild(btn);
-  }
-
-  function setTooltips(){
-    document.querySelectorAll('.sidebar .nav-item').forEach(function(item){
-      if (item.hasAttribute('data-tooltip')) return;
-      var clone = item.cloneNode(true);
-      clone.querySelectorAll('.ico, .badge-infinity').forEach(function(c){ c.remove(); });
-      clone.querySelectorAll('span[style*="margin-left:auto"], span[style*="background:var(--gold)"]').forEach(function(c){ c.remove(); });
-      var text = (clone.textContent || '').trim();
-      if (text) item.setAttribute('data-tooltip', text);
     });
-    var logout = document.querySelector('.sidebar .btn-logout');
-    if (logout && !logout.hasAttribute('data-tooltip')) {
-      logout.setAttribute('data-tooltip', 'Sair');
+    return;
+  }
+
+  // MODO INDIVIDUAL — logos grudados na superfície, sem separação de força
+  // O clip do globo corta logos que ultrapassam a borda física
+  // O dot product filtra logos no verso (dot <= 0 = atrás do globo, invisível)
+  const DOT_FULL   = 0.30;  // 100% opaco acima disso
+  const DOT_HIDDEN = 0.0;   // dot=0 é exatamente o horizonte — nada do verso aparece
+
+  function horizonFactor(dot){
+    if(dot >= DOT_FULL)   return 1.0;
+    if(dot <= DOT_HIDDEN) return 0.0;
+    const t = dot / DOT_FULL;
+    return t * t * (3 - 2 * t);
+  }
+
+  const visible = allM.filter(m => m.dot > DOT_HIDDEN);
+
+  // ── DETECÇÃO DE SOBREPOSIÇÃO ──
+  // Agrupa logos cujos centros estão a menos de (rA + rB * 0.6) de distância
+  const used = new Array(visible.length).fill(false);
+  const stackGroups = []; // [{leader, members:[]}]
+
+  // Ordena por pct desc — maior peso é o líder do grupo
+  const byPct = visible.slice().sort((a,b) => b.a.pct - a.a.pct);
+
+  for(let i=0; i<byPct.length; i++){
+    if(used[i]) continue;
+    const leader = byPct[i];
+    const group = {leader, members:[]};
+    used[i] = true;
+    for(let j=i+1; j<byPct.length; j++){
+      if(used[j]) continue;
+      const other = byPct[j];
+      const dx = leader.ox - other.ox, dy = leader.oy - other.oy;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const minDist = (leader.r + other.r) * 0.7; // overlap threshold
+      if(dist < minDist){
+        group.members.push(other);
+        used[j] = true;
+      }
     }
+    stackGroups.push(group);
   }
 
-  function bindClickBounce(){
-    document.querySelectorAll('.sidebar .nav-item').forEach(function(item){
-      if(item._bounceBound) return;
-      item._bounceBound = true;
-      item.addEventListener('click', function(){
-        var items = document.querySelectorAll('.sidebar .nav-item');
-        items.forEach(function(el){ el.classList.add('nav-click'); });
-        setTimeout(function(){
-          items.forEach(function(el){ el.classList.remove('nav-click'); });
-        }, 400);
-      });
-    });
-  }
+  // ── ESTADO DE STACKS EXPANDIDOS (persiste entre frames) ──
+  if(!window._expandedStacks) window._expandedStacks = new Set();
+  window._stackHits = []; // para hit detection
 
-  function injectLogoutConfirm(){
-    var btn = document.querySelector('.sidebar .btn-logout');
-    if(!btn || btn._confirmBound) return;
-    btn._confirmBound = true;
-    var originalOnclick = btn.getAttribute('onclick');
-    btn.removeAttribute('onclick');
-    btn.addEventListener('click', function(e){
-      e.preventDefault();
-      e.stopPropagation();
-      showLogoutConfirm(originalOnclick);
-    });
-  }
+  // Desenha na ordem: dot menor primeiro (horizonte embaixo)
+  const sortedGroups = stackGroups.slice().sort((a,b) => a.leader.dot - b.leader.dot);
 
-  function showLogoutConfirm(action){
-    var existing = document.getElementById('g20LogoutConfirm');
-    if(existing) existing.remove();
-    var overlay = document.createElement('div');
-    overlay.id = 'g20LogoutConfirm';
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:99999;display:flex;align-items:center;justify-content:center;animation:g20FadeIn .15s ease';
-    var box = document.createElement('div');
-    box.style.cssText = 'background:var(--bg2,#0d1018);border:1px solid var(--border,rgba(255,255,255,.06));border-radius:16px;padding:28px 32px;max-width:360px;width:90vw;box-shadow:0 24px 60px rgba(0,0,0,.6);text-align:center';
-    box.innerHTML =
-      '<div style="font-size:36px;margin-bottom:12px">👋</div>' +
-      '<div style="font-size:18px;font-weight:700;color:var(--text,#eef0f4);margin-bottom:6px">Deseja sair?</div>' +
-      '<div style="font-size:13px;color:var(--text2,#9aa5b8);margin-bottom:24px;line-height:1.5">Você será desconectado da plataforma G20 Masterclass.</div>' +
-      '<div style="display:flex;gap:10px;justify-content:center">' +
-        '<button id="g20LogoutCancel" style="flex:1;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;border:1px solid var(--border,rgba(255,255,255,.06));background:transparent;color:var(--text2,#9aa5b8);transition:all .15s;font-family:inherit">Cancelar</button>' +
-        '<button id="g20LogoutOk" style="flex:1;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#e63946,#c0392b);color:#fff;transition:all .15s;font-family:inherit;box-shadow:0 4px 14px rgba(230,57,70,.3)">Sair</button>' +
-      '</div>';
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
+  sortedGroups.forEach(({leader, members}) => {
+    const hf = horizonFactor(leader.dot);
+    if(hf <= 0) return;
 
-    overlay.addEventListener('click', function(ev){ if(ev.target === overlay) closeConfirm(); });
-    document.getElementById('g20LogoutCancel').addEventListener('click', closeConfirm);
-    document.getElementById('g20LogoutOk').addEventListener('click', function(){
-      closeConfirm();
-      if(action){
-        try { eval(action); } catch(err){ window.location.href='login.html'; }
+    const stackId = `${Math.round(leader.ox)}_${Math.round(leader.oy)}`;
+    const isExpanded = window._expandedStacks.has(stackId);
+
+    if(members.length === 0){
+      // Só um logo — desenha normal
+      const scaledR = leader.r * Math.pow(hf, 0.5);
+      if(scaledR < 2.5){
+        oc.beginPath(); oc.arc(leader.ox, leader.oy, Math.max(1.2, scaledR), 0, Math.PI*2);
+        oc.fillStyle = leader.col + Math.round(hf*200).toString(16).padStart(2,'0'); oc.fill();
       } else {
-        window.location.href = 'login.html';
+        drawSingle(leader.ox, leader.oy, scaledR, leader.col, leader.a, hf, leader.i, false);
       }
-    });
-    document.getElementById('g20LogoutCancel').addEventListener('mouseenter', function(){ this.style.borderColor='var(--gold,#e8b84b)'; this.style.color='var(--text,#eef0f4)'; });
-    document.getElementById('g20LogoutCancel').addEventListener('mouseleave', function(){ this.style.borderColor='var(--border,rgba(255,255,255,.06))'; this.style.color='var(--text2,#9aa5b8)'; });
-    document.getElementById('g20LogoutOk').addEventListener('mouseenter', function(){ this.style.transform='translateY(-1px)'; this.style.boxShadow='0 6px 20px rgba(230,57,70,.4)'; });
-    document.getElementById('g20LogoutOk').addEventListener('mouseleave', function(){ this.style.transform=''; this.style.boxShadow='0 4px 14px rgba(230,57,70,.3)'; });
-
-    function closeConfirm(){
-      var el = document.getElementById('g20LogoutConfirm');
-      if(el) el.remove();
-    }
-  }
-
-  // Inject fadeIn animation
-  try {
-    var styleEl = document.createElement('style');
-    styleEl.textContent = '@keyframes g20FadeIn{from{opacity:0}to{opacity:1}}';
-    document.head.appendChild(styleEl);
-  } catch(e){}
-
-  // ═══ TABS — lista central, injetada em todas as páginas ═══
-  var TABS = [
-    { href: 'dashboard.html',        lucide: 'layout-dashboard', label: 'Visão Geral' },
-    { href: 'command-center.html',   lucide: 'grid-3x3',         label: 'Command Center' },
-    { href: 'minha-jornada.html',    lucide: 'book-open',        label: 'Minha Jornada' },
-    { href: 'noticias.html',         lucide: 'newspaper',        label: 'Notícias & Calendário' }
-  ];
-
-  function injectTabs() {
-    var container = document.querySelector('.g20-tabs');
-    if (!container) return;
-    // Se já foi injetado por este script, não reinjetar (evita piscar)
-    if (container.getAttribute('data-g20-injected') === 'v1') return;
-    var currentPage = window.location.pathname.split('/').pop() || 'dashboard.html';
-    container.innerHTML = '';
-    TABS.forEach(function(tab) {
-      var el;
-      if (tab.soon) {
-        el = document.createElement('div');
-        el.className = 'g20-tab soon';
-        el.title = tab.label + ' (em breve)';
-      } else {
-        el = document.createElement('a');
-        el.href = tab.href;
-        el.className = 'g20-tab';
-        el.title = tab.label;
-        if (tab.href === currentPage || (tab.href === 'dashboard.html' && currentPage === '')) {
-          el.classList.add('active');
-        }
-      }
-      var icon = document.createElement('i');
-      icon.setAttribute('data-lucide', tab.lucide);
-      el.appendChild(icon);
-      el.appendChild(document.createTextNode(tab.label));
-      container.appendChild(el);
-    });
-    container.setAttribute('data-g20-injected', 'v1');
-    if (window.lucide && lucide.createIcons) lucide.createIcons();
-  }
-
-  // ═══ NAV ITEMS — lista central, injetada em todas as páginas ═══
-  var NAV_ITEMS = [
-    { section: 'Principal', cls: 'nav-section--principal', items: [
-      { href: 'dashboard.html',          ico: '🏠', lucide: 'layout-dashboard', label: 'Dashboard',      id: '' }
-    ]},
-    { section: 'Conteúdo', cls: 'nav-section--conteudo', items: [
-      { href: 'sala-de-aula.html',       ico: '📚', lucide: 'graduation-cap',  label: 'Sala de Aula',   id: 'tut-sala' },
-      { href: 'g20flix.html',            ico: '🎬', lucide: 'clapperboard',    label: 'G20Flix',        id: 'tut-flix', badge: '80' },
-      { href: 'g20cast.html',            ico: '🎧', lucide: 'headphones',      label: 'G20Cast',        id: 'tut-cast' },
-      { href: 'carteira.html',           ico: '📊', lucide: 'trending-up',     label: 'Carteira G20',   id: 'tut-carteira' },
-      { href: 'game-g20.html',               ico: '🏆', lucide: 'trophy',          label: 'Game G20',       id: '' }
-    ]},
-    { section: 'Investimentos', cls: 'nav-section--investimentos', items: [
-      { href: 'gestao-patrimonial.html', ico: '💰', lucide: 'briefcase',       label: 'Minha Carteira', id: 'tut-gestao' },
-      { href: 'atlas.html',              ico: '🌍', lucide: 'globe',            label: 'Atlas G20',      id: 'tut-atlas'  }
-    ]},
-    { section: 'Comunidade', cls: 'nav-section--comunidade', items: [
-      { href: 'consultoria.html',         ico: '👨\u200d💻', lucide: 'user-round',   label: 'Consultoria',    id: '' },
-      { href: '#',                        ico: '💬', lucide: 'message-circle',  label: 'Grupo WhatsApp', id: '' }
-    ]}
-  ];
-
-  function injectNav() {
-    var sidebar = document.getElementById('sidebar') || document.querySelector('.sidebar');
-    if (!sidebar) return;
-
-    // Se já tem nav-sections injetadas, atualiza o active E corrige hrefs
-    var existing = sidebar.querySelectorAll('.nav-section');
-    var currentPage = window.location.pathname.split('/').pop() || 'dashboard.html';
-    if (existing.length > 0) {
-      // Corrigir hrefs hardcoded errados usando NAV_ITEMS como fonte da verdade
-      var allItems = [];
-      NAV_ITEMS.forEach(function(sec){ sec.items.forEach(function(item){ allItems.push(item); }); });
-      sidebar.querySelectorAll('.nav-item').forEach(function(a) {
-        var tooltip = a.getAttribute('data-tooltip') || '';
-        var match = allItems.find(function(item){ return item.label === tooltip; });
-        if (match && match.href !== '#') {
-          a.href = match.href;
-          // Remover onclick que bloqueia navegação para links reais
-          a.onclick = null;
-          a.removeAttribute('onclick');
-        }
-        var href = a.getAttribute('href') || '';
-        if (href !== '#' && href === currentPage) a.classList.add('active');
-        else a.classList.remove('active');
-      });
+      window._drawnMarkers.push({a:leader.a, sx:leader.ox, sy:leader.oy, r:leader.r});
       return;
     }
 
-    var footer = sidebar.querySelector('.sidebar-footer');
-    var frag = document.createDocumentFragment();
+    // Grupo com sobreposição
+    const all = [leader, ...members];
+    const scaledR = leader.r * Math.pow(hf, 0.5);
 
-    NAV_ITEMS.forEach(function(sec) {
-      var div = document.createElement('div');
-      div.className = 'nav-section ' + sec.cls;
+    if(isExpanded){
+      // Expandido: líder no centro + membros em órbita bem espaçada
+      drawSingle(leader.ox, leader.oy, scaledR, leader.col, leader.a, hf, leader.i, false);
+      window._drawnMarkers.push({a:leader.a, sx:leader.ox, sy:leader.oy, r:scaledR});
 
-      var lbl = document.createElement('div');
-      lbl.className = 'nav-label';
-      lbl.textContent = sec.section;
-      div.appendChild(lbl);
+      // Raio da órbita: garante que logos não se sobreponham
+      // Circunferência mínima = N × (2 × maxMemberR + gap)
+      // → orbitR = circunf / (2π) mas no mínimo scaledR + maxMemberR + padding
+      const memberRs = members.map(m => Math.max(8, m.r * Math.pow(hf, 0.5)));
+      const maxMR = Math.max(...memberRs);
+      const gap = 10; // px entre logos
+      const minCircumference = members.length * (maxMR * 2 + gap);
+      const minOrbitR = minCircumference / (2 * Math.PI);
+      const orbitR = Math.max(scaledR + maxMR + 16, minOrbitR);
 
-      sec.items.forEach(function(item) {
-        var a = document.createElement('a');
-        a.href = item.href;
-        a.className = 'nav-item' + (item.href !== '#' && currentPage === item.href ? ' active' : '');
-        if (item.id) a.id = item.id;
-        a.setAttribute('data-tooltip', item.label);
-        if (typeof csm === 'function') a.onclick = function(){ csm(); };
-
-        var ico = document.createElement('span');
-        ico.className = 'ico';
-        ico.textContent = item.ico;
-        a.appendChild(ico);
-
-        var i = document.createElement('i');
-        i.setAttribute('data-lucide', item.lucide);
-        a.appendChild(i);
-
-        a.appendChild(document.createTextNode(item.label));
-
-        if (item.badge) {
-          var b = document.createElement('span');
-          b.style.cssText = 'margin-left:6px;background:var(--gold);color:#000;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px';
-          b.textContent = item.badge;
-          a.appendChild(b);
+      members.forEach((m, mi) => {
+        const angle = (mi / members.length) * Math.PI * 2 - Math.PI/2;
+        const ax = leader.ox + Math.cos(angle) * orbitR;
+        const ay = leader.oy + Math.sin(angle) * orbitR;
+        const mr = memberRs[mi];
+        // Linha de conexão pontilhada sutil
+        oc.beginPath(); oc.moveTo(leader.ox, leader.oy); oc.lineTo(ax, ay);
+        oc.strokeStyle = m.col + '28'; oc.lineWidth=0.6;
+        oc.setLineDash([2,4]); oc.stroke(); oc.setLineDash([]);
+        if(mr < 2.5){
+          oc.beginPath(); oc.arc(ax, ay, Math.max(1.5,mr), 0, Math.PI*2);
+          oc.fillStyle = m.col + Math.round(hf*200).toString(16).padStart(2,'0'); oc.fill();
+        } else {
+          drawSingle(ax, ay, mr, m.col, m.a, hf*0.95, m.i, false);
         }
-        div.appendChild(a);
+        window._drawnMarkers.push({a:m.a, sx:ax, sy:ay, r:mr});
       });
-      frag.appendChild(div);
-    });
 
-    if (footer) sidebar.insertBefore(frag, footer);
-    else sidebar.appendChild(frag);
+      // Hit area no líder para fechar
+      window._stackHits.push({stackId, sx:leader.ox, sy:leader.oy, r:scaledR, canClose:true});
 
-    if (window.lucide && lucide.createIcons) lucide.createIcons();
+    } else {
+      // Fechado: desenha só o líder + badge "+N" no canto
+      if(scaledR < 2.5){
+        oc.beginPath(); oc.arc(leader.ox, leader.oy, Math.max(1.5,scaledR), 0, Math.PI*2);
+        oc.fillStyle = leader.col + Math.round(hf*200).toString(16).padStart(2,'0'); oc.fill();
+      } else {
+        drawSingle(leader.ox, leader.oy, scaledR, leader.col, leader.a, hf, leader.i, false);
+      }
+      window._drawnMarkers.push({a:leader.a, sx:leader.ox, sy:leader.oy, r:scaledR});
+
+      // Badge "+N" no canto superior direito
+      if(scaledR >= 6){
+        const bx = leader.ox + scaledR * 0.6;
+        const by = leader.oy - scaledR * 0.6;
+        const br = Math.max(7, scaledR * 0.38);
+        oc.beginPath(); oc.arc(bx, by, br, 0, Math.PI*2);
+        oc.fillStyle = '#1a191e'; oc.fill();
+        oc.strokeStyle = '#c9a961'; oc.lineWidth = 1.2; oc.stroke();
+        oc.font = `700 ${Math.round(br*0.9)}px DM Sans,sans-serif`;
+        oc.textAlign = 'center'; oc.textBaseline = 'middle';
+        oc.fillStyle = '#e8c766'; oc.globalAlpha = hf;
+        oc.fillText('+'+members.length, bx, by+0.5);
+        oc.globalAlpha = 1;
+        window._stackHits.push({stackId, sx:bx, sy:by, r:br+4, canClose:false});
+      }
+    }
+  });
+
+  // Restaura contexto (remove clip do globo)
+  oc.restore();
+}
+
+/* ══ HIT DETECTION 2D — usa posições reais dos logos no canvas overlay ══ */
+// Registra os marcadores desenhados no último frame para hit detection precisa
+window._drawnMarkers = []; // [{a, sx, sy, r}]
+
+/* ══ RAYCASTING + 2D FALLBACK ══ */
+const raycaster=new THREE.Raycaster(),mouse2=new THREE.Vector2();
+container.addEventListener('mousemove',e=>{
+  const rect=container.getBoundingClientRect();
+  const mx=e.clientX-rect.left, my=e.clientY-rect.top;
+
+  mouse2.x=((e.clientX-rect.left)/rect.width)*2-1;
+  mouse2.y=-((e.clientY-rect.top)/rect.height)*2+1;
+
+  if(isDragging&&earthMesh){
+    earthMesh.rotation.y+=(e.clientX-prevMouse.x)*.003;
+    earthMesh.rotation.x=Math.max(-Math.PI/2,Math.min(Math.PI/2,earthMesh.rotation.x+(e.clientY-prevMouse.y)*.003));
+    syncGroups();prevMouse={x:e.clientX,y:e.clientY};
+    // Mantém cache durante drag — logos preservam separação ao arrastar
   }
 
-  // Envolve text nodes dos nav-items em span.nav-item-text
-  // Necessário para o CSS collapsed esconder o texto corretamente
-  function initSidebarTexts(){
-    document.querySelectorAll('#sidebar .nav-item').forEach(function(item){
-      if (item.querySelector('.nav-item-text')) return;
-      item.childNodes.forEach(function(node){
-        if (node.nodeType === 3 && node.textContent.trim()){
-          var span = document.createElement('span');
-          span.className = 'nav-item-text';
-          span.textContent = node.textContent;
-          item.replaceChild(span, node);
-        }
-      });
-    });
+  if(!earthMesh){return;}
+
+  // Hit detection no canvas 2D — muito mais preciso que raycaster
+  let hit=null;
+  // Verifica ativos em clusters explodidos primeiro
+  if(window._explodedHits){
+    for(const h of window._explodedHits){
+      if(Math.hypot(mx-h.sx,my-h.sy)<=h.r+2){hit={asset:h.a};break;}
+    }
+  }
+  // Verifica marcadores desenhados no overlay
+  if(!hit && window._drawnMarkers){
+    // Percorre de trás para frente (maior prioridade = último desenhado = mais na frente)
+    for(let i=window._drawnMarkers.length-1;i>=0;i--){
+      const m=window._drawnMarkers[i];
+      if(Math.hypot(mx-m.sx,my-m.sy)<=m.r+2){hit={asset:m.a};break;}
+    }
   }
 
-  function init(){
-    aplicarEstado();
-    injectTabs();
-    injectNav();
-    initSidebarTexts();
-    injectCollapseBtn();
-    setTooltips();
-    bindClickBounce();
-    injectLogoutConfirm();
-    atualizarLegendaBtn();
-    requestAnimationFrame(function(){
-      requestAnimationFrame(function(){
-        document.body.classList.add('sidebar-ready');
-      });
-    });
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+  if(hit){
+    hoveredAsset=hit.asset;
+    showTooltip(hoveredAsset,e.clientX,e.clientY);
+    canvas3.style.cursor='pointer';
   } else {
-    init();
+    hoveredAsset=null;
+    document.getElementById('tooltip').classList.remove('show');
+    canvas3.style.cursor=isDragging?'grabbing':'grab';
   }
+});
+container.addEventListener('mousedown',e=>{isDragging=true;prevMouse={x:e.clientX,y:e.clientY};canvas3.style.cursor='grabbing'});
+container.addEventListener('mouseup',()=>{isDragging=false;canvas3.style.cursor='grab';_lastOffsetKey='';});
+container.addEventListener('mouseleave',()=>{
+  isDragging=false;hoveredAsset=null;_lastOffsetKey='';
+  document.getElementById('tooltip').classList.remove('show');
+});
+container.addEventListener('wheel',e=>{e.preventDefault();targetZoom=Math.max(ZOOM_MIN,Math.min(ZOOM_MAX,targetZoom+e.deltaY*.005));},{passive:false});
+container.addEventListener('click',e=>{
+  const rect=canvas3.getBoundingClientRect(),mx=e.clientX-rect.left,my=e.clientY-rect.top;
+
+  // ── STACK BADGES (modo individual) ──
+  if(window._stackHits){
+    for(const h of window._stackHits){
+      if(Math.hypot(mx-h.sx,my-h.sy)<h.r){
+        if(h.canClose){
+          window._expandedStacks.delete(h.stackId);
+        } else {
+          if(window._expandedStacks.has(h.stackId)) window._expandedStacks.delete(h.stackId);
+          else window._expandedStacks.add(h.stackId);
+        }
+        return;
+      }
+    }
+  }
+
+  if(!clusterMode) return;
+  // Verifica hit em ativos explodidos primeiro
+  if(window._explodedHits){
+    for(const h of window._explodedHits){
+      if(Math.hypot(mx-h.sx,my-h.sy)<h.r){
+        hoveredAsset=h.a;showTooltip(h.a,e.clientX,e.clientY);return;
+      }
+    }
+  }
+
+  if(window._clusterHits){
+    for(const h of window._clusterHits){
+      if(Math.hypot(mx-h.sx,my-h.sy)<(h.cr||20)+6){
+        if(h.single) return;
+        const key=h.key;
+        if(h.canClose===true && explodedClusters.has(key)){
+          explodedClusters.delete(key);
+        } else if(!explodedClusters.has(key)){
+          explodedClusters.set(key, true);
+        } else {
+          explodedClusters.delete(key);
+        }
+        return;
+      }
+    }
+  }
+  if(explodedClusters.size>0) explodedClusters.clear();
+});
+
+function syncGroups(){if(!earthMesh)return;[atmMesh,glowMesh,atmRingMesh,markerGroup,arcGroup].forEach(o=>{if(o){o.rotation.y=earthMesh.rotation.y;o.rotation.x=earthMesh.rotation.x;}});}
+
+/* ══ PAINEL DIREITO — lista de ativos ══ */
+const RG_ORDER=['eua','brasil','asia','europa'];
+const RG_LABELS={eua:'EUA',brasil:'BRASIL',asia:'ÁSIA',europa:'EUROPA'};
+const RG_COLORS={eua:'var(--eua)',brasil:'var(--brasil)',asia:'var(--asia)',europa:'var(--europa)'};
+
+let _collapsedRegions = new Set();
+let _searchQuery = '';
+let selectedAsset = null; // ativo clicado na lista — fica pulsando no globo
+
+function clearAssetSearch(){
+  const inp = document.getElementById('assetSearch');
+  if(inp){ inp.value = ''; }
+  document.getElementById('assetSearchClear')?.classList.remove('visible');
+  filterAssetList('');
+}
+
+function filterAssetList(q){
+  _searchQuery = q.toLowerCase().trim();
+  // Mostra/esconde botão X
+  const clr = document.getElementById('assetSearchClear');
+  if(clr) clr.classList.toggle('visible', _searchQuery.length > 0);
+  renderAssetListBody();
+}
+
+function toggleRegionCollapse(rg){
+  if(_collapsedRegions.has(rg)) _collapsedRegions.delete(rg);
+  else _collapsedRegions.add(rg);
+  renderAssetListBody();
+}
+
+function renderAssetListBody(){
+  const body = document.getElementById('assetListBody');
+  if(!body) return;
+  const filtered = getActiveAssets();
+  const q = _searchQuery;
+
+  // Filtra por busca
+  const display = q
+    ? filtered.filter(a =>
+        a.ticker.toLowerCase().includes(q) ||
+        (a.name||'').toLowerCase().includes(q) ||
+        (a.type||'').toLowerCase().includes(q)
+      )
+    : filtered;
+
+  const total = filtered.reduce((s,a)=>s+a.pct,0)||1;
+  const rgPct = {};
+  filtered.forEach(a=>rgPct[a.region]=(rgPct[a.region]||0)+a.pct);
+
+  let html = '';
+  RG_ORDER.forEach(rg=>{
+    const grp = display.filter(a=>a.region===rg);
+    if(!grp.length) return;
+    const rgTot = rgPct[rg]||0;
+    const isCollapsed = _collapsedRegions.has(rg) && !q; // busca força expansão
+    const items = grp.sort((a,b)=>b.pct-a.pct).map(a=>`
+      <div class="a-item" onmouseenter="highlightAsset('${a.ticker}')" onmouseleave="highlightAsset(null)" onclick="focusAsset('${a.ticker}')">
+        <div class="a-logo">
+          <img src="${(window.TV_LOGOS&&window.TV_LOGOS.getUrl?window.TV_LOGOS.getUrl(a.ticker):'')||(a.logo&&TV_WHITELIST.has(a.logo)?'https://s3-symbol-logo.tradingview.com/'+a.logo+'.svg?v=3':'')||CRYPTO_LOGOS[a.ticker]||getFallbackLogoUrl(a.ticker)||''}"
+               style="width:42px;height:42px;object-fit:cover;border-radius:10px"
+               onload="this.parentNode.style.background='transparent';this.parentNode.style.border='none'" onerror="this.style.display='none'">
+        </div>
+        <div class="a-main">
+          <div class="a-ticker">${a.ticker}</div>
+          <div class="a-name">${a.name}</div>
+        </div>
+        <div class="a-right">
+          <div class="a-pct" style="color:${RG_COLORS[rg]}">${(a.pct/total*100).toFixed(1)}%</div>
+          <div class="a-pos">${a.pos}</div>
+          <div class="a-badge ${a.type}">${a.type.toUpperCase()}</div>
+        </div>
+      </div>`).join('');
+
+    html += `
+      <div class="rg-head ${isCollapsed?'collapsed':''}" onclick="toggleRegionCollapse('${rg}')">
+        <span class="rg-dot" style="background:${RG_COLORS[rg]}"></span>
+        ${RG_LABELS[rg]}
+        <span class="rg-pct" style="color:${RG_COLORS[rg]}">${(rgTot/total*100).toFixed(1)}%</span>
+        <span class="rg-chevron">▾</span>
+      </div>
+      <div class="rg-body ${isCollapsed?'collapsed':''}" style="max-height:${isCollapsed?'0':grp.length*80+'px'}">
+        ${items}
+      </div>`;
+  });
+  body.innerHTML = html;
+}
+
+function buildAssetList(){
+  const filtered=getActiveAssets();
+  const rgPct={};
+  filtered.forEach(a=>rgPct[a.region]=(rgPct[a.region]||0)+a.pct);
+  const total=filtered.reduce((s,a)=>s+a.pct,0)||1;
+  const rpA=document.getElementById('rp-ativos');if(rpA)rpA.textContent=filtered.length;
+  const rpR=document.getElementById('rp-regioes');if(rpR)rpR.textContent=Object.keys(rgPct).length+' regiões';
+  renderAssetListBody();
+}
+
+function focusAsset(ticker){
+  const a = ASSETS.find(x=>x.ticker===ticker);
+  if(!a) return;
+  // Define ativo selecionado — vai pulsar no globo
+  selectedAsset = (selectedAsset?.ticker === ticker) ? null : a;
+  // Voa para a região do ativo
+  const rmap={eua:'eua',brasil:'brasil',europa:'europa',asia:'asia'};
+  const rid=rmap[a.region];
+  if(rid && REGIONS[rid]){
+    flyTarget=REGIONS[rid]; flyProgress=0; autoRotate=false;
+    document.getElementById('btn-auto')?.classList.remove('on');
+  }
+  hoveredAsset=a;
+  // Atualiza visual da lista (destaca o item selecionado)
+  renderAssetListBody();
+}
+
+function highlightAsset(ticker){
+  // Destaca no globo quando hover na lista
+  if(ticker){
+    const asset=ASSETS.find(a=>a.ticker===ticker);
+    hoveredAsset=asset||null;
+  } else {
+    hoveredAsset=null;
+  }
+}
+
+/* ══ MARKERS / ARCS ══ */
+function buildMarkers(){
+  while(markerGroup.children.length)markerGroup.remove(markerGroup.children[0]);
+  getActiveAssets().forEach(a=>{
+    const pos=ll3(a.lat,a.lon,GLOBE_R+.01);
+    const d=new THREE.Mesh(new THREE.CircleGeometry(.05,20),new THREE.MeshBasicMaterial({transparent:true,opacity:0,side:THREE.DoubleSide}));
+    d.position.copy(pos);d.lookAt(pos.clone().multiplyScalar(2));d.userData={asset:a};markerGroup.add(d);
+  });
+  buildAssetList();
+}
+function buildArcs(){
+  while(arcGroup.children.length)arcGroup.remove(arcGroup.children[0]);
+  if(!showArcos)return;
+  const orig=ll3(-15,-55,GLOBE_R);
+  getActiveAssets().filter(a=>a.region!=='brasil').forEach(a=>{
+    const to=ll3(a.lat,a.lon,GLOBE_R);
+    const pts=new THREE.QuadraticBezierCurve3(orig,orig.clone().add(to).normalize().multiplyScalar(GLOBE_R*1.3),to).getPoints(60);
+    arcGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:new THREE.Color(a.color),transparent:true,opacity:.38})));
+  });
+}
+
+/* ══ TOOLTIP ══ */
+function showTooltip(a,cx,cy){
+  document.getElementById('tt-ticker').textContent=a.ticker;
+  document.getElementById('tt-co').textContent=a.name;
+  document.getElementById('tt-price').textContent=a.price;
+  document.getElementById('tt-qty').textContent=a.qty;
+  document.getElementById('tt-posv').textContent=a.pos;
+  document.getElementById('tt-pct').textContent=a.pct.toFixed(1)+'%';
+  const cb=document.getElementById('tt-chg-big');cb.textContent=a.chg;cb.className='tt-chg-big '+(a.up?'tt-up':'tt-dn');
+  const ttLogoUrl=(window.TV_LOGOS&&window.TV_LOGOS.getUrl?window.TV_LOGOS.getUrl(a.ticker):'')||(a.logo&&TV_WHITELIST.has(a.logo)?`https://s3-symbol-logo.tradingview.com/${a.logo}.svg?v=3`:'')||CRYPTO_LOGOS[a.ticker]||getFallbackLogoUrl(a.ticker)||'';
+  document.getElementById('tt-logo').innerHTML=`<img src="${ttLogoUrl}" style="width:40px;height:40px;object-fit:contain" onerror="this.style.display='none'">`;
+  const badge=document.getElementById('tt-badge');badge.textContent=a.type.toUpperCase();badge.className='tt-badge '+a.type;
+  document.getElementById('tt-city').textContent='📍 '+a.city;
+  const cc=(a.type==='cripto')?null:FLAG_CODES[a.flag];const fl=document.getElementById('tt-flag');
+  if(fl){if(cc){fl.style.display='inline-block';fl.src=`https://flagcdn.com/w40/${cc}.png`;}else fl.style.display='none';}
+  const cnt=SOCIAL_COUNTS[a.ticker]||0;const sc=document.getElementById('tt-social');
+  if(cnt>0){document.getElementById('tt-social-count').textContent=cnt;sc.style.display='flex';}else sc.style.display='none';
+  drawSparkline(a.spark,a.color);
+  const rect=container.getBoundingClientRect();
+  let lx=cx-rect.left+120, ly=cy-rect.top-120;
+  if(lx+390>container.clientWidth-8) lx=cx-rect.left-410;
+  if(lx<8) lx=8;
+  if(ly<10) ly=10;
+  if(ly+420>container.clientHeight-20) ly=container.clientHeight-430;
+  const tt=document.getElementById('tooltip');tt.style.left=lx+'px';tt.style.top=ly+'px';tt.classList.add('show');
+}
+function drawSparkline(data,color){
+  const sc=document.getElementById('sparkline'),sx=sc.getContext('2d');sx.clearRect(0,0,326,48);
+  const mn=Math.min(...data),mx=Math.max(...data),rng=mx-mn||1;
+  sx.beginPath();data.forEach((v,i)=>{const x=(i/(data.length-1))*326,y=44-((v-mn)/rng)*40;i===0?sx.moveTo(x,y):sx.lineTo(x,y);});
+  sx.strokeStyle=color;sx.lineWidth=2;sx.stroke();sx.lineTo(326,48);sx.lineTo(0,48);sx.fillStyle=color+'22';sx.fill();
+}
+
+/* ══ FLY-TO ══ */
+function latLonToRot(lat,lon){const t=(lon+180)*Math.PI/180;return{rotY:Math.PI/2-t,rotX:Math.max(-1.2,Math.min(1.2,lat*Math.PI/180))};}
+const REGIONS={eua:latLonToRot(38,-100),brasil:latLonToRot(-15,-55),europa:latLonToRot(50,15),asia:latLonToRot(35,105)};
+function flyTo(r,el){document.querySelectorAll('.region-tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');flyTarget=REGIONS[r];flyProgress=0;autoRotate=false;document.getElementById('btn-auto').classList.remove('on');}
+
+/* ══ CONTROLS ══ */
+/* ══ SIDEBAR ══ */
+function toggleSidebar(){
+  const sb=document.getElementById('sidebar');
+  const ov=document.getElementById('overlay');
+  if(sb){sb.classList.toggle('open');if(ov)ov.classList.toggle('show',sb.classList.contains('open'));}
+}
+function closeSidebar(){
+  const sb=document.getElementById('sidebar');
+  const ov=document.getElementById('overlay');
+  if(sb){sb.classList.remove('open');if(ov)ov.classList.remove('show');}
+}
+function toggleSidebarCollapse(){
+  const sb=document.getElementById('sidebar');
+  if(sb) sb.classList.toggle('sidebar-collapsed');
+}
+function g20Logout(){
+  try{firebase.auth().signOut();}catch(e){}
+  location.href='login.html';
+}
+
+function toggleArcos(){showArcos=!showArcos;document.getElementById('btn-arcos').classList.toggle('on',showArcos);buildArcs();}
+function toggleAuto(){autoRotate=!autoRotate;document.getElementById('btn-auto').classList.toggle('on',autoRotate);if(!autoRotate){_lastOffsetKey='';_offsetCache={};}}
+function toggleAtm(){showAtm=!showAtm;if(atmMesh)atmMesh.visible=showAtm;if(glowMesh)glowMesh.visible=showAtm;if(atmRingMesh)atmRingMesh.visible=showAtm;document.getElementById('btn-atm').classList.toggle('on',showAtm);}
+function setFilter(f,btn){
+  activeFilter=f;
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  _offsetCache={};_lastOffsetKey=''; // invalida cache
+  buildMarkers();buildArcs();updateClassPanel();
+}
+function toggleCluster(){clusterMode=!clusterMode;explodedClusters.clear();document.getElementById('btn-cluster').classList.toggle('on',clusterMode);buildMarkers();}
+
+/* ══ DIA/NOITE ══ */
+function toggleDay(){
+  isDayMode=!isDayMode;document.body.classList.toggle('day',isDayMode);
+  document.getElementById('modeBtn').textContent=isDayMode?'🌙 NOTURNO':'☀️ DIURNO';
+  if(!earthMesh)return;
+  earthMesh.material.map=isDayMode?texDay:texNight;earthMesh.material.emissiveMap=isDayMode?null:texNight;
+  earthMesh.material.emissiveIntensity=isDayMode?0:1.1;earthMesh.material.emissive.set(isDayMode?0x000000:0x886633);
+  earthMesh.material.specular.set(isDayMode?0x080808:0x223366);earthMesh.material.shininess=isDayMode?2:6;
+  earthMesh.material.needsUpdate=true;sunLight.intensity=isDayMode?1.2:1.0;ambLight.intensity=isDayMode?.8:.75;
+  fillLight.intensity=isDayMode?.05:.45;backTopLight.intensity=isDayMode?0:.3;stars.material.opacity=isDayMode?0:.45;
+}
+
+/* ══ CINEMA ══ */
+function toggleCinema(){
+  cinemaMode=!cinemaMode;document.body.classList.toggle('cinema',cinemaMode);
+  if(cinemaMode){try{const ctx=new(window.AudioContext||window.webkitAudioContext)();const o1=ctx.createOscillator(),o2=ctx.createOscillator(),g=ctx.createGain();o1.type='sine';o1.frequency.value=55;o2.type='sine';o2.frequency.value=82.4;g.gain.value=0;o1.connect(g);o2.connect(g);g.connect(ctx.destination);o1.start();o2.start();g.gain.linearRampToValueAtTime(.04,ctx.currentTime+3);cinemaAudio={ctx,g,o1,o2};}catch(e){}}
+  else{if(cinemaAudio){cinemaAudio.g.gain.linearRampToValueAtTime(0,cinemaAudio.ctx.currentTime+1);setTimeout(()=>{try{cinemaAudio.o1.stop();cinemaAudio.o2.stop();}catch(e){}cinemaAudio=null;},1200);}}
+}
+
+/* ══ TIMELINE ══ */
+let _tlAutoInterval = null;
+
+// Constrói snapshots da timeline a partir dos aportes reais do localStorage
+function buildTimelineSnapshots(){
+  try{
+    const raw = localStorage.getItem('g20_aportes');
+    if(!raw) return; // mantém snapshots estáticos como fallback
+    const aportes = JSON.parse(raw);
+    if(!Array.isArray(aportes)||!aportes.length) return;
+
+    // Ordena por data
+    const sorted = aportes
+      .filter(a => a.data || a.date || a.dt)
+      .map(a => ({
+        ticker: (a.ticker||'').trim().toUpperCase(),
+        data: new Date(a.data || a.date || a.dt),
+        op: (a.op||'C').toUpperCase()
+      }))
+      .filter(a => a.ticker && !isNaN(a.data))
+      .sort((a,b) => a.data - b.data);
+
+    if(!sorted.length) return;
+
+    // Agrupa por mês — cada mês com aporte gera um snapshot
+    const monthMap = {};
+    const activeSet = new Set();
+
+    sorted.forEach(a => {
+      const d = a.data;
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      if(!monthMap[key]) monthMap[key] = {label: key, adds: [], removes: []};
+      if(a.op === 'V') monthMap[key].removes.push(a.ticker);
+      else             monthMap[key].adds.push(a.ticker);
+    });
+
+    // Reduz para no máx 12 snapshots (mais legível na timeline)
+    const months = Object.keys(monthMap).sort();
+    const step = Math.max(1, Math.floor(months.length / 12));
+    const selectedMonths = months.filter((_,i) => i % step === 0 || i === months.length-1);
+
+    const newSnapshots = [];
+    for(const m of selectedMonths){
+      // Aplica todos os meses até este
+      const upToIdx = months.indexOf(m);
+      const localSet = new Set();
+      for(let i=0; i<=upToIdx; i++){
+        const mm = monthMap[months[i]];
+        mm.adds.forEach(t => localSet.add(t));
+        mm.removes.forEach(t => localSet.delete(t));
+      }
+      const [yr, mo] = m.split('-');
+      const label = new Date(+yr, +mo-1).toLocaleDateString('pt-BR',{month:'short',year:'2-digit'}).replace('. ','/'). replace('.','');
+      newSnapshots.push({ label, assets: [...localSet] });
+    }
+
+    if(newSnapshots.length >= 2){
+      TIMELINE_SNAPSHOTS.length = 0;
+      newSnapshots.forEach(s => TIMELINE_SNAPSHOTS.push(s));
+      timelineIndex = TIMELINE_SNAPSHOTS.length - 1;
+    }
+  }catch(e){ console.warn('buildTimelineSnapshots:', e); }
+}
+
+function toggleTimeline(){
+  timelineActive=!timelineActive;
+  if(timelineActive) buildTimelineSnapshots();
+  document.getElementById('timelineBar').classList.toggle('show',timelineActive);
+  document.getElementById('btn-timeline').classList.toggle('timeline-on',timelineActive);
+  if(timelineActive){
+    timelineIndex = 0;
+    onTimelineChange(0);
+    startTimelineAutoplay();
+  } else {
+    stopTimelineAutoplay();
+    timelineIndex=TIMELINE_SNAPSHOTS.length-1;
+    buildMarkers();buildArcs();
+  }
+}
+
+function startTimelineAutoplay(){
+  stopTimelineAutoplay();
+  _tlAutoInterval = setInterval(()=>{
+    const next = timelineIndex + 1;
+    if(next >= TIMELINE_SNAPSHOTS.length){
+      stopTimelineAutoplay();
+      // Fica no último frame
+      return;
+    }
+    onTimelineChange(next);
+    const sl = document.getElementById('tlSlider');
+    if(sl) sl.value = next;
+  }, 1200); // avança a cada 1.2s
+}
+
+function stopTimelineAutoplay(){
+  if(_tlAutoInterval){ clearInterval(_tlAutoInterval); _tlAutoInterval = null; }
+}
+
+function onTimelineChange(val){
+  timelineIndex=parseInt(val);
+  const snap=TIMELINE_SNAPSHOTS[timelineIndex];
+  const pct = TIMELINE_SNAPSHOTS.length > 1 ? (timelineIndex/(TIMELINE_SNAPSHOTS.length-1)*100) : 100;
+  const sl = document.getElementById('tlSlider');
+  if(sl){ sl.style.setProperty('--pct', pct+'%'); sl.value = timelineIndex; sl.max = TIMELINE_SNAPSHOTS.length-1; }
+  document.getElementById('tlDate').textContent=snap.label;
+  document.getElementById('tlCount').textContent=snap.assets.length+' ativo'+(snap.assets.length>1?'s':'')+' na carteira';
+  buildMarkers();buildArcs();updateClassPanel();updateRegionPanel();
+}
+
+/* ══ COMPARTILHAR ══ */
+function openShare(){
+  renderer.render(scene,camera);
+  const sc=document.createElement('canvas');sc.width=1080;sc.height=1080;
+  const sx=sc.getContext('2d',{willReadFrequently:true});
+  sx.fillStyle='#05040e';sx.fillRect(0,0,1080,1080);
+  const r=Math.min(1080/canvas3.width,1080/canvas3.height),gw=canvas3.width*r,gh=canvas3.height*r;
+  sx.drawImage(canvas3,(1080-gw)/2,(1080-gh)/2,gw,gh);
+  const vg=sx.createRadialGradient(540,540,300,540,540,700);vg.addColorStop(0,'rgba(5,4,14,0)');vg.addColorStop(1,'rgba(5,4,14,.7)');sx.fillStyle=vg;sx.fillRect(0,0,1080,1080);
+  sx.fillStyle='rgba(201,169,97,.95)';sx.font='bold 30px DM Sans,sans-serif';sx.textAlign='left';sx.textBaseline='top';sx.fillText('G20 MASTERCLASS',48,46);
+  sx.fillStyle='rgba(201,169,97,.5)';sx.font='13px DM Sans,sans-serif';sx.fillText('DISTRIBUIÇÃO GLOBAL DA CARTEIRA',48,84);
+  const fa=getActiveAssets();const rg={};fa.forEach(a=>rg[a.region]=(rg[a.region]||0)+a.pct);
+  const rc={'eua':'#60a5fa','brasil':'#4ade80','europa':'#c084fc','asia':'#fb923c'},rl={'eua':'EUA','brasil':'BRASIL','europa':'EUROPA','asia':'ÁSIA'};
+  let rx=48;const total=Object.values(rg).reduce((s,v)=>s+v,0)||1;
+  Object.entries(rg).forEach(([r,p])=>{sx.fillStyle=rc[r];sx.font='bold 20px JetBrains Mono,monospace';sx.textAlign='left';sx.textBaseline='bottom';sx.fillText((p/total*100).toFixed(1)+'%',rx,1040);sx.font='10px DM Sans,sans-serif';sx.fillStyle='rgba(255,255,255,.5)';sx.fillText(rl[r],rx,1054);rx+=110;});
+  sx.fillStyle='rgba(201,169,97,.9)';sx.font='bold 18px DM Sans,sans-serif';sx.textAlign='right';sx.textBaseline='bottom';sx.fillText('#nãofoisorte',1032,1054);
+  const prev=document.getElementById('share-preview');prev.innerHTML='';sc.style.cssText='width:100%;height:100%;object-fit:contain';prev.appendChild(sc);
+  shareCanvas=sc;document.getElementById('share-overlay').classList.add('show');
+}
+function downloadShare(){if(!shareCanvas)return;const l=document.createElement('a');l.download='atlas-g20.png';l.href=shareCanvas.toDataURL('image/png');l.click();}
+function closeShare(){document.getElementById('share-overlay').classList.remove('show');shareCanvas=null;}
+
+/* ══ MARKET STATUS ══ */
+function updateMarketStatus(){
+  const u=new Date().getUTCHours();
+  const set=(id,l,c)=>{const el=document.getElementById(id);if(el){el.textContent='● '+l;el.className='rt-st '+c;}};
+  set('ms-eua',u>=13&&u<20?'ABERTO':u===12?'PRÉ-MKT':'FECHADO',u>=13&&u<20?'st-open':u===12?'st-pre':'st-closed');
+  set('ms-br',u>=13&&u<21?'ABERTO':'FECHADO',u>=13&&u<21?'st-open':'st-closed');
+  set('ms-eu',u>=8&&u<16?'ABERTO':'FECHADO',u>=8&&u<16?'st-open':'st-closed');
+  set('ms-as',u>=0&&u<8?'ABERTO':'FECHADO',u>=0&&u<8?'st-open':'st-closed');
+}
+setInterval(updateMarketStatus,30000);updateMarketStatus();
+
+
+/* ══ CÂMBIO BRL/USD em tempo real ══ */
+function fetchCambio(){
+  fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL')
+    .then(r=>r.json())
+    .then(data=>{
+      const q=data.USDBRL;
+      if(!q) return;
+      const rate=parseFloat(q.bid).toFixed(2);
+      const pct=parseFloat(q.pctChange);
+      const el=document.getElementById('rp-cambio');
+      const sub=document.getElementById('rp-cambio-sub');
+      if(el) el.textContent=rate;
+      if(sub){
+        sub.textContent=(pct>=0?'▲ +':'▼ ')+pct.toFixed(2)+'%';
+        sub.className='sc-sub '+(pct>=0?'':'sc-neg');
+      }
+    })
+    .catch(()=>{
+      // Fallback: proxy G20
+      fetch('https://g20-proxy.vercel.app/api/quote?symbols=USD-BRL')
+        .then(r=>r.json())
+        .then(d=>{
+          const rate=d['USD-BRL']?.bid||d?.bid;
+          if(rate){
+            const el=document.getElementById('rp-cambio');
+            if(el) el.textContent=parseFloat(rate).toFixed(2);
+          }
+        }).catch(()=>{});
+    });
+}
+fetchCambio();
+setInterval(fetchCambio, 60000); // atualiza a cada 1 min
+
+/* ══ ANIMATE LOOP ══ */
+const clock=new THREE.Clock();
+let _animStarted=false;
+function animate(){
+  if(!_animStarted){ _animStarted=true; }
+  requestAnimationFrame(animate);
+  const dt=clock.getDelta();
+  currentZoom+=(targetZoom-currentZoom)*.08;camera.position.z=currentZoom;
+  if(earthMesh){
+    if(!earthMesh._init){earthMesh._init=true;buildMarkers();buildArcs();updateClassPanel();updateRegionPanel();buildAssetList();}
+    if(autoRotate&&!isDragging&&!hoveredAsset){earthMesh.rotation.y+=.000035;syncGroups();}
+    if(flyTarget){
+      flyProgress=Math.min(flyProgress+dt*1.2,1);const ease=1-Math.pow(1-flyProgress,3);
+      let dy=flyTarget.rotY-earthMesh.rotation.y;while(dy>Math.PI)dy-=Math.PI*2;while(dy<-Math.PI)dy+=Math.PI*2;
+      earthMesh.rotation.y+=dy*ease*.15;
+      earthMesh.rotation.x=Math.max(-Math.PI/2,Math.min(Math.PI/2,earthMesh.rotation.x+(flyTarget.rotX-earthMesh.rotation.x)*ease*.15));
+      syncGroups();
+      if(flyProgress>=1){let fd=flyTarget.rotY-earthMesh.rotation.y;while(fd>Math.PI)fd-=Math.PI*2;while(fd<-Math.PI)fd+=Math.PI*2;earthMesh.rotation.y+=fd;earthMesh.rotation.x=flyTarget.rotX;syncGroups();flyTarget=null;_lastOffsetKey='';_offsetCache={};}
+    }
+    drawOverlay(dt);
+  }
+  renderer.render(scene,camera);
+}
+animate(); // inicia imediatamente
+
+// Carrega dados reais da CG20 do localStorage
+setTimeout(()=>{
+  carregarCG20();
+  // Segunda chamada garante logos após assets carregarem (sem recarregar bandeiras)
+  setTimeout(()=>{
+    ASSETS.forEach(a=>{
+      if(logoImgs[a.ticker]!==undefined) return; // já tentou
+      const tvUrl=(window.TV_LOGOS&&window.TV_LOGOS.getUrl)?window.TV_LOGOS.getUrl(a.ticker):null;
+      const tvSlug=(a.logo&&TV_WHITELIST.has(a.logo))?a.logo:null;
+      const url=tvUrl||(tvSlug?`https://s3-symbol-logo.tradingview.com/${tvSlug}.svg?v=3`:null)||CRYPTO_LOGOS[a.ticker]||getFallbackLogoUrl(a.ticker);
+      if(!url) return;
+      const img=new Image();
+      img.onerror=()=>{ logoImgs[a.ticker]=null; };
+      img.src=url;
+      logoImgs[a.ticker]=img;
+    });
+  }, 2000);
+}, 500);
+
+window.addEventListener('resize',()=>{const w=container.clientWidth,h=container.clientHeight;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);resizeOv();});
+canvas3.style.cursor='grab';
+
+// Init timeline labels
+(()=>{
+  const lbl=document.getElementById('tlLabels');
+  if(lbl)lbl.innerHTML=TIMELINE_SNAPSHOTS.filter((_,i)=>i===0||i===4||i===8).map(s=>`<span>${s.label}</span>`).join('');
 })();
+</script>
+</body>
+</html>
