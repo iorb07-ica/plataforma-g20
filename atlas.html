@@ -209,9 +209,11 @@ body.day .rp-search-input{color:#111113}
   display:flex;align-items:center;gap:8px;padding:12px 22px 10px;
   font-size:10px;color:var(--muted);letter-spacing:2px;font-weight:700;
   position:sticky;top:53px;background:var(--bg);z-index:5;
+  border-top:3px solid var(--border);
   border-bottom:1px solid var(--border);cursor:pointer;
   transition:background .15s;user-select:none;
 }
+.rg-head:first-child{border-top:none}
 .rg-head:hover{background:rgba(201,169,97,.05)}
 body.day .rg-head{background:#f5f5f7;color:#333338}
 .rg-dot{width:8px;height:8px;border-radius:50%}
@@ -220,6 +222,7 @@ body.day .rg-head{background:#f5f5f7;color:#333338}
 .rg-head.collapsed .rg-chevron{transform:rotate(-90deg)}
 .rg-body{overflow:hidden;transition:max-height .3s ease}
 .rg-body.collapsed{max-height:0!important}
+.rg-body .a-item:last-child{border-bottom:none;margin-bottom:1px}
 .a-item{
   display:flex;align-items:center;gap:12px;padding:12px 22px;
   border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s;
@@ -732,6 +735,31 @@ const COORDS_TABLE={
   'XPLG11':{lat:-1.45, lon:-48.50,region:'brasil',type:'fii',color:'#e8c766',logo:'xp-investimentos',flag:'🇧🇷',city:'Belém, PA'},     // galpões logísticos PA
 };
 
+// Âncoras geográficas para ativos sem coords no COORDS_TABLE
+const BR_ANCHORS = [
+  {lat:-23.5,lon:-46.6},{lat:-22.9,lon:-43.2},{lat:-19.9,lon:-43.9},
+  {lat:-3.1, lon:-60.0},{lat:-8.0, lon:-34.9},{lat:-15.8,lon:-47.9},
+  {lat:-27.6,lon:-48.5},{lat:-30.0,lon:-51.2},{lat:-12.9,lon:-38.5},
+  {lat:-1.5, lon:-48.5},
+];
+const EUA_ANCHORS = [
+  {lat:37.4, lon:-122.1},{lat:47.6, lon:-122.3},{lat:40.7, lon:-74.0},
+  {lat:41.9, lon:-87.6}, {lat:33.7, lon:-84.4}, {lat:29.8, lon:-95.4},
+  {lat:34.0, lon:-118.2},{lat:44.8, lon:-93.4}, {lat:47.6, lon:-117.4},
+  {lat:39.7, lon:-104.9},
+];
+function assignAnchorCoord(idx, total, anchors){
+  const anchorIdx = idx % anchors.length;
+  const anchor = anchors[anchorIdx];
+  const subIdx = Math.floor(idx / anchors.length);
+  const subTotal = Math.ceil(total / anchors.length);
+  if(subTotal <= 0) return {lat:anchor.lat, lon:anchor.lon};
+  const golden=2.399963;
+  const r = 3.5 * Math.sqrt(subIdx / Math.max(subTotal,1));
+  const theta = subIdx * golden;
+  return { lat: anchor.lat + r*Math.cos(theta), lon: anchor.lon + r*Math.sin(theta)*1.4 };
+}
+
 function carregarCG20(){
   try{
     const raw=localStorage.getItem('g20_aportes');
@@ -762,14 +790,6 @@ function carregarCG20(){
     });
 
     // Grade espiral ao redor do centróide — distribui ativos sem coords
-    function spiralCoord(idx, total, baseLat, baseLon, spread){
-      if(total<=1) return {lat:baseLat, lon:baseLon};
-      const golden=2.399963; // ângulo dourado em radianos
-      const r=spread*Math.sqrt(idx/total);
-      const theta=idx*golden;
-      return { lat:baseLat+r*Math.cos(theta), lon:baseLon+r*Math.sin(theta)*1.5 };
-    }
-
     const novos=Object.values(grouped)
       .filter(g=>g.qtd>0.001&&g.custo>0.01)
       .map(g=>{
@@ -782,11 +802,11 @@ function carregarCG20(){
         if(coords){ lat=coords.lat; lon=coords.lon; }
         else if(g.moeda==='BRL'){
           const idx=semCoordsBR.indexOf(g.ticker);
-          const sp=spiralCoord(idx,semCoordsBR.length,-22.0,-48.0,14);
+          const sp=assignAnchorCoord(idx,semCoordsBR.length,BR_ANCHORS);
           lat=sp.lat; lon=sp.lon;
         } else {
           const idx=semCoordsEUA.indexOf(g.ticker);
-          const sp=spiralCoord(idx,semCoordsEUA.length,38.0,-97.0,22);
+          const sp=assignAnchorCoord(idx,semCoordsEUA.length,EUA_ANCHORS);
           lat=sp.lat; lon=sp.lon;
         }
 
@@ -866,12 +886,12 @@ function carregarMinhaCarteira(){
       if(coords){lat=coords.lat;lon=coords.lon;}
       else if(g.moeda==='BRL'){
         const idx=semCoordsBR2.indexOf(g.ticker);
-        const n=semCoordsBR2.length,r=8*Math.sqrt(idx/n),th=idx*2.399963;
-        lat=-22.0+r*Math.cos(th);lon=-48.0+r*Math.sin(th)*1.5;
+        const sp=assignAnchorCoord(idx,semCoordsBR2.length,BR_ANCHORS);
+        lat=sp.lat;lon=sp.lon;
       } else {
         const idx=semCoordsEUA2.indexOf(g.ticker);
-        const n=semCoordsEUA2.length,r=14*Math.sqrt(idx/n),th=idx*2.399963;
-        lat=38.0+r*Math.cos(th);lon=-97.0+r*Math.sin(th)*1.5;
+        const sp=assignAnchorCoord(idx,semCoordsEUA2.length,EUA_ANCHORS);
+        lat=sp.lat;lon=sp.lon;
       }
       return{
         ticker:g.ticker,name: COMPANY_NAMES[g.ticker] || g.nome || g.ticker,
@@ -1165,10 +1185,10 @@ const markerGroup=new THREE.Group(),arcGroup=new THREE.Group();
 scene.add(markerGroup,arcGroup);
 
 let backTopLight;
-const ambLight=new THREE.AmbientLight(0xffffff,.38);scene.add(ambLight);
-const sunLight=new THREE.DirectionalLight(0xfff0e0,.65);sunLight.position.set(5,2,4);scene.add(sunLight);
-const fillLight=new THREE.DirectionalLight(0x3355cc,.18);fillLight.position.set(-4,-1,-3);scene.add(fillLight);
-backTopLight=new THREE.DirectionalLight(0x112244,.12);backTopLight.position.set(0,5,-4);scene.add(backTopLight);
+const ambLight=new THREE.AmbientLight(0xffffff,.75);scene.add(ambLight);
+const sunLight=new THREE.DirectionalLight(0xfff0e0,1.0);sunLight.position.set(5,2,4);scene.add(sunLight);
+const fillLight=new THREE.DirectionalLight(0x3355cc,.45);fillLight.position.set(-4,-1,-3);scene.add(fillLight);
+backTopLight=new THREE.DirectionalLight(0x224488,.3);backTopLight.position.set(0,5,-4);scene.add(backTopLight);
 
 const sv=[];for(let i=0;i<1800;i++){const r=320;sv.push((Math.random()-.5)*r*2,(Math.random()-.5)*r*2,(Math.random()-.5)*r*2);}
 const sg=new THREE.BufferGeometry();sg.setAttribute('position',new THREE.Float32BufferAttribute(sv,3));
@@ -1203,8 +1223,8 @@ setTimeout(()=>{ if(!earthMesh) { initiated=false; tryInit(); } }, 4000);
 function buildEarth(){
   earthMesh=new THREE.Mesh(new THREE.SphereGeometry(GLOBE_R,72,72),new THREE.MeshPhongMaterial({
     map:texNight,bumpMap:texBump,bumpScale:.02,
-    specular:new THREE.Color(0x0a1822),shininess:3,
-    emissiveMap:texNight,emissive:new THREE.Color(0x331a00),emissiveIntensity:0.45,
+    specular:new THREE.Color(0x112244),shininess:6,
+    emissiveMap:texNight,emissive:new THREE.Color(0x886633),emissiveIntensity:1.1,
   }));
   scene.add(earthMesh);
   atmMesh=new THREE.Mesh(new THREE.SphereGeometry(GLOBE_R*1.018,64,64),new THREE.MeshPhongMaterial({color:0x1a44cc,transparent:true,opacity:.055,side:THREE.FrontSide}));scene.add(atmMesh);
@@ -1669,29 +1689,39 @@ function drawOverlay(dt){
     const scaledR = leader.r * Math.pow(hf, 0.5);
 
     if(isExpanded){
-      // Expandido: líder no centro + membros em órbita
+      // Expandido: líder no centro + membros em órbita bem espaçada
       drawSingle(leader.ox, leader.oy, scaledR, leader.col, leader.a, hf, leader.i, false);
       window._drawnMarkers.push({a:leader.a, sx:leader.ox, sy:leader.oy, r:scaledR});
 
-      const orbitR = scaledR + Math.max(...members.map(m=>m.r*Math.pow(hf,0.5))) + 6;
+      // Raio da órbita: garante que logos não se sobreponham
+      // Circunferência mínima = N × (2 × maxMemberR + gap)
+      // → orbitR = circunf / (2π) mas no mínimo scaledR + maxMemberR + padding
+      const memberRs = members.map(m => Math.max(8, m.r * Math.pow(hf, 0.5)));
+      const maxMR = Math.max(...memberRs);
+      const gap = 10; // px entre logos
+      const minCircumference = members.length * (maxMR * 2 + gap);
+      const minOrbitR = minCircumference / (2 * Math.PI);
+      const orbitR = Math.max(scaledR + maxMR + 16, minOrbitR);
+
       members.forEach((m, mi) => {
         const angle = (mi / members.length) * Math.PI * 2 - Math.PI/2;
         const ax = leader.ox + Math.cos(angle) * orbitR;
         const ay = leader.oy + Math.sin(angle) * orbitR;
-        const mr = m.r * Math.pow(hf, 0.5);
-        // Linha de conexão
+        const mr = memberRs[mi];
+        // Linha de conexão pontilhada sutil
         oc.beginPath(); oc.moveTo(leader.ox, leader.oy); oc.lineTo(ax, ay);
-        oc.strokeStyle = m.col + '33'; oc.lineWidth=0.5; oc.stroke();
+        oc.strokeStyle = m.col + '28'; oc.lineWidth=0.6;
+        oc.setLineDash([2,4]); oc.stroke(); oc.setLineDash([]);
         if(mr < 2.5){
           oc.beginPath(); oc.arc(ax, ay, Math.max(1.5,mr), 0, Math.PI*2);
           oc.fillStyle = m.col + Math.round(hf*200).toString(16).padStart(2,'0'); oc.fill();
         } else {
-          drawSingle(ax, ay, mr, m.col, m.a, hf*0.9, m.i, false);
+          drawSingle(ax, ay, mr, m.col, m.a, hf*0.95, m.i, false);
         }
         window._drawnMarkers.push({a:m.a, sx:ax, sy:ay, r:mr});
       });
 
-      // Botão fechar — "×" pequeno sobre o líder
+      // Hit area no líder para fechar
       window._stackHits.push({stackId, sx:leader.ox, sy:leader.oy, r:scaledR, canClose:true});
 
     } else {
