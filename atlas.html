@@ -840,6 +840,39 @@ const TV_SLUGS={
 };
 
 // Cache por SLUG (igual ao globo-g20-v4.html que funciona)
+// Logos fallback via Google Favicons — para empresas sem slug no TV CDN
+const FALLBACK_LOGOS={
+  'PETR4':'petrobras.com.br','PETR3':'petrobras.com.br',
+  'PRIO3':'prioilgas.com.br','BRAV3':'bravaenergia.com.br',
+  'HCTR11':'hectare.com.br','KNRI11':'kinea.com.br','KNCA11':'kinea.com.br',
+  'STBP3':'santosbrasil.com.br','SYNE3':'sinergiaenergia.com.br',
+  'BPAC11':'btgpactual.com','BTRA11':'btgpactual.com',
+  'BCRI11':'btgpactual.com','BTHF11':'btgpactual.com','TVRI11':'btgpactual.com',
+  'NATU3':'naturaeco.com','SQIA3':'totvs.com',
+  'B3SA3':'b3.com.br','MGLU3':'magazineluiza.com.br',
+  'INTB3':'intelbras.com.br','MOVI3':'movida.com.br','VIVA3':'vivara.com.br',
+  'RADL3':'raiadrogasil.com.br','QUAL3':'qualicorp.com.br',
+  'EGIE3':'engie.com.br','BMOB3':'bemobi.com',
+  'AZZA3':'azzas2154.com.br','WIZC3':'wiz.com.br',
+  'GMAT3':'grupomateus.com.br','CVCB3':'cvc.com.br','SBFG3':'sbfgrupo.com.br',
+  'HGLG11':'cshg.com.br','VISC11':'vincipartners.com.br',
+  'XPCA11':'xpinvestimentos.com.br','XPLG11':'xpinvestimentos.com.br',
+  'CPTR11':'capitania.com.br','SNAG11':'suno.com.br',
+  'IRDM11':'iridium.com.br','RBRR11':'rbcapital.com.br',
+  'VRTA11':'btgpactual.com','AUAU3':'ourofino.com.br',
+  'LOGG3':'logcp.com.br','TRIS3':'trisul.com.br',
+  'NU':'nu.com.br','XP':'xp.com','INTR':'inter.co',
+  'QBTS':'dwavesys.com','RGTI':'rigetti.com','CIO':'cityofficereit.com',
+  'SLG':'slgreen.com','STOR':'storecapital.com','DOC':'healthpeak.com',
+  'IIPR':'iipr.com','SKT':'tanger.com','NNN':'nnnreit.com',
+  'ESS':'essexproperty.com','WFC':'wellsfargo.com',
+  'BLK':'blackrock.com','JPM':'jpmorganchase.com',
+};
+function getFallbackLogoUrl(ticker){
+  const d=FALLBACK_LOGOS[ticker];
+  return d?`https://www.google.com/s2/favicons?domain=${d}&sz=64`:null;
+}
+
 // Logos cripto via CoinGecko (TV CDN não serve cripto)
 const CRYPTO_LOGOS={
   'BTC': 'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
@@ -867,8 +900,8 @@ function preloadAssets(){
     const img=new Image();
     // Cripto: usa CoinGecko. Outros: TV CDN sem crossOrigin (igual carteira.html)
     const url = CRYPTO_LOGOS[a.ticker]
-      ? CRYPTO_LOGOS[a.ticker]
-      : a.logo ? `https://s3-symbol-logo.tradingview.com/${a.logo}.svg?v=3` : null;
+      || (a.logo ? `https://s3-symbol-logo.tradingview.com/${a.logo}.svg?v=3` : null)
+      || getFallbackLogoUrl(a.ticker);
     if(!url) return;
     img.onerror=()=>{ logoImgs[a.ticker]=null; };
     img.src=url;
@@ -1496,7 +1529,7 @@ function buildAssetList(){
     grp.sort((a,b)=>b.pct-a.pct).forEach(a=>{
       html+=`<div class="a-item" onmouseenter="highlightAsset('${a.ticker}')" onmouseleave="highlightAsset(null)">
         <div class="a-logo">
-          <img src="${CRYPTO_LOGOS[a.ticker]||('https://s3-symbol-logo.tradingview.com/'+a.logo+'.svg?v=3')}"
+          <img src="${CRYPTO_LOGOS[a.ticker]||(a.logo?'https://s3-symbol-logo.tradingview.com/'+a.logo+'.svg?v=3':'')||getFallbackLogoUrl(a.ticker)||''}"
                style="width:24px;height:24px;object-fit:contain"
                onerror="this.style.display='none'">
         </div>
@@ -1555,7 +1588,7 @@ function showTooltip(a,cx,cy){
   document.getElementById('tt-posv').textContent=a.pos;
   document.getElementById('tt-pct').textContent=a.pct.toFixed(1)+'%';
   const cb=document.getElementById('tt-chg-big');cb.textContent=a.chg;cb.className='tt-chg-big '+(a.up?'tt-up':'tt-dn');
-  const ttLogoUrl=CRYPTO_LOGOS[a.ticker]||`https://s3-symbol-logo.tradingview.com/${a.logo}.svg?v=3`;
+  const ttLogoUrl=CRYPTO_LOGOS[a.ticker]||(a.logo?`https://s3-symbol-logo.tradingview.com/${a.logo}.svg?v=3`:'')||getFallbackLogoUrl(a.ticker)||'';
   document.getElementById('tt-logo').innerHTML=`<img src="${ttLogoUrl}" style="width:40px;height:40px;object-fit:contain" onerror="this.style.display='none'">`;
   const badge=document.getElementById('tt-badge');badge.textContent=a.type.toUpperCase();badge.className='tt-badge '+a.type;
   document.getElementById('tt-city').textContent='📍 '+a.city;
