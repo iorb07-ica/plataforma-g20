@@ -691,13 +691,16 @@ function tryInit(){
 }
 function onTex(w){return function(t){if(w==='night')texNight=t;if(w==='day')texDay=t;if(w==='bump')texBump=t;loadedCount++;if(loadedCount>=3)tryInit();};}
 function onTexErr(){loadedCount++;if(loadedCount>=3)tryInit();}
+
+// CDN primário: unpkg
 loader.load('https://unpkg.com/three-globe@2.31.2/example/img/earth-night.jpg',onTex('night'),undefined,onTexErr);
 loader.load('https://unpkg.com/three-globe@2.31.2/example/img/earth-blue-marble.jpg',onTex('day'),undefined,onTexErr);
 loader.load('https://unpkg.com/three-globe@2.31.2/example/img/earth-topology.png',onTex('bump'),undefined,onTexErr);
-setTimeout(()=>{if(!initiated)tryInit();},3000);
 
-// Força início imediato do loop — globo aparece mesmo sem textura
-window.addEventListener('load',()=>{ setTimeout(animate,200); });
+// Força abertura em 1.5s — não espera textura carregar
+setTimeout(()=>{ if(!initiated) tryInit(); }, 1500);
+// Segunda garantia em 4s
+setTimeout(()=>{ if(!earthMesh) { initiated=false; tryInit(); } }, 4000);
 
 function buildEarth(){
   earthMesh=new THREE.Mesh(new THREE.SphereGeometry(GLOBE_R,72,72),new THREE.MeshPhongMaterial({
@@ -1115,8 +1118,8 @@ setInterval(updateMarketStatus,30000);updateMarketStatus();
 const clock=new THREE.Clock();
 let _animStarted=false;
 function animate(){
-  if(!_animStarted){ _animStarted=true; requestAnimationFrame(animate); }
-  else requestAnimationFrame(animate);
+  if(!_animStarted){ _animStarted=true; }
+  requestAnimationFrame(animate);
   const dt=clock.getDelta();
   currentZoom+=(targetZoom-currentZoom)*.08;camera.position.z=currentZoom;
   if(earthMesh){
@@ -1134,7 +1137,7 @@ function animate(){
   }
   renderer.render(scene,camera);
 }
-animate();
+animate(); // inicia imediatamente
 
 window.addEventListener('resize',()=>{const w=container.clientWidth,h=container.clientHeight;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);resizeOv();});
 canvas3.style.cursor='grab';
