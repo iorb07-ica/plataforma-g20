@@ -1374,20 +1374,25 @@ function drawOverlay(dt){
   const filtered=getActiveAssets();
   const camDir=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
 
-  // Zoom scale: perto(2.2)→logos grandes | longe(6.5)→logos menores
-  // Fórmula linear simples e previsível
-  // zoomScale: zoom 2.2 (perto máx) → 2.5x | zoom 4.0 → 1.25x | zoom 6.5 → 0.77x
-  // LOD por zoom:
-  // zoom 6.5 (muito longe) → zoomScale 0.25 → pontos de 3-5px
-  // zoom 4.0 (médio)       → zoomScale 0.7  → bolinhas de 8-15px
-  // zoom 2.5 (perto)       → zoomScale 1.5  → logos de 16-36px
-  // zoom 2.2 (máx perto)   → zoomScale 1.8  → logos grandes 20-42px
-  // zoom 1.8 (máx perto)→2.0x | zoom 3.5 (médio)→1.0x | zoom 5.5 (longe)→0.45x
-  const zoomScale = Math.max(0.35, Math.min(2.0, 3.5 / currentZoom));
-  const baseRFn = (pct) => getRadius(pct, zoomScale);
+  // TAMANHO PERSPECTIVA REAL: como se o logo fosse um disco físico na superfície do globo
+  // worldSize = tamanho do disco em unidades 3D (proporcional ao peso)
+  // screenRadius = worldSize * (focalLength / cameraZ) — perspectiva real
+  const fovRad = camera.fov * Math.PI / 180;
+  const focalLen = (container.clientHeight / 2) / Math.tan(fovRad / 2);
 
-  // Clusters: apenas quando botão CLUSTERS está ativo OU zoom muito longe (> 4.5)
-  // Não mais "tooMany" — deixa o modo individual lidar com muitos ativos via separação
+  function worldSize(pct){
+    // Tamanho base em unidades 3D — proporcional ao peso
+    if(pct >= 8)  return 0.055 + pct * 0.004;
+    if(pct >= 3)  return 0.045 + pct * 0.003;
+    if(pct >= 1)  return 0.038 + pct * 0.004;
+    return 0.032 + pct * 0.006;
+  }
+
+  function screenR(pct, depth){
+    // depth = distância do logo à câmera (aprox = cameraZ para globo centrado)
+    return worldSize(pct) * focalLen / Math.max(depth, 0.5);
+  }
+
   const useClusters = clusterMode || currentZoom > 4.5;
 
   const allM=[];
@@ -1395,7 +1400,10 @@ function drawOverlay(dt){
     const pos3=ll3(a.lat,a.lon,GLOBE_R).applyEuler(earthMesh.rotation);
     const sp=w2s(pos3);
     const dot=pos3.clone().normalize().dot(camDir.clone().negate());
-    allM.push({a,i,ox:sp.x,oy:sp.y,sx:sp.x,sy:sp.y,dot,r:baseRFn(a.pct),col:a.color});
+    // depth: distância real do ponto à câmera
+    const depth = camera.position.z - pos3.z;
+    const r = screenR(a.pct, depth);
+    allM.push({a,i,ox:sp.x,oy:sp.y,sx:sp.x,sy:sp.y,dot,r,col:a.color});
   });
 
   if(useClusters){
@@ -1415,8 +1423,9 @@ function drawOverlay(dt){
       const isExploded=explodedClusters.has(key);
 
       if(n===1){
-        const _r1=baseRFn(cl.assets[0].pct)*Math.pow(fade,0.6);
-        if(_r1<4.5){
+        const depth = camera.position.z - pos3.z;
+        const _r1=screenR(cl.assets[0].pct, depth)*Math.pow(fade,0.5);
+        if(_r1<2.5){
           oc.beginPath();oc.arc(sx,sy,Math.max(1.5,_r1),0,Math.PI*2);
           oc.fillStyle=col+Math.round(fade*200).toString(16).padStart(2,'0');oc.fill();
         } else {
@@ -1436,11 +1445,12 @@ function drawOverlay(dt){
         oc.textAlign='center';oc.textBaseline='middle';
         oc.fillStyle='#ffffff';oc.globalAlpha=fade*.9;oc.fillText(n,sx,sy);oc.globalAlpha=1;
         // Órbita
-        const ORBIT=HUB+baseRFn(1)+28;
+        const depth2 = camera.position.z - pos3.z;
+        const ORBIT=HUB+screenR(1,depth2)+28;
         cl.assets.forEach((a,ai)=>{
           const angle=(ai/cl.assets.length)*Math.PI*2-Math.PI/2;
           const ax=sx+Math.cos(angle)*ORBIT, ay=sy+Math.sin(angle)*ORBIT;
-          const ar=Math.max(13,baseRFn(a.pct)*.75);
+          const ar=Math.max(10,screenR(a.pct,depth2)*.75);
           oc.beginPath();oc.moveTo(sx,sy);oc.lineTo(ax,ay);
           oc.strokeStyle=col+'22';oc.lineWidth=.5;oc.stroke();
           drawSingle(ax,ay,ar,a.color,a,fade,ci*100+ai,false);
@@ -1488,59 +1498,31 @@ function drawOverlay(dt){
   //    encolhe e desvanece com smoothstep. Sem jitter, sem tremer.
   // 3. dot < 0.02 → invisível
   //
-  // THRESHOLDS:
-  // dot >= 0.5   → logo 100% visível e tamanho normal
-  // dot 0.5→0.0  → fade + encolhe suavemente (zona visível no globo mas perto da borda)
-  // dot 0.0→-0.05 → últimos pixels antes de sumir
-  // dot < -0.05  → invisível
-  const DOT_FULL   = 0.5;
-  const DOT_HIDDEN = -0.05;
+  // MODO INDIVIDUAL — logos grudados na superfície, sem separação de força
+  // Posição = geográfica real sempre. Fade + encolhe perto do horizonte.
+  const DOT_FULL   = 0.5;   // 100% visível acima disso
+  const DOT_HIDDEN = -0.05; // invisível abaixo disso
 
   function horizonFactor(dot){
     if(dot >= DOT_FULL)   return 1.0;
     if(dot <= DOT_HIDDEN) return 0.0;
     const t = (dot - DOT_HIDDEN) / (DOT_FULL - DOT_HIDDEN);
-    return t * t * (3 - 2 * t); // smoothstep
+    return t * t * (3 - 2 * t);
   }
 
-  // Separação apenas para logos bem visíveis (sem jitter nos do horizonte)
-  const fullM = allM.filter(m => m.dot >= DOT_FULL);
-  getStableOffsets(fullM);
+  // Ordena: dot menor = mais perto do horizonte = desenhado primeiro (fica embaixo)
+  const sorted = allM.filter(m => m.dot > DOT_HIDDEN).sort((a, b) => a.dot - b.dot);
 
-  // Todos os logos visíveis (inclui os em fade)
-  const visibleM = allM.filter(m => m.dot >= DOT_HIDDEN);
-
-  // Linhas de conexão só para separados
-  fullM.forEach(m => {
-    const moved = Math.hypot(m.sx - m.ox, m.sy - m.oy) > 5;
-    if(!moved) return;
-    oc.beginPath(); oc.moveTo(m.ox, m.oy); oc.lineTo(m.sx, m.sy);
-    oc.strokeStyle = m.col + '30';
-    oc.lineWidth = .6; oc.setLineDash([2,3]); oc.stroke(); oc.setLineDash([]);
-    oc.beginPath(); oc.arc(m.ox, m.oy, 2.5, 0, Math.PI*2);
-    oc.fillStyle = m.col + '55'; oc.fill();
-  });
-
-  // Desenha TODOS em ordem de dot (horizonte primeiro = embaixo)
-  // Logos no fullM usam posição separada; fora usam posição geográfica real
-  const sorted = visibleM.slice().sort((a, b) => a.dot - b.dot);
   sorted.forEach(m => {
     const hf = horizonFactor(m.dot);
     if(hf <= 0) return;
-
-    // Posição: separada se fullM, geográfica se fade zone
-    const sx = m.dot >= DOT_FULL ? m.sx : m.ox;
-    const sy = m.dot >= DOT_FULL ? m.sy : m.oy;
-
-    // Tamanho encolhe suavemente perto do horizonte
-    const scaledR = m.r * Math.pow(hf, 0.55);
-
-    if(scaledR < 3.5){
-      oc.beginPath(); oc.arc(sx, sy, Math.max(1.2, scaledR), 0, Math.PI*2);
+    const scaledR = m.r * Math.pow(hf, 0.5);
+    if(scaledR < 2.5){
+      oc.beginPath(); oc.arc(m.ox, m.oy, Math.max(1.2, scaledR), 0, Math.PI*2);
       oc.fillStyle = m.col + Math.round(hf * 200).toString(16).padStart(2,'0');
       oc.fill();
     } else {
-      drawSingle(sx, sy, scaledR, m.col, m.a, hf, m.i, false);
+      drawSingle(m.ox, m.oy, scaledR, m.col, m.a, hf, m.i, false);
     }
   });
 }
