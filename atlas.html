@@ -1042,12 +1042,12 @@ function getSubregion(a){
 }
 
 function buildGeoClusters(assets){
-  if(currentZoom <= 3.5 && !clusterMode)
+  if(currentZoom <= 3.2 && !clusterMode)
     return assets.map(a=>({assets:[a],lat:a.lat,lon:a.lon,color:a.color,region:a.region,totalPct:a.pct}));
 
-  // deg MUITO conservador — máximo 6° para não criar monstros
-  // zoom 3.5→1.4° | zoom 4.0→2.1° | zoom 5.0→3.5° | zoom 6.5→5.6°
-  const deg = Math.min(6, (currentZoom - 2.5) * 1.4);
+  // Raio por zoom — agressivo o suficiente para agrupar mas com cap
+  // zoom 3.2→3° | zoom 4.0→6° | zoom 5.0→10° | zoom 6.5→15°
+  const deg = Math.min(15, (currentZoom - 1.5) * 2.8);
 
   const used = new Array(assets.length).fill(false);
   const cls = [];
@@ -1060,7 +1060,7 @@ function buildGeoClusters(assets){
 
     for(let j=i+1;j<assets.length;j++){
       if(used[j]) continue;
-      if(cl.assets.length >= MAX_PER_CLUSTER) break; // CAP DURO
+      if(cl.assets.length >= MAX_PER_CLUSTER) break;
       const b = assets[j];
       if(b.region !== a.region) continue;
       if(Math.abs(cl.lat-b.lat)<deg && Math.abs(cl.lon-b.lon)<deg){
@@ -1154,8 +1154,8 @@ function drawOverlay(dt){
   const zoomScale = Math.max(0.5, Math.min(2.8, 5.5/currentZoom));
   const baseRFn = (pct) => Math.max(12, (9 + pct*0.55) * zoomScale);
 
-  // AUTO-CLUSTER por zoom: > 3.5 agrupa, ≤ 3.5 individual
-  const useClusters = clusterMode || currentZoom > 3.5;
+  // AUTO-CLUSTER por zoom: > 3.2 agrupa, ≤ 3.2 individual
+  const useClusters = clusterMode || currentZoom > 3.2;
 
   const allM=[];
   filtered.forEach((a,i)=>{
@@ -1178,66 +1178,59 @@ function drawOverlay(dt){
       const isExploded=explodedClusters.has(key);
 
       if(n===1){
-        // Ativo individual
         drawSingle(sx,sy,baseRFn(cl.assets[0].pct),col,cl.assets[0],fade,ci,false);
         window._clusterHits.push({cl,sx,sy,cr:baseRFn(cl.assets[0].pct)+4,single:true});
+
       } else if(isExploded){
-        // Cluster explodido — hub pequeno fixo + ativos em órbita
-        const HUB=22;
+        // HUB pequeno + ativos em órbita
+        const HUB=20;
+        // Fundo colorido do hub
         oc.beginPath();oc.arc(sx,sy,HUB,0,Math.PI*2);
-        oc.fillStyle='rgba(6,4,16,.95)';oc.fill();
+        oc.fillStyle=col+'33';oc.fill();
         oc.beginPath();oc.arc(sx,sy,HUB,0,Math.PI*2);
-        oc.strokeStyle=col+'cc';oc.lineWidth=2;oc.stroke();
-        oc.font='700 11px JetBrains Mono,monospace';
+        oc.strokeStyle=col+'ee';oc.lineWidth=2;oc.stroke();
+        oc.font='700 10px JetBrains Mono,monospace';
         oc.textAlign='center';oc.textBaseline='middle';
-        oc.fillStyle=col;oc.globalAlpha=fade;oc.fillText(n,sx,sy);oc.globalAlpha=1;
-        // Ring de "fechar"
-        oc.beginPath();oc.arc(sx,sy,HUB+4,0,Math.PI*2);
-        oc.strokeStyle='#e8c76640';oc.lineWidth=1;oc.stroke();
-        // Ativos em órbita — raio fixo independente do zoom
-        const ORBIT=HUB+baseRFn(1.5)+32;
+        oc.fillStyle='#ffffff';oc.globalAlpha=fade*.9;oc.fillText(n,sx,sy);oc.globalAlpha=1;
+        // Órbita
+        const ORBIT=HUB+baseRFn(1)+28;
         cl.assets.forEach((a,ai)=>{
           const angle=(ai/cl.assets.length)*Math.PI*2-Math.PI/2;
           const ax=sx+Math.cos(angle)*ORBIT, ay=sy+Math.sin(angle)*ORBIT;
-          const ar=Math.max(14,baseRFn(a.pct)*.8);
+          const ar=Math.max(13,baseRFn(a.pct)*.75);
           oc.beginPath();oc.moveTo(sx,sy);oc.lineTo(ax,ay);
-          oc.strokeStyle=col+'25';oc.lineWidth=.6;oc.stroke();
-          drawSingle(ax,ay,ar,col,a,fade,ci*100+ai,false);
+          oc.strokeStyle=col+'22';oc.lineWidth=.5;oc.stroke();
+          drawSingle(ax,ay,ar,a.color,a,fade,ci*100+ai,false);
           window._explodedHits.push({a,sx:ax,sy:ay,r:ar+4,clKey:key});
         });
         window._clusterHits.push({cl,sx,sy,cr:HUB+4,key,canClose:true});
+
       } else {
-        // Cluster fechado — tamanho FIXO baseado no número de ativos, não no zoom
-        const MAX_CR=36, MIN_CR=20;
-        const cr=Math.min(MAX_CR, MIN_CR + n*1.2);
-        // Glow sutil
-        const g=oc.createRadialGradient(sx,sy,cr*.4,sx,sy,cr*1.8);
-        g.addColorStop(0,col+'15');g.addColorStop(1,col+'00');
-        oc.beginPath();oc.arc(sx,sy,cr*1.8,0,Math.PI*2);oc.fillStyle=g;oc.fill();
-        // Fundo
+        // CLUSTER FECHADO — mini bolinha colorida com número
+        // Tamanho FIXO pequeno: 18-28px, não cresce com zoom
+        const cr = Math.min(28, 16 + n * 1.0);
+
+        // Fundo colorido semi-transparente (não preto!)
         oc.beginPath();oc.arc(sx,sy,cr,0,Math.PI*2);
-        oc.fillStyle=`rgba(6,4,16,${.93*fade})`;oc.fill();
-        // Arco de progresso (% da carteira)
-        const arc=Math.min(1,cl.totalPct/30)*Math.PI*1.85;
-        oc.beginPath();oc.arc(sx,sy,cr,-Math.PI/2,-Math.PI/2+arc);
-        oc.strokeStyle=col+'cc';oc.lineWidth=3;oc.stroke();
-        // Borda fina
+        oc.fillStyle=col+'28';oc.fill();
+
+        // Borda colorida sólida
         oc.beginPath();oc.arc(sx,sy,cr,0,Math.PI*2);
-        oc.strokeStyle=col+'30';oc.lineWidth=1;oc.stroke();
-        // Número
-        oc.font=`800 ${cr>28?14:11}px JetBrains Mono,monospace`;
+        oc.strokeStyle=col+'dd';oc.lineWidth=2;oc.stroke();
+
+        // Número branco no centro
+        const fs=cr>22?13:11;
+        oc.font=`800 ${fs}px JetBrains Mono,monospace`;
         oc.textAlign='center';oc.textBaseline='middle';
-        oc.fillStyle=col;oc.globalAlpha=fade;oc.fillText(n,sx,cr>26?sy-2:sy);oc.globalAlpha=1;
-        if(cr>24){
-          oc.font='500 7px DM Sans,sans-serif';
-          oc.fillStyle=col+'66';oc.globalAlpha=fade;
-          oc.fillText('ativos',sx,sy+9);oc.globalAlpha=1;
-        }
-        // Pulse ring suave
-        const ph=(pulseClock*.2+ci*.4)%1;
-        oc.beginPath();oc.arc(sx,sy,cr+ph*8,0,Math.PI*2);
-        oc.strokeStyle=col+Math.round((1-ph)*.15*fade*255).toString(16).padStart(2,'0');
-        oc.lineWidth=1;oc.stroke();
+        oc.fillStyle='#ffffff';oc.globalAlpha=fade*.95;
+        oc.fillText(n,sx,sy);oc.globalAlpha=1;
+
+        // Pulse ring colorido
+        const ph=(pulseClock*.25+ci*.5)%1;
+        oc.beginPath();oc.arc(sx,sy,cr+ph*10,0,Math.PI*2);
+        oc.strokeStyle=col+Math.round((1-ph)*.25*fade*255).toString(16).padStart(2,'0');
+        oc.lineWidth=1.2;oc.stroke();
+
         window._clusterHits.push({cl,sx,sy,cr,key,canClose:false});
       }
     });
