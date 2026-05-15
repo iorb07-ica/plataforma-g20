@@ -16,14 +16,14 @@
   --eua:#60a5fa;--brasil:#4ade80;--europa:#c084fc;--asia:#fb923c;
 }
 body.day{--bg:#f5f5f7;--surface:#fff;--text:#111113;--muted:#6b6b72;--border:#d8d8dc;}
-html,body{width:100%;height:100%;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;overflow:hidden}
+html,body{width:100%;height:100%;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif}
 
 /* Layout principal: sidebar + main */
 /* Layout dashboard-compatible */
 :root{--sidebar:200px;--sidebar-collapsed:68px}
 .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99}
 .overlay.show{display:block}
-/* Main — margem esquerda fixa igual ao dashboard */
+/* Main */
 .main{margin-left:var(--sidebar);display:flex;flex-direction:column;height:100vh;overflow:hidden;transition:margin-left .4s cubic-bezier(.4,0,.2,1)}
 body.sidebar-collapsed .main{margin-left:var(--sidebar-collapsed)}
 @media(max-width:768px){.main{margin-left:0!important}}
@@ -35,18 +35,16 @@ body.day .topbar{background:rgba(245,245,247,.97)}
 .btn-menu{background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:4px 8px;transition:color .15s}
 .btn-menu:hover{color:#fff}
 .page-title{font-size:15px;font-weight:700;color:var(--text)}
-/* Atlas main — ocupa resto da altura após topbar */
-.atlas-main{flex:1 1 auto !important;position:relative !important;overflow:hidden !important;display:block !important;background:radial-gradient(ellipse at 50% 48%,#0c0b1e 0%,#03020a 100%);height:calc(100vh - 52px) !important}
+/* Atlas main — flex row: globo | painel direito */
+.atlas-main{flex:1;display:flex;flex-direction:row;overflow:hidden;background:radial-gradient(ellipse at 50% 48%,#0c0b1e 0%,#03020a 100%)}
 body.day .atlas-main{background:radial-gradient(ellipse at 50% 48%,#d8dae8 0%,#bcc0d4 100%)}
 body.cinema .topbar{display:none}
-body.cinema .atlas-main{height:100vh !important;background:#000}
-/* globo ocupa tudo menos 420px da direita */
-#gc{position:absolute !important;top:0 !important;left:0 !important;right:420px !important;bottom:0 !important;overflow:hidden !important}
-/* painel direito colado à direita do atlas-main */
-.right-panel{position:absolute !important;top:0 !important;right:0 !important;width:420px !important;bottom:0 !important;border-left:1px solid var(--border);display:flex !important;flex-direction:column !important;background:#1a191e !important;overflow:hidden !important;z-index:10 !important}
-body.cinema .right-panel{display:none !important}
-/* gc ocupa todo o espaço restante */
-/* #gc merged above */
+body.cinema .atlas-main{background:#000}
+/* globo ocupa espaço restante */
+#gc{flex:1;position:relative;overflow:hidden;min-width:0}
+/* painel direito */
+.right-panel{width:420px;flex-shrink:0;border-left:1px solid var(--border);display:flex;flex-direction:column;background:#1a191e;overflow:hidden}
+body.cinema .right-panel{display:none}
 .live-badge{display:flex;align-items:center;gap:5px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.2);border-radius:20px;padding:3px 10px;font-size:9px;color:#4ade80;letter-spacing:1px}
 .live-dot{width:5px;height:5px;border-radius:50%;background:#4ade80;animation:ldot 2s infinite}
 @keyframes ldot{0%,100%{opacity:1}50%{opacity:.3}}
@@ -429,7 +427,25 @@ body.day .a-ticker{color:#111113}
       <div class="zoom-hint">scroll = zoom</div>
     </div><!-- /#gc -->
 
-  <!-- PAINEL DIREITO — dentro do atlas-main, position:absolute -->
+  <!-- PAINEL DIREITO — irmão flex do #gc dentro do atlas-main -->
+  <div class="right-panel">
+    <div class="rp-topbar"><span>POSIÇÕES DA CARTEIRA</span></div>
+    <div class="sum-grid">
+      <div class="sum-card"><div class="sc-lbl">PATRIMÔNIO</div><div class="sc-v" id="rp-patrimonio">--</div><div class="sc-sub">▲ +2.4% hoje</div></div>
+      <div class="sum-card"><div class="sc-lbl">ATIVOS</div><div class="sc-v" id="rp-ativos">--</div><div class="sc-sub" id="rp-regioes">--</div></div>
+      <div class="sum-card"><div class="sc-lbl">DIVIDENDOS/MÊS</div><div class="sc-v">R$1.2k</div><div class="sc-sub">yield 5.1%</div></div>
+      <div class="sum-card"><div class="sc-lbl">CÂMBIO BRL/USD</div><div class="sc-v" id="rp-cambio">--</div><div class="sc-sub" id="rp-cambio-sub">carregando...</div></div>
+    </div>
+    <div class="asset-list" id="assetList">
+      <div class="rp-search"><div class="rp-search-inner">
+        <span class="rp-search-icon">🔍</span>
+        <input class="rp-search-input" id="assetSearch" placeholder="Buscar ativo..." oninput="filterAssetList(this.value)">
+        <button class="rp-search-clear" id="assetSearchClear" onclick="clearAssetSearch()" title="Limpar">✕</button>
+      </div></div>
+      <div id="assetListBody"></div>
+    </div>
+  </div><!-- /.right-panel -->
+
   </div><!-- /.atlas-main -->
 </div><!-- /.main -->
 
@@ -508,37 +524,6 @@ try{
 // ASSETS preenchido pelo carregarCG20() via localStorage
 const ASSETS=[];
 
-// ── INJETA PAINEL DIREITO via JS com style inline — imune a CSS externo ──
-(function injectRightPanel(){
-  var rp = document.createElement('div');
-  rp.id = 'right-panel-root';
-  rp.className = 'right-panel';
-  var html = '';
-  html += '<div class="rp-topbar"><span>POSIÇÕES DA CARTEIRA</span><\/div>';
-  html += '<div class="sum-grid">';
-  html += '<div class="sum-card"><div class="sc-lbl">PATRIMÔNIO<\/div><div class="sc-v" id="rp-patrimonio">--<\/div><div class="sc-sub">\u25b2 +2.4% hoje<\/div><\/div>';
-  html += '<div class="sum-card"><div class="sc-lbl">ATIVOS<\/div><div class="sc-v" id="rp-ativos">--<\/div><div class="sc-sub" id="rp-regioes">--<\/div><\/div>';
-  html += '<div class="sum-card"><div class="sc-lbl">DIVIDENDOS/MÊS<\/div><div class="sc-v">R$1.2k<\/div><div class="sc-sub">yield 5.1%<\/div><\/div>';
-  html += '<div class="sum-card"><div class="sc-lbl">CÂMBIO BRL/USD<\/div><div class="sc-v" id="rp-cambio">--<\/div><div class="sc-sub" id="rp-cambio-sub">carregando...<\/div><\/div>';
-  html += '<\/div>';
-  html += '<div class="asset-list" id="assetList">';
-  html += '<div class="rp-search"><div class="rp-search-inner">';
-  html += '<span class="rp-search-icon">\uD83D\uDD0D<\/span>';
-  html += '<input class="rp-search-input" id="assetSearch" placeholder="Buscar ativo..." oninput="filterAssetList(this.value)">';
-  html += '<button class="rp-search-clear" id="assetSearchClear" onclick="clearAssetSearch()" title="Limpar">\u2715<\/button>';
-  html += '<\/div><\/div>';
-  html += '<div id="assetListBody"><\/div>';
-  html += '<\/div>';
-  rp.innerHTML = html;
-  rp.style.cssText = 'position:fixed;top:52px;right:0;width:420px;bottom:0;z-index:9999;display:flex;flex-direction:column;background:#1a191e;border-left:1px solid rgba(255,255,255,0.08);overflow:hidden;font-family:DM Sans,sans-serif';
-  document.body.appendChild(rp);
-  function ajustarGc(){
-    var gc = document.getElementById('gc');
-    if(gc) gc.style.setProperty('right','420px','important');
-  }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', ajustarGc);
-  else ajustarGc();
-})();
 
 // ── TABELA COMPLETA — todos os 113 tickers da CG20
 // Nomes completos das empresas — usado no tooltip quando o aporte não traz nome
