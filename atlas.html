@@ -1176,8 +1176,6 @@ function getStableOffsets(markers){
         }
       }
     }
-    // Após cada iteração: contém todos dentro do globo
-    markers.forEach(m => clampToGlobe(m));
   }
 
   _offsetCache={};
@@ -1457,61 +1455,61 @@ function drawOverlay(dt){
     return;
   }
 
-  // MODO INDIVIDUAL — logos somem suavemente no horizonte (fade + encolhe)
+  // MODO INDIVIDUAL
   //
-  // SISTEMA DE FADE NO HORIZONTE:
-  // dot >= FADE_START → logo 100% visível (centro do globo)
-  // dot FADE_START→FADE_END → fade suave: logo encolhe + fica transparente
-  // dot < FADE_END → invisível (vai para o verso)
+  // REGRAS:
+  // 1. dot >= 0.30 → logo totalmente visível, participa da separação de força
+  // 2. dot 0.30 → 0.02 → logo na posição GEOGRÁFICA REAL (sem separação),
+  //    encolhe e desvanece com smoothstep. Sem jitter, sem tremer.
+  // 3. dot < 0.02 → invisível
   //
-  const FADE_START = 0.32; // começa a desvanecer aqui (antes era tudo ou nada)
-  const FADE_END   = 0.0;  // some completamente no horizonte exato
+  const DOT_FULL   = 0.30; // acima disso: 100% visível, pode ser separado
+  const DOT_HIDDEN = 0.02; // abaixo disso: invisível
 
   function horizonFactor(dot){
-    if(dot >= FADE_START) return 1.0;
-    if(dot <= FADE_END)   return 0.0;
-    // curva suave (ease-in) — some devagar primeiro, depois rápido
-    const t = (dot - FADE_END) / (FADE_START - FADE_END);
-    return t * t * (3 - 2 * t); // smoothstep
+    if(dot >= DOT_FULL)   return 1.0;
+    if(dot <= DOT_HIDDEN) return 0.0;
+    const t = (dot - DOT_HIDDEN) / (DOT_FULL - DOT_HIDDEN);
+    return t * t * (3 - 2 * t); // smoothstep suave
   }
 
-  // Participam da separação todos os visíveis — getStableOffsets agora tem clampToGlobe interno
-  const frontM = allM.filter(m => m.dot > FADE_END);
-  getStableOffsets(frontM);
+  // Separa APENAS logos bem visíveis (dot >= DOT_FULL) — evita jitter nos do horizonte
+  const fullM = allM.filter(m => m.dot >= DOT_FULL);
+  getStableOffsets(fullM);
 
-  // Linhas de conexão — também fadeiam
-  frontM.forEach(m => {
-    const hf = horizonFactor(m.dot);
-    if(hf < 0.35) return;
+  // Logos no fade zone ficam na posição geográfica real (ox,oy) sem separação
+  const fadeM = allM.filter(m => m.dot >= DOT_HIDDEN && m.dot < DOT_FULL);
+
+  // Linhas de conexão só para os separados (fullM)
+  fullM.forEach(m => {
     const moved = Math.hypot(m.sx - m.ox, m.sy - m.oy) > 5;
     if(!moved) return;
     oc.beginPath(); oc.moveTo(m.ox, m.oy); oc.lineTo(m.sx, m.sy);
-    oc.strokeStyle = m.col + Math.round(hf * 0.18 * 255).toString(16).padStart(2,'0');
+    oc.strokeStyle = m.col + '30';
     oc.lineWidth = .6; oc.setLineDash([2,3]); oc.stroke(); oc.setLineDash([]);
     oc.beginPath(); oc.arc(m.ox, m.oy, 2.5, 0, Math.PI*2);
-    oc.fillStyle = m.col + Math.round(hf * 0.4 * 255).toString(16).padStart(2,'0'); oc.fill();
+    oc.fillStyle = m.col + '66'; oc.fill();
   });
 
-  // Desenha em ordem: dot menor = mais perto do horizonte = desenhado primeiro (fica embaixo)
-  const sorted = frontM.sort((a, b) => a.dot - b.dot);
-  sorted.forEach(m => {
-    const {a, i, sx, sy, dot, r:baseR, col} = m;
-    const hf = horizonFactor(dot);
+  // Desenha fade zone primeiro (ficam embaixo dos logos principais)
+  fadeM.forEach(m => {
+    const hf = horizonFactor(m.dot);
     if(hf <= 0) return;
-
-    // Logo encolhe conforme vai pro horizonte — curva suave
-    const scaledR = baseR * Math.pow(hf, 0.6);
-
-    // Perto do horizonte vira ponto luminoso apenas
-    if(scaledR < 4.5){
-      const pr = Math.max(1.2, scaledR);
-      oc.beginPath(); oc.arc(sx, sy, pr, 0, Math.PI*2);
-      oc.fillStyle = col + Math.round(hf * 200).toString(16).padStart(2,'0');
+    // Usa posição geográfica real — sem separação, sem jitter
+    const scaledR = m.r * Math.pow(hf, 0.55);
+    if(scaledR < 3.5){
+      oc.beginPath(); oc.arc(m.ox, m.oy, Math.max(1.5, scaledR), 0, Math.PI*2);
+      oc.fillStyle = m.col + Math.round(hf * 180).toString(16).padStart(2,'0');
       oc.fill();
-      return;
+    } else {
+      drawSingle(m.ox, m.oy, scaledR, m.col, m.a, hf, m.i, false);
     }
+  });
 
-    drawSingle(sx, sy, scaledR, col, a, hf, i, false);
+  // Desenha logos visíveis (com separação) por cima
+  const sorted = fullM.slice().sort((a, b) => a.a.pct - b.a.pct);
+  sorted.forEach(m => {
+    drawSingle(m.sx, m.sy, m.r, m.col, m.a, 1.0, m.i, false);
   });
 }
 
