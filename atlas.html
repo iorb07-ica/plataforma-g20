@@ -269,7 +269,8 @@ body.day .a-ticker{color:#111113}
       <!-- Filtros -->
       <div class="filters-bar">
         <button class="filter-btn active" onclick="setFilter('all',this)">TODOS</button>
-        <button class="filter-btn" onclick="setFilter('stock',this)">AÇÕES</button>
+        <button class="filter-btn" onclick="setFilter('acoes',this)">AÇÕES BR</button>
+        <button class="filter-btn" onclick="setFilter('stock',this)">STOCKS US</button>
         <button class="filter-btn" onclick="setFilter('reit',this)">REITs</button>
         <button class="filter-btn" onclick="setFilter('etf',this)">ETFs</button>
         <button class="filter-btn" onclick="setFilter('fii',this)">FIIs</button>
@@ -771,56 +772,88 @@ function mostrarMinhaCarteiraVazia(){
 const FLAG_CODES={'🇺🇸':'us','🇧🇷':'br','🇨🇳':'cn','🇬🇧':'gb','🇯🇵':'jp','🇰🇷':'kr','🇩🇪':'de','🇫🇷':'fr','🇹🇼':'tw','🇳🇱':'nl','🇩🇰':'dk','🇨🇭':'ch','🇸🇬':'sg'};
 const flagImgs={},logoImgs={};
 
-// Domínios para logos via Clearbit (funciona para empresas com domínio web)
-const LOGO_DOMAINS={
-  // EUA
-  'AAPL':'apple.com','MSFT':'microsoft.com','AMZN':'amazon.com','GOOGL':'google.com',
-  'GOOG':'google.com','NVDA':'nvidia.com','META':'meta.com','TSLA':'tesla.com',
-  'NFLX':'netflix.com','DIS':'disney.com','NKE':'nike.com','V':'visa.com',
-  'MA':'mastercard.com','JNJ':'jnj.com','UNH':'uhc.com','BLK':'blackrock.com',
-  'WFC':'wellsfargo.com','JPM':'jpmorganchase.com','COIN':'coinbase.com',
-  'PYPL':'paypal.com','ADBE':'adobe.com','LULU':'lululemon.com','MELI':'mercadolibre.com',
-  'NU':'nu.com.br','NVO':'novonordisk.com','CROX':'crocs.com','DPZ':'dominos.com',
-  'DUOL':'duolingo.com','MNST':'monsterbevcorp.com','FTNT':'fortinet.com',
-  'ENPH':'enphaseenergy.com','ACN':'accenture.com','BRK.B':'berkshirehathaway.com',
-  'DELL':'dell.com','ROL':'rollins.com','SKX':'skechers.com','VST':'vistracorp.com',
-  'CEG':'constellationenergy.com','WFC':'wellsfargo.com','ANF':'abercrombie.com',
-  'ASML':'asml.com','TSM':'tsmc.com','BABA':'alibaba.com',
-  // BR — usando logos do próprio site
-  'ITUB4':'itau.com.br','PETR4':'petrobras.com.br','VALE3':'vale.com',
-  'WEGE3':'weg.net','BBDC4':'bradesco.com.br','BPAC11':'btgpactual.com',
-  'SUZB3':'suzano.com.br','MGLU3':'magazineluiza.com.br','LREN3':'lojasrenner.com.br',
-  'RADL3':'raia.com.br','VIVT3':'vivo.com.br','RENT3':'localiza.com',
-  'NATU3':'naturabrasil.com','B3SA3':'b3.com.br','SAPR11':'sanepar.com.br',
-  'CMIG4':'cemig.com.br','EGIE3':'engieenergia.com.br','PRIO3':'prio3.com.br',
-  'ENEV3':'eneva.com.br',
+// Slugs corretos do TradingView CDN (testados no browser)
+const TV_SLUGS={
+  // EUA — Stocks
+  'AAPL':'apple','MSFT':'microsoft','AMZN':'amazon','GOOGL':'alphabet',
+  'GOOG':'alphabet','NVDA':'nvidia','META':'meta','TSLA':'tesla',
+  'NFLX':'netflix','DIS':'disney','NKE':'nike','V':'visa',
+  'MA':'mastercard','JNJ':'johnson-and-johnson','UNH':'unitedhealth',
+  'BLK':'blackrock','WFC':'wells-fargo','JPM':'jpmorgan-chase',
+  'COIN':'coinbase','PYPL':'paypal','ADBE':'adobe',
+  'LULU':'lululemon-athletica','MELI':'mercadolibre','NU':'nu-holdings',
+  'NVO':'novo-nordisk','CROX':'crocs','DPZ':'dominos-pizza',
+  'DUOL':'duolingo','MNST':'monster-beverage','FTNT':'fortinet',
+  'ENPH':'enphase-energy','ACN':'accenture','BRK.B':'berkshire-hathaway',
+  'DELL':'dell-technologies','ROL':'rollins','SKX':'skechers',
+  'VST':'vistra','CEG':'constellation-energy','WFC':'wells-fargo',
+  'ANF':'abercrombie-and-fitch','ASML':'asml','TSM':'taiwan-semiconductor',
+  'BABA':'alibaba','BLK':'blackrock','XP':'xp-inc',
+  'SKT':'tanger','ESS':'essex-property','EQIX':'equinix',
+  'PLD':'prologis','O':'realty-income','NNN':'national-retail-properties',
+  'DOC':'healthpeak','IIPR':'innovative-industrial','SLG':'sl-green-realty',
+  'STOR':'store-capital','UNH':'unitedhealth','URA':'global-x',
+  // ETFs
+  'VNQ':'vanguard','VNQI':'vanguard','QQQ':'invesco',
+  'XBI':'spdr','XLU':'spdr','CIBR':'first-trust',
+  'ARGT':'global-x','MCHI':'ishares','IEUR':'ishares',
+  'NOBL':'proshares','QYLD':'global-x','XYLD':'global-x',
+  'SCHA':'schwab','HERO':'global-x',
+  // Brasil — Stocks (slugs confirmados)
+  'ITUB4':'itau-unibanco','ITSA4':'itausa',
+  'PETR4':'petrobras','PETR3':'petrobras',
+  'VALE3':'vale','WEGE3':'weg',
+  'BBDC4':'banco-bradesco','BBDC3':'banco-bradesco',
+  'BBAS3':'banco-do-brasil','BPAC11':'btg-pactual',
+  'SUZB3':'suzano','MGLU3':'magazine-luiza',
+  'LREN3':'lojas-renner','CMIG4':'cemig','CMIG3':'cemig',
+  'RADL3':'raia-drogasil','VIVT3':'telefonica-brasil',
+  'RENT3':'localiza','NATU3':'natura','B3SA3':'b3',
+  'SAPR11':'sanepar','PRIO3':'prio3','ENEV3':'eneva',
+  'EGIE3':'engie-brasil','EMBJ3':'embraer','INTB3':'intelbras',
+  'VIVA3':'vivara','MOVI3':'movida','BRKM5':'braskem',
+  'LOGG3':'log-commercial-properties','STBP3':'santos-brasil',
+  'QUAL3':'qualicorp','SQIA3':'totvs','SBFG3':'sbf-group',
+  'TRIS3':'trisul','SYNE3':'syne3','VULC3':'vulcabras',
+  'WIZC3':'wiz-co','BMOB3':'bemobi','CVCB3':'cvc-brasil',
+  'BRAV3':'3r-petroleum','GMAT3':'gematec',
+  // Brasil — FIIs
+  'KNRI11':'kinea','KNCA11':'kinea',
+  'HGLG11':'cshg','VISC11':'vinci-partners',
+  'XPCA11':'xp-investimentos','XPLG11':'xp-investimentos',
+  'CPTR11':'capitania','SNAG11':'suno-agro',
+  'BCRI11':'btg-pactual','BTHF11':'btg-pactual',
+  'BTRA11':'btg-pactual','TVRI11':'btg-pactual',
+  'HCTR11':'hectare-capital','IRDM11':'iridium',
+  'RBRR11':'rb-capital','VRTA11':'votorantim',
+  // Cripto
+  'BTC':'bitcoin','BTC-USD':'bitcoin','ETH':'ethereum',
+  'BNB':'binancecoin','SOL':'solana','DOT':'polkadot',
+  'LINK':'chainlink','MANA':'decentraland','SAND':'the-sandbox',
 };
-
-function getLogoUrl(ticker, tvSlug){
-  // Tenta Clearbit primeiro se tiver domínio mapeado
-  const domain=LOGO_DOMAINS[ticker];
-  if(domain) return `https://logo.clearbit.com/${domain}`;
-  // Fallback: TradingView CDN
-  if(tvSlug) return `https://s3-symbol-logo.tradingview.com/${tvSlug}.svg`;
-  return null;
-}
 
 function preloadAssets(){
   [...new Set(ASSETS.map(a=>FLAG_CODES[a.flag]).filter(Boolean))].forEach(cc=>{
-    const img=new Image();img.crossOrigin='anonymous';img.src=`https://flagcdn.com/w40/${cc}.png`;img.onload=()=>{flagImgs[cc]=img};
+    const img=new Image();
+    // Flags não precisam crossOrigin — flagcdn.com permite
+    img.src=`https://flagcdn.com/w40/${cc}.png`;
+    img.onload=()=>{flagImgs[cc]=img};
   });
   ASSETS.forEach(a=>{
-    const url=getLogoUrl(a.ticker,a.logo);
-    if(!url)return;
-    const img=new Image();img.crossOrigin='anonymous';
-    img.src=url;
+    const slug=TV_SLUGS[a.ticker]||a.logo;
+    if(!slug)return;
+    const img=new Image();
+    // SEM crossOrigin — TradingView funciona no browser sem CORS headers
+    img.src=`https://s3-symbol-logo.tradingview.com/${slug}.svg`;
+    img.onload=()=>{logoImgs[a.ticker]=img;};
     img.onerror=()=>{
-      // Fallback: tenta TradingView se Clearbit falhou
-      if(a.logo && !img.src.includes('tradingview')){
-        img.src=`https://s3-symbol-logo.tradingview.com/${a.logo}.svg`;
+      // Fallback: tenta variação com --big
+      if(!img.src.includes('--big')){
+        const img2=new Image();
+        img2.src=`https://s3-symbol-logo.tradingview.com/${slug}--big.svg`;
+        img2.onload=()=>{logoImgs[a.ticker]=img2;};
       }
     };
-    logoImgs[a.ticker]=img;
   });
 }
 preloadAssets();
@@ -856,6 +889,11 @@ function getActiveAssets(){
     if(!tlF.includes(a.ticker)) return false;
     if(activeFilter==='all') return true;
     if(activeFilter==='cripto') return a.type==='cripto';
+    if(activeFilter==='fii') return a.type==='fii';
+    if(activeFilter==='reit') return a.type==='reit';
+    if(activeFilter==='etf') return a.type==='etf';
+    if(activeFilter==='acoes') return a.type==='stock' && a.region==='brasil';
+    if(activeFilter==='stock') return a.type==='stock' && a.region!=='brasil';
     return a.type===activeFilter;
   });
 }
@@ -980,19 +1018,64 @@ function separateMarkers(markers,iters=14){
   }
 }
 
-/* ══ GEO CLUSTERS ══ */
+/* ══ GEO CLUSTERS — automático por zoom ══ */
+function getSubregion(a){
+  if(a.region==='eua'){
+    if(a.lon<-115) return 'west_coast';
+    if(a.lon<-105) return 'sw_eua';
+    if(a.lat<32)   return 'south';
+    if(a.lon<-87)  return 'midwest';
+    if(a.lat<35)   return 'southeast';
+    return 'east_coast';
+  }
+  if(a.region==='brasil'){
+    if(a.lat<-25)                      return 'sul';
+    if(a.lat<-18&&a.lon>-46)           return 'mg_es';
+    if(a.lat>-10)                      return 'nordeste';
+    if(a.lon<-48&&a.lat>-22)           return 'centro_oeste';
+    if(a.lat<-22&&a.lat>-24&&a.lon<-44) return 'rj';
+    return 'sp';
+  }
+  return a.region+'_'+a.type;
+}
+
 function buildGeoClusters(assets){
-  const deg=assets.length<=10?20:assets.length<=30?8:4;
-  const used=new Array(assets.length).fill(false),cls=[];
+  // Threshold de zoom para clustering automático
+  // zoom > 3.8 → agrupa | zoom ≤ 3.8 → individual
+  if(currentZoom <= 3.8 && !clusterMode){
+    return assets.map(a=>({assets:[a],lat:a.lat,lon:a.lon,color:a.color,region:a.region,totalPct:a.pct}));
+  }
+
+  // Raio de agrupamento cresce com zoom (mais longe = agrupa mais)
+  // zoom 3.8 → deg 5 (agrupa só muito próximos)
+  // zoom 5.0 → deg 12
+  // zoom 6.5 → deg 25 (agrupa por sub-região inteira)
+  const deg = Math.max(4, (currentZoom - 2) * 5.5);
+
+  // Agrupa por sub-região quando muito longe
+  const groupBySubregion = currentZoom > 5.2;
+
+  const used=new Array(assets.length).fill(false), cls=[];
   for(let i=0;i<assets.length;i++){
     if(used[i])continue;
     const a=assets[i];
-    const cl={assets:[a],lat:a.lat,lon:a.lon,color:a.color,region:a.region,totalPct:a.pct};
+    const subrA=getSubregion(a);
+    const cl={assets:[a],lat:a.lat,lon:a.lon,color:a.color,region:a.region,totalPct:a.pct,subregion:subrA};
     used[i]=true;
     for(let j=i+1;j<assets.length;j++){
       if(used[j])continue;
       const b=assets[j];
       if(b.region!==a.region)continue;
+      const subrB=getSubregion(b);
+      // Modo sub-região: agrupa qualquer ativo da mesma sub-região
+      if(groupBySubregion && subrB===subrA){
+        cl.assets.push(b);cl.totalPct+=b.pct;
+        cl.lat=(cl.lat*(cl.assets.length-1)+b.lat)/cl.assets.length;
+        cl.lon=(cl.lon*(cl.assets.length-1)+b.lon)/cl.assets.length;
+        used[j]=true;
+        continue;
+      }
+      // Modo geográfico: agrupa por distância
       if(Math.abs(a.lat-b.lat)<deg&&Math.abs(a.lon-b.lon)<deg){
         cl.assets.push(b);cl.totalPct+=b.pct;
         cl.lat=(cl.lat*(cl.assets.length-1)+b.lat)/cl.assets.length;
@@ -1078,20 +1161,23 @@ function drawOverlay(dt){
   const filtered=getActiveAssets();
   const camDir=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
 
-  // Zoom scale agressivo: zoom 2 (perto) → logos 4x maiores, zoom 6 (longe) → tamanho normal
-  const zoomScale = Math.max(0.6, Math.min(4.5, Math.pow(currentZoom, -1.2) * 8));
-  const baseRFn = (pct) => Math.max(12, (9 + pct*0.6) * zoomScale);
+  // Zoom scale: perto(2.2)→logos grandes | longe(6.5)→logos menores
+  // Fórmula linear simples e previsível
+  const zoomScale = Math.max(0.5, Math.min(2.8, 5.5/currentZoom));
+  const baseRFn = (pct) => Math.max(12, (9 + pct*0.55) * zoomScale);
+
+  // AUTO-CLUSTER por zoom: > 3.5 agrupa, ≤ 3.5 individual
+  const useClusters = clusterMode || currentZoom > 3.5;
 
   const allM=[];
   filtered.forEach((a,i)=>{
     const pos3=ll3(a.lat,a.lon,GLOBE_R).applyEuler(earthMesh.rotation);
     const sp=w2s(pos3);
     const dot=pos3.clone().normalize().dot(camDir.clone().negate());
-    const r=baseRFn(a.pct);
-    allM.push({a,i,ox:sp.x,oy:sp.y,sx:sp.x,sy:sp.y,dot,r,col:a.color});
+    allM.push({a,i,ox:sp.x,oy:sp.y,sx:sp.x,sy:sp.y,dot,r:baseRFn(a.pct),col:a.color});
   });
 
-  if(clusterMode){
+  if(useClusters){
     const clusters=buildGeoClusters(filtered);
     clusters.forEach((cl,ci)=>{
       const pos3=ll3(cl.lat,cl.lon,GLOBE_R).applyEuler(earthMesh.rotation);
@@ -1104,84 +1190,93 @@ function drawOverlay(dt){
       const isExploded=explodedClusters.has(key);
 
       if(n===1){
-        // Ativo individual — desenha normal
+        // Ativo individual
         drawSingle(sx,sy,baseRFn(cl.assets[0].pct),col,cl.assets[0],fade,ci,false);
         window._clusterHits.push({cl,sx,sy,cr:baseRFn(cl.assets[0].pct)+4,single:true});
       } else if(isExploded){
-        // CLUSTER EXPLODIDO — bolinha central + ativos em órbita
-        const storedEx=explodedClusters.get(key);
-        const cr=20+Math.min(n*1.5,24);
-
-        // Bolinha central menor (cluster hub)
-        oc.beginPath();oc.arc(sx,sy,cr,0,Math.PI*2);
-        oc.fillStyle=`rgba(6,4,16,.92)`;oc.fill();
-        oc.beginPath();oc.arc(sx,sy,cr,0,Math.PI*2);
-        oc.strokeStyle=col+'cc';oc.lineWidth=2.5;oc.stroke();
-        oc.font=`700 11px JetBrains Mono,monospace`;oc.textAlign='center';oc.textBaseline='middle';
+        // Cluster explodido — hub pequeno fixo + ativos em órbita
+        const HUB=22;
+        oc.beginPath();oc.arc(sx,sy,HUB,0,Math.PI*2);
+        oc.fillStyle='rgba(6,4,16,.95)';oc.fill();
+        oc.beginPath();oc.arc(sx,sy,HUB,0,Math.PI*2);
+        oc.strokeStyle=col+'cc';oc.lineWidth=2;oc.stroke();
+        oc.font='700 11px JetBrains Mono,monospace';
+        oc.textAlign='center';oc.textBaseline='middle';
         oc.fillStyle=col;oc.globalAlpha=fade;oc.fillText(n,sx,sy);oc.globalAlpha=1;
-
-        // Ring de fechar
-        oc.beginPath();oc.arc(sx,sy,cr+5,0,Math.PI*2);
-        oc.strokeStyle='#e8c76655';oc.lineWidth=1;oc.stroke();
-
-        // Ativos em órbita ao redor
-        const orbitR=cr+baseRFn(2)+40;
+        // Ring de "fechar"
+        oc.beginPath();oc.arc(sx,sy,HUB+4,0,Math.PI*2);
+        oc.strokeStyle='#e8c76640';oc.lineWidth=1;oc.stroke();
+        // Ativos em órbita — raio fixo independente do zoom
+        const ORBIT=HUB+baseRFn(1.5)+32;
         cl.assets.forEach((a,ai)=>{
           const angle=(ai/cl.assets.length)*Math.PI*2-Math.PI/2;
-          const ax=sx+Math.cos(angle)*orbitR;
-          const ay=sy+Math.sin(angle)*orbitR;
-          const ar=baseRFn(a.pct)*0.85;
-
-          // Linha de conexão
+          const ax=sx+Math.cos(angle)*ORBIT, ay=sy+Math.sin(angle)*ORBIT;
+          const ar=Math.max(14,baseRFn(a.pct)*.8);
           oc.beginPath();oc.moveTo(sx,sy);oc.lineTo(ax,ay);
-          oc.strokeStyle=col+'30';oc.lineWidth=0.7;oc.stroke();
-
+          oc.strokeStyle=col+'25';oc.lineWidth=.6;oc.stroke();
           drawSingle(ax,ay,ar,col,a,fade,ci*100+ai,false);
           window._explodedHits.push({a,sx:ax,sy:ay,r:ar+4,clKey:key});
         });
-
-        // Hit area do hub para fechar
-        window._clusterHits.push({cl,sx,sy,cr:cr+5,key,canClose:true});
+        window._clusterHits.push({cl,sx,sy,cr:HUB+4,key,canClose:true});
       } else {
-        // CLUSTER FECHADO — bolinha normal clicável
-        const cr=16+Math.min(n*2.5,30);
-        const ph=(pulseClock*.25+ci*.3)%1;
-        oc.beginPath();oc.arc(sx,sy,cr+ph*cr*.5,0,Math.PI*2);
-        oc.strokeStyle=col+Math.round((1-ph)*.22*fade*255).toString(16).padStart(2,'00');oc.lineWidth=2;oc.stroke();
-        const g=oc.createRadialGradient(sx,sy,cr*.3,sx,sy,cr*2.5);g.addColorStop(0,col+'20');g.addColorStop(1,col+'00');
-        oc.beginPath();oc.arc(sx,sy,cr*2.5,0,Math.PI*2);oc.fillStyle=g;oc.fill();
-        oc.beginPath();oc.arc(sx,sy,cr,0,Math.PI*2);oc.fillStyle=`rgba(6,4,16,${.9*fade})`;oc.fill();
-        oc.beginPath();oc.arc(sx,sy,cr,-Math.PI/2,-Math.PI/2+Math.min(1,cl.totalPct/25)*Math.PI*1.9);
+        // Cluster fechado — tamanho FIXO baseado no número de ativos, não no zoom
+        const MAX_CR=36, MIN_CR=20;
+        const cr=Math.min(MAX_CR, MIN_CR + n*1.2);
+        // Glow sutil
+        const g=oc.createRadialGradient(sx,sy,cr*.4,sx,sy,cr*1.8);
+        g.addColorStop(0,col+'15');g.addColorStop(1,col+'00');
+        oc.beginPath();oc.arc(sx,sy,cr*1.8,0,Math.PI*2);oc.fillStyle=g;oc.fill();
+        // Fundo
+        oc.beginPath();oc.arc(sx,sy,cr,0,Math.PI*2);
+        oc.fillStyle=`rgba(6,4,16,${.93*fade})`;oc.fill();
+        // Arco de progresso (% da carteira)
+        const arc=Math.min(1,cl.totalPct/30)*Math.PI*1.85;
+        oc.beginPath();oc.arc(sx,sy,cr,-Math.PI/2,-Math.PI/2+arc);
         oc.strokeStyle=col+'cc';oc.lineWidth=3;oc.stroke();
-        oc.beginPath();oc.arc(sx,sy,cr,0,Math.PI*2);oc.strokeStyle=col+'33';oc.lineWidth=1;oc.stroke();
-        oc.font=`800 ${cr>28?15:12}px JetBrains Mono,monospace`;oc.textAlign='center';oc.textBaseline='middle';
-        oc.fillStyle=col;oc.globalAlpha=fade;oc.fillText(n,sx,sy-1);oc.globalAlpha=1;
-        if(cr>22){oc.font='500 8px DM Sans,sans-serif';oc.fillStyle=col+'88';oc.globalAlpha=fade;oc.fillText('ativos',sx,sy+10);oc.globalAlpha=1;}
+        // Borda fina
+        oc.beginPath();oc.arc(sx,sy,cr,0,Math.PI*2);
+        oc.strokeStyle=col+'30';oc.lineWidth=1;oc.stroke();
+        // Número
+        oc.font=`800 ${cr>28?14:11}px JetBrains Mono,monospace`;
+        oc.textAlign='center';oc.textBaseline='middle';
+        oc.fillStyle=col;oc.globalAlpha=fade;oc.fillText(n,sx,cr>26?sy-2:sy);oc.globalAlpha=1;
+        if(cr>24){
+          oc.font='500 7px DM Sans,sans-serif';
+          oc.fillStyle=col+'66';oc.globalAlpha=fade;
+          oc.fillText('ativos',sx,sy+9);oc.globalAlpha=1;
+        }
+        // Pulse ring suave
+        const ph=(pulseClock*.2+ci*.4)%1;
+        oc.beginPath();oc.arc(sx,sy,cr+ph*8,0,Math.PI*2);
+        oc.strokeStyle=col+Math.round((1-ph)*.15*fade*255).toString(16).padStart(2,'0');
+        oc.lineWidth=1;oc.stroke();
         window._clusterHits.push({cl,sx,sy,cr,key,canClose:false});
       }
     });
     return;
   }
 
-  // Modo individual — sem clusters
+  // MODO INDIVIDUAL (zoom perto ≤ 3.5)
   const frontM=allM.filter(m=>m.dot>=.18);
   separateMarkers(frontM);
   frontM.forEach(m=>{
     const moved=Math.hypot(m.sx-m.ox,m.sy-m.oy)>3;
     if(!moved)return;
     oc.beginPath();oc.moveTo(m.ox,m.oy);oc.lineTo(m.sx,m.sy);
-    oc.strokeStyle=m.col+'55';oc.lineWidth=1;oc.setLineDash([3,4]);oc.stroke();oc.setLineDash([]);
-    oc.beginPath();oc.arc(m.ox,m.oy,3.5,0,Math.PI*2);oc.fillStyle=m.col+'aa';oc.fill();
+    oc.strokeStyle=m.col+'44';oc.lineWidth=.8;oc.setLineDash([3,4]);oc.stroke();oc.setLineDash([]);
+    oc.beginPath();oc.arc(m.ox,m.oy,3,0,Math.PI*2);oc.fillStyle=m.col+'99';oc.fill();
   });
   allM.forEach(m=>{
     const {a,i,ox,oy,sx,sy,dot,r:baseR,col}=m;
     if(dot<-.18)return;
     if(dot>=-.18&&dot<.18){
-      const alpha=Math.max(0,(.18-Math.abs(dot))/.18),hr=Math.max(3,baseR*.42);
+      const alpha=Math.max(0,(.18-Math.abs(dot))/.18),hr=Math.max(3,baseR*.4);
       const gph=(pulseClock*.8+i*.6)%1;
-      oc.beginPath();oc.arc(ox,oy,hr+gph*hr*1.1,0,Math.PI*2);oc.strokeStyle=col+Math.round(alpha*(1-gph)*185).toString(16).padStart(2,'0');oc.lineWidth=.8;oc.stroke();
-      oc.beginPath();oc.arc(ox,oy,hr,0,Math.PI*2);oc.fillStyle=col+Math.round(alpha*210).toString(16).padStart(2,'0');oc.fill();
-      oc.beginPath();oc.arc(ox,oy,hr*.36,0,Math.PI*2);oc.fillStyle='rgba(255,255,255,'+alpha*.82+')';oc.fill();
+      oc.beginPath();oc.arc(ox,oy,hr+gph*hr,0,Math.PI*2);
+      oc.strokeStyle=col+Math.round(alpha*(1-gph)*180).toString(16).padStart(2,'0');
+      oc.lineWidth=.8;oc.stroke();
+      oc.beginPath();oc.arc(ox,oy,hr,0,Math.PI*2);
+      oc.fillStyle=col+Math.round(alpha*200).toString(16).padStart(2,'0');oc.fill();
       return;
     }
     drawSingle(sx,sy,baseR,col,a,Math.min(1,dot*2),i,false);
