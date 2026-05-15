@@ -308,14 +308,14 @@
         else a.classList.remove('active');
       });
 
-      // Adiciona itens que estão no NAV_ITEMS mas ainda não existem na sidebar
+      // Reconstrói todos os itens de cada seção com o HTML padrão
       NAV_ITEMS.forEach(function(sec) {
         var secEl = sidebar.querySelector('.' + sec.cls);
         if (!secEl) return;
+        // Remove todos os nav-items existentes na seção
+        secEl.querySelectorAll('.nav-item').forEach(function(el){ el.parentNode.removeChild(el); });
+        // Recria todos com HTML idêntico ao branch principal
         sec.items.forEach(function(item) {
-          var exists = secEl.querySelector('[href="' + item.href + '"], [data-tooltip="' + item.label + '"]');
-          if (exists) return;
-          // Cria igual ao branch principal — mesmo HTML
           var a = document.createElement('a');
           a.href = item.href;
           a.className = 'nav-item' + (item.href !== '#' && currentPage === item.href ? ' active' : '');
