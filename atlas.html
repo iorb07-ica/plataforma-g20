@@ -825,12 +825,11 @@ function getLogoImg(slug){
   if(!slug) return null;
   if(logoCache[slug]) return logoCache[slug];
   const img=new Image();
-  img.crossOrigin='anonymous'; // NECESSÁRIO igual outros módulos
+  // SEM crossOrigin — TradingView CDN bloqueia CORS mas permite requests normais
+  // Canvas fica "tainted" mas drawImage funciona normalmente para exibição
   img.src=`https://s3-symbol-logo.tradingview.com/${slug}.svg`;
   img.onerror=()=>{
-    // Tenta variante --big
     const img2=new Image();
-    img2.crossOrigin='anonymous';
     img2.src=`https://s3-symbol-logo.tradingview.com/${slug}--big.svg`;
     img2.onload=()=>{ logoCache[slug]=img2; };
   };
@@ -839,11 +838,10 @@ function getLogoImg(slug){
 }
 
 function preloadAssets(){
-  // Flags com crossOrigin
+  // Flags
   [...new Set(ASSETS.map(a=>FLAG_CODES[a.flag]).filter(Boolean))].forEach(cc=>{
     if(flagImgs[cc]) return;
     const img=new Image();
-    img.crossOrigin='anonymous';
     img.src=`https://flagcdn.com/w40/${cc}.png`;
     img.onload=()=>{ flagImgs[cc]=img; };
   });
@@ -1613,7 +1611,8 @@ function onTimelineChange(val){
 function openShare(){
   renderer.render(scene,camera);
   const sc=document.createElement('canvas');sc.width=1080;sc.height=1080;
-  const sx=sc.getContext('2d');sx.fillStyle='#05040e';sx.fillRect(0,0,1080,1080);
+  const sx=sc.getContext('2d',{willReadFrequently:true});
+  sx.fillStyle='#05040e';sx.fillRect(0,0,1080,1080);
   const r=Math.min(1080/canvas3.width,1080/canvas3.height),gw=canvas3.width*r,gh=canvas3.height*r;
   sx.drawImage(canvas3,(1080-gw)/2,(1080-gh)/2,gw,gh);
   const vg=sx.createRadialGradient(540,540,300,540,540,700);vg.addColorStop(0,'rgba(5,4,14,0)');vg.addColorStop(1,'rgba(5,4,14,.7)');sx.fillStyle=vg;sx.fillRect(0,0,1080,1080);
