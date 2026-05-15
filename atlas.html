@@ -771,15 +771,59 @@ function mostrarMinhaCarteiraVazia(){
   document.body.appendChild(toast);setTimeout(()=>toast.remove(),5000);
 }
 
-const FLAG_CODES={'🇺🇸':'us','🇧🇷':'br','🇨🇳':'cn','🇬🇧':'gb','🇯🇵':'jp','🇰🇷':'kr','🇩🇪':'de','🇫🇷':'fr','🇹🇼':'tw','🇳🇱':'nl','🇩🇰':'dk'};
+const FLAG_CODES={'🇺🇸':'us','🇧🇷':'br','🇨🇳':'cn','🇬🇧':'gb','🇯🇵':'jp','🇰🇷':'kr','🇩🇪':'de','🇫🇷':'fr','🇹🇼':'tw','🇳🇱':'nl','🇩🇰':'dk','🇨🇭':'ch','🇸🇬':'sg'};
 const flagImgs={},logoImgs={};
+
+// Domínios para logos via Clearbit (funciona para empresas com domínio web)
+const LOGO_DOMAINS={
+  // EUA
+  'AAPL':'apple.com','MSFT':'microsoft.com','AMZN':'amazon.com','GOOGL':'google.com',
+  'GOOG':'google.com','NVDA':'nvidia.com','META':'meta.com','TSLA':'tesla.com',
+  'NFLX':'netflix.com','DIS':'disney.com','NKE':'nike.com','V':'visa.com',
+  'MA':'mastercard.com','JNJ':'jnj.com','UNH':'uhc.com','BLK':'blackrock.com',
+  'WFC':'wellsfargo.com','JPM':'jpmorganchase.com','COIN':'coinbase.com',
+  'PYPL':'paypal.com','ADBE':'adobe.com','LULU':'lululemon.com','MELI':'mercadolibre.com',
+  'NU':'nu.com.br','NVO':'novonordisk.com','CROX':'crocs.com','DPZ':'dominos.com',
+  'DUOL':'duolingo.com','MNST':'monsterbevcorp.com','FTNT':'fortinet.com',
+  'ENPH':'enphaseenergy.com','ACN':'accenture.com','BRK.B':'berkshirehathaway.com',
+  'DELL':'dell.com','ROL':'rollins.com','SKX':'skechers.com','VST':'vistracorp.com',
+  'CEG':'constellationenergy.com','WFC':'wellsfargo.com','ANF':'abercrombie.com',
+  'ASML':'asml.com','TSM':'tsmc.com','BABA':'alibaba.com',
+  // BR — usando logos do próprio site
+  'ITUB4':'itau.com.br','PETR4':'petrobras.com.br','VALE3':'vale.com',
+  'WEGE3':'weg.net','BBDC4':'bradesco.com.br','BPAC11':'btgpactual.com',
+  'SUZB3':'suzano.com.br','MGLU3':'magazineluiza.com.br','LREN3':'lojasrenner.com.br',
+  'RADL3':'raia.com.br','VIVT3':'vivo.com.br','RENT3':'localiza.com',
+  'NATU3':'naturabrasil.com','B3SA3':'b3.com.br','SAPR11':'sanepar.com.br',
+  'CMIG4':'cemig.com.br','EGIE3':'engieenergia.com.br','PRIO3':'prio3.com.br',
+  'ENEV3':'eneva.com.br',
+};
+
+function getLogoUrl(ticker, tvSlug){
+  // Tenta Clearbit primeiro se tiver domínio mapeado
+  const domain=LOGO_DOMAINS[ticker];
+  if(domain) return `https://logo.clearbit.com/${domain}`;
+  // Fallback: TradingView CDN
+  if(tvSlug) return `https://s3-symbol-logo.tradingview.com/${tvSlug}.svg`;
+  return null;
+}
+
 function preloadAssets(){
   [...new Set(ASSETS.map(a=>FLAG_CODES[a.flag]).filter(Boolean))].forEach(cc=>{
     const img=new Image();img.crossOrigin='anonymous';img.src=`https://flagcdn.com/w40/${cc}.png`;img.onload=()=>{flagImgs[cc]=img};
   });
   ASSETS.forEach(a=>{
-    if(!a.logo)return;
-    const img=new Image();img.crossOrigin='anonymous';img.src=`https://s3-symbol-logo.tradingview.com/${a.logo}.svg`;logoImgs[a.ticker]=img;
+    const url=getLogoUrl(a.ticker,a.logo);
+    if(!url)return;
+    const img=new Image();img.crossOrigin='anonymous';
+    img.src=url;
+    img.onerror=()=>{
+      // Fallback: tenta TradingView se Clearbit falhou
+      if(a.logo && !img.src.includes('tradingview')){
+        img.src=`https://s3-symbol-logo.tradingview.com/${a.logo}.svg`;
+      }
+    };
+    logoImgs[a.ticker]=img;
   });
 }
 preloadAssets();
@@ -980,9 +1024,18 @@ function drawSingle(sx,sy,baseR,col,a,fade,ci,isHov){
   oc.fillStyle=col+Math.round(fade*218).toString(16).padStart(2,'0');oc.fill();
   // Logo preenchendo a bolinha
   const img=logoImgs[a.ticker];
-  if(img&&img.complete&&img.naturalWidth>0){
+  if(img&&img.complete&&img.naturalWidth>0&&img.naturalHeight>0){
     oc.save();oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);oc.clip();
     oc.globalAlpha=fade*.96;oc.drawImage(img,sx-baseR,sy-baseR,baseR*2,baseR*2);oc.restore();
+  } else {
+    // Fallback: inicial do ticker sobre fundo colorido
+    oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);
+    oc.fillStyle=col+'cc';oc.fill();
+    const fz=Math.round(Math.max(9,baseR*.75));
+    oc.font=`700 ${fz}px DM Sans,sans-serif`;
+    oc.textAlign='center';oc.textBaseline='middle';
+    oc.fillStyle='rgba(255,255,255,.92)';oc.globalAlpha=fade;
+    oc.fillText(a.ticker.slice(0,2),sx,sy+1);oc.globalAlpha=1;
   }
   // Bandeirinha no canto inferior direito da bolinha
   const cc=FLAG_CODES[a.flag];const fi=cc?flagImgs[cc]:null;
