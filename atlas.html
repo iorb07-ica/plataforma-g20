@@ -1112,23 +1112,30 @@ function getRegionBounds(region){
 
 function getStableOffsets(markers){
   if(!earthMesh) return;
-  // Cache key: só filtro + zoom bucket (NÃO inclui rotação — causava recalc todo frame)
-  const zKey=Math.round(currentZoom*3)/3;
-  const key=activeFilter+'_'+zKey+'_'+markers.length;
-  // Só usa cache quando o globo está parado (não arrastando, não rotacionando)
-  if(key===_lastOffsetKey && !isDragging && !autoRotate){
-    markers.forEach(m=>{const o=_offsetCache[m.a.ticker];if(o){m.sx=m.ox+o.dx;m.sy=m.oy+o.dy;}});
-    return;
-  }
-  // Se está em movimento, não aplica separação (logos ficam fixos no globo)
-  // Mas garante que sx/sy = ox/oy (posição real no globo)
+  // Sempre reseta para posição real do globo
   markers.forEach(m=>{m.sx=m.ox;m.sy=m.oy;});
-  if(isDragging || autoRotate){
+
+  // Ao arrastar: aplica offsets do cache à nova posição projetada
+  // Logos mantêm a separação enquanto arrasta (não colapsam)
+  if(isDragging){
+    markers.forEach(m=>{
+      const o=_offsetCache[m.a.ticker];
+      if(o){m.sx=m.ox+o.dx;m.sy=m.oy+o.dy;}
+    });
     return;
   }
 
-  // Separação agressiva — sem limite de stretch, logos vão onde precisam ir
-  const ITERS=120, DAMP=0.55;
+  // Parado: separação completa com cache
+  // Rotacionando: separação leve sem cache (recalcula todo frame)
+  const zKey=Math.round(currentZoom*3)/3;
+  const key=activeFilter+'_'+zKey+'_'+markers.length;
+  if(key===_lastOffsetKey && !autoRotate){
+    markers.forEach(m=>{const o=_offsetCache[m.a.ticker];if(o){m.sx=m.ox+o.dx;m.sy=m.oy+o.dy;}});
+    return;
+  }
+
+  // Separação: 120 iter parado, 25 iter rotacionando (leve, sem jitter)
+  const ITERS=autoRotate?25:120, DAMP=autoRotate?0.4:0.55;
   for(let it=0;it<ITERS;it++){
     for(let a=0;a<markers.length;a++){
       for(let b=a+1;b<markers.length;b++){
@@ -1414,7 +1421,7 @@ function drawOverlay(dt){
 
   // MODO INDIVIDUAL — separação com força, todos os logos visíveis
   // Durante rotação mostra mais ativos (threshold menor)
-  const dotThresh=(isDragging||autoRotate)?0.0:0.15;
+  const dotThresh=0.05; // threshold único — logos visíveis se dot>0.05 (quase toda a frente)
   const frontM=allM.filter(m=>m.dot>=dotThresh);
   getStableOffsets(frontM);
 
@@ -1459,8 +1466,7 @@ container.addEventListener('mousemove',e=>{
     earthMesh.rotation.y+=(e.clientX-prevMouse.x)*.003;
     earthMesh.rotation.x=Math.max(-Math.PI/2,Math.min(Math.PI/2,earthMesh.rotation.x+(e.clientY-prevMouse.y)*.003));
     syncGroups();prevMouse={x:e.clientX,y:e.clientY};
-    _offsetCache={}; // invalida offsets ao arrastar — logos ficam fixos no globo
-    _lastOffsetKey='';
+    // Mantém cache durante drag — logos preservam separação ao arrastar
   }
 
   if(!earthMesh){return;}
