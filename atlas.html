@@ -1025,15 +1025,15 @@ function getStableOffsets(markers){
 
   markers.forEach(m=>{m.sx=m.ox;m.sy=m.oy;});
 
-  // Separação agressiva — 80 iterações sem mola restritiva
-  const ITERS=80, DAMP=0.5;
+  // Separação agressiva — sem limite de stretch, logos vão onde precisam ir
+  const ITERS=120, DAMP=0.55;
   for(let it=0;it<ITERS;it++){
     for(let a=0;a<markers.length;a++){
       for(let b=a+1;b<markers.length;b++){
         const A=markers[a],B=markers[b];
         const dx=B.sx-A.sx, dy=B.sy-A.sy;
         const d=Math.sqrt(dx*dx+dy*dy)||.001;
-        const minD=A.r+B.r+6;
+        const minD=A.r+B.r+8; // gap maior entre logos
         if(d<minD){
           const f=(minD-d)/2*DAMP, nx=dx/d, ny=dy/d;
           A.sx-=nx*f; A.sy-=ny*f;
@@ -1051,11 +1051,11 @@ function getStableOffsets(markers){
 /* ══ TAMANHO PROPORCIONAL AO PESO ══ */
 // Grande peso → logo grande | pequeno peso → logo pequeno
 function getRadius(pct, zoomScale){
-  // Tamanhos base generosos — multiplicados pelo zoomScale
-  if(pct >= 8)  return Math.max(28, Math.min(48, 28 + pct*1.8)) * zoomScale;
-  if(pct >= 3)  return Math.max(20, Math.min(34, 20 + pct*1.2)) * zoomScale;
-  if(pct >= 1)  return Math.max(15, Math.min(22, 15 + pct*2.5)) * zoomScale;
-  return Math.max(11, Math.min(16, 11 + pct*5.0)) * zoomScale;
+  // Tamanhos base menores — zoom longe = menor (zoomScale < 1 quando longe)
+  if(pct >= 8)  return Math.max(14, Math.min(26, 14 + pct*1.0)) * zoomScale;
+  if(pct >= 3)  return Math.max(11, Math.min(20, 11 + pct*0.7)) * zoomScale;
+  if(pct >= 1)  return Math.max( 9, Math.min(14,  9 + pct*1.2)) * zoomScale;
+  return Math.max(7, Math.min(10, 7 + pct*3.0)) * zoomScale;
 }
 
 /* ══ GEO CLUSTERS — automático por zoom ══ */
@@ -1122,17 +1122,10 @@ function drawSingle(sx,sy,baseR,col,a,fade,ci,isHov){
   // Registra posição real para hit detection
   if(!window._drawnMarkers) window._drawnMarkers=[];
   window._drawnMarkers.push({a,sx,sy,r:baseR});
-  const ph1=(pulseClock*.45+ci*.52)%1;
-  oc.beginPath();oc.arc(sx,sy,baseR+ph1*baseR*1.1,0,Math.PI*2);
-  oc.strokeStyle=col+Math.round((1-ph1)*.38*fade*255).toString(16).padStart(2,'0');oc.lineWidth=1.1;oc.stroke();
-  const ph2=(pulseClock*.45+ci*.52+.5)%1;
-  oc.beginPath();oc.arc(sx,sy,baseR+ph2*baseR*.75,0,Math.PI*2);
-  oc.strokeStyle=col+Math.round((1-ph2)*.22*fade*255).toString(16).padStart(2,'0');oc.lineWidth=.7;oc.stroke();
-  const g=oc.createRadialGradient(sx,sy,0,sx,sy,baseR*1.8);
-  g.addColorStop(0,col+(isDayMode?'42':'35'));g.addColorStop(1,col+'00');
-  oc.beginPath();oc.arc(sx,sy,baseR*1.8,0,Math.PI*2);oc.fillStyle=g;oc.fill();
+
+  // Fundo da bolinha
   oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);
-  oc.fillStyle=col+Math.round(fade*218).toString(16).padStart(2,'0');oc.fill();
+  oc.fillStyle=col+Math.round(fade*200).toString(16).padStart(2,'0');oc.fill();
   // Logo preenchendo a bolinha
   const img=logoImgs[a.ticker];
   if(img&&img.complete&&img.naturalWidth>0&&img.naturalHeight>0){
@@ -1166,13 +1159,13 @@ function drawSingle(sx,sy,baseR,col,a,fade,ci,isHov){
   oc.strokeStyle=isHov||hoveredAsset&&hoveredAsset.ticker===a.ticker?'#e8c766':isDayMode?'rgba(255,255,255,.6)':col+'bb';
   oc.lineWidth=isHov||hoveredAsset&&hoveredAsset.ticker===a.ticker?2.5:1.2;oc.stroke();
   if(hoveredAsset&&hoveredAsset.ticker===a.ticker){oc.beginPath();oc.arc(sx,sy,baseR+6,0,Math.PI*2);oc.strokeStyle='#e8c766';oc.lineWidth=2.2;oc.stroke();}
-  // Label
-  if(fade>.35){
-    const fs=Math.round(Math.max(9,baseR*.82));
+  // Label — só para logos com tamanho suficiente
+  if(fade>.35 && baseR>=9){
+    const fs=Math.round(Math.max(8,baseR*.75));
     oc.font=`600 ${fs}px DM Sans,sans-serif`;oc.textAlign='center';oc.textBaseline='middle';
-    const lx=sx,ly=sy+baseR+11,tw=oc.measureText(a.ticker).width+10;
-    oc.fillStyle=isDayMode?'rgba(18,16,28,.76)':'rgba(5,3,12,.84)';
-    oc.beginPath();if(oc.roundRect)oc.roundRect(lx-tw/2,ly-7,tw,15,4);else oc.rect(lx-tw/2,ly-7,tw,15);oc.fill();
+    const lx=sx,ly=sy+baseR+9,tw=oc.measureText(a.ticker).width+8;
+    oc.fillStyle=isDayMode?'rgba(18,16,28,.72)':'rgba(5,3,12,.80)';
+    oc.beginPath();if(oc.roundRect)oc.roundRect(lx-tw/2,ly-6,tw,13,3);else oc.rect(lx-tw/2,ly-6,tw,13);oc.fill();
     oc.fillStyle=isDayMode?col:'#f0ece0';oc.globalAlpha=fade;oc.fillText(a.ticker,lx,ly);oc.globalAlpha=1;
   }
 }
@@ -1196,7 +1189,8 @@ function drawOverlay(dt){
   // Zoom scale: perto(2.2)→logos grandes | longe(6.5)→logos menores
   // Fórmula linear simples e previsível
   // zoomScale: zoom 2.2 (perto máx) → 2.5x | zoom 4.0 → 1.25x | zoom 6.5 → 0.77x
-  const zoomScale = Math.max(0.6, Math.min(2.8, 5.5/currentZoom));
+  // zoomScale: perto(2.2)→2.2x | padrão(4.0)→1.0x | longe(6.5)→0.55x
+  const zoomScale = Math.max(0.4, Math.min(2.2, 4.0/currentZoom));
   const baseRFn = (pct) => getRadius(pct, zoomScale);
 
   // Clusters: apenas quando botão CLUSTERS está ativo OU zoom muito longe (> 4.5)
