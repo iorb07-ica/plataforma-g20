@@ -635,11 +635,10 @@ const COORDS_TABLE={
 function carregarCG20(){
   try{
     const raw=localStorage.getItem('g20_aportes');
-    if(!raw) return; // mantém dados estáticos
+    if(!raw) return;
     const aportes=JSON.parse(raw);
     if(!Array.isArray(aportes)||!aportes.length) return;
 
-    // Calcula posição LÍQUIDA: soma compras, subtrai qtd das vendas
     const grouped={};
     aportes.forEach(a=>{
       const t=(a.ticker||'').trim().toUpperCase();
@@ -648,37 +647,57 @@ function carregarCG20(){
       const preco=parseFloat(a.preco||a.precoMedio||0);
       const isVenda=(a.op||'').toUpperCase()==='V';
       if(!grouped[t]) grouped[t]={ticker:t,custo:0,qtd:0,qtdV:0,tipo:a.tipo||'Stock',moeda:a.moeda||'BRL',nome:a.nome||t};
-      if(isVenda){
-        grouped[t].qtdV+=qtd; // acumula vendas separado
-      } else {
-        grouped[t].custo+=qtd*preco;
-        grouped[t].qtd+=qtd;
-      }
+      if(isVenda){ grouped[t].qtdV+=qtd; } else { grouped[t].custo+=qtd*preco; grouped[t].qtd+=qtd; }
     });
-    // Aplica vendas: subtrai da qtd total
     Object.values(grouped).forEach(g=>{ g.qtd=g.qtd-g.qtdV; });
 
     const total=Object.values(grouped).reduce((s,v)=>s+v.custo,0)||1;
 
+    // Conta quantos ativos BR/EUA não têm coords — para distribuir em grade
+    const semCoordsBR=[], semCoordsEUA=[];
+    Object.values(grouped).filter(g=>g.qtd>0.001&&g.custo>0.01).forEach(g=>{
+      if(COORDS_TABLE[g.ticker]) return;
+      if(g.moeda==='BRL') semCoordsBR.push(g.ticker);
+      else semCoordsEUA.push(g.ticker);
+    });
+
+    // Grade espiral ao redor do centróide — distribui ativos sem coords
+    function spiralCoord(idx, total, baseLat, baseLon, spread){
+      if(total<=1) return {lat:baseLat, lon:baseLon};
+      const golden=2.399963; // ângulo dourado em radianos
+      const r=spread*Math.sqrt(idx/total);
+      const theta=idx*golden;
+      return { lat:baseLat+r*Math.cos(theta), lon:baseLon+r*Math.sin(theta)*1.5 };
+    }
+
     const novos=Object.values(grouped)
-      .filter(g=>g.qtd>0.001&&g.custo>0.01) // exclui ativos zerados/vendidos
+      .filter(g=>g.qtd>0.001&&g.custo>0.01)
       .map(g=>{
         const coords=COORDS_TABLE[g.ticker];
         const tipo=detectTipo(g.ticker,g.tipo);
         const col=tipo==='fii'?'#e8c766':tipo==='reit'?'#4ade80':tipo==='etf'?'#c084fc':'#60a5fa';
         const pct=(g.custo/total)*100;
+
+        let lat, lon;
+        if(coords){ lat=coords.lat; lon=coords.lon; }
+        else if(g.moeda==='BRL'){
+          const idx=semCoordsBR.indexOf(g.ticker);
+          const sp=spiralCoord(idx,semCoordsBR.length,-22.0,-48.0,8);
+          lat=sp.lat; lon=sp.lon;
+        } else {
+          const idx=semCoordsEUA.indexOf(g.ticker);
+          const sp=spiralCoord(idx,semCoordsEUA.length,38.0,-97.0,14);
+          lat=sp.lat; lon=sp.lon;
+        }
+
         return{
-          ticker:g.ticker,
-          name:g.nome||g.ticker,
+          ticker:g.ticker, name:g.nome||g.ticker,
           region:coords?coords.region:(g.moeda==='BRL'?'brasil':'eua'),
-          type:tipo,
-          lat:coords?coords.lat:(g.moeda==='BRL'?-23.5:-37.0),
-          lon:coords?coords.lon:(g.moeda==='BRL'?-46.6:-95.0),
+          type:tipo, lat, lon,
           price:(g.moeda==='USD'?'US$ ':'R$ ')+(g.custo/g.qtd).toFixed(2),
           qty:g.qtd.toFixed(0)+' cotas',
           pos:(g.moeda==='BRL'?'R$ ':'US$ ')+(g.custo).toFixed(0),
-          pct:+pct.toFixed(2),
-          chg:'0%',up:true,
+          pct:+pct.toFixed(2), chg:'0%', up:true,
           city:coords?coords.city:(g.moeda==='BRL'?'Brasil':'EUA'),
           color:coords?coords.color:col,
           logo:coords?coords.logo:g.ticker.toLowerCase(),
@@ -732,16 +751,32 @@ function carregarMinhaCarteira(){
       grouped[t].custo+=qtd*preco;grouped[t].qtd+=qtd;
     });
 
+    const semCoordsBR2=[], semCoordsEUA2=[];
+    Object.values(grouped).filter(g=>g.custo>0).forEach(g=>{
+      if(COORDS_TABLE[g.ticker]) return;
+      if(g.moeda==='BRL') semCoordsBR2.push(g.ticker); else semCoordsEUA2.push(g.ticker);
+    });
+
     const total=Object.values(grouped).reduce((s,v)=>s+v.custo,0)||1;
     const novos=Object.values(grouped).filter(g=>g.custo>0).map(g=>{
       const coords=COORDS_TABLE[g.ticker];
       const tipo=detectTipo(g.ticker,g.tipo);
       const pct=(g.custo/total)*100;
+      let lat,lon;
+      if(coords){lat=coords.lat;lon=coords.lon;}
+      else if(g.moeda==='BRL'){
+        const idx=semCoordsBR2.indexOf(g.ticker);
+        const n=semCoordsBR2.length,r=8*Math.sqrt(idx/n),th=idx*2.399963;
+        lat=-22.0+r*Math.cos(th);lon=-48.0+r*Math.sin(th)*1.5;
+      } else {
+        const idx=semCoordsEUA2.indexOf(g.ticker);
+        const n=semCoordsEUA2.length,r=14*Math.sqrt(idx/n),th=idx*2.399963;
+        lat=38.0+r*Math.cos(th);lon=-97.0+r*Math.sin(th)*1.5;
+      }
       return{
         ticker:g.ticker,name:g.nome||g.ticker,
         region:coords?coords.region:(g.moeda==='BRL'?'brasil':'eua'),type:tipo,
-        lat:coords?coords.lat:(g.moeda==='BRL'?-23.5+Math.random()*.5:-37+Math.random()*5),
-        lon:coords?coords.lon:(g.moeda==='BRL'?-46.6+Math.random()*.5:-95+Math.random()*10),
+        lat,lon,
         price:(g.moeda==='USD'?'US$ ':'R$ ')+(g.custo/g.qtd).toFixed(2),
         qty:g.qtd.toFixed(0)+' cotas',pos:(g.moeda==='BRL'?'R$ ':'US$ ')+(g.custo).toFixed(0),
         pct:+pct.toFixed(2),chg:'0%',up:true,
