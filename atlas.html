@@ -1019,6 +1019,8 @@ function separateMarkers(markers,iters=14){
 }
 
 /* ══ GEO CLUSTERS — automático por zoom ══ */
+const MAX_PER_CLUSTER = 8; // NUNCA mais que 8 ativos por cluster
+
 function getSubregion(a){
   if(a.region==='eua'){
     if(a.lon<-115) return 'west_coast';
@@ -1029,58 +1031,44 @@ function getSubregion(a){
     return 'east_coast';
   }
   if(a.region==='brasil'){
-    if(a.lat<-25)                      return 'sul';
-    if(a.lat<-18&&a.lon>-46)           return 'mg_es';
-    if(a.lat>-10)                      return 'nordeste';
-    if(a.lon<-48&&a.lat>-22)           return 'centro_oeste';
-    if(a.lat<-22&&a.lat>-24&&a.lon<-44) return 'rj';
+    if(a.lat<-25)            return 'sul';
+    if(a.lat<-18&&a.lon>-46) return 'mg';
+    if(a.lat>-10)            return 'nordeste';
+    if(a.lon<-48&&a.lat>-22) return 'centro';
+    if(a.lat<-22&&a.lon<-44) return 'rj';
     return 'sp';
   }
-  return a.region+'_'+a.type;
+  return a.region;
 }
 
 function buildGeoClusters(assets){
-  // Threshold de zoom para clustering automático
-  // zoom > 3.8 → agrupa | zoom ≤ 3.8 → individual
-  if(currentZoom <= 3.8 && !clusterMode){
+  if(currentZoom <= 3.5 && !clusterMode)
     return assets.map(a=>({assets:[a],lat:a.lat,lon:a.lon,color:a.color,region:a.region,totalPct:a.pct}));
-  }
 
-  // Raio de agrupamento cresce com zoom (mais longe = agrupa mais)
-  // zoom 3.8 → deg 5 (agrupa só muito próximos)
-  // zoom 5.0 → deg 12
-  // zoom 6.5 → deg 25 (agrupa por sub-região inteira)
-  const deg = Math.max(4, (currentZoom - 2) * 5.5);
+  // deg MUITO conservador — máximo 6° para não criar monstros
+  // zoom 3.5→1.4° | zoom 4.0→2.1° | zoom 5.0→3.5° | zoom 6.5→5.6°
+  const deg = Math.min(6, (currentZoom - 2.5) * 1.4);
 
-  // Agrupa por sub-região quando muito longe
-  const groupBySubregion = currentZoom > 5.2;
+  const used = new Array(assets.length).fill(false);
+  const cls = [];
 
-  const used=new Array(assets.length).fill(false), cls=[];
   for(let i=0;i<assets.length;i++){
-    if(used[i])continue;
-    const a=assets[i];
-    const subrA=getSubregion(a);
-    const cl={assets:[a],lat:a.lat,lon:a.lon,color:a.color,region:a.region,totalPct:a.pct,subregion:subrA};
-    used[i]=true;
+    if(used[i]) continue;
+    const a = assets[i];
+    const cl = {assets:[a], lat:a.lat, lon:a.lon, color:a.color, region:a.region, totalPct:a.pct};
+    used[i] = true;
+
     for(let j=i+1;j<assets.length;j++){
-      if(used[j])continue;
-      const b=assets[j];
-      if(b.region!==a.region)continue;
-      const subrB=getSubregion(b);
-      // Modo sub-região: agrupa qualquer ativo da mesma sub-região
-      if(groupBySubregion && subrB===subrA){
-        cl.assets.push(b);cl.totalPct+=b.pct;
-        cl.lat=(cl.lat*(cl.assets.length-1)+b.lat)/cl.assets.length;
-        cl.lon=(cl.lon*(cl.assets.length-1)+b.lon)/cl.assets.length;
-        used[j]=true;
-        continue;
-      }
-      // Modo geográfico: agrupa por distância
-      if(Math.abs(a.lat-b.lat)<deg&&Math.abs(a.lon-b.lon)<deg){
-        cl.assets.push(b);cl.totalPct+=b.pct;
-        cl.lat=(cl.lat*(cl.assets.length-1)+b.lat)/cl.assets.length;
-        cl.lon=(cl.lon*(cl.assets.length-1)+b.lon)/cl.assets.length;
-        used[j]=true;
+      if(used[j]) continue;
+      if(cl.assets.length >= MAX_PER_CLUSTER) break; // CAP DURO
+      const b = assets[j];
+      if(b.region !== a.region) continue;
+      if(Math.abs(cl.lat-b.lat)<deg && Math.abs(cl.lon-b.lon)<deg){
+        cl.assets.push(b);
+        cl.totalPct += b.pct;
+        cl.lat = (cl.lat*(cl.assets.length-1)+b.lat)/cl.assets.length;
+        cl.lon = (cl.lon*(cl.assets.length-1)+b.lon)/cl.assets.length;
+        used[j] = true;
       }
     }
     cls.push(cl);
