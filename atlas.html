@@ -221,7 +221,7 @@ body.day .a-ticker{color:#111113}
 .a-badge.stock{background:rgba(96,165,250,.12);color:#60a5fa;border:1px solid rgba(96,165,250,.3)}
 .a-badge.reit{background:rgba(74,222,128,.12);color:#4ade80;border:1px solid rgba(74,222,128,.3)}
 .a-badge.etf{background:rgba(192,132,252,.12);color:#c084fc;border:1px solid rgba(192,132,252,.3)}
-.a-badge.fii{background:rgba(232,199,102,.12);color:#e8c766;border:1px solid rgba(232,199,102,.3)}position:absolute;inset:0;z-index:30;background:rgba(10,9,16,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;transition:opacity .5s}
+.a-badge.cripto{background:rgba(251,146,60,.12);color:#fb923c;border:1px solid rgba(251,146,60,.3)}position:absolute;inset:0;z-index:30;background:rgba(10,9,16,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;transition:opacity .5s}
 .ld-logo{font-size:22px;font-weight:800;color:var(--gold);letter-spacing:-1px}
 .ld-bar-w{width:150px;height:2px;background:#1a1828;border-radius:2px;overflow:hidden}
 .ld-bar{height:100%;background:linear-gradient(90deg,var(--gold),var(--gold2));border-radius:2px;animation:ldprog 3s ease forwards}
@@ -269,10 +269,11 @@ body.day .a-ticker{color:#111113}
       <!-- Filtros -->
       <div class="filters-bar">
         <button class="filter-btn active" onclick="setFilter('all',this)">TODOS</button>
-        <button class="filter-btn" onclick="setFilter('stock',this)">STOCKS</button>
+        <button class="filter-btn" onclick="setFilter('stock',this)">AÇÕES</button>
         <button class="filter-btn" onclick="setFilter('reit',this)">REITs</button>
         <button class="filter-btn" onclick="setFilter('etf',this)">ETFs</button>
         <button class="filter-btn" onclick="setFilter('fii',this)">FIIs</button>
+        <button class="filter-btn" onclick="setFilter('cripto',this)">CRIPTO</button>
       </div>
 
       <!-- Toggle noite/dia -->
@@ -657,13 +658,16 @@ function carregarCG20(){
         const tipo=detectTipo(g.ticker,g.tipo);
         const col=tipo==='fii'?'#e8c766':tipo==='reit'?'#4ade80':tipo==='etf'?'#c084fc':'#60a5fa';
         const pct=(g.custo/total)*100;
+        // Adiciona jitter para separar empresas na mesma cidade
+        // SP especialmente fica muito congestionado sem isso
+        const jitterAmt = coords ? (coords.region==='brasil'?0.8:0.3) : 1.5;
         return{
           ticker:g.ticker,
           name:g.nome||g.ticker,
           region:coords?coords.region:(g.moeda==='BRL'?'brasil':'eua'),
           type:tipo,
-          lat:coords?coords.lat:(g.moeda==='BRL'?-23.5:-37.0),
-          lon:coords?coords.lon:(g.moeda==='BRL'?-46.6:-95.0),
+          lat:(coords?coords.lat:(g.moeda==='BRL'?-23.5:-37.0))+(Math.random()-.5)*jitterAmt,
+          lon:(coords?coords.lon:(g.moeda==='BRL'?-46.6:-95.0))+(Math.random()-.5)*jitterAmt,
           price:(g.moeda==='USD'?'US$ ':'R$ ')+(g.custo/g.qtd).toFixed(2),
           qty:g.qtd.toFixed(0)+' cotas',
           pos:(g.moeda==='BRL'?'R$ ':'US$ ')+(g.custo).toFixed(0),
@@ -691,13 +695,16 @@ function carregarCG20(){
 
 function detectTipo(ticker,tipoRaw){
   const t=(tipoRaw||'').toLowerCase();
+  // Cripto
+  const CRIPTO=['BTC','BTC-USD','ETH','BNB','SOL','DOT','LINK','MANA','SAND','HNT','ADA','MATIC','AVAX'];
+  if(CRIPTO.includes(ticker)) return 'cripto';
+  if(t.includes('cripto')||t.includes('crypto')) return 'cripto';
   if(t.includes('fii')||t.includes('fundo')) return 'fii';
   if(t.includes('reit')) return 'reit';
   if(t.includes('etf')) return 'etf';
-  // Por sufixo do ticker
   if(/11$/.test(ticker)&&!['BPAC11','TAEE11','SAPR11','KLBN11','ENGI11'].includes(ticker)) return 'fii';
-  if(['VNQ','VTI','VOO','QQQ','SPY','IVV','SCHD','VGK','EWG'].includes(ticker)) return 'etf';
-  if(['O','SPG','AMT','PLD'].includes(ticker)) return 'reit';
+  if(['VNQ','VTI','VOO','QQQ','SPY','IVV','SCHD','VGK','EWG','ARGT','CIBR','IEUR','MCHI','NOBL','QYLD','SCHA','URA','XBI','XLU','XYLD','VNQI'].includes(ticker)) return 'etf';
+  if(['O','SPG','AMT','PLD','NNN','SKT','SLG','ESS','EQIX','IIPR','DOC','STOR'].includes(ticker)) return 'reit';
   return 'stock';
 }
 
@@ -804,12 +811,17 @@ let shareCanvas=null;
 function getActiveAssets(){
   const snap=TIMELINE_SNAPSHOTS[timelineIndex];
   const tlF=timelineActive?snap.assets:ASSETS.map(a=>a.ticker);
-  return ASSETS.filter(a=>tlF.includes(a.ticker)&&(activeFilter==='all'||a.type===activeFilter));
+  return ASSETS.filter(a=>{
+    if(!tlF.includes(a.ticker)) return false;
+    if(activeFilter==='all') return true;
+    if(activeFilter==='cripto') return a.type==='cripto';
+    return a.type===activeFilter;
+  });
 }
 
 function updateClassPanel(){
   const a=getActiveAssets();
-  const totals={stock:0,reit:0,etf:0,fii:0};
+  const totals={stock:0,reit:0,etf:0,fii:0,cripto:0};
   a.forEach(x=>totals[x.type]=(totals[x.type]||0)+x.pct);
   const total=Object.values(totals).reduce((s,v)=>s+v,0)||1;
   ['stock','reit','etf','fii'].forEach(t=>{
@@ -1011,8 +1023,8 @@ function drawOverlay(dt){
   const camDir=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
 
   // Raio base proporcional ao zoom — maior zoom = bolinhas maiores
-  const zoomScale = Math.max(0.4, Math.min(2.0, 4.0/currentZoom));
-  const baseRFn = (pct) => (8 + pct*0.5) * zoomScale;
+  const zoomScale = Math.max(0.5, Math.min(2.5, 5.0/currentZoom));
+  const baseRFn = (pct) => (7 + pct*0.45) * zoomScale;
 
   const allM=[];
   filtered.forEach((a,i)=>{
