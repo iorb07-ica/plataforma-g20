@@ -1370,9 +1370,20 @@ function drawOverlay(dt){
   oc.clearRect(0,0,container.clientWidth,container.clientHeight);
   window._clusterHits=[];
   window._explodedHits=[];
-  window._drawnMarkers=[]; // reset hit detection a cada frame
+  window._drawnMarkers=[];
   const filtered=getActiveAssets();
   const camDir=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
+
+  // ── CLIP PATH DO GLOBO ──
+  // Tudo desenhado fora do disco do globo é cortado automaticamente
+  // → logos no horizonte aparecem "afundando na Terra", não flutuando no espaço
+  const fovRad2=camera.fov*Math.PI/180;
+  const globeScreenR=(GLOBE_R/camera.position.z)*(container.clientWidth/(2*Math.tan(fovRad2/2)));
+  const gcx=container.clientWidth/2, gcy=container.clientHeight/2;
+  oc.save();
+  oc.beginPath();
+  oc.arc(gcx, gcy, globeScreenR * 0.995, 0, Math.PI*2); // 0.5% menor para esconder a borda
+  oc.clip();
 
   // TAMANHO PERSPECTIVA REAL: como se o logo fosse um disco físico na superfície do globo
   // worldSize = tamanho do disco em unidades 3D (proporcional ao peso)
@@ -1411,9 +1422,8 @@ function drawOverlay(dt){
       const pos3=ll3(cl.lat,cl.lon,GLOBE_R).applyEuler(earthMesh.rotation);
       const sp=w2s(pos3);
       const dot=pos3.clone().normalize().dot(camDir.clone().negate());
-      if(dot<=-0.05)return;
-      // Fade suave começando em dot=0.5 — igual ao modo individual
-      const _t_cl=Math.min(1,Math.max(0,(dot+0.05)/0.55));
+      if(dot<=-0.1)return;
+      const _t_cl=Math.min(1,Math.max(0,(dot+0.1)/0.45));
       const _hf_cl=_t_cl*_t_cl*(3-2*_t_cl);
       if(_hf_cl<=0)return;
       const n=cl.assets.length,col=cl.color,fade=_hf_cl;
@@ -1490,9 +1500,10 @@ function drawOverlay(dt){
   }
 
   // MODO INDIVIDUAL — logos grudados na superfície, sem separação de força
-  // Sobreposições detectadas → stack badge "+N" clicável que expande em órbita
-  const DOT_FULL   = 0.5;
-  const DOT_HIDDEN = -0.05;
+  // O clip do globo corta tudo que ultrapassar a borda — efeito "objeto no chão"
+  // O fade suaviza a opacidade apenas perto do limbo para transição suave
+  const DOT_FULL   = 0.35;  // 100% opaco acima disso
+  const DOT_HIDDEN = -0.1;  // o clip já cortou, fade só garante suavidade
 
   function horizonFactor(dot){
     if(dot >= DOT_FULL)   return 1.0;
@@ -1614,6 +1625,9 @@ function drawOverlay(dt){
       }
     }
   });
+
+  // Restaura contexto (remove clip do globo)
+  oc.restore();
 }
 
 /* ══ HIT DETECTION 2D — usa posições reais dos logos no canvas overlay ══ */
