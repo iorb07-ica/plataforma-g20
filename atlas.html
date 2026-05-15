@@ -1199,9 +1199,9 @@ function drawOverlay(dt){
   const zoomScale = Math.max(0.6, Math.min(2.8, 5.5/currentZoom));
   const baseRFn = (pct) => getRadius(pct, zoomScale);
 
-  // AUTO-CLUSTER obrigatório quando total de ativos > 25 (evita bagunça)
-  const tooMany = filtered.length > 25;
-  const useClusters = clusterMode || currentZoom > 3.2 || tooMany;
+  // Clusters: apenas quando botão CLUSTERS está ativo OU zoom muito longe (> 4.5)
+  // Não mais "tooMany" — deixa o modo individual lidar com muitos ativos via separação
+  const useClusters = clusterMode || currentZoom > 4.5;
 
   const allM=[];
   filtered.forEach((a,i)=>{
@@ -1283,30 +1283,31 @@ function drawOverlay(dt){
     return;
   }
 
-  // MODO INDIVIDUAL (zoom perto ≤ 3.2) — offsets estáveis, sem pipoca
-  const frontM=allM.filter(m=>m.dot>=.18);
-  getStableOffsets(frontM); // calcula uma vez, cacheia por zoom bucket
+  // MODO INDIVIDUAL — separação com força, todos os logos visíveis
+  const frontM=allM.filter(m=>m.dot>=.15); // mais ativos visíveis
+  getStableOffsets(frontM);
+
+  // Linhas de conexão para logos movidos
   frontM.forEach(m=>{
-    const moved=Math.hypot(m.sx-m.ox,m.sy-m.oy)>3;
+    const moved=Math.hypot(m.sx-m.ox,m.sy-m.oy)>5;
     if(!moved)return;
     oc.beginPath();oc.moveTo(m.ox,m.oy);oc.lineTo(m.sx,m.sy);
-    oc.strokeStyle=m.col+'44';oc.lineWidth=.8;oc.setLineDash([3,4]);oc.stroke();oc.setLineDash([]);
-    oc.beginPath();oc.arc(m.ox,m.oy,3,0,Math.PI*2);oc.fillStyle=m.col+'99';oc.fill();
+    oc.strokeStyle=m.col+'33';oc.lineWidth=.6;oc.setLineDash([2,3]);oc.stroke();oc.setLineDash([]);
+    oc.beginPath();oc.arc(m.ox,m.oy,2.5,0,Math.PI*2);oc.fillStyle=m.col+'77';oc.fill();
   });
-  allM.forEach(m=>{
+
+  // Desenha todos — frente primeiro (maior pct = mais importante = desenhado por último = acima)
+  const sorted=frontM.sort((a,b)=>a.a.pct-b.a.pct);
+  sorted.forEach(m=>{
     const {a,i,ox,oy,sx,sy,dot,r:baseR,col}=m;
-    if(dot<-.18)return;
-    if(dot>=-.18&&dot<.18){
-      const alpha=Math.max(0,(.18-Math.abs(dot))/.18),hr=Math.max(3,baseR*.4);
-      const gph=(pulseClock*.8+i*.6)%1;
-      oc.beginPath();oc.arc(ox,oy,hr+gph*hr,0,Math.PI*2);
-      oc.strokeStyle=col+Math.round(alpha*(1-gph)*180).toString(16).padStart(2,'0');
-      oc.lineWidth=.8;oc.stroke();
-      oc.beginPath();oc.arc(ox,oy,hr,0,Math.PI*2);
-      oc.fillStyle=col+Math.round(alpha*200).toString(16).padStart(2,'0');oc.fill();
-      return;
-    }
-    drawSingle(sx,sy,baseR,col,a,Math.min(1,dot*2),i,false);
+    drawSingle(sx,sy,baseR,col,a,Math.min(1,dot*2.5),i,false);
+  });
+
+  // Ativos no horizonte (dot baixo) — pequeno ponto pulsante
+  allM.filter(m=>m.dot>=-.1&&m.dot<.15).forEach((m,i)=>{
+    const alpha=Math.max(0,(.15+m.dot)/.25),hr=Math.max(2,m.r*.25);
+    oc.beginPath();oc.arc(m.ox,m.oy,hr,0,Math.PI*2);
+    oc.fillStyle=m.col+Math.round(alpha*160).toString(16).padStart(2,'0');oc.fill();
   });
 }
 
