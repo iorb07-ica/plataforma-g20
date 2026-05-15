@@ -313,26 +313,33 @@
         var secEl = sidebar.querySelector('.' + sec.cls);
         if (!secEl) return;
         sec.items.forEach(function(item) {
-          // Verifica se o item já existe (por href ou data-tooltip)
           var exists = secEl.querySelector('[href="' + item.href + '"], [data-tooltip="' + item.label + '"]');
           if (exists) return;
-          // Cria e insere o item faltante
+          // Cria igual ao branch principal — mesmo HTML
           var a = document.createElement('a');
           a.href = item.href;
           a.className = 'nav-item' + (item.href !== '#' && currentPage === item.href ? ' active' : '');
           if (item.id) a.id = item.id;
           a.setAttribute('data-tooltip', item.label);
+          if (typeof csm === 'function') a.onclick = function(){ csm(); };
           var ico = document.createElement('span');
           ico.className = 'ico';
           ico.textContent = item.ico;
           a.appendChild(ico);
-          var span = document.createElement('span');
-          span.className = 'nav-item-text';
-          span.textContent = item.label;
-          a.appendChild(span);
+          var i = document.createElement('i');
+          i.setAttribute('data-lucide', item.lucide);
+          a.appendChild(i);
+          a.appendChild(document.createTextNode(item.label));
+          if (item.badge) {
+            var b = document.createElement('span');
+            b.style.cssText = 'margin-left:6px;background:var(--gold);color:#000;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px';
+            b.textContent = item.badge;
+            a.appendChild(b);
+          }
           secEl.appendChild(a);
         });
       });
+      if (window.lucide && lucide.createIcons) lucide.createIcons();
 
       return;
     }
