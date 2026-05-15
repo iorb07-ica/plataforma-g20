@@ -818,32 +818,40 @@ const TV_SLUGS={
   'SOL':'solana','DOT':'polkadot','LINK':'chainlink','MANA':'decentraland','SAND':'the-sandbox',
 };
 
-function loadLogo(ticker){
-  // Usa APENAS TV_SLUGS — ignora a.logo que tem slugs legados incorretos
-  const slug=TV_SLUGS[ticker];
-  if(!slug) return; // sem slug mapeado = fallback de iniciais no drawSingle
-  const base='https://s3-symbol-logo.tradingview.com/';
+// Cache por SLUG (igual ao globo-g20-v4.html que funciona)
+const logoCache={}; // slug → HTMLImageElement
+
+function getLogoImg(slug){
+  if(!slug) return null;
+  if(logoCache[slug]) return logoCache[slug];
   const img=new Image();
-  img.src=base+slug+'.svg';
-  img.onload=()=>{ logoImgs[ticker]=img; };
+  img.crossOrigin='anonymous'; // NECESSÁRIO igual outros módulos
+  img.src=`https://s3-symbol-logo.tradingview.com/${slug}.svg`;
   img.onerror=()=>{
+    // Tenta variante --big
     const img2=new Image();
-    img2.src=base+slug+'--big.svg';
-    img2.onload=()=>{ logoImgs[ticker]=img2; };
+    img2.crossOrigin='anonymous';
+    img2.src=`https://s3-symbol-logo.tradingview.com/${slug}--big.svg`;
+    img2.onload=()=>{ logoCache[slug]=img2; };
   };
+  logoCache[slug]=img;
+  return img;
 }
 
 function preloadAssets(){
-  // Flags
+  // Flags com crossOrigin
   [...new Set(ASSETS.map(a=>FLAG_CODES[a.flag]).filter(Boolean))].forEach(cc=>{
-    if(flagImgs[cc]?.complete&&flagImgs[cc]?.naturalWidth>0) return;
+    if(flagImgs[cc]) return;
     const img=new Image();
+    img.crossOrigin='anonymous';
     img.src=`https://flagcdn.com/w40/${cc}.png`;
     img.onload=()=>{ flagImgs[cc]=img; };
   });
-  // Logos — força reload de todos os assets atuais
-  logoImgs={}; // limpa cache para forçar recarregamento com slugs corretos
-  ASSETS.forEach(a=>{ loadLogo(a.ticker); });
+  // Logos por slug (TV_SLUGS[ticker] tem precedência, depois a.logo do COORDS_TABLE)
+  ASSETS.forEach(a=>{
+    const slug=TV_SLUGS[a.ticker]||a.logo;
+    if(slug) getLogoImg(slug);
+  });
 }
 preloadAssets();
 
@@ -865,7 +873,7 @@ let activeFilter='all',showArcos=false,autoRotate=true,showAtm=true,isDayMode=fa
 let isDragging=false,prevMouse={x:0,y:0};
 let flyTarget=null,flyProgress=0,hoveredAsset=null;
 let currentZoom=4.0,targetZoom=4.0;
-const ZOOM_MIN=2.2,ZOOM_MAX=6.5;
+const ZOOM_MIN=1.2,ZOOM_MAX=6.5;
 let clusterMode=false;
 let cinemaMode=false,cinemaAudio=null;
 let timelineActive=false,timelineIndex=8;
@@ -1138,13 +1146,12 @@ function drawSingle(sx,sy,baseR,col,a,fade,ci,isHov){
     return;
   }
 
-  // ── LOD 2: BOLINHA COM INICIAIS (zoom médio, baseR 5-12)
+  // ── LOD 2: BOLINHA COM LOGO (zoom médio, baseR 5-12)
   if(baseR < 12){
-    // Fundo colorido
     oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);
     oc.fillStyle=col+Math.round(fade*210).toString(16).padStart(2,'0');oc.fill();
-    // Logo se tiver
-    const imgM=logoImgs[a.ticker];
+    const slug2=TV_SLUGS[a.ticker]||a.logo;
+    const imgM=getLogoImg(slug2);
     if(imgM&&imgM.complete&&imgM.naturalWidth>0){
       oc.save();oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);oc.clip();
       oc.globalAlpha=fade*.92;oc.drawImage(imgM,sx-baseR,sy-baseR,baseR*2,baseR*2);oc.restore();
@@ -1154,7 +1161,6 @@ function drawSingle(sx,sy,baseR,col,a,fade,ci,isHov){
       oc.fillStyle='rgba(255,255,255,.85)';oc.globalAlpha=fade;
       oc.fillText(a.ticker[0],sx,sy+.5);oc.globalAlpha=1;
     }
-    // Borda fina
     oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);
     oc.strokeStyle=isHovered?'#e8c766':col+'99';oc.lineWidth=isHovered?2:1;oc.stroke();
     if(isHovered){oc.beginPath();oc.arc(sx,sy,baseR+4,0,Math.PI*2);oc.strokeStyle='#e8c76688';oc.lineWidth=1.5;oc.stroke();}
@@ -1162,11 +1168,10 @@ function drawSingle(sx,sy,baseR,col,a,fade,ci,isHov){
   }
 
   // ── LOD 3: LOGO COMPLETO (zoom perto, baseR >= 12)
-  // Fundo
   oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);
   oc.fillStyle=col+Math.round(fade*200).toString(16).padStart(2,'0');oc.fill();
-  // Logo
-  const img=logoImgs[a.ticker];
+  const slug3=TV_SLUGS[a.ticker]||a.logo;
+  const img=getLogoImg(slug3);
   if(img&&img.complete&&img.naturalWidth>0&&img.naturalHeight>0){
     oc.save();oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);oc.clip();
     oc.globalAlpha=fade*.96;oc.drawImage(img,sx-baseR,sy-baseR,baseR*2,baseR*2);oc.restore();
