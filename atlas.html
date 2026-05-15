@@ -840,6 +840,25 @@ const TV_SLUGS={
 };
 
 // Cache por SLUG (igual ao globo-g20-v4.html que funciona)
+// Slugs CONFIRMADOS no TV CDN (testados no browser)
+const TV_WHITELIST=new Set([
+  'apple','microsoft','amazon','nvidia','meta','tesla','netflix','nike',
+  'visa','mastercard','coinbase','paypal','adobe','lululemon-athletica',
+  'mercadolibre','novo-nordisk','crocs','dominos-pizza','duolingo',
+  'monster-beverage','fortinet','enphase-energy','accenture',
+  'berkshire-hathaway','dell','rollins','constellation-energy',
+  'abercrombie-and-fitch','asml','taiwan-semiconductor','alibaba',
+  'vale','weg','braskem','lojas-renner','localiza','suzano','cemig',
+  'telefonica-brasil','embraer','totvs','vulcabras','itau-unibanco',
+  'itausa','sanepar','banco-bradesco','banco-do-brasil','realty-income',
+  'vanguard','equinix','prologis','invesco','ishares','proshares',
+  'engie','inter','eneva','skechers-usa','vistra-energy',
+  'essex-property-trust','walt-disney','blackrock','unitedhealth',
+  'wells-fargo','johnson-and-johnson','schwab','first-trust',
+  'global-x','3r-petroleum','ouro-fino','trisul','log-commercial-properties',
+  'xp-inc','nu-holdings','alphabet',
+]);
+
 // Logos fallback via Google Favicons — para empresas sem slug no TV CDN
 const FALLBACK_LOGOS={
   'PETR4':'petrobras.com.br','PETR3':'petrobras.com.br',
@@ -867,7 +886,8 @@ const FALLBACK_LOGOS={
   'IIPR':'iipr.com','SKT':'tanger.com','NNN':'nnnreit.com',
   'ESS':'essexproperty.com','WFC':'wellsfargo.com',
   'BLK':'blackrock.com','JPM':'jpmorganchase.com',
-};
+
+  'XBI':'ssga.com','XLU':'ssga.com',};
 function getFallbackLogoUrl(ticker){
   const d=FALLBACK_LOGOS[ticker];
   return d?`https://www.google.com/s2/favicons?domain=${d}&sz=64`:null;
@@ -899,8 +919,11 @@ function preloadAssets(){
     if(logoImgs[a.ticker]) return;
     const img=new Image();
     // Cripto: usa CoinGecko. Outros: TV CDN sem crossOrigin (igual carteira.html)
+    // 1. Cripto → CoinGecko
+    // 2. Slug na whitelist → TV CDN direto (sem crossOrigin)
+    // 3. Qualquer outra coisa → Google Favicon fallback
     const url = CRYPTO_LOGOS[a.ticker]
-      || (a.logo ? `https://s3-symbol-logo.tradingview.com/${a.logo}.svg?v=3` : null)
+      || (a.logo && TV_WHITELIST.has(a.logo) ? `https://s3-symbol-logo.tradingview.com/${a.logo}.svg?v=3` : null)
       || getFallbackLogoUrl(a.ticker);
     if(!url) return;
     img.onerror=()=>{ logoImgs[a.ticker]=null; };
@@ -1529,7 +1552,7 @@ function buildAssetList(){
     grp.sort((a,b)=>b.pct-a.pct).forEach(a=>{
       html+=`<div class="a-item" onmouseenter="highlightAsset('${a.ticker}')" onmouseleave="highlightAsset(null)">
         <div class="a-logo">
-          <img src="${CRYPTO_LOGOS[a.ticker]||(a.logo?'https://s3-symbol-logo.tradingview.com/'+a.logo+'.svg?v=3':'')||getFallbackLogoUrl(a.ticker)||''}"
+          <img src="${CRYPTO_LOGOS[a.ticker]||(a.logo&&TV_WHITELIST.has(a.logo)?'https://s3-symbol-logo.tradingview.com/'+a.logo+'.svg?v=3':'')||getFallbackLogoUrl(a.ticker)||''}"
                style="width:24px;height:24px;object-fit:contain"
                onerror="this.style.display='none'">
         </div>
@@ -1588,7 +1611,7 @@ function showTooltip(a,cx,cy){
   document.getElementById('tt-posv').textContent=a.pos;
   document.getElementById('tt-pct').textContent=a.pct.toFixed(1)+'%';
   const cb=document.getElementById('tt-chg-big');cb.textContent=a.chg;cb.className='tt-chg-big '+(a.up?'tt-up':'tt-dn');
-  const ttLogoUrl=CRYPTO_LOGOS[a.ticker]||(a.logo?`https://s3-symbol-logo.tradingview.com/${a.logo}.svg?v=3`:'')||getFallbackLogoUrl(a.ticker)||'';
+  const ttLogoUrl=CRYPTO_LOGOS[a.ticker]||(a.logo&&TV_WHITELIST.has(a.logo)?`https://s3-symbol-logo.tradingview.com/${a.logo}.svg?v=3`:'')||getFallbackLogoUrl(a.ticker)||'';
   document.getElementById('tt-logo').innerHTML=`<img src="${ttLogoUrl}" style="width:40px;height:40px;object-fit:contain" onerror="this.style.display='none'">`;
   const badge=document.getElementById('tt-badge');badge.textContent=a.type.toUpperCase();badge.className='tt-badge '+a.type;
   document.getElementById('tt-city').textContent='📍 '+a.city;
