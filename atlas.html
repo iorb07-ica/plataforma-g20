@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Atlas G20 — Distribuição Global</title>
+<link rel="stylesheet" href="assets/g20-sidebar.css?v=10">
+<link rel="stylesheet" href="assets/g20-topbar-v21.css?v=12">
+<link rel="stylesheet" href="assets/g20-scrollbar.css?v=10">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#1a191e;--surface:#27252c;--gold:#c9a961;--gold2:#e8c766;
+  --text:#f0ece0;--muted:#8b8499;--border:#3a3740;
+  --eua:#60a5fa;--brasil:#4ade80;--europa:#c084fc;--asia:#fb923c;
+}
+body.day{--bg:#f5f5f7;--surface:#fff;--text:#111113;--muted:#6b6b72;--border:#d8d8dc;}
+html,body{width:100%;height:100%;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;overflow:hidden}
+
+/* Layout principal: sidebar + main */
+.app-layout{display:flex;height:100vh}
+.atlas-main{flex:1;position:relative;overflow:hidden;display:flex;flex-direction:column;background:radial-gradient(ellipse at 50% 48%,#0c0b1e 0%,#03020a 100%)}
+body.day .atlas-main{background:radial-gradient(ellipse at 50% 48%,#d8dae8 0%,#bcc0d4 100%)}
+
+/* Topbar da página */
+.atlas-topbar{height:52px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 20px;border-bottom:1px solid var(--border);background:rgba(26,25,30,.96);backdrop-filter:blur(12px);z-index:50}
+body.day .atlas-topbar{background:rgba(245,245,247,.97)}
+.atlas-topbar-left{display:flex;align-items:center;gap:10px}
+.atlas-page-title{font-size:15px;font-weight:600}
+.atlas-page-sub{font-size:9px;color:var(--muted);letter-spacing:2px;margin-top:1px}
+.atlas-topbar-right{display:flex;align-items:center;gap:10px}
+.live-badge{display:flex;align-items:center;gap:5px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.2);border-radius:20px;padding:3px 10px;font-size:9px;color:#4ade80;letter-spacing:1px}
+.live-dot{width:5px;height:5px;border-radius:50%;background:#4ade80;animation:ldot 2s infinite}
+@keyframes ldot{0%,100%{opacity:1}50%{opacity:.3}}
+.hashtag{font-size:11px;color:var(--gold);letter-spacing:1px;font-weight:500}
+
+/* Globo */
+#gc{flex:1;position:relative;overflow:hidden}
+#three-canvas{position:absolute;top:0;left:0;width:100%;height:100%;cursor:grab}
+
+/* Overlay canvas (bolinhas) */
+/* CONTROLES */
+.controls-bar{position:absolute;top:14px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:4px;z-index:10;background:rgba(14,13,20,.92);border:1px solid var(--border);border-radius:24px;padding:6px 14px;backdrop-filter:blur(10px)}
+body.day .controls-bar{background:rgba(245,245,247,.92);border-color:#d8d8dc}
+.ctrl-btn{font-size:10px;letter-spacing:1px;padding:5px 13px;border-radius:20px;border:1px solid transparent;background:transparent;color:var(--muted);cursor:pointer;transition:all .2s;font-family:'DM Sans',sans-serif;white-space:nowrap}
+.ctrl-btn:hover{color:var(--gold)}.ctrl-btn.on{border-color:var(--gold);color:var(--gold);background:rgba(201,169,97,.1)}
+.ctrl-sep{width:1px;height:14px;background:var(--border)}
+.ctrl-btn.timeline-on{border-color:#c084fc;color:#c084fc;background:rgba(192,132,252,.1)}
+
+.mode-toggle{position:absolute;top:14px;right:14px;z-index:10;display:flex;align-items:center;gap:6px;background:rgba(14,13,20,.92);border:1px solid var(--border);border-radius:20px;padding:5px 14px;backdrop-filter:blur(10px);cursor:pointer;font-size:10px;color:var(--muted);letter-spacing:1px;font-family:'DM Sans',sans-serif;transition:all .2s}
+.mode-toggle:hover{color:var(--gold);border-color:var(--gold)}
+body.day .mode-toggle{background:rgba(245,245,247,.92);border-color:#d8d8dc}
+
+.filters-bar{position:absolute;top:60px;left:14px;display:flex;gap:6px;z-index:10;flex-wrap:wrap}
+.filter-btn{font-size:10px;padding:5px 13px;border-radius:20px;border:1px solid var(--border);background:rgba(14,13,20,.9);color:var(--muted);cursor:pointer;transition:all .2s;font-family:'DM Sans',sans-serif;letter-spacing:1px;backdrop-filter:blur(8px)}
+.filter-btn.active{background:var(--gold);color:#1a191e;border-color:var(--gold);font-weight:700}
+body.day .filter-btn{background:rgba(245,245,247,.92);border-color:#d8d8dc;color:#555560}
+
+.classes-panel{position:absolute;left:14px;top:108px;z-index:10;background:rgba(8,6,16,.92);border:1px solid var(--border);border-radius:14px;padding:14px 18px;min-width:200px;backdrop-filter:blur(12px)}
+body.day .classes-panel{background:rgba(245,245,247,.95);border-color:#d8d8dc}
+.cp-title{font-size:9px;color:var(--muted);letter-spacing:2px;margin-bottom:12px;font-weight:600}
+.cp-row{display:flex;align-items:center;gap:8px;margin-bottom:9px}.cp-row:last-child{margin-bottom:0}
+.cp-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.cp-lbl{font-size:12px;color:#e8e4f8;flex:1;font-weight:500}
+body.day .cp-lbl{color:#222228}
+.cp-bar-w{width:56px;height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+.cp-bar{height:100%;border-radius:2px}
+.cp-val{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:#f0ece0;width:34px;text-align:right}
+body.day .cp-val{color:#111113}
+
+.region-tabs{position:absolute;left:0;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;border-right:1px solid var(--border);background:rgba(14,13,20,.92);backdrop-filter:blur(12px);border-radius:0 14px 14px 0;overflow:hidden;width:145px;z-index:10}
+body.day .region-tabs{background:rgba(245,245,247,.96);border-right-color:#d8d8dc}
+.region-tab{padding:15px 17px;cursor:pointer;transition:background .2s;border-bottom:1px solid var(--border)}
+.region-tab:last-child{border-bottom:none}
+.region-tab:hover,.region-tab.active{background:rgba(201,169,97,.08)}
+.rt-lbl{font-size:9px;color:var(--muted);letter-spacing:2px;display:flex;align-items:center;gap:4px;font-weight:500}
+.rt-dot{width:5px;height:5px;border-radius:50%}
+.rt-pct{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:800;margin-top:3px}
+.rt-st{font-size:8px;letter-spacing:1px;margin-top:1px}
+.st-open{color:#4ade80}.st-closed{color:#f87171}.st-pre{color:#fbbf24}
+
+/* TOOLTIP */
+#tooltip{position:absolute;z-index:50;background:rgba(8,6,16,.97);border:1px solid var(--border);border-radius:18px;padding:22px;width:370px;pointer-events:none;opacity:0;transition:opacity .2s,transform .2s;transform:translateY(8px) scale(.97);box-shadow:0 24px 56px rgba(0,0,0,.85),0 0 0 1px rgba(201,169,97,.08)}
+body.day #tooltip{background:rgba(255,255,255,.99);border-color:#d8d8dc}
+#tooltip.show{opacity:1;transform:translateY(0) scale(1)}
+.tt-head{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+.tt-logo{width:54px;height:54px;border-radius:13px;background:var(--surface);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;border:1px solid var(--border)}
+.tt-logo img{width:40px;height:40px;object-fit:contain}
+.tt-ticker{font-size:21px;font-weight:700;letter-spacing:-.3px;color:#f0ece0}
+body.day .tt-ticker{color:#111113}
+.tt-co{font-size:11px;color:var(--muted);margin-top:2px}
+.tt-chg-big{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;margin-top:3px}
+.tt-div{border:none;border-top:1px solid var(--border);margin:11px 0}
+.tt-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px}
+.tt-lbl{font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase}
+.tt-v{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:600;margin-top:3px;color:#f0ece0}
+body.day .tt-v{color:#111113}
+.tt-pct{font-family:'JetBrains Mono',monospace;font-size:15px;color:var(--gold2);font-weight:700;margin-top:3px}
+.tt-up{color:#4ade80}.tt-dn{color:#f87171}
+.tt-spark{margin-top:12px}.tt-spark-lbl{font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:5px}
+.tt-foot{display:flex;align-items:center;justify-content:space-between;margin-top:11px}
+.tt-badge{font-size:10px;padding:3px 10px;border-radius:6px;letter-spacing:1px;font-weight:700}
+.tt-badge.stock{background:rgba(96,165,250,.12);color:#60a5fa;border:1px solid rgba(96,165,250,.3)}
+.tt-badge.reit{background:rgba(74,222,128,.12);color:#4ade80;border:1px solid rgba(74,222,128,.3)}
+.tt-badge.etf{background:rgba(192,132,252,.12);color:#c084fc;border:1px solid rgba(192,132,252,.3)}
+.tt-badge.fii{background:rgba(232,199,102,.12);color:#e8c766;border:1px solid rgba(232,199,102,.3)}
+.tt-city{font-size:10px;color:var(--muted)}
+.tt-social{display:flex;align-items:center;gap:6px;margin-top:10px;padding:8px 12px;background:rgba(201,169,97,.06);border:1px solid rgba(201,169,97,.15);border-radius:10px;font-size:10px;color:var(--muted)}
+.tt-social-count{font-family:'JetBrains Mono',monospace;font-weight:700;color:var(--gold2);font-size:12px}
+
+/* CINEMA */
+body.cinema .atlas-topbar{display:none}
+body.cinema .atlas-main{height:100vh}
+body.cinema .filters-bar,body.cinema .classes-panel,body.cinema .region-tabs,body.cinema .controls-bar,body.cinema .mode-toggle{display:none}
+body.cinema .atlas-main{background:#000}
+.cinema-btn{position:absolute;bottom:16px;right:16px;z-index:20;background:rgba(14,13,20,.9);border:1px solid var(--border);border-radius:20px;padding:6px 14px;font-size:10px;color:var(--muted);cursor:pointer;letter-spacing:1px;backdrop-filter:blur(8px);font-family:'DM Sans',sans-serif;transition:all .2s;display:flex;align-items:center;gap:6px}
+.cinema-btn:hover{color:var(--gold);border-color:var(--gold)}
+.cinema-exit{position:fixed;top:14px;right:14px;z-index:200;background:rgba(14,13,20,.92);border:1px solid var(--border);border-radius:20px;padding:6px 16px;font-size:11px;color:var(--muted);cursor:pointer;letter-spacing:1px;display:none;font-family:'DM Sans',sans-serif}
+body.cinema .cinema-exit{display:block}
+
+/* TIMELINE */
+.timeline-bar{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);z-index:20;background:rgba(8,6,18,.95);border:1px solid var(--border);border-radius:14px;padding:14px 20px;backdrop-filter:blur(12px);display:none;min-width:460px}
+.timeline-bar.show{display:block}
+.tl-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.tl-title{font-size:9px;color:var(--gold);letter-spacing:2px;font-weight:600}
+.tl-date{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;color:var(--text)}
+.tl-close{cursor:pointer;color:var(--muted);font-size:14px}
+.tl-slider{width:100%;appearance:none;height:4px;border-radius:2px;outline:none;cursor:pointer;background:linear-gradient(to right,var(--gold) 0%,var(--gold) calc(var(--pct,100%)),var(--border) calc(var(--pct,100%)));margin-bottom:8px}
+.tl-slider::-webkit-slider-thumb{appearance:none;width:16px;height:16px;border-radius:50%;background:var(--gold2);border:2px solid #1a191e;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+.tl-labels{display:flex;justify-content:space-between;font-size:8px;color:var(--muted);letter-spacing:.5px}
+.tl-count{font-size:9px;color:var(--muted);margin-top:6px;text-align:center}
+
+/* SHARE */
+.share-btn{position:absolute;bottom:16px;right:120px;z-index:20;background:linear-gradient(135deg,var(--gold),var(--gold2));border:none;border-radius:20px;padding:7px 16px;font-size:10px;color:#1a191e;font-weight:700;cursor:pointer;letter-spacing:1px;font-family:'DM Sans',sans-serif;transition:all .2s;display:flex;align-items:center;gap:6px}
+.share-btn:hover{transform:scale(1.05);box-shadow:0 4px 20px rgba(201,169,97,.4)}
+#share-overlay{position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.85);backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center;flex-direction:column;gap:16px}
+#share-overlay.show{display:flex}
+.share-card{background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:24px;text-align:center;max-width:400px;width:90%;box-shadow:0 24px 60px rgba(0,0,0,.8)}
+.share-preview{width:100%;aspect-ratio:1/1;border-radius:12px;overflow:hidden;background:#0a0910;margin-bottom:16px;display:flex;align-items:center;justify-content:center}
+.share-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px}
+.share-sub{font-size:11px;color:var(--muted);margin-bottom:16px}
+.share-actions{display:flex;gap:10px;justify-content:center}
+.share-dl{background:linear-gradient(135deg,var(--gold),var(--gold2));border:none;border-radius:10px;padding:9px 20px;font-size:12px;color:#1a191e;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif}
+.share-cancel{background:transparent;border:1px solid var(--border);border-radius:10px;padding:9px 20px;font-size:12px;color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif}
+.zoom-hint{position:absolute;bottom:16px;right:16px;font-size:9px;color:var(--muted);letter-spacing:1px;opacity:.4;z-index:5;pointer-events:none}
+
+/* LOADING no globo */
+#globe-loading{position:absolute;inset:0;z-index:30;background:rgba(10,9,16,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;transition:opacity .5s}
+.ld-logo{font-size:22px;font-weight:800;color:var(--gold);letter-spacing:-1px}
+.ld-bar-w{width:150px;height:2px;background:#1a1828;border-radius:2px;overflow:hidden}
+.ld-bar{height:100%;background:linear-gradient(90deg,var(--gold),var(--gold2));border-radius:2px;animation:ldprog 3s ease forwards}
+@keyframes ldprog{from{width:0}to{width:100%}}
+.ld-txt{font-size:9px;color:#3a3858;letter-spacing:2px}
+</style>
+</head>
+<body>
+
+<div class="app-layout">
+  <!-- SIDEBAR padrão G20 (carregada pelo g20-sidebar.js) -->
+  <div id="g20-sidebar-container"></div>
+
+  <div class="atlas-main">
+    <!-- TOPBAR -->
+    <div class="atlas-topbar">
+      <div class="atlas-topbar-left">
+        <div>
+          <div class="atlas-page-title">🌍 Atlas G20</div>
+          <div class="atlas-page-sub">DISTRIBUIÇÃO GLOBAL DA CARTEIRA CG20</div>
+        </div>
+      </div>
+      <div class="atlas-topbar-right">
+        <div class="live-badge"><div class="live-dot"></div> TEMPO REAL</div>
+        <span class="hashtag">#nãofoisorte</span>
+      </div>
+    </div>
+
+    <!-- GLOBO -->
+    <div id="gc">
+      <canvas id="three-canvas"></canvas>
+
+      <!-- Loading -->
+      <div id="globe-loading">
+        <div class="ld-logo">G20</div>
+        <div class="ld-bar-w"><div class="ld-bar"></div></div>
+        <div class="ld-txt">CARREGANDO ATLAS GLOBAL...</div>
+      </div>
+
+      <!-- Filtros -->
+      <div class="filters-bar">
+        <button class="filter-btn active" onclick="setFilter('all',this)">TODOS</button>
+        <button class="filter-btn" onclick="setFilter('stock',this)">STOCKS</button>
+        <button class="filter-btn" onclick="setFilter('reit',this)">REITs</button>
+        <button class="filter-btn" onclick="setFilter('etf',this)">ETFs</button>
+        <button class="filter-btn" onclick="setFilter('fii',this)">FIIs</button>
+      </div>
+
+      <!-- Toggle noite/dia -->
+      <div class="mode-toggle" onclick="toggleDay()" id="modeBtn">🌙 NOTURNO</div>
+
+      <!-- Controles -->
+      <div class="controls-bar">
+        <button class="ctrl-btn" id="btn-arcos" onclick="toggleArcos()">⟡ ARCOS</button>
+        <div class="ctrl-sep"></div>
+        <button class="ctrl-btn on" id="btn-auto" onclick="toggleAuto()">⟳ AUTO</button>
+        <div class="ctrl-sep"></div>
+        <button class="ctrl-btn on" id="btn-atm" onclick="toggleAtm()">◎ ATMOSFERA</button>
+        <div class="ctrl-sep"></div>
+        <button class="ctrl-btn" id="btn-timeline" onclick="toggleTimeline()">⏱ TIMELINE</button>
+        <div class="ctrl-sep"></div>
+        <button class="ctrl-btn" id="btn-cluster" onclick="toggleCluster()">◎ CLUSTERS</button>
+      </div>
+
+      <!-- Painel de classes -->
+      <div class="classes-panel">
+        <div class="cp-title">POR CLASSE</div>
+        <div class="cp-row"><div class="cp-dot" style="background:#60a5fa"></div><span class="cp-lbl">STOCKS</span><div class="cp-bar-w"><div class="cp-bar" id="cpb-stocks" style="background:#60a5fa"></div></div><span class="cp-val" id="cp-stocks">--</span></div>
+        <div class="cp-row"><div class="cp-dot" style="background:#4ade80"></div><span class="cp-lbl">REITs</span><div class="cp-bar-w"><div class="cp-bar" id="cpb-reits" style="background:#4ade80"></div></div><span class="cp-val" id="cp-reits">--</span></div>
+        <div class="cp-row"><div class="cp-dot" style="background:#c084fc"></div><span class="cp-lbl">ETFs</span><div class="cp-bar-w"><div class="cp-bar" id="cpb-etfs" style="background:#c084fc"></div></div><span class="cp-val" id="cp-etfs">--</span></div>
+        <div class="cp-row"><div class="cp-dot" style="background:#e8c766"></div><span class="cp-lbl">FIIs</span><div class="cp-bar-w"><div class="cp-bar" id="cpb-fiis" style="background:#e8c766"></div></div><span class="cp-val" id="cp-fiis">--</span></div>
+      </div>
+
+      <!-- Regiões -->
+      <div class="region-tabs">
+        <div class="region-tab active" onclick="flyTo('eua',this)">
+          <div class="rt-lbl"><span class="rt-dot" style="background:var(--eua)"></span>EUA</div>
+          <div class="rt-pct" style="color:var(--eua)" id="rt-eua">60.2%</div>
+          <div class="rt-st" id="ms-eua">● --</div>
+        </div>
+        <div class="region-tab" onclick="flyTo('brasil',this)">
+          <div class="rt-lbl"><span class="rt-dot" style="background:var(--brasil)"></span>BRASIL</div>
+          <div class="rt-pct" style="color:var(--brasil)" id="rt-br">20.8%</div>
+          <div class="rt-st" id="ms-br">● --</div>
+        </div>
+        <div class="region-tab" onclick="flyTo('europa',this)">
+          <div class="rt-lbl"><span class="rt-dot" style="background:var(--europa)"></span>EUROPA</div>
+          <div class="rt-pct" style="color:var(--europa)" id="rt-eu">7.8%</div>
+          <div class="rt-st" id="ms-eu">● --</div>
+        </div>
+        <div class="region-tab" onclick="flyTo('asia',this)">
+          <div class="rt-lbl"><span class="rt-dot" style="background:var(--asia)"></span>ÁSIA</div>
+          <div class="rt-pct" style="color:var(--asia)" id="rt-as">11.2%</div>
+          <div class="rt-st" id="ms-as">● --</div>
+        </div>
+      </div>
+
+      <!-- Tooltip -->
+      <div id="tooltip">
+        <div class="tt-head">
+          <div class="tt-logo" id="tt-logo"></div>
+          <div>
+            <div class="tt-ticker" id="tt-ticker"></div>
+            <div class="tt-co" id="tt-co"></div>
+            <div class="tt-chg-big" id="tt-chg-big"></div>
+          </div>
+        </div>
+        <hr class="tt-div">
+        <div class="tt-grid">
+          <div><div class="tt-lbl">PREÇO</div><div class="tt-v" id="tt-price"></div></div>
+          <div><div class="tt-lbl">POSIÇÃO</div><div class="tt-v" id="tt-posv"></div></div>
+          <div><div class="tt-lbl">QUANTIDADE</div><div class="tt-v" id="tt-qty"></div></div>
+          <div><div class="tt-lbl">% CARTEIRA</div><div class="tt-pct" id="tt-pct"></div></div>
+        </div>
+        <div class="tt-spark">
+          <div class="tt-spark-lbl">DESEMPENHO 30 DIAS</div>
+          <canvas id="sparkline" width="326" height="48"></canvas>
+        </div>
+        <div class="tt-foot">
+          <span class="tt-badge" id="tt-badge"></span>
+          <div style="display:flex;align-items:center;gap:7px">
+            <img id="tt-flag" style="height:14px;border-radius:2px;display:none;box-shadow:0 1px 3px rgba(0,0,0,.4)">
+            <span class="tt-city" id="tt-city"></span>
+          </div>
+        </div>
+        <div class="tt-social" id="tt-social" style="display:none">
+          🎓 <span class="tt-social-count" id="tt-social-count">0</span>&nbsp;alunos G20 têm esse ativo
+        </div>
+      </div>
+
+      <!-- Timeline -->
+      <div class="timeline-bar" id="timelineBar">
+        <div class="tl-head">
+          <div class="tl-title">📅 LINHA DO TEMPO — CARTEIRA G20</div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="tl-date" id="tlDate">Hoje</div>
+            <span class="tl-close" onclick="toggleTimeline()">✕</span>
+          </div>
+        </div>
+        <input type="range" class="tl-slider" id="tlSlider" min="0" max="8" value="8" step="1" oninput="onTimelineChange(this.value)" style="--pct:100%">
+        <div class="tl-labels" id="tlLabels"></div>
+        <div class="tl-count" id="tlCount"></div>
+      </div>
+
+      <!-- Botões flutuantes -->
+      <button class="share-btn" onclick="openShare()">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        COMPARTILHAR
+      </button>
+      <button class="cinema-btn" onclick="toggleCinema()">🎬 CINEMA</button>
+      <div class="zoom-hint">scroll = zoom</div>
+    </div><!-- /#gc -->
+  </div><!-- /.atlas-main -->
+</div><!-- /.app-layout -->
+
+<!-- Cinema exit -->
+<button class="cinema-exit" onclick="toggleCinema()">✕ SAIR DO CINEMA</button>
+
+<!-- Share overlay -->
+<div id="share-overlay">
+  <div class="share-card">
+    <div class="share-preview" id="share-preview"></div>
+    <div class="share-title">Carteira G20 Masterclass</div>
+    <div class="share-sub">#nãofoisorte — Compartilhe sua visão global</div>
+    <div class="share-actions">
+      <button class="share-dl" onclick="downloadShare()">⬇ Baixar imagem</button>
+      <button class="share-cancel" onclick="closeShare()">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<!-- Three.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- Sidebar G20 -->
+<script src="assets/g20-sidebar.js?v=11"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<script>
+/* ══ FIREBASE ══ */
+var _cfg={apiKey:"AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",authDomain:"g20-masterclass.firebaseapp.com",projectId:"g20-masterclass",storageBucket:"g20-masterclass.firebasestorage.app",messagingSenderId:"1052719482127",appId:"1:1052719482127:web:537c1d67c96532be8a2a7a"};
+if(!firebase.apps.length)firebase.initializeApp(_cfg);
+var auth=firebase.auth(),db=firebase.firestore();
+
+auth.onAuthStateChanged(function(user){
+  if(!user){location.href='login.html';return;}
+  db.collection('users').doc(user.uid).get().then(function(doc){
+    if(!doc.exists)return;
+    var d=doc.data();
+    if(d.aprovado===false){location.href='aguardando.html';return;}
+    var name=(d.profile&&d.profile.name)||d.name||user.email;
+    var el=document.getElementById('sidebarName');
+    if(el){var nt=el.querySelector('.user-name-text');if(nt)nt.textContent=name;}
+    var ini=name.split(' ').map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
+    var eli=document.getElementById('sidebarInitials');if(eli)eli.textContent=ini;
+    try{localStorage.setItem('g20_user_profile',JSON.stringify({name,role:d.role||'',turma:d.turma||'',photo:'',infinite:d.infinite===true}));}catch(e){}
+    // Ativa sidebar item Atlas G20
+    document.querySelectorAll('.sidebar-item').forEach(function(el){
+      if(el.getAttribute('href')==='atlas.html')el.classList.add('active');
+    });
+  });
+});
+
+/* ══ DADOS CG20 ══ */
+// Aqui virão os dados reais do Firestore g20_aportes
+// Por ora: dados estáticos da carteira G20 atual
+const ASSETS=[
+  {ticker:'AAPL',  name:'Apple',            region:'eua',   type:'stock',lat:37.3, lon:-122.0,price:'US$ 189',qty:'25 ações', pos:'R$ 23.800',pct:11.9,chg:'+1.23%',up:true, city:'Cupertino, EUA', color:'#60a5fa',logo:'apple',        flag:'🇺🇸',spark:[142,148,155,150,162,159,170,168,175,178,172,180,185,183,189]},
+  {ticker:'MSFT',  name:'Microsoft',         region:'eua',   type:'stock',lat:47.6, lon:-122.1,price:'US$ 415',qty:'12 ações', pos:'R$ 24.900',pct:12.5,chg:'+0.87%',up:true, city:'Redmond, EUA',   color:'#60a5fa',logo:'microsoft',    flag:'🇺🇸',spark:[310,318,325,320,335,332,340,345,352,358,348,360,370,368,415]},
+  {ticker:'O',     name:'Realty Income',      region:'eua',   type:'reit', lat:32.7, lon:-117.1,price:'US$ 58', qty:'40 cotas', pos:'R$ 11.600',pct:5.8, chg:'-0.31%',up:false,city:'San Diego, EUA', color:'#4ade80',logo:'realty-income',flag:'🇺🇸',spark:[60,59,61,60,58,57,59,58,60,59,57,58,59,58,58]},
+  {ticker:'VNQ',   name:'Vanguard REIT ETF',  region:'eua',   type:'etf',  lat:40.7, lon:-74.0, price:'US$ 82', qty:'30 cotas', pos:'R$ 12.300',pct:6.2, chg:'+0.44%',up:true, city:'Nova York, EUA', color:'#c084fc',logo:'vanguard',    flag:'🇺🇸',spark:[78,79,80,79,81,80,82,81,83,82,80,81,82,81,82]},
+  {ticker:'KNRI11',name:'Kinea Renda Imob.',  region:'brasil',type:'fii',  lat:-22.9,lon:-43.2, price:'R$ 148', qty:'60 cotas', pos:'R$ 8.880', pct:4.5, chg:'+0.12%',up:true, city:'Rio de Janeiro', color:'#e8c766',logo:'kinea',       flag:'🇧🇷',spark:[140,141,143,142,145,144,146,145,147,146,145,147,148,147,148]},
+  {ticker:'ITUB4', name:'Itaú Unibanco',      region:'brasil',type:'stock',lat:-23.5,lon:-46.6, price:'R$ 38',  qty:'200 ações',pos:'R$ 7.600', pct:3.8, chg:'-0.55%',up:false,city:'São Paulo, BR',  color:'#4ade80',logo:'itau-unibanco',flag:'🇧🇷',spark:[42,41,40,39,38,39,40,38,37,38,39,37,38,37,38]},
+  {ticker:'BABA',  name:'Alibaba',            region:'asia',  type:'stock',lat:30.2, lon:120.1, price:'US$ 650',qty:'8 ações',  pos:'R$ 5.200', pct:2.6, chg:'+2.15%',up:true, city:'Hangzhou, CN',  color:'#fb923c',logo:'alibaba',     flag:'🇨🇳',spark:[580,590,610,600,620,615,625,630,640,638,645,648,650,649,650]},
+  {ticker:'VGK',   name:'Vanguard Europe ETF',region:'europa',type:'etf',  lat:51.5, lon:0.1,   price:'US$ 72', qty:'25 cotas', pos:'R$ 9.000', pct:4.5, chg:'+0.22%',up:true, city:'Londres, UK',   color:'#c084fc',logo:'vanguard',    flag:'🇬🇧',spark:[68,69,70,69,71,70,72,71,73,72,70,71,72,71,72]},
+];
+
+const FLAG_CODES={'🇺🇸':'us','🇧🇷':'br','🇨🇳':'cn','🇬🇧':'gb'};
+const flagImgs={},logoImgs={};
+function preloadAssets(){
+  [...new Set(ASSETS.map(a=>FLAG_CODES[a.flag]).filter(Boolean))].forEach(cc=>{
+    const img=new Image();img.crossOrigin='anonymous';img.src=`https://flagcdn.com/w40/${cc}.png`;img.onload=()=>{flagImgs[cc]=img};
+  });
+  ASSETS.forEach(a=>{
+    const img=new Image();img.crossOrigin='anonymous';img.src=`https://s3-symbol-logo.tradingview.com/${a.logo}.svg`;logoImgs[a.ticker]=img;
+  });
+}
+preloadAssets();
+
+const SOCIAL_COUNTS={'AAPL':47,'MSFT':52,'O':18,'VNQ':23,'KNRI11':31,'ITUB4':58,'BABA':12,'VGK':9};
+const TIMELINE_SNAPSHOTS=[
+  {label:'Jan 2022',assets:['AAPL','ITUB4']},
+  {label:'Mar 2022',assets:['AAPL','MSFT','ITUB4']},
+  {label:'Jun 2022',assets:['AAPL','MSFT','ITUB4','KNRI11']},
+  {label:'Set 2022',assets:['AAPL','MSFT','ITUB4','KNRI11','VGK']},
+  {label:'Jan 2023',assets:['AAPL','MSFT','ITUB4','KNRI11','VGK','O']},
+  {label:'Mai 2023',assets:['AAPL','MSFT','ITUB4','KNRI11','VGK','O','VNQ']},
+  {label:'Set 2023',assets:['AAPL','MSFT','ITUB4','KNRI11','VGK','O','VNQ','BABA']},
+  {label:'Jan 2024',assets:['AAPL','MSFT','ITUB4','KNRI11','VGK','O','VNQ','BABA']},
+  {label:'Hoje',    assets:['AAPL','MSFT','ITUB4','KNRI11','VGK','O','VNQ','BABA']},
+];
+
+/* ══ ESTADO ══ */
+let activeFilter='all',showArcos=false,autoRotate=true,showAtm=true,isDayMode=false;
+let isDragging=false,prevMouse={x:0,y:0};
+let flyTarget=null,flyProgress=0,hoveredAsset=null;
+let currentZoom=4.0,targetZoom=4.0;
+const ZOOM_MIN=2.2,ZOOM_MAX=6.5;
+let clusterMode=false;
+let cinemaMode=false,cinemaAudio=null;
+let timelineActive=false,timelineIndex=8;
+let shareCanvas=null;
+
+function getActiveAssets(){
+  const snap=TIMELINE_SNAPSHOTS[timelineIndex];
+  const tlF=timelineActive?snap.assets:ASSETS.map(a=>a.ticker);
+  return ASSETS.filter(a=>tlF.includes(a.ticker)&&(activeFilter==='all'||a.type===activeFilter));
+}
+
+function updateClassPanel(){
+  const a=getActiveAssets();
+  const totals={stock:0,reit:0,etf:0,fii:0};
+  a.forEach(x=>totals[x.type]=(totals[x.type]||0)+x.pct);
+  const total=Object.values(totals).reduce((s,v)=>s+v,0)||1;
+  ['stock','reit','etf','fii'].forEach(t=>{
+    const pct=totals[t]||0,pctR=(pct/total*100).toFixed(0);
+    const el=document.getElementById('cp-'+t+'s');if(el)el.textContent=pctR+'%';
+    const bar=document.getElementById('cpb-'+t+'s');if(bar)bar.style.width=pctR+'%';
+  });
+}
+
+function updateRegionPanel(){
+  const a=getActiveAssets();
+  const rg={eua:0,brasil:0,europa:0,asia:0};
+  a.forEach(x=>rg[x.region]=(rg[x.region]||0)+x.pct);
+  const total=Object.values(rg).reduce((s,v)=>s+v,0)||1;
+  Object.entries(rg).forEach(([r,p])=>{
+    const el=document.getElementById('rt-'+{eua:'eua',brasil:'br',europa:'eu',asia:'as'}[r]);
+    if(el)el.textContent=(p/total*100).toFixed(1)+'%';
+  });
+}
+
+/* ══ THREE.JS SETUP ══ */
+const container=document.getElementById('gc'),canvas3=document.getElementById('three-canvas');
+const renderer=new THREE.WebGLRenderer({canvas:canvas3,antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setSize(container.clientWidth,container.clientHeight);
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(38,container.clientWidth/container.clientHeight,0.1,1000);
+camera.position.z=currentZoom;
+const GLOBE_R=1.0;
+const markerGroup=new THREE.Group(),arcGroup=new THREE.Group();
+scene.add(markerGroup,arcGroup);
+
+let backTopLight;
+const ambLight=new THREE.AmbientLight(0xffffff,.75);scene.add(ambLight);
+const sunLight=new THREE.DirectionalLight(0xfff0e0,1.0);sunLight.position.set(5,2,4);scene.add(sunLight);
+const fillLight=new THREE.DirectionalLight(0x3355cc,.45);fillLight.position.set(-4,-1,-3);scene.add(fillLight);
+backTopLight=new THREE.DirectionalLight(0x224488,.3);backTopLight.position.set(0,5,-4);scene.add(backTopLight);
+
+const sv=[];for(let i=0;i<1800;i++){const r=320;sv.push((Math.random()-.5)*r*2,(Math.random()-.5)*r*2,(Math.random()-.5)*r*2);}
+const sg=new THREE.BufferGeometry();sg.setAttribute('position',new THREE.Float32BufferAttribute(sv,3));
+const stars=new THREE.Points(sg,new THREE.PointsMaterial({color:0xffffff,size:.3,transparent:true,opacity:.45}));
+scene.add(stars);
+
+/* ══ TEXTURAS ══ */
+const loader=new THREE.TextureLoader();loader.crossOrigin='anonymous';
+let texNight,texDay,texBump,loadedCount=0,initiated=false;
+let earthMesh,atmMesh,glowMesh,atmRingMesh;
+
+function tryInit(){
+  if(initiated)return;initiated=true;
+  if(!texNight||!texNight.image){texNight=new THREE.DataTexture(new Uint8Array([8,12,28,255]),1,1);texNight.needsUpdate=true;}
+  if(!texDay||!texDay.image){texDay=new THREE.DataTexture(new Uint8Array([28,72,148,255]),1,1);texDay.needsUpdate=true;}
+  if(!texBump||!texBump.image){texBump=new THREE.DataTexture(new Uint8Array([128,128,128,255]),1,1);texBump.needsUpdate=true;}
+  buildEarth();
+}
+function onTex(w){return function(t){if(w==='night')texNight=t;if(w==='day')texDay=t;if(w==='bump')texBump=t;loadedCount++;if(loadedCount>=3)tryInit();};}
+function onTexErr(){loadedCount++;if(loadedCount>=3)tryInit();}
+loader.load('https://unpkg.com/three-globe@2.31.2/example/img/earth-night.jpg',onTex('night'),undefined,onTexErr);
+loader.load('https://unpkg.com/three-globe@2.31.2/example/img/earth-blue-marble.jpg',onTex('day'),undefined,onTexErr);
+loader.load('https://unpkg.com/three-globe@2.31.2/example/img/earth-topology.png',onTex('bump'),undefined,onTexErr);
+setTimeout(()=>{if(!initiated)tryInit();},3000);
+
+function buildEarth(){
+  earthMesh=new THREE.Mesh(new THREE.SphereGeometry(GLOBE_R,72,72),new THREE.MeshPhongMaterial({
+    map:texNight,bumpMap:texBump,bumpScale:.02,
+    specular:new THREE.Color(0x112244),shininess:6,
+    emissiveMap:texNight,emissive:new THREE.Color(0x886633),emissiveIntensity:1.1,
+  }));
+  scene.add(earthMesh);
+  atmMesh=new THREE.Mesh(new THREE.SphereGeometry(GLOBE_R*1.018,64,64),new THREE.MeshPhongMaterial({color:0x1a44cc,transparent:true,opacity:.055,side:THREE.FrontSide}));scene.add(atmMesh);
+  glowMesh=new THREE.Mesh(new THREE.SphereGeometry(GLOBE_R*1.065,64,64),new THREE.MeshPhongMaterial({color:0x0a2288,transparent:true,opacity:.04,side:THREE.BackSide}));scene.add(glowMesh);
+  atmRingMesh=new THREE.Mesh(new THREE.SphereGeometry(GLOBE_R*1.005,64,64),new THREE.ShaderMaterial({
+    uniforms:{glowColor:{value:new THREE.Color(0x4488ff)},intensity:{value:1.1}},
+    vertexShader:`varying vec3 vN,vV;void main(){vN=normalize(normalMatrix*normal);vec4 mv=modelViewMatrix*vec4(position,1.);vV=-mv.xyz;gl_Position=projectionMatrix*mv;}`,
+    fragmentShader:`uniform vec3 glowColor;uniform float intensity;varying vec3 vN,vV;void main(){float c=dot(normalize(vN),normalize(vV));float r=pow(1.-abs(c),2.8)*intensity;gl_FragColor=vec4(glowColor*r,r*.6);}`,
+    transparent:true,side:THREE.FrontSide,blending:THREE.AdditiveBlending,depthWrite:false,
+  }));scene.add(atmRingMesh);
+  const ld=document.getElementById('globe-loading');if(ld){ld.style.opacity='0';setTimeout(()=>ld.style.display='none',500);}
+}
+setTimeout(()=>{const ld=document.getElementById('globe-loading');if(ld&&ld.style.display!=='none'){ld.style.opacity='0';setTimeout(()=>ld.style.display='none',400);}},4000);
+
+/* ══ OVERLAY CANVAS ══ */
+const ov=document.createElement('canvas');
+ov.style.cssText='position:absolute;top:0;left:0;pointer-events:none;z-index:5;';
+container.appendChild(ov);let oc=null;
+function resizeOv(){const d=window.devicePixelRatio||1;ov.width=container.clientWidth*d;ov.height=container.clientHeight*d;ov.style.width=container.clientWidth+'px';ov.style.height=container.clientHeight+'px';oc=ov.getContext('2d');oc.scale(d,d);}
+resizeOv();
+
+function ll3(lat,lon,r){const p=(90-lat)*Math.PI/180,t=(lon+180)*Math.PI/180;return new THREE.Vector3(-r*Math.sin(p)*Math.cos(t),r*Math.cos(p),r*Math.sin(p)*Math.sin(t));}
+function w2s(v){const p=v.clone().project(camera);return{x:(p.x+1)/2*container.clientWidth,y:(-p.y+1)/2*container.clientHeight};}
+
+/* ══ SEPARAÇÃO COLISÃO ══ */
+function separateMarkers(markers,iters=20){
+  for(let it=0;it<iters;it++){
+    for(let a=0;a<markers.length;a++){
+      for(let b=a+1;b<markers.length;b++){
+        const A=markers[a],B=markers[b];
+        const dx=B.sx-A.sx,dy=B.sy-A.sy,d=Math.sqrt(dx*dx+dy*dy)||.001;
+        const minD=A.r+B.r+6;
+        if(d<minD){const push=(minD-d)/2,nx=dx/d,ny=dy/d;A.sx-=nx*push;A.sy-=ny*push;B.sx+=nx*push;B.sy+=ny*push;}
+      }
+    }
+  }
+}
+
+/* ══ GEO CLUSTERS ══ */
+function buildGeoClusters(assets){
+  const deg=assets.length<=10?20:assets.length<=30?8:4;
+  const used=new Array(assets.length).fill(false),cls=[];
+  for(let i=0;i<assets.length;i++){
+    if(used[i])continue;
+    const a=assets[i];
+    const cl={assets:[a],lat:a.lat,lon:a.lon,color:a.color,region:a.region,totalPct:a.pct};
+    used[i]=true;
+    for(let j=i+1;j<assets.length;j++){
+      if(used[j])continue;
+      const b=assets[j];
+      if(b.region!==a.region)continue;
+      if(Math.abs(a.lat-b.lat)<deg&&Math.abs(a.lon-b.lon)<deg){
+        cl.assets.push(b);cl.totalPct+=b.pct;
+        cl.lat=(cl.lat*(cl.assets.length-1)+b.lat)/cl.assets.length;
+        cl.lon=(cl.lon*(cl.assets.length-1)+b.lon)/cl.assets.length;
+        used[j]=true;
+      }
+    }
+    cls.push(cl);
+  }
+  return cls;
+}
+
+/* ══ DRAW SINGLE MARKER ══ */
+let pulseClock=0;
+function drawSingle(sx,sy,baseR,col,a,fade,ci,isHov){
+  const ph1=(pulseClock*.45+ci*.52)%1;
+  oc.beginPath();oc.arc(sx,sy,baseR+ph1*baseR*1.1,0,Math.PI*2);
+  oc.strokeStyle=col+Math.round((1-ph1)*.38*fade*255).toString(16).padStart(2,'0');oc.lineWidth=1.1;oc.stroke();
+  const ph2=(pulseClock*.45+ci*.52+.5)%1;
+  oc.beginPath();oc.arc(sx,sy,baseR+ph2*baseR*.75,0,Math.PI*2);
+  oc.strokeStyle=col+Math.round((1-ph2)*.22*fade*255).toString(16).padStart(2,'0');oc.lineWidth=.7;oc.stroke();
+  const g=oc.createRadialGradient(sx,sy,0,sx,sy,baseR*1.8);
+  g.addColorStop(0,col+(isDayMode?'42':'35'));g.addColorStop(1,col+'00');
+  oc.beginPath();oc.arc(sx,sy,baseR*1.8,0,Math.PI*2);oc.fillStyle=g;oc.fill();
+  oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);
+  oc.fillStyle=col+Math.round(fade*218).toString(16).padStart(2,'0');oc.fill();
+  // Logo preenchendo a bolinha
+  const img=logoImgs[a.ticker];
+  if(img&&img.complete&&img.naturalWidth>0){
+    oc.save();oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);oc.clip();
+    oc.globalAlpha=fade*.96;oc.drawImage(img,sx-baseR,sy-baseR,baseR*2,baseR*2);oc.restore();
+  }
+  // Bandeirinha no canto inferior direito da bolinha
+  const cc=FLAG_CODES[a.flag];const fi=cc?flagImgs[cc]:null;
+  if(fi&&fi.complete&&fi.naturalWidth>0&&baseR>10){
+    const fw=baseR*.78,fh=Math.round(fw*fi.naturalHeight/fi.naturalWidth);
+    const fx=sx+baseR*.3,fy=sy+baseR*.32;
+    oc.save();
+    const rx=2;
+    oc.beginPath();oc.moveTo(fx+rx,fy);oc.lineTo(fx+fw-rx,fy);oc.quadraticCurveTo(fx+fw,fy,fx+fw,fy+rx);
+    oc.lineTo(fx+fw,fy+fh-rx);oc.quadraticCurveTo(fx+fw,fy+fh,fx+fw-rx,fy+fh);
+    oc.lineTo(fx+rx,fy+fh);oc.quadraticCurveTo(fx,fy+fh,fx,fy+fh-rx);
+    oc.lineTo(fx,fy+rx);oc.quadraticCurveTo(fx,fy,fx+rx,fy);oc.closePath();oc.clip();
+    oc.globalAlpha=fade*.88;oc.drawImage(fi,fx,fy,fw,fh);oc.restore();
+  }
+  // Borda
+  oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);
+  oc.strokeStyle=isHov||hoveredAsset&&hoveredAsset.ticker===a.ticker?'#e8c766':isDayMode?'rgba(255,255,255,.6)':col+'bb';
+  oc.lineWidth=isHov||hoveredAsset&&hoveredAsset.ticker===a.ticker?2.5:1.2;oc.stroke();
+  if(hoveredAsset&&hoveredAsset.ticker===a.ticker){oc.beginPath();oc.arc(sx,sy,baseR+6,0,Math.PI*2);oc.strokeStyle='#e8c766';oc.lineWidth=2.2;oc.stroke();}
+  // Label
+  if(fade>.35){
+    const fs=Math.round(Math.max(9,baseR*.82));
+    oc.font=`600 ${fs}px DM Sans,sans-serif`;oc.textAlign='center';oc.textBaseline='middle';
+    const lx=sx,ly=sy+baseR+11,tw=oc.measureText(a.ticker).width+10;
+    oc.fillStyle=isDayMode?'rgba(18,16,28,.76)':'rgba(5,3,12,.84)';
+    oc.beginPath();if(oc.roundRect)oc.roundRect(lx-tw/2,ly-7,tw,15,4);else oc.rect(lx-tw/2,ly-7,tw,15);oc.fill();
+    oc.fillStyle=isDayMode?col:'#f0ece0';oc.globalAlpha=fade;oc.fillText(a.ticker,lx,ly);oc.globalAlpha=1;
+  }
+}
+
+/* ══ DRAW OVERLAY ══ */
+function drawOverlay(dt){
+  if(!oc||!earthMesh)return;
+  pulseClock+=dt;
+  oc.clearRect(0,0,container.clientWidth,container.clientHeight);
+  window._clusterHits=[];
+  const filtered=getActiveAssets();
+  const camDir=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
+  const allM=[];
+  filtered.forEach((a,i)=>{
+    const pos3=ll3(a.lat,a.lon,GLOBE_R).applyEuler(earthMesh.rotation);
+    const sp=w2s(pos3);
+    const dot=pos3.clone().normalize().dot(camDir.clone().negate());
+    allM.push({a,i,ox:sp.x,oy:sp.y,sx:sp.x,sy:sp.y,dot,r:10+a.pct*.7,col:a.color});
+  });
+
+  if(clusterMode){
+    // Modo cluster
+    buildGeoClusters(filtered).forEach((cl,ci)=>{
+      const pos3=ll3(cl.lat,cl.lon,GLOBE_R).applyEuler(earthMesh.rotation);
+      const sp=w2s(pos3);
+      const dot=pos3.clone().normalize().dot(camDir.clone().negate());
+      if(dot<.05)return;
+      const n=cl.assets.length,col=cl.color,fade=Math.min(1,dot*2.5);
+      const {x:sx,y:sy}=sp;
+      if(n===1){drawSingle(sx,sy,10+cl.assets[0].pct*.7,col,cl.assets[0],fade,ci,false);}
+      else{
+        const cr=16+Math.min(n*2.5,30);
+        const ph=(pulseClock*.25+ci*.3)%1;
+        oc.beginPath();oc.arc(sx,sy,cr+ph*cr*.5,0,Math.PI*2);
+        oc.strokeStyle=col+Math.round((1-ph)*.22*fade*255).toString(16).padStart(2,'00');oc.lineWidth=2;oc.stroke();
+        const g=oc.createRadialGradient(sx,sy,cr*.3,sx,sy,cr*2.5);g.addColorStop(0,col+'20');g.addColorStop(1,col+'00');
+        oc.beginPath();oc.arc(sx,sy,cr*2.5,0,Math.PI*2);oc.fillStyle=g;oc.fill();
+        oc.beginPath();oc.arc(sx,sy,cr,0,Math.PI*2);oc.fillStyle=`rgba(6,4,16,${.9*fade})`;oc.fill();
+        oc.beginPath();oc.arc(sx,sy,cr,-Math.PI/2,-Math.PI/2+Math.min(1,cl.totalPct/25)*Math.PI*1.9);
+        oc.strokeStyle=col+'cc';oc.lineWidth=3;oc.stroke();
+        oc.beginPath();oc.arc(sx,sy,cr,0,Math.PI*2);oc.strokeStyle=col+'33';oc.lineWidth=1;oc.stroke();
+        oc.font=`800 ${cr>28?15:12}px JetBrains Mono,monospace`;oc.textAlign='center';oc.textBaseline='middle';
+        oc.fillStyle=col;oc.globalAlpha=fade;oc.fillText(n,sx,sy-1);oc.globalAlpha=1;
+        if(cr>22){oc.font='500 8px DM Sans,sans-serif';oc.fillStyle=col+'88';oc.globalAlpha=fade;oc.fillText('ativos',sx,sy+10);oc.globalAlpha=1;}
+        window._clusterHits.push({cl,sx,sy,cr});
+      }
+    });
+    return;
+  }
+
+  // Modo individual
+  const frontM=allM.filter(m=>m.dot>=.18);
+  separateMarkers(frontM);
+  frontM.forEach(m=>{
+    const moved=Math.hypot(m.sx-m.ox,m.sy-m.oy)>3;
+    if(!moved)return;
+    oc.beginPath();oc.moveTo(m.ox,m.oy);oc.lineTo(m.sx,m.sy);
+    oc.strokeStyle=m.col+'55';oc.lineWidth=1;oc.setLineDash([3,4]);oc.stroke();oc.setLineDash([]);
+    oc.beginPath();oc.arc(m.ox,m.oy,3.5,0,Math.PI*2);oc.fillStyle=m.col+'aa';oc.fill();
+  });
+  allM.forEach(m=>{
+    const {a,i,ox,oy,sx,sy,dot,r:baseR,col}=m;
+    if(dot<-.18)return;
+    if(dot>=-.18&&dot<.18){
+      const alpha=Math.max(0,(.18-Math.abs(dot))/.18),hr=Math.max(3,baseR*.42);
+      const gph=(pulseClock*.8+i*.6)%1;
+      oc.beginPath();oc.arc(ox,oy,hr+gph*hr*1.1,0,Math.PI*2);oc.strokeStyle=col+Math.round(alpha*(1-gph)*185).toString(16).padStart(2,'0');oc.lineWidth=.8;oc.stroke();
+      oc.beginPath();oc.arc(ox,oy,hr,0,Math.PI*2);oc.fillStyle=col+Math.round(alpha*210).toString(16).padStart(2,'0');oc.fill();
+      oc.beginPath();oc.arc(ox,oy,hr*.36,0,Math.PI*2);oc.fillStyle='rgba(255,255,255,'+alpha*.82+')';oc.fill();
+      return;
+    }
+    drawSingle(sx,sy,baseR,col,a,Math.min(1,dot*2),i,false);
+  });
+}
+
+/* ══ RAYCASTING ══ */
+const raycaster=new THREE.Raycaster(),mouse2=new THREE.Vector2();
+container.addEventListener('mousemove',e=>{
+  const rect=canvas3.getBoundingClientRect();
+  mouse2.x=((e.clientX-rect.left)/rect.width)*2-1;
+  mouse2.y=-((e.clientY-rect.top)/rect.height)*2+1;
+  if(isDragging&&earthMesh){
+    earthMesh.rotation.y+=(e.clientX-prevMouse.x)*.003;
+    earthMesh.rotation.x=Math.max(-Math.PI/2,Math.min(Math.PI/2,earthMesh.rotation.x+(e.clientY-prevMouse.y)*.003));
+    syncGroups();prevMouse={x:e.clientX,y:e.clientY};
+  }
+  if(!earthMesh)return;
+  raycaster.setFromCamera(mouse2,camera);
+  const hit=raycaster.intersectObjects(markerGroup.children).find(h=>h.object.userData.asset);
+  if(hit){hoveredAsset=hit.object.userData.asset;showTooltip(hoveredAsset,e.clientX,e.clientY);canvas3.style.cursor='pointer';}
+  else{hoveredAsset=null;document.getElementById('tooltip').classList.remove('show');canvas3.style.cursor=isDragging?'grabbing':'grab';}
+});
+container.addEventListener('mousedown',e=>{isDragging=true;prevMouse={x:e.clientX,y:e.clientY};canvas3.style.cursor='grabbing'});
+container.addEventListener('mouseup',()=>{isDragging=false;canvas3.style.cursor='grab'});
+container.addEventListener('mouseleave',()=>{isDragging=false;hoveredAsset=null;document.getElementById('tooltip').classList.remove('show')});
+container.addEventListener('wheel',e=>{e.preventDefault();targetZoom=Math.max(ZOOM_MIN,Math.min(ZOOM_MAX,targetZoom+e.deltaY*.005));},{passive:false});
+container.addEventListener('click',e=>{
+  if(!clusterMode||!window._clusterHits)return;
+  const rect=canvas3.getBoundingClientRect(),mx=e.clientX-rect.left,my=e.clientY-rect.top;
+  for(const h of window._clusterHits){
+    if(Math.hypot(mx-h.sx,my-h.sy)<h.cr+6){
+      clusterMode=false;document.getElementById('btn-cluster').classList.remove('on');
+      flyTarget={rotY:Math.PI/2-(h.cl.lon+180)*Math.PI/180,rotX:h.cl.lat*Math.PI/180};
+      flyProgress=0;break;
+    }
+  }
+});
+
+function syncGroups(){if(!earthMesh)return;[atmMesh,glowMesh,atmRingMesh,markerGroup,arcGroup].forEach(o=>{if(o){o.rotation.y=earthMesh.rotation.y;o.rotation.x=earthMesh.rotation.x;}});}
+
+/* ══ MARKERS / ARCS ══ */
+function buildMarkers(){
+  while(markerGroup.children.length)markerGroup.remove(markerGroup.children[0]);
+  getActiveAssets().forEach(a=>{
+    const pos=ll3(a.lat,a.lon,GLOBE_R+.01);
+    const d=new THREE.Mesh(new THREE.CircleGeometry(.05,20),new THREE.MeshBasicMaterial({transparent:true,opacity:0,side:THREE.DoubleSide}));
+    d.position.copy(pos);d.lookAt(pos.clone().multiplyScalar(2));d.userData={asset:a};markerGroup.add(d);
+  });
+}
+function buildArcs(){
+  while(arcGroup.children.length)arcGroup.remove(arcGroup.children[0]);
+  if(!showArcos)return;
+  const orig=ll3(-15,-55,GLOBE_R);
+  getActiveAssets().filter(a=>a.region!=='brasil').forEach(a=>{
+    const to=ll3(a.lat,a.lon,GLOBE_R);
+    const pts=new THREE.QuadraticBezierCurve3(orig,orig.clone().add(to).normalize().multiplyScalar(GLOBE_R*1.3),to).getPoints(60);
+    arcGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:new THREE.Color(a.color),transparent:true,opacity:.38})));
+  });
+}
+
+/* ══ TOOLTIP ══ */
+function showTooltip(a,cx,cy){
+  document.getElementById('tt-ticker').textContent=a.ticker;
+  document.getElementById('tt-co').textContent=a.name;
+  document.getElementById('tt-price').textContent=a.price;
+  document.getElementById('tt-qty').textContent=a.qty;
+  document.getElementById('tt-posv').textContent=a.pos;
+  document.getElementById('tt-pct').textContent=a.pct.toFixed(1)+'%';
+  const cb=document.getElementById('tt-chg-big');cb.textContent=a.chg;cb.className='tt-chg-big '+(a.up?'tt-up':'tt-dn');
+  document.getElementById('tt-logo').innerHTML=`<img src="https://s3-symbol-logo.tradingview.com/${a.logo}.svg" style="width:40px;height:40px;object-fit:contain" onerror="this.style.display='none'">`;
+  const badge=document.getElementById('tt-badge');badge.textContent=a.type.toUpperCase();badge.className='tt-badge '+a.type;
+  document.getElementById('tt-city').textContent='📍 '+a.city;
+  const cc=FLAG_CODES[a.flag];const fl=document.getElementById('tt-flag');
+  if(fl){if(cc){fl.style.display='inline-block';fl.src=`https://flagcdn.com/w40/${cc}.png`;}else fl.style.display='none';}
+  const cnt=SOCIAL_COUNTS[a.ticker]||0;const sc=document.getElementById('tt-social');
+  if(cnt>0){document.getElementById('tt-social-count').textContent=cnt;sc.style.display='flex';}else sc.style.display='none';
+  drawSparkline(a.spark,a.color);
+  const rect=container.getBoundingClientRect();
+  let lx=cx-rect.left+16,ly=cy-rect.top-180;
+  if(lx+390>container.clientWidth-8)lx=cx-rect.left-406;
+  if(lx<8)lx=8;if(ly<10)ly=10;if(ly+420>container.clientHeight-20)ly=container.clientHeight-430;
+  const tt=document.getElementById('tooltip');tt.style.left=lx+'px';tt.style.top=ly+'px';tt.classList.add('show');
+}
+function drawSparkline(data,color){
+  const sc=document.getElementById('sparkline'),sx=sc.getContext('2d');sx.clearRect(0,0,326,48);
+  const mn=Math.min(...data),mx=Math.max(...data),rng=mx-mn||1;
+  sx.beginPath();data.forEach((v,i)=>{const x=(i/(data.length-1))*326,y=44-((v-mn)/rng)*40;i===0?sx.moveTo(x,y):sx.lineTo(x,y);});
+  sx.strokeStyle=color;sx.lineWidth=2;sx.stroke();sx.lineTo(326,48);sx.lineTo(0,48);sx.fillStyle=color+'22';sx.fill();
+}
+
+/* ══ FLY-TO ══ */
+function latLonToRot(lat,lon){const t=(lon+180)*Math.PI/180;return{rotY:Math.PI/2-t,rotX:Math.max(-1.2,Math.min(1.2,lat*Math.PI/180))};}
+const REGIONS={eua:latLonToRot(38,-100),brasil:latLonToRot(-15,-55),europa:latLonToRot(50,15),asia:latLonToRot(35,105)};
+function flyTo(r,el){document.querySelectorAll('.region-tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');flyTarget=REGIONS[r];flyProgress=0;autoRotate=false;document.getElementById('btn-auto').classList.remove('on');}
+
+/* ══ CONTROLS ══ */
+function toggleArcos(){showArcos=!showArcos;document.getElementById('btn-arcos').classList.toggle('on',showArcos);buildArcs();}
+function toggleAuto(){autoRotate=!autoRotate;document.getElementById('btn-auto').classList.toggle('on',autoRotate);}
+function toggleAtm(){showAtm=!showAtm;if(atmMesh)atmMesh.visible=showAtm;if(glowMesh)glowMesh.visible=showAtm;if(atmRingMesh)atmRingMesh.visible=showAtm;document.getElementById('btn-atm').classList.toggle('on',showAtm);}
+function setFilter(f,btn){activeFilter=f;document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');buildMarkers();buildArcs();updateClassPanel();}
+function toggleCluster(){clusterMode=!clusterMode;document.getElementById('btn-cluster').classList.toggle('on',clusterMode);buildMarkers();}
+
+/* ══ DIA/NOITE ══ */
+function toggleDay(){
+  isDayMode=!isDayMode;document.body.classList.toggle('day',isDayMode);
+  document.getElementById('modeBtn').textContent=isDayMode?'🌙 NOTURNO':'☀️ DIURNO';
+  if(!earthMesh)return;
+  earthMesh.material.map=isDayMode?texDay:texNight;earthMesh.material.emissiveMap=isDayMode?null:texNight;
+  earthMesh.material.emissiveIntensity=isDayMode?0:1.1;earthMesh.material.emissive.set(isDayMode?0x000000:0x886633);
+  earthMesh.material.specular.set(isDayMode?0x080808:0x223366);earthMesh.material.shininess=isDayMode?2:6;
+  earthMesh.material.needsUpdate=true;sunLight.intensity=isDayMode?1.2:1.0;ambLight.intensity=isDayMode?.8:.75;
+  fillLight.intensity=isDayMode?.05:.45;backTopLight.intensity=isDayMode?0:.3;stars.material.opacity=isDayMode?0:.45;
+}
+
+/* ══ CINEMA ══ */
+function toggleCinema(){
+  cinemaMode=!cinemaMode;document.body.classList.toggle('cinema',cinemaMode);
+  if(cinemaMode){try{const ctx=new(window.AudioContext||window.webkitAudioContext)();const o1=ctx.createOscillator(),o2=ctx.createOscillator(),g=ctx.createGain();o1.type='sine';o1.frequency.value=55;o2.type='sine';o2.frequency.value=82.4;g.gain.value=0;o1.connect(g);o2.connect(g);g.connect(ctx.destination);o1.start();o2.start();g.gain.linearRampToValueAtTime(.04,ctx.currentTime+3);cinemaAudio={ctx,g,o1,o2};}catch(e){}}
+  else{if(cinemaAudio){cinemaAudio.g.gain.linearRampToValueAtTime(0,cinemaAudio.ctx.currentTime+1);setTimeout(()=>{try{cinemaAudio.o1.stop();cinemaAudio.o2.stop();}catch(e){}cinemaAudio=null;},1200);}}
+}
+
+/* ══ TIMELINE ══ */
+function toggleTimeline(){
+  timelineActive=!timelineActive;
+  document.getElementById('timelineBar').classList.toggle('show',timelineActive);
+  document.getElementById('btn-timeline').classList.toggle('timeline-on',timelineActive);
+  if(timelineActive)onTimelineChange(timelineIndex);
+  else{timelineIndex=TIMELINE_SNAPSHOTS.length-1;buildMarkers();buildArcs();}
+}
+function onTimelineChange(val){
+  timelineIndex=parseInt(val);const snap=TIMELINE_SNAPSHOTS[timelineIndex];
+  document.getElementById('tlSlider').style.setProperty('--pct',(timelineIndex/(TIMELINE_SNAPSHOTS.length-1)*100)+'%');
+  document.getElementById('tlDate').textContent=snap.label;
+  document.getElementById('tlCount').textContent=snap.assets.length+' ativo'+(snap.assets.length>1?'s':'')+' na carteira';
+  buildMarkers();buildArcs();updateClassPanel();updateRegionPanel();
+}
+
+/* ══ COMPARTILHAR ══ */
+function openShare(){
+  renderer.render(scene,camera);
+  const sc=document.createElement('canvas');sc.width=1080;sc.height=1080;
+  const sx=sc.getContext('2d');sx.fillStyle='#05040e';sx.fillRect(0,0,1080,1080);
+  const r=Math.min(1080/canvas3.width,1080/canvas3.height),gw=canvas3.width*r,gh=canvas3.height*r;
+  sx.drawImage(canvas3,(1080-gw)/2,(1080-gh)/2,gw,gh);
+  const vg=sx.createRadialGradient(540,540,300,540,540,700);vg.addColorStop(0,'rgba(5,4,14,0)');vg.addColorStop(1,'rgba(5,4,14,.7)');sx.fillStyle=vg;sx.fillRect(0,0,1080,1080);
+  sx.fillStyle='rgba(201,169,97,.95)';sx.font='bold 30px DM Sans,sans-serif';sx.textAlign='left';sx.textBaseline='top';sx.fillText('G20 MASTERCLASS',48,46);
+  sx.fillStyle='rgba(201,169,97,.5)';sx.font='13px DM Sans,sans-serif';sx.fillText('DISTRIBUIÇÃO GLOBAL DA CARTEIRA',48,84);
+  const fa=getActiveAssets();const rg={};fa.forEach(a=>rg[a.region]=(rg[a.region]||0)+a.pct);
+  const rc={'eua':'#60a5fa','brasil':'#4ade80','europa':'#c084fc','asia':'#fb923c'},rl={'eua':'EUA','brasil':'BRASIL','europa':'EUROPA','asia':'ÁSIA'};
+  let rx=48;const total=Object.values(rg).reduce((s,v)=>s+v,0)||1;
+  Object.entries(rg).forEach(([r,p])=>{sx.fillStyle=rc[r];sx.font='bold 20px JetBrains Mono,monospace';sx.textAlign='left';sx.textBaseline='bottom';sx.fillText((p/total*100).toFixed(1)+'%',rx,1040);sx.font='10px DM Sans,sans-serif';sx.fillStyle='rgba(255,255,255,.5)';sx.fillText(rl[r],rx,1054);rx+=110;});
+  sx.fillStyle='rgba(201,169,97,.9)';sx.font='bold 18px DM Sans,sans-serif';sx.textAlign='right';sx.textBaseline='bottom';sx.fillText('#nãofoisorte',1032,1054);
+  const prev=document.getElementById('share-preview');prev.innerHTML='';sc.style.cssText='width:100%;height:100%;object-fit:contain';prev.appendChild(sc);
+  shareCanvas=sc;document.getElementById('share-overlay').classList.add('show');
+}
+function downloadShare(){if(!shareCanvas)return;const l=document.createElement('a');l.download='atlas-g20.png';l.href=shareCanvas.toDataURL('image/png');l.click();}
+function closeShare(){document.getElementById('share-overlay').classList.remove('show');shareCanvas=null;}
+
+/* ══ MARKET STATUS ══ */
+function updateMarketStatus(){
+  const u=new Date().getUTCHours();
+  const set=(id,l,c)=>{const el=document.getElementById(id);if(el){el.textContent='● '+l;el.className='rt-st '+c;}};
+  set('ms-eua',u>=13&&u<20?'ABERTO':u===12?'PRÉ-MKT':'FECHADO',u>=13&&u<20?'st-open':u===12?'st-pre':'st-closed');
+  set('ms-br',u>=13&&u<21?'ABERTO':'FECHADO',u>=13&&u<21?'st-open':'st-closed');
+  set('ms-eu',u>=8&&u<16?'ABERTO':'FECHADO',u>=8&&u<16?'st-open':'st-closed');
+  set('ms-as',u>=0&&u<8?'ABERTO':'FECHADO',u>=0&&u<8?'st-open':'st-closed');
+}
+setInterval(updateMarketStatus,30000);updateMarketStatus();
+
+/* ══ ANIMATE LOOP ══ */
+const clock=new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  const dt=clock.getDelta();
+  currentZoom+=(targetZoom-currentZoom)*.08;camera.position.z=currentZoom;
+  if(earthMesh){
+    if(!earthMesh._init){earthMesh._init=true;buildMarkers();buildArcs();updateClassPanel();updateRegionPanel();}
+    if(autoRotate&&!isDragging&&!hoveredAsset){earthMesh.rotation.y+=.00008;syncGroups();}
+    if(flyTarget){
+      flyProgress=Math.min(flyProgress+dt*1.2,1);const ease=1-Math.pow(1-flyProgress,3);
+      let dy=flyTarget.rotY-earthMesh.rotation.y;while(dy>Math.PI)dy-=Math.PI*2;while(dy<-Math.PI)dy+=Math.PI*2;
+      earthMesh.rotation.y+=dy*ease*.15;
+      earthMesh.rotation.x=Math.max(-Math.PI/2,Math.min(Math.PI/2,earthMesh.rotation.x+(flyTarget.rotX-earthMesh.rotation.x)*ease*.15));
+      syncGroups();
+      if(flyProgress>=1){let fd=flyTarget.rotY-earthMesh.rotation.y;while(fd>Math.PI)fd-=Math.PI*2;while(fd<-Math.PI)fd+=Math.PI*2;earthMesh.rotation.y+=fd;earthMesh.rotation.x=flyTarget.rotX;syncGroups();flyTarget=null;}
+    }
+    drawOverlay(dt);
+  }
+  renderer.render(scene,camera);
+}
+animate();
+
+window.addEventListener('resize',()=>{const w=container.clientWidth,h=container.clientHeight;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);resizeOv();});
+canvas3.style.cursor='grab';
+
+// Init timeline labels
+(()=>{
+  const lbl=document.getElementById('tlLabels');
+  if(lbl)lbl.innerHTML=TIMELINE_SNAPSHOTS.filter((_,i)=>i===0||i===4||i===8).map(s=>`<span>${s.label}</span>`).join('');
+})();
+</script>
+</body>
+</html>
