@@ -1381,16 +1381,16 @@ function drawOverlay(dt){
   const focalLen = (container.clientHeight / 2) / Math.tan(fovRad / 2);
 
   function worldSize(pct){
-    // Tamanho base em unidades 3D — proporcional ao peso
-    if(pct >= 8)  return 0.055 + pct * 0.004;
-    if(pct >= 3)  return 0.045 + pct * 0.003;
-    if(pct >= 1)  return 0.038 + pct * 0.004;
-    return 0.032 + pct * 0.006;
+    if(pct >= 8)  return 0.028 + pct * 0.002;
+    if(pct >= 3)  return 0.022 + pct * 0.0015;
+    if(pct >= 1)  return 0.018 + pct * 0.002;
+    return 0.015 + pct * 0.003;
   }
 
   function screenR(pct, depth){
-    // depth = distância do logo à câmera (aprox = cameraZ para globo centrado)
-    return worldSize(pct) * focalLen / Math.max(depth, 0.5);
+    const raw = worldSize(pct) * focalLen / Math.max(depth, 0.5);
+    // Cap: mínimo 5px (visível), máximo 46px (não enorme no super zoom)
+    return Math.max(5, Math.min(46, raw));
   }
 
   const useClusters = clusterMode || currentZoom > 4.5;
@@ -1400,7 +1400,6 @@ function drawOverlay(dt){
     const pos3=ll3(a.lat,a.lon,GLOBE_R).applyEuler(earthMesh.rotation);
     const sp=w2s(pos3);
     const dot=pos3.clone().normalize().dot(camDir.clone().negate());
-    // depth: distância real do ponto à câmera
     const depth = camera.position.z - pos3.z;
     const r = screenR(a.pct, depth);
     allM.push({a,i,ox:sp.x,oy:sp.y,sx:sp.x,sy:sp.y,dot,r,col:a.color});
@@ -1490,18 +1489,10 @@ function drawOverlay(dt){
     return;
   }
 
-  // MODO INDIVIDUAL
-  //
-  // REGRAS:
-  // 1. dot >= 0.30 → logo totalmente visível, participa da separação de força
-  // 2. dot 0.30 → 0.02 → logo na posição GEOGRÁFICA REAL (sem separação),
-  //    encolhe e desvanece com smoothstep. Sem jitter, sem tremer.
-  // 3. dot < 0.02 → invisível
-  //
   // MODO INDIVIDUAL — logos grudados na superfície, sem separação de força
-  // Posição = geográfica real sempre. Fade + encolhe perto do horizonte.
-  const DOT_FULL   = 0.5;   // 100% visível acima disso
-  const DOT_HIDDEN = -0.05; // invisível abaixo disso
+  // Sobreposições detectadas → stack badge "+N" clicável que expande em órbita
+  const DOT_FULL   = 0.5;
+  const DOT_HIDDEN = -0.05;
 
   function horizonFactor(dot){
     if(dot >= DOT_FULL)   return 1.0;
@@ -1510,19 +1501,117 @@ function drawOverlay(dt){
     return t * t * (3 - 2 * t);
   }
 
-  // Ordena: dot menor = mais perto do horizonte = desenhado primeiro (fica embaixo)
-  const sorted = allM.filter(m => m.dot > DOT_HIDDEN).sort((a, b) => a.dot - b.dot);
+  const visible = allM.filter(m => m.dot > DOT_HIDDEN);
 
-  sorted.forEach(m => {
-    const hf = horizonFactor(m.dot);
+  // ── DETECÇÃO DE SOBREPOSIÇÃO ──
+  // Agrupa logos cujos centros estão a menos de (rA + rB * 0.6) de distância
+  const used = new Array(visible.length).fill(false);
+  const stackGroups = []; // [{leader, members:[]}]
+
+  // Ordena por pct desc — maior peso é o líder do grupo
+  const byPct = visible.slice().sort((a,b) => b.a.pct - a.a.pct);
+
+  for(let i=0; i<byPct.length; i++){
+    if(used[i]) continue;
+    const leader = byPct[i];
+    const group = {leader, members:[]};
+    used[i] = true;
+    for(let j=i+1; j<byPct.length; j++){
+      if(used[j]) continue;
+      const other = byPct[j];
+      const dx = leader.ox - other.ox, dy = leader.oy - other.oy;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const minDist = (leader.r + other.r) * 0.7; // overlap threshold
+      if(dist < minDist){
+        group.members.push(other);
+        used[j] = true;
+      }
+    }
+    stackGroups.push(group);
+  }
+
+  // ── ESTADO DE STACKS EXPANDIDOS (persiste entre frames) ──
+  if(!window._expandedStacks) window._expandedStacks = new Set();
+  window._stackHits = []; // para hit detection
+
+  // Desenha na ordem: dot menor primeiro (horizonte embaixo)
+  const sortedGroups = stackGroups.slice().sort((a,b) => a.leader.dot - b.leader.dot);
+
+  sortedGroups.forEach(({leader, members}) => {
+    const hf = horizonFactor(leader.dot);
     if(hf <= 0) return;
-    const scaledR = m.r * Math.pow(hf, 0.5);
-    if(scaledR < 2.5){
-      oc.beginPath(); oc.arc(m.ox, m.oy, Math.max(1.2, scaledR), 0, Math.PI*2);
-      oc.fillStyle = m.col + Math.round(hf * 200).toString(16).padStart(2,'0');
-      oc.fill();
+
+    const stackId = `${Math.round(leader.ox)}_${Math.round(leader.oy)}`;
+    const isExpanded = window._expandedStacks.has(stackId);
+
+    if(members.length === 0){
+      // Só um logo — desenha normal
+      const scaledR = leader.r * Math.pow(hf, 0.5);
+      if(scaledR < 2.5){
+        oc.beginPath(); oc.arc(leader.ox, leader.oy, Math.max(1.2, scaledR), 0, Math.PI*2);
+        oc.fillStyle = leader.col + Math.round(hf*200).toString(16).padStart(2,'0'); oc.fill();
+      } else {
+        drawSingle(leader.ox, leader.oy, scaledR, leader.col, leader.a, hf, leader.i, false);
+      }
+      window._drawnMarkers.push({a:leader.a, sx:leader.ox, sy:leader.oy, r:leader.r});
+      return;
+    }
+
+    // Grupo com sobreposição
+    const all = [leader, ...members];
+    const scaledR = leader.r * Math.pow(hf, 0.5);
+
+    if(isExpanded){
+      // Expandido: líder no centro + membros em órbita
+      drawSingle(leader.ox, leader.oy, scaledR, leader.col, leader.a, hf, leader.i, false);
+      window._drawnMarkers.push({a:leader.a, sx:leader.ox, sy:leader.oy, r:scaledR});
+
+      const orbitR = scaledR + Math.max(...members.map(m=>m.r*Math.pow(hf,0.5))) + 6;
+      members.forEach((m, mi) => {
+        const angle = (mi / members.length) * Math.PI * 2 - Math.PI/2;
+        const ax = leader.ox + Math.cos(angle) * orbitR;
+        const ay = leader.oy + Math.sin(angle) * orbitR;
+        const mr = m.r * Math.pow(hf, 0.5);
+        // Linha de conexão
+        oc.beginPath(); oc.moveTo(leader.ox, leader.oy); oc.lineTo(ax, ay);
+        oc.strokeStyle = m.col + '33'; oc.lineWidth=0.5; oc.stroke();
+        if(mr < 2.5){
+          oc.beginPath(); oc.arc(ax, ay, Math.max(1.5,mr), 0, Math.PI*2);
+          oc.fillStyle = m.col + Math.round(hf*200).toString(16).padStart(2,'0'); oc.fill();
+        } else {
+          drawSingle(ax, ay, mr, m.col, m.a, hf*0.9, m.i, false);
+        }
+        window._drawnMarkers.push({a:m.a, sx:ax, sy:ay, r:mr});
+      });
+
+      // Botão fechar — "×" pequeno sobre o líder
+      window._stackHits.push({stackId, sx:leader.ox, sy:leader.oy, r:scaledR, canClose:true});
+
     } else {
-      drawSingle(m.ox, m.oy, scaledR, m.col, m.a, hf, m.i, false);
+      // Fechado: desenha só o líder + badge "+N" no canto
+      if(scaledR < 2.5){
+        oc.beginPath(); oc.arc(leader.ox, leader.oy, Math.max(1.5,scaledR), 0, Math.PI*2);
+        oc.fillStyle = leader.col + Math.round(hf*200).toString(16).padStart(2,'0'); oc.fill();
+      } else {
+        drawSingle(leader.ox, leader.oy, scaledR, leader.col, leader.a, hf, leader.i, false);
+      }
+      window._drawnMarkers.push({a:leader.a, sx:leader.ox, sy:leader.oy, r:scaledR});
+
+      // Badge "+N" no canto superior direito
+      if(scaledR >= 6){
+        const bx = leader.ox + scaledR * 0.6;
+        const by = leader.oy - scaledR * 0.6;
+        const br = Math.max(7, scaledR * 0.38);
+        oc.beginPath(); oc.arc(bx, by, br, 0, Math.PI*2);
+        oc.fillStyle = '#1a191e'; oc.fill();
+        oc.strokeStyle = '#c9a961'; oc.lineWidth = 1.2; oc.stroke();
+        oc.font = `700 ${Math.round(br*0.9)}px DM Sans,sans-serif`;
+        oc.textAlign = 'center'; oc.textBaseline = 'middle';
+        oc.fillStyle = '#e8c766'; oc.globalAlpha = hf;
+        oc.fillText('+'+members.length, bx, by+0.5);
+        oc.globalAlpha = 1;
+        window._stackHits.push({stackId, sx:bx, sy:by, r:br+4, canClose:false});
+      }
     }
   });
 }
@@ -1584,40 +1673,49 @@ container.addEventListener('mouseleave',()=>{
 });
 container.addEventListener('wheel',e=>{e.preventDefault();targetZoom=Math.max(ZOOM_MIN,Math.min(ZOOM_MAX,targetZoom+e.deltaY*.005));},{passive:false});
 container.addEventListener('click',e=>{
-  if(!clusterMode) return;
   const rect=canvas3.getBoundingClientRect(),mx=e.clientX-rect.left,my=e.clientY-rect.top;
 
+  // ── STACK BADGES (modo individual) ──
+  if(window._stackHits){
+    for(const h of window._stackHits){
+      if(Math.hypot(mx-h.sx,my-h.sy)<h.r){
+        if(h.canClose){
+          window._expandedStacks.delete(h.stackId);
+        } else {
+          if(window._expandedStacks.has(h.stackId)) window._expandedStacks.delete(h.stackId);
+          else window._expandedStacks.add(h.stackId);
+        }
+        return;
+      }
+    }
+  }
+
+  if(!clusterMode) return;
   // Verifica hit em ativos explodidos primeiro
   if(window._explodedHits){
     for(const h of window._explodedHits){
       if(Math.hypot(mx-h.sx,my-h.sy)<h.r){
-        // Clicou num ativo de cluster explodido — mostra tooltip
         hoveredAsset=h.a;showTooltip(h.a,e.clientX,e.clientY);return;
       }
     }
   }
 
-  // Verifica hit em cluster
   if(window._clusterHits){
     for(const h of window._clusterHits){
       if(Math.hypot(mx-h.sx,my-h.sy)<(h.cr||20)+6){
-        if(h.single) return; // ativo individual — ignora
+        if(h.single) return;
         const key=h.key;
         if(h.canClose===true && explodedClusters.has(key)){
-          // Fecha cluster
           explodedClusters.delete(key);
         } else if(!explodedClusters.has(key)){
-          // Abre cluster — explode localmente
           explodedClusters.set(key, true);
         } else {
-          // Já aberto, fecha
           explodedClusters.delete(key);
         }
         return;
       }
     }
   }
-  // Clique em área vazia — fecha todos os clusters explodidos
   if(explodedClusters.size>0) explodedClusters.clear();
 });
 
