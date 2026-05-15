@@ -204,6 +204,9 @@ body.day .sc-v{color:#111113}
 .rp-search-input{background:none;border:none;outline:none;color:#f0ece0;font-size:13px;font-family:'DM Sans',sans-serif;flex:1;min-width:0}
 .rp-search-input::placeholder{color:var(--muted)}
 body.day .rp-search-input{color:#111113}
+.rp-search-clear{background:none;border:none;cursor:pointer;color:var(--muted);font-size:14px;padding:0 2px;line-height:1;display:none;flex-shrink:0;transition:color .15s}
+.rp-search-clear:hover{color:#f0ece0}
+.rp-search-clear.visible{display:block}
 /* Cabeçalho colapsável */
 .rg-head{
   display:flex;align-items:center;gap:8px;padding:12px 22px 10px;
@@ -228,6 +231,7 @@ body.day .rg-head{background:#f5f5f7;color:#333338}
   border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s;
 }
 .a-item:hover{background:var(--surface)}
+.a-item.selected{background:rgba(201,169,97,.08);border-left:2px solid var(--gold)}
 .a-logo{width:42px;height:42px;border-radius:10px;background:var(--surface);
   display:flex;align-items:center;justify-content:center;overflow:hidden;
   flex-shrink:0;border:1px solid var(--border)}
@@ -441,6 +445,7 @@ body.day .a-ticker{color:#111113}
         <div class="rp-search-inner">
           <span class="rp-search-icon">🔍</span>
           <input class="rp-search-input" id="assetSearch" placeholder="Buscar ativo..." oninput="filterAssetList(this.value)">
+          <button class="rp-search-clear" id="assetSearchClear" onclick="clearAssetSearch()" title="Limpar">✕</button>
         </div>
       </div>
       <div id="assetListBody"></div>
@@ -1397,7 +1402,21 @@ function drawSingle(sx,sy,baseR,col,a,fade,ci,isHov){
   if(!window._drawnMarkers) window._drawnMarkers=[];
   window._drawnMarkers.push({a,sx,sy,r:baseR});
 
-  const isHovered = hoveredAsset&&hoveredAsset.ticker===a.ticker;
+  const isHovered  = hoveredAsset  && hoveredAsset.ticker  === a.ticker;
+  const isSelected = selectedAsset && selectedAsset.ticker === a.ticker;
+
+  // Pulse rings para ativo selecionado — desenhados ANTES do logo (ficam embaixo)
+  if(isSelected){
+    for(let pi=0;pi<3;pi++){
+      const ph = ((pulseClock * 0.8 + pi * 0.33) % 1);
+      const pr = baseR + 6 + ph * 24;
+      const pa = (1 - ph) * 0.55 * fade;
+      oc.beginPath(); oc.arc(sx, sy, pr, 0, Math.PI*2);
+      oc.strokeStyle = '#e8c766' + Math.round(pa * 255).toString(16).padStart(2,'0');
+      oc.lineWidth = 2.5 - ph * 1.5;
+      oc.stroke();
+    }
+  }
 
   // ── LOD 1: PONTO (zoom muito longe, baseR < 7)
   if(baseR < 7){
@@ -1866,11 +1885,22 @@ const RG_ORDER=['eua','brasil','asia','europa'];
 const RG_LABELS={eua:'EUA',brasil:'BRASIL',asia:'ÁSIA',europa:'EUROPA'};
 const RG_COLORS={eua:'var(--eua)',brasil:'var(--brasil)',asia:'var(--asia)',europa:'var(--europa)'};
 
-let _collapsedRegions = new Set(); // regiões fechadas pelo usuário
+let _collapsedRegions = new Set();
 let _searchQuery = '';
+let selectedAsset = null; // ativo clicado na lista — fica pulsando no globo
+
+function clearAssetSearch(){
+  const inp = document.getElementById('assetSearch');
+  if(inp){ inp.value = ''; }
+  document.getElementById('assetSearchClear')?.classList.remove('visible');
+  filterAssetList('');
+}
 
 function filterAssetList(q){
   _searchQuery = q.toLowerCase().trim();
+  // Mostra/esconde botão X
+  const clr = document.getElementById('assetSearchClear');
+  if(clr) clr.classList.toggle('visible', _searchQuery.length > 0);
   renderAssetListBody();
 }
 
@@ -1950,6 +1980,8 @@ function buildAssetList(){
 function focusAsset(ticker){
   const a = ASSETS.find(x=>x.ticker===ticker);
   if(!a) return;
+  // Define ativo selecionado — vai pulsar no globo
+  selectedAsset = (selectedAsset?.ticker === ticker) ? null : a;
   // Voa para a região do ativo
   const rmap={eua:'eua',brasil:'brasil',europa:'europa',asia:'asia'};
   const rid=rmap[a.region];
@@ -1957,8 +1989,9 @@ function focusAsset(ticker){
     flyTarget=REGIONS[rid]; flyProgress=0; autoRotate=false;
     document.getElementById('btn-auto')?.classList.remove('on');
   }
-  // Mostra tooltip
   hoveredAsset=a;
+  // Atualiza visual da lista (destaca o item selecionado)
+  renderAssetListBody();
 }
 
 function highlightAsset(ticker){
