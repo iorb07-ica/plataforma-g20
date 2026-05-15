@@ -209,7 +209,7 @@ body.day .rg-head{background:#f5f5f7;color:#333338}
 .a-logo{width:42px;height:42px;border-radius:10px;background:var(--surface);
   display:flex;align-items:center;justify-content:center;overflow:hidden;
   flex-shrink:0;border:1px solid var(--border)}
-.a-logo img{width:30px;height:30px;object-fit:contain}
+.a-logo img{width:42px;height:42px;object-fit:cover;border-radius:10px}
 .a-main{flex:1;min-width:0}
 .a-ticker{font-size:15px;font-weight:700;color:#f0ece0}
 body.day .a-ticker{color:#111113}
@@ -639,25 +639,30 @@ function carregarCG20(){
     const aportes=JSON.parse(raw);
     if(!Array.isArray(aportes)||!aportes.length) return;
 
-    // Filtra só compras (op === 'C')
-    const compras=aportes.filter(a=>a.op==='C'||!a.op);
-
-    // Agrupa por ticker somando custo total
+    // Calcula posição LÍQUIDA: compras - vendas
     const grouped={};
-    compras.forEach(a=>{
+    aportes.forEach(a=>{
       const t=(a.ticker||'').trim().toUpperCase();
       if(!t) return;
       const qtd=parseFloat(a.qtd||a.quantidade||0);
       const preco=parseFloat(a.preco||a.precoMedio||0);
+      const isVenda=(a.op||'').toUpperCase()==='V';
       if(!grouped[t]) grouped[t]={ticker:t,custo:0,qtd:0,tipo:a.tipo||'Stock',moeda:a.moeda||'BRL',nome:a.nome||t};
-      grouped[t].custo+=qtd*preco;
-      grouped[t].qtd+=qtd;
+      if(isVenda){
+        // Venda: subtrai quantidade e custo proporcional
+        grouped[t].qtd-=qtd;
+        grouped[t].custo-=qtd*preco;
+      } else {
+        // Compra: soma
+        grouped[t].custo+=qtd*preco;
+        grouped[t].qtd+=qtd;
+      }
     });
 
     const total=Object.values(grouped).reduce((s,v)=>s+v.custo,0)||1;
 
     const novos=Object.values(grouped)
-      .filter(g=>g.custo>0)
+      .filter(g=>g.qtd>0.001&&g.custo>0) // exclui ativos zerados/vendidos
       .map(g=>{
         const coords=COORDS_TABLE[g.ticker];
         const tipo=detectTipo(g.ticker,g.tipo);
@@ -889,7 +894,8 @@ const FALLBACK_LOGOS={
   'ESS':'essexproperty.com','WFC':'wellsfargo.com',
   'BLK':'blackrock.com','JPM':'jpmorganchase.com',
 
-  'XBI':'ssga.com','XLU':'ssga.com',};
+  'XBI':'ssga.com','XLU':'ssga.com',
+  'IRDM11':'iridiumri.com.br',};
 function getFallbackLogoUrl(ticker){
   const d=FALLBACK_LOGOS[ticker];
   return d?`https://www.google.com/s2/favicons?domain=${d}&sz=64`:null;
@@ -1266,16 +1272,22 @@ function drawSingle(sx,sy,baseR,col,a,fade,ci,isHov){
     oc.fillText(a.ticker.slice(0,2),sx,sy+1);oc.globalAlpha=1;
   }
   // Bandeirinha
-  const cc=FLAG_CODES[a.flag];const fi=cc?flagImgs[cc]:null;
-  if(fi&&fi.complete&&fi.naturalWidth>0&&baseR>14){
-    const fw=baseR*.72,fh=Math.round(fw*fi.naturalHeight/fi.naturalWidth);
-    const fx=sx+baseR*.28,fy=sy+baseR*.30;
-    oc.save();
-    oc.beginPath();oc.moveTo(fx+2,fy);oc.lineTo(fx+fw-2,fy);oc.quadraticCurveTo(fx+fw,fy,fx+fw,fy+2);
-    oc.lineTo(fx+fw,fy+fh-2);oc.quadraticCurveTo(fx+fw,fy+fh,fx+fw-2,fy+fh);
-    oc.lineTo(fx+2,fy+fh);oc.quadraticCurveTo(fx,fy+fh,fx,fy+fh-2);
-    oc.lineTo(fx,fy+2);oc.quadraticCurveTo(fx,fy,fx+2,fy);oc.closePath();oc.clip();
-    oc.globalAlpha=fade*.85;oc.drawImage(fi,fx,fy,fw,fh);oc.restore();
+  // Bandeirinha pequena no canto (só para não-cripto)
+  if(a.type!=='cripto'){
+    const cc=FLAG_CODES[a.flag];const fi=cc?flagImgs[cc]:null;
+    if(fi&&fi.complete&&fi.naturalWidth>0&&baseR>13){
+      const fw=baseR*.55,fh=Math.round(fw*fi.naturalHeight/(fi.naturalWidth||1));
+      const fx=sx+baseR*.44,fy=sy+baseR*.44;
+      oc.save();
+      const rr=1.5;
+      oc.beginPath();
+      oc.moveTo(fx+rr,fy);oc.lineTo(fx+fw-rr,fy);oc.quadraticCurveTo(fx+fw,fy,fx+fw,fy+rr);
+      oc.lineTo(fx+fw,fy+fh-rr);oc.quadraticCurveTo(fx+fw,fy+fh,fx+fw-rr,fy+fh);
+      oc.lineTo(fx+rr,fy+fh);oc.quadraticCurveTo(fx,fy+fh,fx,fy+fh-rr);
+      oc.lineTo(fx,fy+rr);oc.quadraticCurveTo(fx,fy,fx+rr,fy);
+      oc.closePath();oc.clip();
+      oc.globalAlpha=fade*.85;oc.drawImage(fi,fx,fy,fw,fh);oc.restore();
+    }
   }
   // Borda
   oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);
@@ -1559,8 +1571,8 @@ function buildAssetList(){
       html+=`<div class="a-item" onmouseenter="highlightAsset('${a.ticker}')" onmouseleave="highlightAsset(null)">
         <div class="a-logo">
           <img src="${(window.TV_LOGOS&&window.TV_LOGOS.getUrl?window.TV_LOGOS.getUrl(a.ticker):'')||(a.logo&&TV_WHITELIST.has(a.logo)?'https://s3-symbol-logo.tradingview.com/'+a.logo+'.svg?v=3':'')||CRYPTO_LOGOS[a.ticker]||getFallbackLogoUrl(a.ticker)||''}"
-               style="width:24px;height:24px;object-fit:contain"
-               onerror="this.style.display='none'">
+               style="width:42px;height:42px;object-fit:cover;border-radius:10px"
+               onload="this.parentNode.style.background='transparent';this.parentNode.style.border='none'" onerror="this.style.display='none'">
         </div>
         <div class="a-main">
           <div class="a-ticker">${a.ticker}</div>
@@ -1621,7 +1633,7 @@ function showTooltip(a,cx,cy){
   document.getElementById('tt-logo').innerHTML=`<img src="${ttLogoUrl}" style="width:40px;height:40px;object-fit:contain" onerror="this.style.display='none'">`;
   const badge=document.getElementById('tt-badge');badge.textContent=a.type.toUpperCase();badge.className='tt-badge '+a.type;
   document.getElementById('tt-city').textContent='📍 '+a.city;
-  const cc=FLAG_CODES[a.flag];const fl=document.getElementById('tt-flag');
+  const cc=(a.type==='cripto')?null:FLAG_CODES[a.flag];const fl=document.getElementById('tt-flag');
   if(fl){if(cc){fl.style.display='inline-block';fl.src=`https://flagcdn.com/w40/${cc}.png`;}else fl.style.display='none';}
   const cnt=SOCIAL_COUNTS[a.ticker]||0;const sc=document.getElementById('tt-social');
   if(cnt>0){document.getElementById('tt-social-count').textContent=cnt;sc.style.display='flex';}else sc.style.display='none';
