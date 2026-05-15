@@ -682,11 +682,11 @@ function carregarCG20(){
         if(coords){ lat=coords.lat; lon=coords.lon; }
         else if(g.moeda==='BRL'){
           const idx=semCoordsBR.indexOf(g.ticker);
-          const sp=spiralCoord(idx,semCoordsBR.length,-22.0,-48.0,8);
+          const sp=spiralCoord(idx,semCoordsBR.length,-22.0,-48.0,14);
           lat=sp.lat; lon=sp.lon;
         } else {
           const idx=semCoordsEUA.indexOf(g.ticker);
-          const sp=spiralCoord(idx,semCoordsEUA.length,38.0,-97.0,14);
+          const sp=spiralCoord(idx,semCoordsEUA.length,38.0,-97.0,22);
           lat=sp.lat; lon=sp.lon;
         }
 
@@ -1159,16 +1159,17 @@ function getGlobeScreenCircle(){
 }
 
 function getStableOffsets(markers){
-  if(!earthMesh) return;
-  // Sempre reseta para posição geográfica real
+  if(!earthMesh||!markers.length) return;
   markers.forEach(m=>{m.sx=m.ox;m.sy=m.oy;});
 
-  // Durante rotação automática: SEM separação — logos ficam na posição geográfica
-  // Evita jitter 60x/segundo com muitos ativos (EUA ~70, Brasil ~50)
-  if(autoRotate) return;
+  // Cache key inclui rotação do globo quantizada a 3°
+  // → recalcula separação só quando o globo girou mais de 3°, não todo frame
+  const zKey  = Math.round(currentZoom*3)/3;
+  const rotKey= Math.round(earthMesh.rotation.y*(180/Math.PI)/3); // graus, step 3°
+  const key   = activeFilter+'_'+zKey+'_'+markers.length+'_'+rotKey;
 
-  // Ao arrastar: aplica offsets do cache à nova posição projetada
-  if(isDragging){
+  if(key===_lastOffsetKey){
+    // Cache válido: aplica offsets salvos às novas posições projetadas
     markers.forEach(m=>{
       const o=_offsetCache[m.a.ticker];
       if(o){m.sx=m.ox+o.dx;m.sy=m.oy+o.dy;}
@@ -1176,23 +1177,18 @@ function getStableOffsets(markers){
     return;
   }
 
-  // Parado: usa cache se nada mudou
-  const zKey=Math.round(currentZoom*3)/3;
-  const key=activeFilter+'_'+zKey+'_'+markers.length;
-  if(key===_lastOffsetKey){
-    markers.forEach(m=>{const o=_offsetCache[m.a.ticker];if(o){m.sx=m.ox+o.dx;m.sy=m.oy+o.dy;}});
-    return;
-  }
+  // Cache miss: recalcula separação
+  // Menos iterações durante autoRotate (mais rápido, jitter imperceptível a 3° de rotação)
+  const ITERS = autoRotate ? 40 : 120;
+  const DAMP  = autoRotate ? 0.45 : 0.55;
 
-  // Separação completa — só roda quando globo está PARADO
-  const ITERS=120, DAMP=0.55;
   for(let it=0;it<ITERS;it++){
     for(let a=0;a<markers.length;a++){
       for(let b=a+1;b<markers.length;b++){
         const A=markers[a],B=markers[b];
         const dx=B.sx-A.sx, dy=B.sy-A.sy;
         const d=Math.sqrt(dx*dx+dy*dy)||.001;
-        const minD=A.r+B.r+8;
+        const minD=A.r+B.r+6;
         if(d<minD){
           const f=(minD-d)/2*DAMP, nx=dx/d, ny=dy/d;
           A.sx-=nx*f; A.sy-=ny*f;
@@ -1591,9 +1587,9 @@ container.addEventListener('mousemove',e=>{
   }
 });
 container.addEventListener('mousedown',e=>{isDragging=true;prevMouse={x:e.clientX,y:e.clientY};canvas3.style.cursor='grabbing'});
-container.addEventListener('mouseup',()=>{isDragging=false;canvas3.style.cursor='grab';_lastOffsetKey='';_offsetCache={};});
+container.addEventListener('mouseup',()=>{isDragging=false;canvas3.style.cursor='grab';_lastOffsetKey='';});
 container.addEventListener('mouseleave',()=>{
-  isDragging=false;hoveredAsset=null;_lastOffsetKey='';_offsetCache={};
+  isDragging=false;hoveredAsset=null;_lastOffsetKey='';
   document.getElementById('tooltip').classList.remove('show');
 });
 container.addEventListener('wheel',e=>{e.preventDefault();targetZoom=Math.max(ZOOM_MIN,Math.min(ZOOM_MAX,targetZoom+e.deltaY*.005));},{passive:false});
