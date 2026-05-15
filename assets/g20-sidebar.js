@@ -423,4 +423,22 @@
   } else {
     init();
   }
+
+  // Garante que o item Atlas G20 apareça mesmo quando a sidebar demora a renderizar
+  // Usa MutationObserver para detectar quando .nav-section--investimentos entra no DOM
+  (function waitForInvestimentos(){
+    var secEl = document.querySelector('.nav-section--investimentos');
+    if (secEl) {
+      injectNav();
+      return;
+    }
+    var obs = new MutationObserver(function(){
+      var sec = document.querySelector('.nav-section--investimentos');
+      if (sec) {
+        obs.disconnect();
+        injectNav();
+      }
+    });
+    obs.observe(document.body || document.documentElement, { childList: true, subtree: true });
+  })();
 })();
