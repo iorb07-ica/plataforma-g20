@@ -1125,8 +1125,12 @@ function getGlobeScreenCircle(){
 
 function getStableOffsets(markers){
   if(!earthMesh) return;
-  // Sempre reseta para posição real do globo
+  // Sempre reseta para posição geográfica real
   markers.forEach(m=>{m.sx=m.ox;m.sy=m.oy;});
+
+  // Durante rotação automática: SEM separação — logos ficam na posição geográfica
+  // Evita jitter 60x/segundo com muitos ativos (EUA ~70, Brasil ~50)
+  if(autoRotate) return;
 
   // Ao arrastar: aplica offsets do cache à nova posição projetada
   if(isDragging){
@@ -1137,31 +1141,16 @@ function getStableOffsets(markers){
     return;
   }
 
+  // Parado: usa cache se nada mudou
   const zKey=Math.round(currentZoom*3)/3;
   const key=activeFilter+'_'+zKey+'_'+markers.length;
-  if(key===_lastOffsetKey && !autoRotate){
+  if(key===_lastOffsetKey){
     markers.forEach(m=>{const o=_offsetCache[m.a.ticker];if(o){m.sx=m.ox+o.dx;m.sy=m.oy+o.dy;}});
     return;
   }
 
-  // Calcula círculo do globo para containment
-  const globe = getGlobeScreenCircle();
-
-  // Função que limita um ponto a não ultrapassar o círculo do globo
-  // Permite que o logo ultrapasse no máximo logoR pixels além da borda (para logos na borda aparecerem meio-dentro)
-  function clampToGlobe(m){
-    const dx = m.sx - globe.cx, dy = m.sy - globe.cy;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-    const maxDist = globe.r - m.r * 0.3; // logos ficam dentro do globo com pequena margem
-    if(dist > maxDist && dist > 0){
-      const scale = maxDist / dist;
-      m.sx = globe.cx + dx * scale;
-      m.sy = globe.cy + dy * scale;
-    }
-  }
-
-  // Separação: 120 iter parado, 25 iter rotacionando
-  const ITERS=autoRotate?25:120, DAMP=autoRotate?0.4:0.55;
+  // Separação completa — só roda quando globo está PARADO
+  const ITERS=120, DAMP=0.55;
   for(let it=0;it<ITERS;it++){
     for(let a=0;a<markers.length;a++){
       for(let b=a+1;b<markers.length;b++){
@@ -1563,9 +1552,9 @@ container.addEventListener('mousemove',e=>{
   }
 });
 container.addEventListener('mousedown',e=>{isDragging=true;prevMouse={x:e.clientX,y:e.clientY};canvas3.style.cursor='grabbing'});
-container.addEventListener('mouseup',()=>{isDragging=false;canvas3.style.cursor='grab'});
+container.addEventListener('mouseup',()=>{isDragging=false;canvas3.style.cursor='grab';_lastOffsetKey='';_offsetCache={};});
 container.addEventListener('mouseleave',()=>{
-  isDragging=false;hoveredAsset=null;
+  isDragging=false;hoveredAsset=null;_lastOffsetKey='';_offsetCache={};
   document.getElementById('tooltip').classList.remove('show');
 });
 container.addEventListener('wheel',e=>{e.preventDefault();targetZoom=Math.max(ZOOM_MIN,Math.min(ZOOM_MAX,targetZoom+e.deltaY*.005));},{passive:false});
@@ -1727,7 +1716,7 @@ function flyTo(r,el){document.querySelectorAll('.region-tab').forEach(t=>t.class
 
 /* ══ CONTROLS ══ */
 function toggleArcos(){showArcos=!showArcos;document.getElementById('btn-arcos').classList.toggle('on',showArcos);buildArcs();}
-function toggleAuto(){autoRotate=!autoRotate;document.getElementById('btn-auto').classList.toggle('on',autoRotate);}
+function toggleAuto(){autoRotate=!autoRotate;document.getElementById('btn-auto').classList.toggle('on',autoRotate);if(!autoRotate){_lastOffsetKey='';_offsetCache={};}}
 function toggleAtm(){showAtm=!showAtm;if(atmMesh)atmMesh.visible=showAtm;if(glowMesh)glowMesh.visible=showAtm;if(atmRingMesh)atmRingMesh.visible=showAtm;document.getElementById('btn-atm').classList.toggle('on',showAtm);}
 function setFilter(f,btn){
   activeFilter=f;
@@ -1857,7 +1846,7 @@ function animate(){
       earthMesh.rotation.y+=dy*ease*.15;
       earthMesh.rotation.x=Math.max(-Math.PI/2,Math.min(Math.PI/2,earthMesh.rotation.x+(flyTarget.rotX-earthMesh.rotation.x)*ease*.15));
       syncGroups();
-      if(flyProgress>=1){let fd=flyTarget.rotY-earthMesh.rotation.y;while(fd>Math.PI)fd-=Math.PI*2;while(fd<-Math.PI)fd+=Math.PI*2;earthMesh.rotation.y+=fd;earthMesh.rotation.x=flyTarget.rotX;syncGroups();flyTarget=null;}
+      if(flyProgress>=1){let fd=flyTarget.rotY-earthMesh.rotation.y;while(fd>Math.PI)fd-=Math.PI*2;while(fd<-Math.PI)fd+=Math.PI*2;earthMesh.rotation.y+=fd;earthMesh.rotation.x=flyTarget.rotX;syncGroups();flyTarget=null;_lastOffsetKey='';_offsetCache={};}
     }
     drawOverlay(dt);
   }
