@@ -639,7 +639,7 @@ function carregarCG20(){
     const aportes=JSON.parse(raw);
     if(!Array.isArray(aportes)||!aportes.length) return;
 
-    // Calcula posição LÍQUIDA: compras - vendas
+    // Calcula posição LÍQUIDA: soma compras, subtrai qtd das vendas
     const grouped={};
     aportes.forEach(a=>{
       const t=(a.ticker||'').trim().toUpperCase();
@@ -647,22 +647,21 @@ function carregarCG20(){
       const qtd=parseFloat(a.qtd||a.quantidade||0);
       const preco=parseFloat(a.preco||a.precoMedio||0);
       const isVenda=(a.op||'').toUpperCase()==='V';
-      if(!grouped[t]) grouped[t]={ticker:t,custo:0,qtd:0,tipo:a.tipo||'Stock',moeda:a.moeda||'BRL',nome:a.nome||t};
+      if(!grouped[t]) grouped[t]={ticker:t,custo:0,qtd:0,qtdV:0,tipo:a.tipo||'Stock',moeda:a.moeda||'BRL',nome:a.nome||t};
       if(isVenda){
-        // Venda: subtrai quantidade e custo proporcional
-        grouped[t].qtd-=qtd;
-        grouped[t].custo-=qtd*preco;
+        grouped[t].qtdV+=qtd; // acumula vendas separado
       } else {
-        // Compra: soma
         grouped[t].custo+=qtd*preco;
         grouped[t].qtd+=qtd;
       }
     });
+    // Aplica vendas: subtrai da qtd total
+    Object.values(grouped).forEach(g=>{ g.qtd=g.qtd-g.qtdV; });
 
     const total=Object.values(grouped).reduce((s,v)=>s+v.custo,0)||1;
 
     const novos=Object.values(grouped)
-      .filter(g=>g.qtd>0.001&&g.custo>0) // exclui ativos zerados/vendidos
+      .filter(g=>g.qtd>0.001&&g.custo>0.01) // exclui ativos zerados/vendidos
       .map(g=>{
         const coords=COORDS_TABLE[g.ticker];
         const tipo=detectTipo(g.ticker,g.tipo);
@@ -1122,11 +1121,11 @@ function getStableOffsets(markers){
     return;
   }
   // Se está em movimento, não aplica separação (logos ficam fixos no globo)
+  // Mas garante que sx/sy = ox/oy (posição real no globo)
+  markers.forEach(m=>{m.sx=m.ox;m.sy=m.oy;});
   if(isDragging || autoRotate){
     return;
   }
-
-  markers.forEach(m=>{m.sx=m.ox;m.sy=m.oy;});
 
   // Separação agressiva — sem limite de stretch, logos vão onde precisam ir
   const ITERS=120, DAMP=0.55;
@@ -1414,7 +1413,9 @@ function drawOverlay(dt){
   }
 
   // MODO INDIVIDUAL — separação com força, todos os logos visíveis
-  const frontM=allM.filter(m=>m.dot>=.15); // mais ativos visíveis
+  // Durante rotação mostra mais ativos (threshold menor)
+  const dotThresh=(isDragging||autoRotate)?0.0:0.15;
+  const frontM=allM.filter(m=>m.dot>=dotThresh);
   getStableOffsets(frontM);
 
   // Linhas de conexão para logos movidos
@@ -1434,7 +1435,7 @@ function drawOverlay(dt){
   });
 
   // Ativos no horizonte (dot baixo) — pequeno ponto pulsante
-  allM.filter(m=>m.dot>=-.1&&m.dot<.15).forEach((m,i)=>{
+  allM.filter(m=>m.dot>=-.1&&m.dot<dotThresh).forEach((m,i)=>{
     const alpha=Math.max(0,(.15+m.dot)/.25),hr=Math.max(2,m.r*.25);
     oc.beginPath();oc.arc(m.ox,m.oy,hr,0,Math.PI*2);
     oc.fillStyle=m.col+Math.round(alpha*160).toString(16).padStart(2,'0');oc.fill();
