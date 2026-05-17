@@ -441,7 +441,7 @@ body.day .a-ticker{color:#111113}
     <div class="sum-grid">
       <div class="sum-card">
         <div class="sc-lbl">PATRIMÔNIO</div>
-        <div class="sc-v" id="rp-patrimonio">R$199k</div>
+        <div class="sc-v" id="rp-patrimonio">--</div>
         <div class="sc-sub">▲ +2.4% hoje</div>
       </div>
       <div class="sum-card">
@@ -833,12 +833,14 @@ function carregarCG20(){
 
 function _fetchQuotes(ativos){
   const PROXY='https://g20-proxy.vercel.app/api/quote';
-  const brTickers=[], usTickers=[];
+  const CRIPTO_LIST=['BTC','ETH','SOL','BNB','AVAX','DOT','LINK','ADA','MATIC'];
+  const brTickers=[], usTickers=[], criptoTickers=[];
   ativos.forEach(g=>{
-    if(g.moeda==='BRL') brTickers.push(g.ticker);
+    if(CRIPTO_LIST.includes(g.ticker)||CRIPTO_LIST.includes(g.ticker.replace('-USD',''))) criptoTickers.push(g.ticker);
+    else if(g.moeda==='BRL') brTickers.push(g.ticker);
     else usTickers.push(g.ticker);
   });
-  console.log('[Atlas] Buscando cotações — BR:', brTickers.length, 'US:', usTickers.length);
+  console.log('[Atlas] Buscando cotações — BR:', brTickers.length, 'US:', usTickers.length, 'Cripto:', criptoTickers.length);
   const calls=[];
   if(brTickers.length) calls.push(
     fetch(`${PROXY}?tickers=${brTickers.join(',')}&market=BR`)
@@ -851,6 +853,32 @@ function _fetchQuotes(ativos){
       .then(r=>r.json())
       .then(d=>{ console.log('[Atlas] Resposta US (amostra):', JSON.stringify(d).slice(0,400)); return d; })
       .catch(e=>{ console.warn('[Atlas] Erro US:', e); return {}; })
+  );
+  if(criptoTickers.length) calls.push(
+    // Tenta proxy primeiro, fallback CoinGecko
+    fetch(`${PROXY}?tickers=${criptoTickers.join(',')}&market=US`)
+      .then(r=>r.json())
+      .then(d=>{
+        // Verifica se veio preço real (não zero)
+        const sample=Object.values(d||{})[0];
+        const hasPrice=sample&&parseFloat(sample.price||0)>100;
+        if(hasPrice){ console.log('[Atlas] Cripto via proxy OK'); return d; }
+        // Fallback: CoinGecko free API
+        const cgIds={'BTC':'bitcoin','ETH':'ethereum','SOL':'solana','BNB':'binancecoin','AVAX':'avalanche-2'};
+        const ids=criptoTickers.map(t=>cgIds[t]||t.toLowerCase()).filter(Boolean).join(',');
+        return fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`)
+          .then(r=>r.json())
+          .then(cg=>{
+            const result={};
+            criptoTickers.forEach(t=>{
+              const id=cgIds[t];
+              if(id&&cg[id]) result[t]={price:String(cg[id].usd)};
+            });
+            console.log('[Atlas] Cripto via CoinGecko:', Object.keys(result).map(k=>`${k}=$${result[k].price}`).join(', '));
+            return result;
+          }).catch(()=>({}));
+      })
+      .catch(()=>({}))
   );
   return Promise.all(calls).then(results=>{
     const quotes={};
@@ -945,6 +973,12 @@ function _buildAssetsFromGrouped(ativos, quotes){
     ASSETS.length=0;
     novos.forEach(a=>ASSETS.push(a));
     ASSETS_CG20=[...ASSETS];
+    // Atualiza patrimônio com total real das posições em BRL
+    const elPatr=document.getElementById('rp-patrimonio');
+    if(elPatr){
+      const totalBRL=comPos.reduce((s,g)=>s+g.posAtualBRL,0);
+      elPatr.textContent='R$'+(totalBRL>=1000?(totalBRL/1000).toFixed(0)+'k':totalBRL.toFixed(0));
+    }
     preloadAssets();
     buildMarkers();buildArcs();updateClassPanel();updateRegionPanel();
     buildAssetList();
