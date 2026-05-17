@@ -834,72 +834,54 @@ function carregarCG20(){
 function _fetchQuotes(ativos){
   const PROXY='https://g20-proxy.vercel.app/api/quote';
   const CG_IDS={'BTC':'bitcoin','BTC-USD':'bitcoin','ETH':'ethereum','SOL':'solana','BNB':'binancecoin','AVAX':'avalanche-2','DOT':'polkadot','LINK':'chainlink','ADA':'cardano','MATIC':'matic-network','MANA':'decentraland','SAND':'the-sandbox','HNT':'helium'};
-  const brTickers=[], usTickers=[], criptoTickers=[];
+  const brAtivos=[], usAtivos=[], criptoAtivos=[];
   ativos.forEach(g=>{
-    if(CG_IDS[g.ticker]) criptoTickers.push(g.ticker);
-    else if(g.moeda==='BRL') brTickers.push(g.ticker);
-    else usTickers.push(g.ticker);
+    if(CG_IDS[g.ticker]) criptoAtivos.push(g);
+    else if(g.moeda==='BRL') brAtivos.push(g);
+    else usAtivos.push(g);
   });
-  console.log('[Atlas] BR:', brTickers.length, 'US:', usTickers.length, 'Cripto:', criptoTickers.length);
+  console.log('[Atlas] BR:', brAtivos.length, 'US:', usAtivos.length, 'Cripto:', criptoAtivos.length);
+
+  // Proxy aceita ?symbol=TICKER (um por vez) — chama em paralelo
+  function fetchOne(ticker, market){
+    return fetch(`${PROXY}?symbol=${ticker}&market=${market}`)
+      .then(r=>r.json())
+      .then(d=>{
+        const price=parseFloat(d.price||d.regularMarketPrice||d.close||d.bid||0)||0;
+        if(price>0) return {[ticker]:{price:String(price)}};
+        return {};
+      })
+      .catch(()=>({}));
+  }
+
   const calls=[];
+  brAtivos.forEach(g=>calls.push(fetchOne(g.ticker,'BR')));
+  usAtivos.forEach(g=>calls.push(fetchOne(g.ticker,'US')));
 
-  // BR stocks via proxy
-  if(brTickers.length) calls.push(
-    fetch(`${PROXY}?tickers=${brTickers.join(',')}&market=BR`)
-      .then(r=>r.json())
-      .then(d=>{ console.log('[Atlas] BR sample:', JSON.stringify(d).slice(0,300)); return d; })
-      .catch(()=>({}))
-  );
-
-  // US stocks via proxy
-  if(usTickers.length) calls.push(
-    fetch(`${PROXY}?tickers=${usTickers.join(',')}&market=US`)
-      .then(r=>r.json())
-      .then(d=>{ console.log('[Atlas] US sample:', JSON.stringify(d).slice(0,300)); return d; })
-      .catch(()=>({}))
-  );
-
-  // Cripto direto via CoinGecko (gratuito, sem CORS)
-  if(criptoTickers.length){
-    const cgIds=[...new Set(criptoTickers.map(t=>CG_IDS[t]))].join(',');
+  // Cripto via CoinGecko (1 chamada para todos)
+  if(criptoAtivos.length){
+    const cgIds=[...new Set(criptoAtivos.map(g=>CG_IDS[g.ticker]))].join(',');
     calls.push(
       fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${cgIds}&vs_currencies=usd`)
         .then(r=>r.json())
         .then(cg=>{
           const result={};
-          criptoTickers.forEach(t=>{
-            const id=CG_IDS[t];
-            if(id && cg[id] && cg[id].usd){
-              result[t]={price:String(cg[id].usd)};
-            }
+          criptoAtivos.forEach(g=>{
+            const id=CG_IDS[g.ticker];
+            if(id&&cg[id]&&cg[id].usd) result[g.ticker]={price:String(cg[id].usd)};
           });
-          console.log('[Atlas] Cripto CoinGecko:', Object.entries(result).map(([k,v])=>`${k}=$${parseFloat(v.price).toLocaleString()}`).join(', '));
+          console.log('[Atlas] Cripto:', Object.entries(result).map(([k,v])=>`${k}=$${Number(v.price).toLocaleString()}`).join(', '));
           return result;
         })
-        .catch(()=>{ console.warn('[Atlas] CoinGecko falhou'); return {}; })
+        .catch(()=>({}))
     );
   }
 
   return Promise.all(calls).then(results=>{
     const quotes={};
-    results.forEach(r=>{
-      if(!r) return;
-      if(Array.isArray(r)){
-        r.forEach(q=>{ const t=(q.ticker||q.symbol||'').toUpperCase().replace('.SA',''); if(t) quotes[t]=q; });
-      } else {
-        const arr=r.results||r.quotes||r.data;
-        if(Array.isArray(arr)){
-          arr.forEach(q=>{ const t=(q.ticker||q.symbol||'').toUpperCase().replace('.SA',''); if(t) quotes[t]=q; });
-        } else {
-          Object.entries(r).forEach(([k,v])=>{
-            if(typeof v==='object'&&v!==null&&('price' in v||'regularMarketPrice' in v||'close' in v||'bid' in v)){
-              quotes[k.toUpperCase().replace('.SA','')]=v;
-            }
-          });
-        }
-      }
-    });
-    console.log('[Atlas] Total cotações:', Object.keys(quotes).length, '— amostra:', Object.entries(quotes).slice(0,5).map(([k,v])=>`${k}=${v.price||v.regularMarketPrice||v.close||'?'}`).join(', '));
+    results.forEach(r=>{ if(r) Object.assign(quotes,r); });
+    const sem=ativos.filter(g=>!quotes[g.ticker]).map(g=>g.ticker);
+    console.log('[Atlas] Cotações OK:', Object.keys(quotes).length, 'SEM:', sem.length, sem.slice(0,10).join(','));
     return quotes;
   });
 }
