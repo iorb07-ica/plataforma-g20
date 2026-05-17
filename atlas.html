@@ -550,6 +550,7 @@ try{
 // Por ora: dados estáticos da carteira G20 atual
 // ASSETS preenchido pelo carregarCG20() via localStorage
 const ASSETS=[];
+let ASSETS_CG20=[];
 
 // ── TABELA COMPLETA — todos os 113 tickers da CG20
 // Nomes completos das empresas — usado no tooltip quando o aporte não traz nome
@@ -814,63 +815,111 @@ function carregarCG20(){
     });
     Object.values(grouped).forEach(g=>{ g.qtd=g.qtd-g.qtdV; });
 
-    const total=Object.values(grouped).filter(g=>g.qtd>0.001).reduce((s,v)=>s+v.custo,0)||1;
+    // Só ativos com posição aberta
+    const ativos=Object.values(grouped).filter(g=>g.qtd>0.001&&g.custo>0.01);
 
-    // Conta quantos ativos BR/EUA não têm coords — para distribuir em grade
-    const semCoordsBR=[], semCoordsEUA=[];
-    Object.values(grouped).filter(g=>g.qtd>0.001&&g.custo>0.01).forEach(g=>{
-      if(COORDS_TABLE[g.ticker]) return;
-      if(g.moeda==='BRL') semCoordsBR.push(g.ticker);
-      else semCoordsEUA.push(g.ticker);
+    // Semina ASSETS com custo enquanto cotações carregam
+    _buildAssetsFromGrouped(ativos, null);
+
+    // Busca cotações para posição atual
+    _fetchQuotes(ativos).then(quotes=>{
+      _buildAssetsFromGrouped(ativos, quotes);
+    }).catch(()=>{
+      // fallback já aplicado acima com custo
     });
 
-    // Grade espiral ao redor do centróide — distribui ativos sem coords
-    const novos=Object.values(grouped)
-      .filter(g=>g.qtd>0.001&&g.custo>0.01)
-      .map(g=>{
-        const coords=COORDS_TABLE[g.ticker];
-        const tipo=detectTipo(g.ticker,g.tipo);
-        const col=tipo==='fii'?'#e8c766':tipo==='reit'?'#4ade80':tipo==='etf'?'#c084fc':'#60a5fa';
-        const pct=(g.custo/total)*100;
-
-        let lat, lon;
-        if(coords){ lat=coords.lat; lon=coords.lon; }
-        else if(g.moeda==='BRL'){
-          const idx=semCoordsBR.indexOf(g.ticker);
-          const sp=assignAnchorCoord(idx,semCoordsBR.length,BR_ANCHORS);
-          lat=sp.lat; lon=sp.lon;
-        } else {
-          const idx=semCoordsEUA.indexOf(g.ticker);
-          const sp=assignAnchorCoord(idx,semCoordsEUA.length,EUA_ANCHORS);
-          lat=sp.lat; lon=sp.lon;
-        }
-
-        return{
-          ticker:g.ticker, name: COMPANY_NAMES[g.ticker] || g.nome || g.ticker,
-          region:coords?coords.region:(g.moeda==='BRL'?'brasil':'eua'),
-          type:tipo, lat, lon,
-          price:(g.moeda==='USD'?'US$ ':'R$ ')+(g.custo/g.qtd).toFixed(2),
-          qty:g.qtd.toFixed(0)+' cotas',
-          pos:(g.moeda==='BRL'?'R$ ':'US$ ')+(g.custo).toFixed(0),
-          pct:+pct.toFixed(2), chg:'0%', up:true,
-          city:coords?coords.city:(g.moeda==='BRL'?'Brasil':'EUA'),
-          color:coords?coords.color:col,
-          logo:coords?coords.logo:g.ticker.toLowerCase(),
-          flag:coords?coords.flag:(g.moeda==='BRL'?'🇧🇷':'🇺🇸'),
-          spark:[100,101,99,102,101,103,102,104,103,105,104,103,105,104,106],
-        };
-      })
-      .filter(a=>a.pct>=0.01)
-      .sort((a,b)=>b.pct-a.pct);
-
-    if(novos.length){
-      ASSETS.length=0;
-      novos.forEach(a=>ASSETS.push(a));
-      ASSETS_CG20=[...ASSETS];
-      preloadAssets();
-      buildMarkers();buildArcs();updateClassPanel();updateRegionPanel();
-    }
   }catch(e){console.warn('Erro ao carregar CG20:',e);}
+}
+
+function _fetchQuotes(ativos){
+  const PROXY='https://g20-proxy.vercel.app/api/quote';
+  const brTickers=[], usTickers=[];
+  ativos.forEach(g=>{
+    if(g.moeda==='BRL') brTickers.push(g.ticker);
+    else usTickers.push(g.ticker);
+  });
+  const calls=[];
+  if(brTickers.length) calls.push(
+    fetch(`${PROXY}?tickers=${brTickers.join(',')}&market=BR`).then(r=>r.json()).catch(()=>({}))
+  );
+  if(usTickers.length) calls.push(
+    fetch(`${PROXY}?tickers=${usTickers.join(',')}&market=US`).then(r=>r.json()).catch(()=>({}))
+  );
+  return Promise.all(calls).then(results=>{
+    const quotes={};
+    results.forEach(r=>{
+      // proxy retorna {TICKER:{price,change,...}} ou array [{ticker,price,...}]
+      if(Array.isArray(r)) r.forEach(q=>{ if(q.ticker||q.symbol) quotes[(q.ticker||q.symbol).toUpperCase()]=q; });
+      else Object.entries(r).forEach(([k,v])=>{ if(typeof v==='object') quotes[k.toUpperCase()]=v; });
+    });
+    return quotes;
+  });
+}
+
+function _buildAssetsFromGrouped(ativos, quotes){
+  const semCoordsBR=[], semCoordsEUA=[];
+  ativos.forEach(g=>{
+    if(COORDS_TABLE[g.ticker]) return;
+    if(g.moeda==='BRL') semCoordsBR.push(g.ticker);
+    else semCoordsEUA.push(g.ticker);
+  });
+
+  // Calcula posição atual = cotação atual × qtd (ou custo se sem cotação)
+  const comPos=ativos.map(g=>{
+    const q=quotes&&quotes[g.ticker];
+    // proxy retorna {price: "38.50"} ou {regularMarketPrice: 38.50}
+    const precoAtual=q?parseFloat(q.price||q.regularMarketPrice||q.close||0)||0:0;
+    const posAtual=precoAtual>0 ? precoAtual*g.qtd : g.custo;
+    return {...g, posAtual, precoAtual};
+  });
+
+  const totalPos=comPos.reduce((s,g)=>s+g.posAtual,0)||1;
+
+  const novos=comPos.map(g=>{
+    const coords=COORDS_TABLE[g.ticker];
+    const tipo=coords?.type||detectTipo(g.ticker,g.tipo);
+    const col=tipo==='fii'?'#e8c766':tipo==='reit'?'#4ade80':tipo==='etf'?'#c084fc':'#60a5fa';
+    const pct=(g.posAtual/totalPos)*100;
+
+    let lat, lon;
+    if(coords){ lat=coords.lat; lon=coords.lon; }
+    else if(g.moeda==='BRL'){
+      const idx=semCoordsBR.indexOf(g.ticker);
+      const sp=assignAnchorCoord(idx,semCoordsBR.length,BR_ANCHORS);
+      lat=sp.lat; lon=sp.lon;
+    } else {
+      const idx=semCoordsEUA.indexOf(g.ticker);
+      const sp=assignAnchorCoord(idx,semCoordsEUA.length,EUA_ANCHORS);
+      lat=sp.lat; lon=sp.lon;
+    }
+
+    const precoShow=g.precoAtual>0?g.precoAtual:(g.custo/g.qtd);
+    return{
+      ticker:g.ticker, name:COMPANY_NAMES[g.ticker]||g.nome||g.ticker,
+      region:coords?coords.region:(g.moeda==='BRL'?'brasil':'eua'),
+      type:tipo, lat, lon,
+      price:(g.moeda==='USD'?'US$ ':'R$ ')+precoShow.toFixed(2),
+      qty:g.qtd.toFixed(0)+' cotas',
+      pos:(g.moeda==='BRL'?'R$ ':'US$ ')+g.posAtual.toFixed(0),
+      pct:+pct.toFixed(2), chg:'0%', up:true,
+      city:coords?coords.city:(g.moeda==='BRL'?'Brasil':'EUA'),
+      color:coords?coords.color:col,
+      logo:coords?coords.logo:g.ticker.toLowerCase(),
+      flag:coords?coords.flag:(g.moeda==='BRL'?'🇧🇷':'🇺🇸'),
+      spark:[100,101,99,102,101,103,102,104,103,105,104,103,105,104,106],
+    };
+  })
+  .filter(a=>a.pct>=0.01)
+  .sort((a,b)=>b.pct-a.pct);
+
+  if(novos.length){
+    ASSETS.length=0;
+    novos.forEach(a=>ASSETS.push(a));
+    ASSETS_CG20=[...ASSETS];
+    preloadAssets();
+    buildMarkers();buildArcs();updateClassPanel();updateRegionPanel();
+    buildAssetList();
+  }
 }
 
 function detectTipo(ticker,tipoRaw){
@@ -915,7 +964,7 @@ function carregarMinhaCarteira(){
     const total=Object.values(grouped).reduce((s,v)=>s+v.custo,0)||1;
     const novos=Object.values(grouped).filter(g=>g.custo>0).map(g=>{
       const coords=COORDS_TABLE[g.ticker];
-      const tipo=detectTipo(g.ticker,g.tipo);
+      const tipo=coords?.type||detectTipo(g.ticker,g.tipo);
       const pct=(g.custo/total)*100;
       let lat,lon;
       if(coords){lat=coords.lat;lon=coords.lon;}
@@ -1197,7 +1246,7 @@ function updateClassPanel(){
 }
 
 function updateRegionPanel(){
-  const a=getActiveAssets();
+  const a=ASSETS; // usa todos os ativos, não só os filtrados
   const rg={eua:0,brasil:0,europa:0,asia:0};
   a.forEach(x=>rg[x.region]=(rg[x.region]||0)+x.pct);
   const total=Object.values(rg).reduce((s,v)=>s+v,0)||1;
