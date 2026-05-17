@@ -842,33 +842,34 @@ function _fetchQuotes(ativos){
   });
   console.log('[Atlas] BR:', brAtivos.length, 'US:', usAtivos.length, 'Cripto:', criptoAtivos.length);
 
-  // Proxy aceita ?symbol=TICKER — tenta variações para BR
-  function fetchOne(ticker, market){
-    // Para BR tenta com e sem .SA
-    const tryTicker = market==='BR' && !ticker.endsWith('.SA') ? ticker+'.SA' : ticker;
-    return fetch(`${PROXY}?symbol=${tryTicker}&market=${market}`)
+  // Para BR: Yahoo Finance direto com sufixo .SA (sem CORS issues no browser)
+  // Para US: proxy com ?symbol=TICKER
+  // Para Cripto: CoinGecko
+  function fetchBR(ticker){
+    const yTicker=ticker+'.SA';
+    return fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${yTicker}?interval=1d&range=1d`,{headers:{'Accept':'application/json'}})
       .then(r=>r.json())
       .then(d=>{
-        if(d.error) {
-          // Tenta sem .SA
-          return fetch(`${PROXY}?symbol=${ticker}&market=${market}`)
-            .then(r=>r.json())
-            .then(d2=>{
-              const price=parseFloat(d2.price||d2.regularMarketPrice||d2.close||d2.bid||0)||0;
-              return price>0 ? {[ticker]:{price:String(price)}} : {};
-            }).catch(()=>({}));
-        }
+        const price=d?.chart?.result?.[0]?.meta?.regularMarketPrice||0;
+        return price>0?{[ticker]:{price:String(price)}}:{};
+      })
+      .catch(()=>({}));
+  }
+
+  function fetchUS(ticker){
+    return fetch(`${PROXY}?symbol=${ticker}&market=US`)
+      .then(r=>r.json())
+      .then(d=>{
+        if(d.error) return {};
         const price=parseFloat(d.price||d.regularMarketPrice||d.close||d.bid||0)||0;
-        return price>0 ? {[ticker]:{price:String(price)}} : {};
+        return price>0?{[ticker]:{price:String(price)}}:{};
       })
       .catch(()=>({}));
   }
 
   const calls=[];
-  brAtivos.forEach(g=>calls.push(fetchOne(g.ticker,'BR')));
-  usAtivos.forEach(g=>calls.push(fetchOne(g.ticker,'US')));
-  // Log primeiros BR para diagnóstico
-  if(brAtivos.length) fetchOne(brAtivos[0].ticker,'BR').then(r=>console.log('[Atlas] BR teste',brAtivos[0].ticker,':',JSON.stringify(r)));
+  brAtivos.forEach(g=>calls.push(fetchBR(g.ticker)));
+  usAtivos.forEach(g=>calls.push(fetchUS(g.ticker)));
 
   // Cripto via CoinGecko (1 chamada para todos)
   if(criptoAtivos.length){
