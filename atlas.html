@@ -348,7 +348,7 @@ body.day .a-ticker{color:#111113}
         <div class="cp-row"><div class="cp-dot" style="background:#60a5fa"></div><span class="cp-lbl">STOCKS US</span><div class="cp-bar-w"><div class="cp-bar" id="cpb-stocks" style="background:#60a5fa"></div></div><span class="cp-val" id="cp-stocks">--</span></div>
         <div class="cp-row"><div class="cp-dot" style="background:#4ade80"></div><span class="cp-lbl">REITs</span><div class="cp-bar-w"><div class="cp-bar" id="cpb-reits" style="background:#4ade80"></div></div><span class="cp-val" id="cp-reits">--</span></div>
         <div class="cp-row"><div class="cp-dot" style="background:#c084fc"></div><span class="cp-lbl">ETFs</span><div class="cp-bar-w"><div class="cp-bar" id="cpb-etfs" style="background:#c084fc"></div></div><span class="cp-val" id="cp-etfs">--</span></div>
-        <div class="cp-row"><div class="cp-dot" style="background:#e8c766"></div><span class="cp-lbl">FIIs</span><div class="cp-bar-w"><div class="cp-bar" id="cpb-fiis" style="background:#e8c766"></div></div><span class="cp-val" id="cp-fiis">--</span></div>
+        <div class="cp-row"><div class="cp-dot" style="background:#e8c766"></div><span class="cp-lbl">FIIs/Fiagros</span><div class="cp-bar-w"><div class="cp-bar" id="cpb-fiis" style="background:#e8c766"></div></div><span class="cp-val" id="cp-fiis">--</span></div>
         <div class="cp-row"><div class="cp-dot" style="background:#fb923c"></div><span class="cp-lbl">CRIPTO</span><div class="cp-bar-w"><div class="cp-bar" id="cpb-cripto" style="background:#fb923c"></div></div><span class="cp-val" id="cp-cripto">--</span></div>
       </div>
 
@@ -842,59 +842,85 @@ function _fetchQuotes(ativos){
   });
   console.log('[Atlas] BR:', brAtivos.length, 'US:', usAtivos.length, 'Cripto:', criptoAtivos.length);
 
-  // BR: Brapi.dev — API pública B3, sem CORS, batch até 10 tickers
+  // Mesma lógica da carteira.html:
+  // BR: proxy com TICKER.SA individual
+  // US: proxy com múltiplos por vírgula (grupos de 10)
+  // Cripto: proxy com TICKER-USD
   function fetchBRBatch(tickers){
-    return fetch('https://brapi.dev/api/quote/'+tickers.join(',')+'?fundamental=false&dividends=false')
+    const fetches = tickers.map(ticker =>
+      fetch(`${PROXY}?symbol=${ticker}.SA`)
+        .then(r=>r.json())
+        .then(d=>{
+          const price=parseFloat(d.price||d.regularMarketPrice||d.close||0)||0;
+          return price>0?{[ticker]:{price:String(price)}}:{};
+        })
+        .catch(()=>({}))
+    );
+    return Promise.all(fetches).then(results=>{
+      const result={};
+      results.forEach(r=>Object.assign(result,r));
+      console.log('[Atlas] BR:', Object.keys(result).length+'/'+tickers.length,
+        Object.entries(result).slice(0,3).map(([k,v])=>k+'='+v.price).join(', '));
+      return result;
+    });
+  }
+
+  function fetchUSBatch(tickers){
+    // proxy aceita múltiplos separados por vírgula para US
+    return fetch(`${PROXY}?symbol=${tickers.map(t=>encodeURIComponent(t)).join('%2C')}`)
       .then(r=>r.json())
       .then(d=>{
         const result={};
-        (d.results||[]).forEach(q=>{
-          const t=(q.symbol||'').toUpperCase();
-          const price=parseFloat(q.regularMarketPrice||q.currentPrice||0)||0;
-          if(t&&price>0) result[t]={price:String(price)};
-        });
-        console.log('[Atlas] BR Brapi batch:', Object.keys(result).length+'/'+tickers.length, Object.entries(result).slice(0,3).map(([k,v])=>k+'='+v.price).join(', '));
+        // resposta pode ser objeto {TICKER:{price}} ou array
+        if(Array.isArray(d)){
+          d.forEach(q=>{const t=(q.symbol||q.ticker||'').toUpperCase();const p=parseFloat(q.price||q.regularMarketPrice||0)||0;if(t&&p>0)result[t]={price:String(p)};});
+        } else if(d&&typeof d==='object'&&!d.error){
+          // pode ser {price:X} para ticker único ou {TICKER:{price:X}} para múltiplos
+          if('price' in d && tickers.length===1){
+            const p=parseFloat(d.price||0)||0;
+            if(p>0) result[tickers[0]]={price:String(p)};
+          } else {
+            Object.entries(d).forEach(([k,v])=>{
+              if(typeof v==='object'&&v!==null){const p=parseFloat(v.price||v.regularMarketPrice||0)||0;if(p>0)result[k.toUpperCase()]={price:String(p)};}
+            });
+          }
+        }
+        console.log('[Atlas] US:', Object.keys(result).length+'/'+tickers.length,
+          Object.entries(result).slice(0,3).map(([k,v])=>k+'='+v.price).join(', '));
         return result;
-      })
-      .catch(e=>{ console.warn('[Atlas] Brapi falhou:', e.message); return {}; });
-  }
-
-  // US: proxy G20
-  function fetchUS(ticker){
-    return fetch(`${PROXY}?symbol=${ticker}&market=US`)
-      .then(r=>r.json())
-      .then(d=>{
-        if(d.error) return {};
-        const price=parseFloat(d.price||d.regularMarketPrice||d.close||d.bid||0)||0;
-        return price>0?{[ticker]:{price:String(price)}}:{};
       })
       .catch(()=>({}));
   }
 
   const calls=[];
-  // Brapi aceita até 10 por chamada
+  // BR: individual com .SA
   for(let i=0;i<brAtivos.length;i+=10){
     calls.push(fetchBRBatch(brAtivos.slice(i,i+10).map(g=>g.ticker)));
   }
-  usAtivos.forEach(g=>calls.push(fetchUS(g.ticker)));
+  // US: grupos de 10 separados por vírgula
+  for(let i=0;i<usAtivos.length;i+=10){
+    calls.push(fetchUSBatch(usAtivos.slice(i,i+10).map(g=>g.ticker)));
+  }
 
-  // Cripto via CoinGecko (1 chamada para todos)
+  // Cripto: mesmo proxy da carteira com TICKER-USD
   if(criptoAtivos.length){
-    const cgIds=[...new Set(criptoAtivos.map(g=>CG_IDS[g.ticker]))].join(',');
-    calls.push(
-      fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${cgIds}&vs_currencies=usd`)
+    const CRIPTO_PROXY_MAP={'BTC':'BTC-USD','BTC-USD':'BTC-USD','ETH':'ETH-USD','SOL':'SOL-USD','BNB':'BNB-USD','AVAX':'AVAX-USD','DOT':'DOT-USD','LINK':'LINK-USD','ADA':'ADA-USD','MATIC':'MATIC-USD','MANA':'MANA-USD','SAND':'SAND-USD','HNT':'HNT-USD'};
+    const criptoFetches=criptoAtivos.map(g=>{
+      const sym=CRIPTO_PROXY_MAP[g.ticker]||g.ticker+'-USD';
+      return fetch(`${PROXY}?symbol=${sym}`)
         .then(r=>r.json())
-        .then(cg=>{
-          const result={};
-          criptoAtivos.forEach(g=>{
-            const id=CG_IDS[g.ticker];
-            if(id&&cg[id]&&cg[id].usd) result[g.ticker]={price:String(cg[id].usd)};
-          });
-          console.log('[Atlas] Cripto:', Object.entries(result).map(([k,v])=>`${k}=$${Number(v.price).toLocaleString()}`).join(', '));
-          return result;
+        .then(d=>{
+          const price=parseFloat(d.price||d.regularMarketPrice||d.close||0)||0;
+          if(price>0) console.log('[Atlas] Cripto',g.ticker,'=','$'+price);
+          return price>0?{[g.ticker]:{price:String(price)}}:{};
         })
-        .catch(()=>({}))
-    );
+        .catch(()=>({}));
+    });
+    calls.push(Promise.all(criptoFetches).then(results=>{
+      const result={};
+      results.forEach(r=>Object.assign(result,r));
+      return result;
+    }));
   }
 
   return Promise.all(calls).then(results=>{
@@ -1306,11 +1332,11 @@ function updateClassPanel(){
   const total=Object.values(totals).reduce((s,v)=>s+v,0)||1;
   const cats=['acoes','stock','reit','etf','fii','cripto'];
   cats.forEach(t=>{
-    const pct=totals[t]||0, pctR=(pct/total*100).toFixed(0)+'%';
+    const pct=totals[t]||0, pctR=(pct/total*100).toFixed(2)+'%';
     const el=document.getElementById('cp-'+t+'s')||document.getElementById('cp-'+t);
     if(el)el.textContent=pctR;
     const bar=document.getElementById('cpb-'+t+'s')||document.getElementById('cpb-'+t);
-    if(bar)bar.style.width=(pct/total*100).toFixed(0)+'%';
+    if(bar)bar.style.width=(pct/total*100).toFixed(2)+'%';
   });
 }
 
@@ -2100,7 +2126,7 @@ function renderAssetListBody(){
         <div class="a-right">
           <div class="a-pct" style="color:${RG_COLORS[rg]}">${(a.pct/total*100).toFixed(1)}%</div>
           <div class="a-pos">${a.pos}</div>
-          <div class="a-badge ${a.type}">${a.type.toUpperCase()}</div>
+          <div class="a-badge ${a.type}${a.region==='brasil'&&a.type==='stock'?' acoes':''}">${a.type==='stock'&&a.region==='brasil'?'AÇÃO BR':a.type==='fii'?'FII/FIAGRO':a.type.toUpperCase()}</div>
         </div>
       </div>`).join('');
 
@@ -2187,7 +2213,9 @@ function showTooltip(a,cx,cy){
   const cb=document.getElementById('tt-chg-big');cb.textContent=a.chg;cb.className='tt-chg-big '+(a.up?'tt-up':'tt-dn');
   const ttLogoUrl=(window.TV_LOGOS&&window.TV_LOGOS.getUrl?window.TV_LOGOS.getUrl(a.ticker):'')||(a.logo&&TV_WHITELIST.has(a.logo)?`https://s3-symbol-logo.tradingview.com/${a.logo}.svg?v=3`:'')||CRYPTO_LOGOS[a.ticker]||getFallbackLogoUrl(a.ticker)||'';
   document.getElementById('tt-logo').innerHTML=`<img src="${ttLogoUrl}" style="width:40px;height:40px;object-fit:contain" onerror="this.style.display='none'">`;
-  const badge=document.getElementById('tt-badge');badge.textContent=a.type.toUpperCase();badge.className='tt-badge '+a.type;
+  const badge=document.getElementById('tt-badge');
+  const badgeLabel=a.type==='stock'&&a.region==='brasil'?'AÇÃO BR':a.type==='fii'?'FII/FIAGRO':a.type.toUpperCase();
+  badge.textContent=badgeLabel;badge.className='tt-badge '+a.type+(a.region==='brasil'&&a.type==='stock'?' acoes':'');
   document.getElementById('tt-city').textContent='📍 '+a.city;
   const cc=(a.type==='cripto')?null:FLAG_CODES[a.flag];const fl=document.getElementById('tt-flag');
   if(fl){if(cc){fl.style.display='inline-block';fl.src=`https://flagcdn.com/w40/${cc}.png`;}else fl.style.display='none';}
