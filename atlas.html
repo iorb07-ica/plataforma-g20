@@ -915,10 +915,11 @@ function _buildAssetsFromGrouped(ativos, quotes){
     const precoAtual=q?parseFloat(q.price||q.regularMarketPrice||q.close||q.bid||0)||0:0;
     if(precoAtual>0) comCotacao.push(`${g.ticker}=${precoAtual}`);
     else semCotacao.push(g.ticker);
+    const isCripto=!!({'BTC':1,'BTC-USD':1,'ETH':1,'SOL':1,'BNB':1,'AVAX':1,'DOT':1,'LINK':1,'ADA':1,'MATIC':1,'MANA':1,'SAND':1,'HNT':1}[g.ticker]);
+    const isUSD = g.moeda==='USD' || isCripto;
     const posAtualNativa=precoAtual>0 ? precoAtual*g.qtd : g.custo;
-    // Converte tudo para BRL para comparação justa
-    const posAtualBRL = g.moeda==='USD' ? posAtualNativa*CAMBIO_BRL : posAtualNativa;
-    return {...g, posAtual:posAtualNativa, posAtualBRL, precoAtual};
+    const posAtualBRL = isUSD ? posAtualNativa*CAMBIO_BRL : posAtualNativa;
+    return {...g, posAtual:posAtualNativa, posAtualBRL, precoAtual, isCripto, isUSD};
   });
   console.log('[Atlas] COM cotação:', comCotacao.join(', '));
   console.log('[Atlas] SEM cotação (usando custo):', semCotacao.join(', '));
@@ -944,14 +945,16 @@ function _buildAssetsFromGrouped(ativos, quotes){
     }
 
     const precoShow=g.precoAtual>0?g.precoAtual:(g.custo/g.qtd);
-    const posExibida=g.moeda==='USD'
+    const isUSD = g.isUSD;
+    const posExibida=isUSD
       ? 'R$ '+(g.posAtualBRL).toFixed(0)+' (US$ '+g.posAtual.toFixed(0)+')'
       : 'R$ '+g.posAtualBRL.toFixed(0);
+    const priceExibido=isUSD?('US$ '+precoShow.toFixed(2)):('R$ '+precoShow.toFixed(2));
     return{
       ticker:g.ticker, name:COMPANY_NAMES[g.ticker]||g.nome||g.ticker,
       region:coords?coords.region:(g.moeda==='BRL'?'brasil':'eua'),
       type:tipo, lat, lon,
-      price:(g.moeda==='USD'?'US$ ':'R$ ')+precoShow.toFixed(2),
+      price:priceExibido,
       qty:g.qtd.toFixed(0)+' cotas',
       pos:posExibida,
       pct:+pct.toFixed(2), chg:'0%', up:true,
