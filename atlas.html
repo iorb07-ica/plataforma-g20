@@ -913,14 +913,20 @@ function _buildAssetsFromGrouped(ativos, quotes){
   });
 
   // Calcula posição atual = cotação atual × qtd, convertido para BRL
+  const semCotacao=[], comCotacao=[];
   const comPos=ativos.map(g=>{
-    const q=quotes&&quotes[g.ticker];
-    const precoAtual=q?parseFloat(q.price||q.regularMarketPrice||q.close||0)||0:0;
+    // Tenta o ticker exato e variações comuns
+    const q=quotes&&(quotes[g.ticker]||quotes[g.ticker.replace('-USD','')]||quotes[g.ticker+'.SA']);
+    const precoAtual=q?parseFloat(q.price||q.regularMarketPrice||q.close||q.bid||0)||0:0;
+    if(precoAtual>0) comCotacao.push(`${g.ticker}=${precoAtual}`);
+    else semCotacao.push(g.ticker);
     const posAtualNativa=precoAtual>0 ? precoAtual*g.qtd : g.custo;
     // Converte tudo para BRL para comparação justa
     const posAtualBRL = g.moeda==='USD' ? posAtualNativa*CAMBIO_BRL : posAtualNativa;
     return {...g, posAtual:posAtualNativa, posAtualBRL, precoAtual};
   });
+  console.log('[Atlas] COM cotação:', comCotacao.join(', '));
+  console.log('[Atlas] SEM cotação (usando custo):', semCotacao.join(', '));
 
   const totalPosBRL=comPos.reduce((s,g)=>s+g.posAtualBRL,0)||1;
 
