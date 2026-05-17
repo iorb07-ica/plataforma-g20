@@ -693,11 +693,11 @@ const COORDS_TABLE={
   'BABA':{lat:30.27,lon:120.15, region:'asia',type:'stock',color:'#fb923c',logo:'alibaba',flag:'🇨🇳',city:'Hangzhou, CN'},
   'TSM': {lat:24.78,lon:120.97, region:'asia',type:'stock',color:'#fb923c',logo:'taiwan-semiconductor',flag:'🇹🇼',city:'Hsinchu, TW'},
   // ── CRIPTO — espalhadas para não sobrepor
-  'BTC':    {lat:25.77,lon:-80.19,region:'eua',type:'stock',color:'#f59e0b',logo:'bitcoin',flag:'🇺🇸',city:'Miami, EUA'},
+  'BTC':    {lat:25.77,lon:-80.19,region:'eua',type:'cripto',color:'#f59e0b',logo:'bitcoin',flag:'🇺🇸',city:'Miami, EUA'},
   'BTC-USD':{lat:26.9,lon:-80.1,region:'eua',type:'stock',color:'#f59e0b',logo:'',flag:'🇺🇸',city:'Miami, EUA'},
-  'ETH':    {lat:43.15,lon:-77.62,region:'eua',type:'stock',color:'#6366f1',logo:'ethereum',flag:'🇺🇸',city:'Boston, EUA'},
-  'BNB':    {lat:1.35,lon:103.82, region:'asia',type:'stock',color:'#f59e0b',logo:'binance-coin',flag:'🇸🇬',city:'Singapura'},
-  'SOL':    {lat:28.02,lon:-97.03,region:'eua',type:'stock',color:'#9945ff',logo:'solana',flag:'🇺🇸',city:'Austin, EUA'},
+  'ETH':    {lat:43.15,lon:-77.62,region:'eua',type:'cripto',color:'#6366f1',logo:'ethereum',flag:'🇺🇸',city:'Boston, EUA'},
+  'BNB':    {lat:1.35,lon:103.82, region:'asia',type:'cripto',color:'#f59e0b',logo:'binance-coin',flag:'🇸🇬',city:'Singapura'},
+  'SOL':    {lat:28.02,lon:-97.03,region:'eua',type:'cripto',color:'#9945ff',logo:'solana',flag:'🇺🇸',city:'Austin, EUA'},
   'DOT':    {lat:47.17,lon:8.52,   region:'europa',type:'stock',color:'#e6007a',logo:'polkadot',flag:'🇨🇭',city:'Zug, CH'},
   'LINK':   {lat:36.15,lon:-95.99,region:'eua',type:'stock',color:'#2a5ada',logo:'chainlink',flag:'🇺🇸',city:'Global'},
   'MANA':   {lat:35.96,lon:-83.92,region:'eua',type:'stock',color:'#ff2d55',logo:'decentraland',flag:'🇺🇸',city:'Global'},
@@ -842,20 +842,24 @@ function _fetchQuotes(ativos){
   });
   console.log('[Atlas] BR:', brAtivos.length, 'US:', usAtivos.length, 'Cripto:', criptoAtivos.length);
 
-  // Para BR: Yahoo Finance direto com sufixo .SA (sem CORS issues no browser)
-  // Para US: proxy com ?symbol=TICKER
-  // Para Cripto: CoinGecko
-  function fetchBR(ticker){
-    const yTicker=ticker+'.SA';
-    return fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${yTicker}?interval=1d&range=1d`,{headers:{'Accept':'application/json'}})
+  // BR: Brapi.dev — API pública B3, sem CORS, batch até 10 tickers
+  function fetchBRBatch(tickers){
+    return fetch('https://brapi.dev/api/quote/'+tickers.join(',')+'?fundamental=false&dividends=false')
       .then(r=>r.json())
       .then(d=>{
-        const price=d?.chart?.result?.[0]?.meta?.regularMarketPrice||0;
-        return price>0?{[ticker]:{price:String(price)}}:{};
+        const result={};
+        (d.results||[]).forEach(q=>{
+          const t=(q.symbol||'').toUpperCase();
+          const price=parseFloat(q.regularMarketPrice||q.currentPrice||0)||0;
+          if(t&&price>0) result[t]={price:String(price)};
+        });
+        console.log('[Atlas] BR Brapi batch:', Object.keys(result).length+'/'+tickers.length, Object.entries(result).slice(0,3).map(([k,v])=>k+'='+v.price).join(', '));
+        return result;
       })
-      .catch(()=>({}));
+      .catch(e=>{ console.warn('[Atlas] Brapi falhou:', e.message); return {}; });
   }
 
+  // US: proxy G20
   function fetchUS(ticker){
     return fetch(`${PROXY}?symbol=${ticker}&market=US`)
       .then(r=>r.json())
@@ -868,7 +872,10 @@ function _fetchQuotes(ativos){
   }
 
   const calls=[];
-  brAtivos.forEach(g=>calls.push(fetchBR(g.ticker)));
+  // Brapi aceita até 10 por chamada
+  for(let i=0;i<brAtivos.length;i+=10){
+    calls.push(fetchBRBatch(brAtivos.slice(i,i+10).map(g=>g.ticker)));
+  }
   usAtivos.forEach(g=>calls.push(fetchUS(g.ticker)));
 
   // Cripto via CoinGecko (1 chamada para todos)
