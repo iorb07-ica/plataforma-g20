@@ -842,14 +842,24 @@ function _fetchQuotes(ativos){
   });
   console.log('[Atlas] BR:', brAtivos.length, 'US:', usAtivos.length, 'Cripto:', criptoAtivos.length);
 
-  // Proxy aceita ?symbol=TICKER (um por vez) — chama em paralelo
+  // Proxy aceita ?symbol=TICKER — tenta variações para BR
   function fetchOne(ticker, market){
-    return fetch(`${PROXY}?symbol=${ticker}&market=${market}`)
+    // Para BR tenta com e sem .SA
+    const tryTicker = market==='BR' && !ticker.endsWith('.SA') ? ticker+'.SA' : ticker;
+    return fetch(`${PROXY}?symbol=${tryTicker}&market=${market}`)
       .then(r=>r.json())
       .then(d=>{
+        if(d.error) {
+          // Tenta sem .SA
+          return fetch(`${PROXY}?symbol=${ticker}&market=${market}`)
+            .then(r=>r.json())
+            .then(d2=>{
+              const price=parseFloat(d2.price||d2.regularMarketPrice||d2.close||d2.bid||0)||0;
+              return price>0 ? {[ticker]:{price:String(price)}} : {};
+            }).catch(()=>({}));
+        }
         const price=parseFloat(d.price||d.regularMarketPrice||d.close||d.bid||0)||0;
-        if(price>0) return {[ticker]:{price:String(price)}};
-        return {};
+        return price>0 ? {[ticker]:{price:String(price)}} : {};
       })
       .catch(()=>({}));
   }
@@ -857,6 +867,8 @@ function _fetchQuotes(ativos){
   const calls=[];
   brAtivos.forEach(g=>calls.push(fetchOne(g.ticker,'BR')));
   usAtivos.forEach(g=>calls.push(fetchOne(g.ticker,'US')));
+  // Log primeiros BR para diagnóstico
+  if(brAtivos.length) fetchOne(brAtivos[0].ticker,'BR').then(r=>console.log('[Atlas] BR teste',brAtivos[0].ticker,':',JSON.stringify(r)));
 
   // Cripto via CoinGecko (1 chamada para todos)
   if(criptoAtivos.length){
