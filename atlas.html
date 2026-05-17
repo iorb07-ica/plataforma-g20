@@ -838,20 +838,45 @@ function _fetchQuotes(ativos){
     if(g.moeda==='BRL') brTickers.push(g.ticker);
     else usTickers.push(g.ticker);
   });
+  console.log('[Atlas] Buscando cotações — BR:', brTickers.length, 'US:', usTickers.length);
   const calls=[];
   if(brTickers.length) calls.push(
-    fetch(`${PROXY}?tickers=${brTickers.join(',')}&market=BR`).then(r=>r.json()).catch(()=>({}))
+    fetch(`${PROXY}?tickers=${brTickers.join(',')}&market=BR`)
+      .then(r=>r.json())
+      .then(d=>{ console.log('[Atlas] Resposta BR (amostra):', JSON.stringify(d).slice(0,400)); return d; })
+      .catch(e=>{ console.warn('[Atlas] Erro BR:', e); return {}; })
   );
   if(usTickers.length) calls.push(
-    fetch(`${PROXY}?tickers=${usTickers.join(',')}&market=US`).then(r=>r.json()).catch(()=>({}))
+    fetch(`${PROXY}?tickers=${usTickers.join(',')}&market=US`)
+      .then(r=>r.json())
+      .then(d=>{ console.log('[Atlas] Resposta US (amostra):', JSON.stringify(d).slice(0,400)); return d; })
+      .catch(e=>{ console.warn('[Atlas] Erro US:', e); return {}; })
   );
   return Promise.all(calls).then(results=>{
     const quotes={};
     results.forEach(r=>{
-      // proxy retorna {TICKER:{price,change,...}} ou array [{ticker,price,...}]
-      if(Array.isArray(r)) r.forEach(q=>{ if(q.ticker||q.symbol) quotes[(q.ticker||q.symbol).toUpperCase()]=q; });
-      else Object.entries(r).forEach(([k,v])=>{ if(typeof v==='object') quotes[k.toUpperCase()]=v; });
+      if(!r) return;
+      // Formato array: [{ticker, price, ...}]
+      if(Array.isArray(r)){
+        r.forEach(q=>{
+          const t=(q.ticker||q.symbol||'').toUpperCase().replace('.SA','');
+          if(t) quotes[t]=q;
+        });
+      } else {
+        // Formato objeto: {TICKER:{price,...}} ou {results:[...]}
+        const arr = r.results||r.quotes||r.data;
+        if(Array.isArray(arr)){
+          arr.forEach(q=>{ const t=(q.ticker||q.symbol||'').toUpperCase().replace('.SA',''); if(t) quotes[t]=q; });
+        } else {
+          Object.entries(r).forEach(([k,v])=>{
+            if(typeof v==='object' && v!==null && ('price' in v||'regularMarketPrice' in v||'close' in v||'bid' in v)){
+              quotes[k.toUpperCase().replace('.SA','')]=v;
+            }
+          });
+        }
+      }
     });
+    console.log('[Atlas] Cotações:', Object.keys(quotes).length, '— amostra:', Object.entries(quotes).slice(0,4).map(([k,v])=>`${k}=${v.price||v.regularMarketPrice||v.close||'?'}`).join(', '));
     return quotes;
   });
 }
@@ -864,22 +889,23 @@ function _buildAssetsFromGrouped(ativos, quotes){
     else semCoordsEUA.push(g.ticker);
   });
 
-  // Calcula posição atual = cotação atual × qtd (ou custo se sem cotação)
+  // Calcula posição atual = cotação atual × qtd, convertido para BRL
   const comPos=ativos.map(g=>{
     const q=quotes&&quotes[g.ticker];
-    // proxy retorna {price: "38.50"} ou {regularMarketPrice: 38.50}
     const precoAtual=q?parseFloat(q.price||q.regularMarketPrice||q.close||0)||0:0;
-    const posAtual=precoAtual>0 ? precoAtual*g.qtd : g.custo;
-    return {...g, posAtual, precoAtual};
+    const posAtualNativa=precoAtual>0 ? precoAtual*g.qtd : g.custo;
+    // Converte tudo para BRL para comparação justa
+    const posAtualBRL = g.moeda==='USD' ? posAtualNativa*CAMBIO_BRL : posAtualNativa;
+    return {...g, posAtual:posAtualNativa, posAtualBRL, precoAtual};
   });
 
-  const totalPos=comPos.reduce((s,g)=>s+g.posAtual,0)||1;
+  const totalPosBRL=comPos.reduce((s,g)=>s+g.posAtualBRL,0)||1;
 
   const novos=comPos.map(g=>{
     const coords=COORDS_TABLE[g.ticker];
     const tipo=coords?.type||detectTipo(g.ticker,g.tipo);
     const col=tipo==='fii'?'#e8c766':tipo==='reit'?'#4ade80':tipo==='etf'?'#c084fc':'#60a5fa';
-    const pct=(g.posAtual/totalPos)*100;
+    const pct=(g.posAtualBRL/totalPosBRL)*100;
 
     let lat, lon;
     if(coords){ lat=coords.lat; lon=coords.lon; }
@@ -894,13 +920,16 @@ function _buildAssetsFromGrouped(ativos, quotes){
     }
 
     const precoShow=g.precoAtual>0?g.precoAtual:(g.custo/g.qtd);
+    const posExibida=g.moeda==='USD'
+      ? 'R$ '+(g.posAtualBRL).toFixed(0)+' (US$ '+g.posAtual.toFixed(0)+')'
+      : 'R$ '+g.posAtualBRL.toFixed(0);
     return{
       ticker:g.ticker, name:COMPANY_NAMES[g.ticker]||g.nome||g.ticker,
       region:coords?coords.region:(g.moeda==='BRL'?'brasil':'eua'),
       type:tipo, lat, lon,
       price:(g.moeda==='USD'?'US$ ':'R$ ')+precoShow.toFixed(2),
       qty:g.qtd.toFixed(0)+' cotas',
-      pos:(g.moeda==='BRL'?'R$ ':'US$ ')+g.posAtual.toFixed(0),
+      pos:posExibida,
       pct:+pct.toFixed(2), chg:'0%', up:true,
       city:coords?coords.city:(g.moeda==='BRL'?'Brasil':'EUA'),
       color:coords?coords.color:col,
@@ -2342,13 +2371,16 @@ setInterval(updateMarketStatus,30000);updateMarketStatus();
 
 
 /* ══ CÂMBIO BRL/USD em tempo real ══ */
+let CAMBIO_BRL=5.05; // valor padrão, atualizado pelo fetchCambio
+
 function fetchCambio(){
   fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL')
     .then(r=>r.json())
     .then(data=>{
       const q=data.USDBRL;
       if(!q) return;
-      const rate=parseFloat(q.bid).toFixed(2);
+      CAMBIO_BRL=parseFloat(q.bid);
+      const rate=CAMBIO_BRL.toFixed(2);
       const pct=parseFloat(q.pctChange);
       const el=document.getElementById('rp-cambio');
       const sub=document.getElementById('rp-cambio-sub');
@@ -2357,16 +2389,18 @@ function fetchCambio(){
         sub.textContent=(pct>=0?'▲ +':'▼ ')+pct.toFixed(2)+'%';
         sub.className='sc-sub '+(pct>=0?'':'sc-neg');
       }
+      // Recalcula posições com câmbio atualizado se já tiver dados
+      if(ASSETS.length) { updateClassPanel(); updateRegionPanel(); }
     })
     .catch(()=>{
-      // Fallback: proxy G20
       fetch('https://g20-proxy.vercel.app/api/quote?symbols=USD-BRL')
         .then(r=>r.json())
         .then(d=>{
           const rate=d['USD-BRL']?.bid||d?.bid;
           if(rate){
+            CAMBIO_BRL=parseFloat(rate);
             const el=document.getElementById('rp-cambio');
-            if(el) el.textContent=parseFloat(rate).toFixed(2);
+            if(el) el.textContent=CAMBIO_BRL.toFixed(2);
           }
         }).catch(()=>{});
     });
