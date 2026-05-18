@@ -258,6 +258,32 @@ body.day .a-ticker{color:#111113}
 .ld-bar{height:100%;background:linear-gradient(90deg,var(--gold),var(--gold2));border-radius:2px;animation:ldprog 3s ease forwards}
 @keyframes ldprog{from{width:0}to{width:100%}}
 .ld-txt{font-size:9px;color:#3a3858;letter-spacing:2px}
+
+#tese-panel{position:absolute;top:0;right:0;width:0;height:100%;background:rgba(8,6,16,.98);border-left:1px solid var(--border);z-index:40;overflow:hidden;transition:width .3s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column}
+#tese-panel.open{width:300px}
+.tp-inner{width:300px;padding:20px 18px;display:flex;flex-direction:column;gap:14px;height:100%;overflow-y:auto}
+.tp-head{display:flex;align-items:center;justify-content:space-between}
+.tp-identity{display:flex;align-items:center;gap:10px}
+.tp-logo{width:38px;height:38px;border-radius:8px;background:#1a1730;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0}
+.tp-logo img{width:30px;height:30px;object-fit:contain}
+.tp-ticker{font-size:16px;font-weight:700;color:var(--gold)}
+.tp-nome{font-size:11px;color:var(--muted);margin-top:1px}
+.tp-close{width:26px;height:26px;border-radius:50%;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.tp-close:hover{color:var(--text)}
+.tp-metrics{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.tp-metric{background:#0d0c18;border-radius:8px;padding:8px 10px}
+.tp-mlbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.tp-mval{font-size:14px;font-weight:600;margin-top:2px;color:var(--text)}
+.tp-divider{height:1px;background:var(--border)}
+.tp-section-lbl{font-size:9px;color:var(--gold);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px}
+.tp-tese{font-size:12px;color:#9b95a8;line-height:1.75}
+.tp-tags{display:flex;flex-wrap:wrap;gap:5px}
+.tp-tag{font-size:10px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);color:var(--muted)}
+.tp-entrada{margin-top:auto;padding-top:10px;border-top:1px solid var(--border)}
+.tp-elbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
+.tp-erow{display:flex;justify-content:space-between;align-items:baseline}
+.tp-eval{font-size:13px;color:var(--text);font-weight:600}
+.tp-edate{font-size:11px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -2001,6 +2027,7 @@ container.addEventListener('mousemove',e=>{
     hoveredAsset=hit.asset;
     showTooltip(hoveredAsset,e.clientX,e.clientY);
     canvas3.style.cursor='pointer';
+    openTese(hoveredAsset);
   } else {
     hoveredAsset=null;
     document.getElementById('tooltip').classList.remove('show');
@@ -2227,7 +2254,7 @@ function showTooltip(a,cx,cy){
   if(fl){if(cc){fl.style.display='inline-block';fl.src=`https://flagcdn.com/w40/${cc}.png`;}else fl.style.display='none';}
   const cnt=SOCIAL_COUNTS[a.ticker]||0;const sc=document.getElementById('tt-social');
   if(cnt>0){document.getElementById('tt-social-count').textContent=cnt;sc.style.display='flex';}else sc.style.display='none';
-  drawSparkline(a.spark,a.color);
+  const _isBR=a.region==='brasil'||a.type==='fii'||a.type==='fiagro';drawSparkline(a.spark,a.color,a.ticker,_isBR);
   const rect=container.getBoundingClientRect();
   let lx=cx-rect.left+120, ly=cy-rect.top-120;
   if(lx+390>container.clientWidth-8) lx=cx-rect.left-410;
@@ -2236,11 +2263,30 @@ function showTooltip(a,cx,cy){
   if(ly+420>container.clientHeight-20) ly=container.clientHeight-430;
   const tt=document.getElementById('tooltip');tt.style.left=lx+'px';tt.style.top=ly+'px';tt.classList.add('show');
 }
-function drawSparkline(data,color){
+function drawSparklineData(data,color){
   const sc=document.getElementById('sparkline'),sx=sc.getContext('2d');sx.clearRect(0,0,326,48);
+  if(!data||data.length<2){sx.fillStyle=color+'22';sx.fillRect(0,0,326,48);return;}
   const mn=Math.min(...data),mx=Math.max(...data),rng=mx-mn||1;
   sx.beginPath();data.forEach((v,i)=>{const x=(i/(data.length-1))*326,y=44-((v-mn)/rng)*40;i===0?sx.moveTo(x,y):sx.lineTo(x,y);});
   sx.strokeStyle=color;sx.lineWidth=2;sx.stroke();sx.lineTo(326,48);sx.lineTo(0,48);sx.fillStyle=color+'22';sx.fill();
+}
+
+const _sparkCache={};
+function drawSparkline(data,color,ticker,isBRasset){
+  drawSparklineData(data,color);
+  if(!ticker) return;
+  if(_sparkCache[ticker]){drawSparklineData(_sparkCache[ticker],color);return;}
+  const PROXY='https://g20-proxy.vercel.app/api/';
+  const from=new Date(Date.now()-32*24*3600*1000).toISOString().split('T')[0];
+  const url = isBRasset
+    ? PROXY+'history-br?symbol='+encodeURIComponent(ticker+'.SA')+'&from='+from
+    : PROXY+'history?symbol='+encodeURIComponent(ticker==='BRK.B'?'BRK-B':ticker)+'&from='+from;
+  fetch(url).then(r=>r.json()).then(d=>{
+    const prices=(d.prices||d.quotes||d.chart||[]).map(p=>parseFloat(p.close||p.price||p.adjclose||p)||0).filter(v=>v>0);
+    if(prices.length<2) return;
+    _sparkCache[ticker]=prices;
+    if(hoveredAsset&&hoveredAsset.ticker===ticker) drawSparklineData(prices,color);
+  }).catch(()=>{});
 }
 
 /* ══ FLY-TO ══ */
@@ -2540,6 +2586,110 @@ canvas3.style.cursor='grab';
   const lbl=document.getElementById('tlLabels');
   if(lbl)lbl.innerHTML=TIMELINE_SNAPSHOTS.filter((_,i)=>i===0||i===4||i===8).map(s=>`<span>${s.label}</span>`).join('');
 })();
+
+/* ══ TESES G20 ══ */
+const TESES_G20_DEFAULT = {
+  'NVDA':  { tese:'IA generativa criou um superciclo de demanda por GPUs. A NVDA detém 80%+ do mercado de chips de data center — posicionamento difícil de replicar nos próximos 5 anos.', tags:['Inteligência Artificial','Semicondutores','Alta Convicção'] },
+  'AAPL':  { tese:'Ecossistema fechado com bilhões de dispositivos ativos. Transição para negócios de serviços (App Store, Apple TV, iCloud) aumenta recorrência e margens.', tags:['Ecossistema','Serviços','Mega Cap'] },
+  'MSFT':  { tese:'Líder em cloud (Azure #2 mundial) e pioneiro em IA corporativa via Copilot. Receita recorrente e margens crescentes justificam o prêmio de valuation.', tags:['Cloud','IA','Receita Recorrente'] },
+  'META':  { tese:'Domínio de atenção digital com 3+ bilhões de usuários diários. Monetização via ads ainda subprecificada; apostas em Metaverso e IA são opções de longo prazo.', tags:['Redes Sociais','Publicidade Digital','IA'] },
+  'AMZN':  { tese:'AWS sozinha vale a empresa inteira pelo P/L atual. E-commerce e logística são o moat. Crescimento de margens operacionais em fase de aceleração.', tags:['Cloud','E-commerce','Operacional'] },
+  'TSLA':  { tese:'Mais uma empresa de energia e IA do que montadora. Robotaxi e Optimus são as apostas de longo prazo. Volatilidade alta exige convicção e horizonte estendido.', tags:['Veículos Elétricos','IA','Alta Volatilidade'] },
+  'BRK.B': { tese:'Holding de Buffett com portfólio diversificado e caixa recorde. Proteção em ciclos de baixa pela gestão conservadora e exposição a seguros + financials.', tags:['Holding','Value','Proteção'] },
+  'O':     { tese:'640+ dividendos mensais consecutivos. Portfólio defensivo com inquilinos essenciais (farmácias, conveniências). Posição de longo prazo para renda passiva em USD.', tags:['Dividendos Mensais','REIT Defensivo','Renda'] },
+  'NNN':   { tese:'Triple net lease puro — inquilino paga tudo. Contratos longos com reajuste anual. Simplicidade operacional com previsibilidade de fluxo de caixa.', tags:['Triple Net','REIT','Renda Previsível'] },
+  'SLG':   { tese:'Maior proprietário de escritórios de Manhattan. Recuperação pós-pandemia em andamento com ocupação crescente. Dividendo mensal e desconto significativo ao NAV.', tags:['Escritórios','Manhattan','Turnaround'] },
+  'WEGE3': { tese:'Empresa com DNA exportador — 70% da receita vem do exterior. Motores elétricos para a transição energética global. Crescimento consistente com gestão familiar de excelência.', tags:['Exportadora','Transição Energética','Qualidade'] },
+  'PRIO3': { tese:'Melhor operadora de petróleo independente do Brasil. Custo de extração entre os menores do mundo (~$8/barril). Crescimento via M&A de campos maduros.', tags:['Petróleo','Baixo Custo','M&A'] },
+  'PETR4': { tese:'Maior empresa da B3 com reservas gigantes no pré-sal. Dividend yield elevado e custo de extração competitivo. Risco político é o principal fator de desconto.', tags:['Petróleo','Dividendos','B3'] },
+  'VALE3': { tese:'Maior produtora de minério de ferro do mundo com custo de produção top quartil. Exposição à China é risco e oportunidade. Dividendos generosos em ciclos de alta.', tags:['Minério de Ferro','Commodities','China'] },
+  'ASML':  { tese:'Monopólio absoluto em litografia EUV — sem essa máquina nenhum chip avançado existe. Barreira tecnológica de 20 anos de P&D. Insubstituível na cadeia global de semicondutores.', tags:['Monopólio','Semicondutores','Europa'] },
+  'BTC':   { tese:'Reserva de valor digital com emissão programada e descentralizada. Adoção institucional crescente via ETFs spot. Hedge de longo prazo contra desvalorização monetária.', tags:['Cripto','Store of Value','Macro'] },
+  'ETH':   { tese:'Plataforma de contratos inteligentes dominante com 70%+ do TVL em DeFi. Transição para Proof of Stake reduziu emissão. Base tecnológica para Web3.', tags:['Cripto','Smart Contracts','DeFi'] },
+};
+let TESES_G20 = Object.assign({}, TESES_G20_DEFAULT);
+
+// Carrega teses do Firestore (sobrescreve fallback local)
+(function(){
+  try{
+    var _db=firebase.firestore();
+    _db.collection('atlas_teses').doc('teses').get().then(function(doc){
+      if(doc.exists && doc.data()){
+        TESES_G20 = Object.assign({}, TESES_G20_DEFAULT, doc.data());
+        console.log('[Atlas] Teses carregadas do Firestore:', Object.keys(TESES_G20).length);
+      }
+    }).catch(function(){});
+  }catch(e){}
+})();
+
+function openTese(a){
+  const panel = document.getElementById('tese-panel');
+  if(!panel) return;
+  const tdata = TESES_G20[a.ticker] || {};
+  const logoUrl = (window.TV_LOGOS&&window.TV_LOGOS.getUrl?window.TV_LOGOS.getUrl(a.ticker):'')||
+    (a.logo&&typeof TV_WHITELIST!=='undefined'&&TV_WHITELIST.has(a.logo)?'https://s3-symbol-logo.tradingview.com/'+a.logo+'.svg?v=3':'')||
+    (typeof CRYPTO_LOGOS!=='undefined'?CRYPTO_LOGOS[a.ticker]:'')||
+    (typeof getFallbackLogoUrl==='function'?getFallbackLogoUrl(a.ticker):'');
+  const imgEl=document.getElementById('tp-img'); if(imgEl) imgEl.src=logoUrl||'';
+  const tickerEl=document.getElementById('tp-ticker'); if(tickerEl) tickerEl.textContent=a.ticker;
+  const nomeEl=document.getElementById('tp-nome'); if(nomeEl) nomeEl.textContent=(a.name||'')+(a.city?' · '+a.city:'');
+  const rentNum=parseFloat(a.pct)||0;
+  const rentEl=document.getElementById('tp-rent');
+  if(rentEl){rentEl.textContent=(rentNum>=0?'+':'')+rentNum.toFixed(2)+'%';rentEl.style.color=rentNum>=0?'#3b9e32':'#e24b4a';}
+  const pesoEl=document.getElementById('tp-peso'); if(pesoEl) pesoEl.textContent=a.pct?(parseFloat(a.pct).toFixed(2)+'%'):'—';
+  const pmEl=document.getElementById('tp-pm'); if(pmEl) pmEl.textContent=a.pm||'—';
+  const cotEl=document.getElementById('tp-cot'); if(cotEl) cotEl.textContent=a.price||'—';
+  const teseEl=document.getElementById('tp-tese'); if(teseEl) teseEl.textContent=tdata.tese||'Tese não cadastrada. Acesse Admin Atlas G20 para adicionar.';
+  const tagsEl=document.getElementById('tp-tags');
+  if(tagsEl) tagsEl.innerHTML=(tdata.tags||[]).map(function(t){return '<span class="tp-tag">'+t+'</span>';}).join('');
+  const entradaEl=document.getElementById('tp-entrada'); if(entradaEl) entradaEl.textContent=a.pm||'—';
+  const edateEl=document.getElementById('tp-edate'); if(edateEl) edateEl.textContent=a.entradaDate||'—';
+  panel.classList.add('open');
+}
+
+function closeTese(){
+  const panel=document.getElementById('tese-panel');
+  if(panel) panel.classList.remove('open');
+}
+
 </script>
+
+<div id="tese-panel">
+  <div class="tp-inner">
+    <div class="tp-head">
+      <div class="tp-identity">
+        <div class="tp-logo"><img id="tp-img" src="" alt=""/></div>
+        <div>
+          <div class="tp-ticker" id="tp-ticker">—</div>
+          <div class="tp-nome" id="tp-nome">—</div>
+        </div>
+      </div>
+      <button class="tp-close" onclick="closeTese()" aria-label="Fechar">✕</button>
+    </div>
+    <div class="tp-metrics">
+      <div class="tp-metric"><div class="tp-mlbl">Rentab.</div><div class="tp-mval" id="tp-rent">—</div></div>
+      <div class="tp-metric"><div class="tp-mlbl">Peso</div><div class="tp-mval" style="color:var(--gold)" id="tp-peso">—</div></div>
+      <div class="tp-metric"><div class="tp-mlbl">Preço médio</div><div class="tp-mval" id="tp-pm">—</div></div>
+      <div class="tp-metric"><div class="tp-mlbl">Cotação atual</div><div class="tp-mval" id="tp-cot">—</div></div>
+    </div>
+    <div class="tp-divider"></div>
+    <div>
+      <div class="tp-section-lbl">Por que esse ativo?</div>
+      <p class="tp-tese" id="tp-tese">Tese não cadastrada. Acesse Admin Atlas G20 para adicionar.</p>
+    </div>
+    <div class="tp-divider"></div>
+    <div>
+      <div class="tp-section-lbl">Categorias</div>
+      <div class="tp-tags" id="tp-tags"></div>
+    </div>
+    <div class="tp-entrada">
+      <div class="tp-elbl">Entrada</div>
+      <div class="tp-erow">
+        <span class="tp-eval" id="tp-entrada">—</span>
+        <span class="tp-edate" id="tp-edate">—</span>
+      </div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
