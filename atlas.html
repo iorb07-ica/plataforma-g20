@@ -455,10 +455,7 @@ body.day .a-ticker{color:#111113}
           <div><div class="tt-lbl">QUANTIDADE</div><div class="tt-v" id="tt-qty"></div></div>
           <div><div class="tt-lbl">% CARTEIRA</div><div class="tt-pct" id="tt-pct"></div></div>
         </div>
-        <div class="tt-spark">
-          <div class="tt-spark-lbl">DESEMPENHO 30 DIAS</div>
-          <canvas id="sparkline" width="326" height="48"></canvas>
-        </div>
+
         <div class="tt-foot">
           <span class="tt-badge" id="tt-badge"></span>
           <div style="display:flex;align-items:center;gap:7px">
@@ -1091,39 +1088,41 @@ function _buildAssetsFromGrouped(ativos, quotes){
 }
 
 function _fetchHistoricoBackground(ativos, novos){
-  const PROXY_H='https://g20-proxy.vercel.app/api/';
-  const from=new Date(Date.now()-35*24*3600*1000).toISOString().split('T')[0];
+  // Busca histórico apenas quando o usuário passa o mouse — lazy, não dispara tudo de uma vez
+  // Registra quais tickers ainda precisam de histórico
+  window._pendingHist = window._pendingHist || {};
   ativos.forEach(g=>{
     const asset=ASSETS.find(a=>a.ticker===g.ticker);
-    if(!asset) return;
-    const isBR=g.moeda==='BRL';
-    const isCripto=asset.isCripto;
-    if(isCripto) return; // cripto não tem history endpoint
-    const sym=isBR?(g.ticker+'.SA'):(g.ticker==='BRK.B'?'BRK-B':g.ticker);
-    const url=isBR?(PROXY_H+'history-br?symbol='+encodeURIComponent(sym)+'&from='+from)
-                   :(PROXY_H+'history?symbol='+encodeURIComponent(sym)+'&from='+from);
-    fetch(url).then(r=>r.json()).then(d=>{
-      if(!d||d.error) return;
-      // history-br retorna {refSemana, ref30d, ref3m...}
-      // history (US) retorna {TICKER:{refSemana, ref30d...}} ou {refSemana, ref30d...}
-      let h=d;
-      if(!isBR && typeof d==='object'){
-        h=d[g.ticker]||d[sym]||d[g.ticker.toUpperCase()]||d;
-      }
-      if(h && asset._cot){
-        asset._cot.ref30d   = h.ref30d   != null ? h.ref30d   : asset._cot.ref30d;
-        asset._cot.refSemana= h.refSemana != null ? h.refSemana: asset._cot.refSemana;
-        asset._cot.ref3m    = h.ref3m     != null ? h.ref3m    : asset._cot.ref3m;
-      } else if(h && !asset._cot){
-        asset._cot={preco:asset.precoAtual, ref30d:h.ref30d, refSemana:h.refSemana, ref3m:h.ref3m};
-      }
-      // Atualiza cache do sparkline se este ativo estiver no hover
-      if(hoveredAsset&&hoveredAsset.ticker===g.ticker){
-        const pts=buildSparkFromRefs(asset._cot);
-        if(pts&&pts.length>2) drawSparklineData(pts,asset.color);
-      }
-    }).catch(()=>{});
+    if(!asset||asset.isCripto) return;
+    window._pendingHist[g.ticker]={g,asset};
   });
+}
+
+function _fetchHistoricoForTicker(ticker){
+  if(!window._pendingHist||!window._pendingHist[ticker]) return;
+  const {g,asset}=window._pendingHist[ticker];
+  delete window._pendingHist[ticker];
+  const PROXY_H='https://g20-proxy.vercel.app/api/';
+  const from=new Date(Date.now()-35*24*3600*1000).toISOString().split('T')[0];
+  const isBR=g.moeda==='BRL';
+  const sym=isBR?(g.ticker+'.SA'):(g.ticker==='BRK.B'?'BRK-B':g.ticker);
+  const url=isBR?(PROXY_H+'history-br?symbol='+encodeURIComponent(sym)+'&from='+from)
+                 :(PROXY_H+'history?symbol='+encodeURIComponent(sym)+'&from='+from);
+  fetch(url).then(r=>r.json()).then(d=>{
+    if(!d||d.error) return;
+    let h=d;
+    if(!isBR && typeof d==='object'){
+      h=d[g.ticker]||d[sym]||d[g.ticker.toUpperCase()]||d;
+    }
+    const cot=asset._cot||(asset._cot={preco:asset.precoAtual});
+    if(h.ref30d    != null) cot.ref30d   =h.ref30d;
+    if(h.refSemana != null) cot.refSemana=h.refSemana;
+    if(h.ref3m     != null) cot.ref3m    =h.ref3m;
+    if(hoveredAsset&&hoveredAsset.ticker===ticker){
+      const pts=buildSparkFromRefs(cot);
+      if(pts&&pts.length>2) drawSparklineData(pts,asset.color);
+    }
+  }).catch(()=>{});
 }
 
 function detectTipo(ticker,tipoRaw){
