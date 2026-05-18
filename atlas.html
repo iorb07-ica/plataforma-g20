@@ -1085,6 +1085,10 @@ function _buildAssetsFromGrouped(ativos, quotes){
       ? 'R$ '+(g.posAtualBRL).toFixed(0)+' (US$ '+g.posAtual.toFixed(0)+')'
       : 'R$ '+g.posAtualBRL.toFixed(0);
     const priceExibido=isUSD?('US$ '+precoShow.toFixed(2)):('R$ '+precoShow.toFixed(2));
+    // Rentabilidade real = (precoAtual - precoMedio) / precoMedio * 100
+    const precoMedio = g.qtd>0 ? g.totalInv/g.qtd : 0;
+    const rentReal = (precoMedio>0 && g.precoAtual>0) ? ((g.precoAtual - precoMedio)/precoMedio*100) : 0;
+    const pmExibido = isUSD?('US$ '+precoMedio.toFixed(2)):('R$ '+precoMedio.toFixed(2));
     return{
       ticker:g.ticker, name:COMPANY_NAMES[g.ticker]||g.nome||g.ticker,
       region:coords?coords.region:(g.moeda==='BRL'?'brasil':'eua'),
@@ -1093,6 +1097,7 @@ function _buildAssetsFromGrouped(ativos, quotes){
       qty:g.qtd.toFixed(0)+' cotas',
       pos:posExibida,
       pct:+pct.toFixed(2), chg:'0%', up:true,
+      rent:+rentReal.toFixed(2), pm:pmExibido,
       city:coords?coords.city:(g.moeda==='BRL'?'Brasil':'EUA'),
       color:coords?coords.color:col,
       logo:coords?coords.logo:g.ticker.toLowerCase(),
@@ -2885,7 +2890,7 @@ function abrirTeseModal(a){
   if(readTese)   readTese.textContent=t.tese||'Tese não cadastrada para este ativo ainda.';
   if(readTags)   readTags.innerHTML=(t.tags||[]).map(tag=>'<span class="aluno-tag">'+tag+'</span>').join('');
   // Popula métricas no modo aluno
-  const rentNum=parseFloat(a.pct)||0;
+  const rentNum=typeof a.rent!=='undefined'?a.rent:0;
   const rentEl=document.getElementById('aluno-rent');
   if(rentEl){rentEl.textContent=(rentNum>=0?'+':'')+rentNum.toFixed(2)+'%';rentEl.className='aluno-metric-val '+(rentNum>=0?'up':'dn');}
   const posEl=document.getElementById('aluno-pos');
@@ -2980,7 +2985,7 @@ function previewComoAluno(){
   // Popula métricas com dados do asset atual
   if(window._teseAssetAtual){
     const _a=window._teseAssetAtual;
-    const _rn=parseFloat(_a.pct)||0;
+    const _rn=typeof _a.rent!=='undefined'?_a.rent:0;
     const _re=document.getElementById('aluno-rent');
     if(_re){_re.textContent=(_rn>=0?'+':'')+_rn.toFixed(2)+'%';_re.className='aluno-metric-val '+(_rn>=0?'up':'dn');}
     const _pe=document.getElementById('aluno-pos');if(_pe) _pe.textContent=_a.pos||'—';
@@ -3221,7 +3226,7 @@ function _pararAudio(){
             </div>
             <div class="aluno-metric">
               <div class="aluno-metric-lbl">Posição atual</div>
-              <div class="aluno-metric-val" id="aluno-pos" style="font-size:14px">—</div>
+              <div class="aluno-metric-val" id="aluno-pos" style="font-size:13px">—</div>
             </div>
             <div class="aluno-metric">
               <div class="aluno-metric-lbl">% Carteira</div>
