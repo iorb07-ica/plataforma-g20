@@ -285,7 +285,7 @@ body.day .a-ticker{color:#111113}
 .tp-eval{font-size:13px;color:var(--text);font-weight:600}
 .tp-edate{font-size:11px;color:var(--muted)}
 
-#tese-edit-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
+#tese-edit-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:500;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
 #tese-edit-overlay.show{opacity:1;pointer-events:all}
 #tese-edit-modal{background:#13111a;border:1px solid rgba(201,169,97,.3);border-radius:20px;width:min(620px,92vw);max-height:85vh;overflow-y:auto;box-shadow:0 32px 80px rgba(0,0,0,.8);transform:translateY(20px) scale(.97);transition:transform .25s cubic-bezier(.4,0,.2,1)}
 #tese-edit-overlay.show #tese-edit-modal{transform:translateY(0) scale(1)}
@@ -1066,6 +1066,7 @@ function _buildAssetsFromGrouped(ativos, quotes){
       logo:coords?coords.logo:g.ticker.toLowerCase(),
       flag:coords?coords.flag:(g.moeda==='BRL'?'🇧🇷':'🇺🇸'),
       spark:[100,101,99,102,101,103,102,104,103,105,104,103,105,104,106],
+      _cot:q||null,
     };
   })
   .filter(a=>a.pct>=0)
@@ -1075,6 +1076,8 @@ function _buildAssetsFromGrouped(ativos, quotes){
     ASSETS.length=0;
     novos.forEach(a=>ASSETS.push(a));
     ASSETS_CG20=[...ASSETS];
+    // Busca histórico em background para sparkline real
+    if(quotes) _fetchHistoricoBackground(ativos, novos);
     // Atualiza patrimônio com total real das posições em BRL
     const elPatr=document.getElementById('rp-patrimonio');
     if(elPatr){
@@ -1085,6 +1088,42 @@ function _buildAssetsFromGrouped(ativos, quotes){
     buildMarkers();buildArcs();updateClassPanel();updateRegionPanel();
     buildAssetList();
   }
+}
+
+function _fetchHistoricoBackground(ativos, novos){
+  const PROXY_H='https://g20-proxy.vercel.app/api/';
+  const from=new Date(Date.now()-35*24*3600*1000).toISOString().split('T')[0];
+  ativos.forEach(g=>{
+    const asset=ASSETS.find(a=>a.ticker===g.ticker);
+    if(!asset) return;
+    const isBR=g.moeda==='BRL';
+    const isCripto=asset.isCripto;
+    if(isCripto) return; // cripto não tem history endpoint
+    const sym=isBR?(g.ticker+'.SA'):(g.ticker==='BRK.B'?'BRK-B':g.ticker);
+    const url=isBR?(PROXY_H+'history-br?symbol='+encodeURIComponent(sym)+'&from='+from)
+                   :(PROXY_H+'history?symbol='+encodeURIComponent(sym)+'&from='+from);
+    fetch(url).then(r=>r.json()).then(d=>{
+      if(!d||d.error) return;
+      // history-br retorna {refSemana, ref30d, ref3m...}
+      // history (US) retorna {TICKER:{refSemana, ref30d...}} ou {refSemana, ref30d...}
+      let h=d;
+      if(!isBR && typeof d==='object'){
+        h=d[g.ticker]||d[sym]||d[g.ticker.toUpperCase()]||d;
+      }
+      if(h && asset._cot){
+        asset._cot.ref30d   = h.ref30d   != null ? h.ref30d   : asset._cot.ref30d;
+        asset._cot.refSemana= h.refSemana != null ? h.refSemana: asset._cot.refSemana;
+        asset._cot.ref3m    = h.ref3m     != null ? h.ref3m    : asset._cot.ref3m;
+      } else if(h && !asset._cot){
+        asset._cot={preco:asset.precoAtual, ref30d:h.ref30d, refSemana:h.refSemana, ref3m:h.ref3m};
+      }
+      // Atualiza cache do sparkline se este ativo estiver no hover
+      if(hoveredAsset&&hoveredAsset.ticker===g.ticker){
+        const pts=buildSparkFromRefs(asset._cot);
+        if(pts&&pts.length>2) drawSparklineData(pts,asset.color);
+      }
+    }).catch(()=>{});
+  });
 }
 
 function detectTipo(ticker,tipoRaw){
@@ -2065,7 +2104,6 @@ container.addEventListener('mousemove',e=>{
     hoveredAsset=hit.asset;
     showTooltip(hoveredAsset,e.clientX,e.clientY);
     canvas3.style.cursor='pointer';
-    openTese(hoveredAsset);
   } else {
     hoveredAsset=null;
     document.getElementById('tooltip').classList.remove('show');
@@ -2097,12 +2135,23 @@ container.addEventListener('click',e=>{
     }
   }
 
-  if(!clusterMode) return;
+  // Verifica hit em ativo individual (não-cluster)
+  if(!clusterMode){
+    if(window._drawnMarkers){
+      for(let i=window._drawnMarkers.length-1;i>=0;i--){
+        const m=window._drawnMarkers[i];
+        if(Math.hypot(mx-m.sx,my-m.sy)<=m.r+2){
+          hoveredAsset=m.a;showTooltip(m.a,e.clientX,e.clientY);openTese(m.a);return;
+        }
+      }
+    }
+    return;
+  }
   // Verifica hit em ativos explodidos primeiro
   if(window._explodedHits){
     for(const h of window._explodedHits){
       if(Math.hypot(mx-h.sx,my-h.sy)<h.r){
-        hoveredAsset=h.a;showTooltip(h.a,e.clientX,e.clientY);return;
+        hoveredAsset=h.a;showTooltip(h.a,e.clientX,e.clientY);openTese(h.a);return;
       }
     }
   }
