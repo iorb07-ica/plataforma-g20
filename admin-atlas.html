@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Atlas G20 · G20 Masterclass</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/g20-topbar.css?v=10">
+<link rel="stylesheet" href="assets/g20-sidebar.css?v=10">
+<link rel="stylesheet" href="assets/g20-scrollbar.css?v=10">
+<link rel="stylesheet" href="assets/g20-topbar-v21.css?v=12">
+<script src="assets/g20-sidebar.js?v=11"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<style>
+:root{--bg:#1a191e;--surface:#27252c;--sur2:#2e2b36;--sur3:#332f3d;--border:rgba(255,255,255,.07);--border2:rgba(255,255,255,.12);--gold:#c9a961;--gold2:#e8c766;--gold-soft:rgba(201,169,97,.15);--gold-border:rgba(201,169,97,.3);--red:#e63946;--green:#2ecc71;--blue:#3498db;--text:#e8e6e3;--text2:#9a9aa8;--text3:#6b6862;--sidebar:200px;--topbar:56px;--ease:cubic-bezier(.4,0,.2,1)}
+.light{--bg:#f5f3ee;--surface:#fff;--sur2:#f0ede8;--sur3:#e8e4de;--border:rgba(0,0,0,.08);--border2:rgba(0,0,0,.14);--text:#1a191e;--text2:#4a4860;--text3:#8890a4}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:"DM Sans",sans-serif;min-height:100vh;display:flex}
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:199}.overlay.show{display:block}
+.btn-menu{display:none;background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:6px 10px;color:var(--text2);font-size:18px;cursor:pointer}
+@media(max-width:768px){.btn-menu{display:flex;align-items:center}}
+.main{margin-left:var(--sidebar);flex:1;display:flex;flex-direction:column;height:100vh;overflow-y:auto}
+@media(max-width:768px){.main{margin-left:0}}
+.content{padding:24px 32px 60px;flex:1}
+.admin-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:1rem}
+.admin-hdr-left{display:flex;align-items:center;gap:.85rem}
+.badge-admin{background:var(--gold-soft);border:.5px solid var(--gold-border);color:var(--gold2);font-size:10px;font-weight:700;padding:4px 12px;border-radius:20px;letter-spacing:.1em;text-transform:uppercase}
+.admin-title{font-size:22px;font-weight:800;color:var(--text)}
+.admin-hdr-right{display:flex;gap:.6rem}
+.btn-back{background:transparent;border:.5px solid var(--border2);color:var(--text2);border-radius:9px;padding:.55rem 1rem;font-size:13px;cursor:pointer;font-family:inherit;transition:all .15s;display:flex;align-items:center;gap:6px}
+.btn-back:hover{border-color:var(--gold-border);color:var(--gold)}
+.btn-add{background:var(--gold);color:#1a191e;border:none;border-radius:9px;padding:.55rem 1.25rem;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:6px;transition:opacity .15s}
+.btn-add:hover{opacity:.88}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.85rem;margin-bottom:1.5rem}
+@media(max-width:900px){.stats-grid{grid-template-columns:repeat(2,1fr)}}
+.stat-card{background:var(--surface);border-radius:14px;padding:1rem 1.25rem;border:.5px solid var(--border)}
+.stat-num{font-size:28px;font-weight:700;color:var(--gold2);font-family:"JetBrains Mono",monospace;line-height:1}
+.stat-lbl{font-size:12px;color:var(--text2);margin-top:5px}
+.filters-bar{display:flex;align-items:center;gap:.5rem;margin-bottom:1.25rem;flex-wrap:wrap}
+.cat-tab{background:var(--surface);border:.5px solid var(--border);color:var(--text2);border-radius:8px;padding:.35rem .9rem;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;font-family:inherit}
+.cat-tab:hover{border-color:var(--gold-border);color:var(--gold)}
+.cat-tab.active{background:var(--gold-soft);border-color:var(--gold-border);color:var(--gold)}
+.search-wrap{margin-left:auto;position:relative}
+.search-wrap input{background:var(--surface);border:.5px solid var(--border);border-radius:9px;padding:.45rem .85rem .45rem 2.1rem;font-size:13px;color:var(--text);width:220px;outline:none;font-family:inherit;transition:border-color .15s}
+.search-wrap input:focus{border-color:var(--gold-border)}
+.search-wrap .s-ico{position:absolute;left:.65rem;top:50%;transform:translateY(-50%);color:var(--text3);font-size:14px;pointer-events:none}
+.count-lbl{font-size:12px;color:var(--text3);flex-shrink:0}
+.asset-list{display:flex;flex-direction:column;gap:.5rem}
+.asset-row{background:var(--surface);border-radius:13px;padding:.85rem 1rem;border:.5px solid var(--border);display:flex;align-items:center;gap:.85rem;transition:border-color .15s;cursor:default}
+.asset-row:hover{border-color:var(--border2)}
+.asset-row.tem-tese{border-left:3px solid var(--gold);border-radius:0 13px 13px 0;padding-left:calc(1rem - 2px)}
+.asset-logo{width:40px;height:40px;border-radius:8px;background:var(--bg);flex-shrink:0;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.asset-logo img{width:32px;height:32px;object-fit:contain}
+.asset-info{flex:1;min-width:0}
+.asset-ticker{font-size:14px;font-weight:700;color:var(--gold2);margin-bottom:3px}
+.asset-nome{font-size:12px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.asset-tese-prev{font-size:11px;color:var(--text3);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:500px}
+.asset-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.tag-pill{font-size:10px;padding:2px 7px;border-radius:10px;background:var(--gold-soft);border:.5px solid var(--gold-border);color:var(--gold)}
+.tipo-pill{font-size:10px;padding:2px 7px;border-radius:10px;border:.5px solid}
+.tipo-pill.stock{background:rgba(52,152,219,.1);color:#3498db;border-color:rgba(52,152,219,.25)}
+.tipo-pill.reit{background:rgba(46,204,113,.1);color:#2ecc71;border-color:rgba(46,204,113,.25)}
+.tipo-pill.etf{background:rgba(155,89,182,.1);color:#9b59b6;border-color:rgba(155,89,182,.25)}
+.tipo-pill.fii{background:rgba(230,126,34,.1);color:#e67e22;border-color:rgba(230,126,34,.25)}
+.tipo-pill.cripto{background:rgba(231,76,60,.1);color:#e74c3c;border-color:rgba(231,76,60,.25)}
+.sem-tese-badge{font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(230,57,70,.1);color:var(--red);border:.5px solid rgba(230,57,70,.25)}
+.row-actions{display:flex;gap:.4rem;flex-shrink:0}
+.btn-edit{background:transparent;border:.5px solid rgba(201,169,97,.3);color:var(--gold);border-radius:7px;padding:.32rem .75rem;font-size:12px;cursor:pointer;font-family:inherit;transition:all .15s}
+.btn-edit:hover{background:var(--gold-soft)}
+.btn-del{background:transparent;border:.5px solid rgba(230,57,70,.25);color:var(--red);border-radius:7px;padding:.32rem .75rem;font-size:12px;cursor:pointer;font-family:inherit;transition:all .15s}
+.btn-del:hover{background:rgba(230,57,70,.1)}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:300;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal{background:var(--surface);border-radius:18px;border:.5px solid var(--border2);width:min(680px,95vw);max-height:90vh;overflow-y:auto;box-shadow:0 32px 80px rgba(0,0,0,.7)}
+.modal-hdr{display:flex;align-items:center;justify-content:space-between;padding:1.25rem 1.5rem;border-bottom:.5px solid var(--border)}
+.modal-hdr-title{font-size:16px;font-weight:700;color:var(--text)}
+.modal-close{background:transparent;border:.5px solid var(--border2);border-radius:50%;width:28px;height:28px;color:var(--text2);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.modal-close:hover{color:var(--text);border-color:var(--border2)}
+.modal-body{padding:1.5rem}
+.field{margin-bottom:1rem}
+.field label{display:block;font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.45rem}
+.field input,.field textarea,.field select{width:100%;background:var(--bg);border:.5px solid var(--border2);border-radius:9px;padding:.65rem .9rem;font-size:13px;color:var(--text);font-family:inherit;outline:none;transition:border-color .15s;resize:vertical}
+.field input:focus,.field textarea:focus,.field select:focus{border-color:var(--gold-border)}
+.field textarea{min-height:110px;line-height:1.65}
+.field-hint{font-size:11px;color:var(--text3);margin-top:.35rem}
+.preview-box{background:var(--bg);border:.5px solid var(--border);border-radius:12px;padding:1rem 1.25rem;margin-bottom:1rem}
+.preview-label{font-size:9px;color:var(--gold);text-transform:uppercase;letter-spacing:.1em;margin-bottom:.5rem}
+.preview-tese{font-size:12px;color:#9b95a8;line-height:1.75;min-height:40px}
+.preview-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:.5rem}
+.preview-tag{font-size:10px;padding:3px 9px;border-radius:20px;border:.5px solid var(--border2);color:var(--text2)}
+.tags-input-wrap{display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:var(--bg);border:.5px solid var(--border2);border-radius:9px;padding:.5rem .75rem;min-height:42px;cursor:text}
+.tags-input-wrap:focus-within{border-color:var(--gold-border)}
+.tag-chip{display:flex;align-items:center;gap:4px;background:var(--gold-soft);border:.5px solid var(--gold-border);color:var(--gold);font-size:11px;padding:3px 8px;border-radius:20px}
+.tag-chip-del{background:none;border:none;color:var(--gold);cursor:pointer;font-size:13px;line-height:1;padding:0 1px}
+.tag-chip-del:hover{color:var(--gold2)}
+.tags-input{background:none;border:none;outline:none;color:var(--text);font-size:12px;font-family:inherit;min-width:100px;flex:1}
+.modal-btns{display:flex;gap:.6rem;justify-content:flex-end;margin-top:1.25rem;padding-top:1rem;border-top:.5px solid var(--border)}
+.btn-cancel{background:transparent;border:.5px solid var(--border2);color:var(--text2);border-radius:9px;padding:.6rem 1.25rem;font-size:13px;cursor:pointer;font-family:inherit}
+.btn-cancel:hover{color:var(--text)}
+.btn-save{background:var(--gold);color:#1a191e;border:none;border-radius:9px;padding:.6rem 1.5rem;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;transition:opacity .15s}
+.btn-save:hover{opacity:.88}
+.btn-save:disabled{opacity:.4;cursor:not-allowed}
+.toast{position:fixed;bottom:24px;right:24px;background:var(--sur3);border:.5px solid var(--border2);border-radius:10px;padding:.75rem 1.25rem;font-size:13px;color:var(--text);z-index:999;opacity:0;transform:translateY(10px);transition:all .25s;pointer-events:none}
+.toast.show{opacity:1;transform:translateY(0)}
+.toast.ok{border-color:rgba(46,204,113,.4);color:#2ecc71}
+.toast.err{border-color:rgba(230,57,70,.4);color:var(--red)}
+.empty-state{text-align:center;padding:3rem;color:var(--text3);font-size:13px}
+</style>
+</head>
+<body>
+<div class="overlay" id="overlay" onclick="closeSidebar()"></div>
+<nav class="sidebar" id="sidebar">
+  <button class="sidebar-collapse-btn" onclick="toggleSidebarCollapse()"><svg viewBox="0 0 24 24" fill="none" stroke="#3d2e00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="10"><polyline points="15 18 9 12 15 6"/></svg></button>
+  <a href="dashboard.html" class="logo-ball-wrap">
+    <div class="logo-ball"><img src="assets/logo-g20.jpg" alt="G20" onerror="this.parentNode.innerHTML='<span style=\'font-size:20px;font-weight:900;color:#c9a961;font-family:Georgia,serif\'>G20</span>'"></div>
+  </a>
+  <div class="sidebar-user" id="sidebarUserBlock">
+    <div class="user-avatar"><span id="sidebarInitials">IO</span></div>
+    <div class="user-info">
+      <div class="user-name" id="sidebarName"><span class="user-name-text">Israel Oreano</span></div>
+      <div class="user-turma"><span class="user-online"></span><span id="sidebarTurma">Admin</span></div>
+    </div>
+  </div>
+  <div class="nav-section">
+    <div class="nav-label">Principal</div>
+    <a href="dashboard.html" class="nav-item" onclick="csm()"><span class="ico">🏠</span>Dashboard</a>
+  </div>
+  <div class="nav-section">
+    <div class="nav-label">Investimentos</div>
+    <a href="carteira.html" class="nav-item" onclick="csm()"><span class="ico">📊</span>Carteira G20</a>
+    <a href="atlas.html" class="nav-item" onclick="csm()"><span class="ico">🌍</span>Atlas G20</a>
+  </div>
+  <div class="nav-section">
+    <div class="nav-label">Admin</div>
+    <a href="admin-atlas.html" class="nav-item active" onclick="csm()"><span class="ico">⚙️</span>Admin Atlas G20</a>
+    <a href="admin-g20flix.html" class="nav-item" onclick="csm()"><span class="ico">⚙️</span>Admin G20Flix</a>
+  </div>
+  <div class="sidebar-footer">
+    <button class="btn-logout" onclick="auth.signOut().then(()=>location.href='login.html')"><span>🚪</span><span>Sair</span></button>
+  </div>
+</nav>
+<main class="main">
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="btn-menu" onclick="toggleSidebar()">&#9776;</button>
+      <span class="page-title">🌍 ADMIN ATLAS G20</span>
+    </div>
+    <div class="g20-tabs"></div>
+    <div class="topbar-right">
+      <div class="v21-theme-switch" id="v21ThemeSwitch">
+        <div class="v21-theme-opt" data-theme="light"><i data-lucide="sun"></i></div>
+        <div class="v21-theme-opt active" data-theme="dark"><i data-lucide="moon"></i><span>Dark</span></div>
+      </div>
+    </div>
+  </header>
+  <div class="content">
+    <div class="admin-hdr">
+      <div class="admin-hdr-left">
+        <span class="badge-admin">Admin</span>
+        <span class="admin-title">Atlas G20 — Teses de investimento</span>
+      </div>
+      <div class="admin-hdr-right">
+        <button class="btn-back" onclick="location.href='atlas.html'">← Voltar ao Atlas</button>
+        <button class="btn-add" onclick="abrirModal(null)">+ Nova tese</button>
+      </div>
+    </div>
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-num" id="statTotal">—</div><div class="stat-lbl">Ativos na CG20</div></div>
+      <div class="stat-card"><div class="stat-num" id="statComTese">—</div><div class="stat-lbl">Com tese cadastrada</div></div>
+      <div class="stat-card"><div class="stat-num" id="statSemTese">—</div><div class="stat-lbl">Sem tese</div></div>
+      <div class="stat-card"><div class="stat-num" id="statTags">—</div><div class="stat-lbl">Tags únicas</div></div>
+    </div>
+    <div class="filters-bar">
+      <button class="cat-tab active" data-cat="todos" onclick="filtrar('todos',this)">Todos</button>
+      <button class="cat-tab" data-cat="com" onclick="filtrar('com',this)">Com tese</button>
+      <button class="cat-tab" data-cat="sem" onclick="filtrar('sem',this)">Sem tese</button>
+      <button class="cat-tab" data-cat="eua" onclick="filtrar('eua',this)">EUA</button>
+      <button class="cat-tab" data-cat="brasil" onclick="filtrar('brasil',this)">Brasil</button>
+      <button class="cat-tab" data-cat="cripto" onclick="filtrar('cripto',this)">Cripto</button>
+      <span class="count-lbl" id="countLbl">0 ativos</span>
+      <div class="search-wrap">
+        <span class="s-ico">🔍</span>
+        <input type="text" placeholder="Buscar ticker..." oninput="buscar(this.value)" id="searchInput">
+      </div>
+    </div>
+    <div class="asset-list" id="assetList"></div>
+  </div>
+</main>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-hdr">
+      <span class="modal-hdr-title" id="modalTitle">Editar tese</span>
+      <button class="modal-close" onclick="fecharModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:1.25rem;padding:.75rem 1rem;background:var(--bg);border-radius:10px;border:.5px solid var(--border)">
+        <div class="asset-logo" id="modalLogo" style="width:44px;height:44px"><img id="modalLogoImg" src="" alt="" style="width:36px;height:36px;object-fit:contain"></div>
+        <div>
+          <div style="font-size:16px;font-weight:700;color:var(--gold2)" id="modalTicker">—</div>
+          <div style="font-size:12px;color:var(--text2)" id="modalNome">—</div>
+        </div>
+      </div>
+
+      <div class="preview-box">
+        <div class="preview-label">Preview — como aparece no Atlas</div>
+        <div class="preview-tese" id="previewTese">Escreva a tese abaixo para ver o preview aqui...</div>
+        <div class="preview-tags" id="previewTags"></div>
+      </div>
+
+      <div class="field">
+        <label>Tese de investimento</label>
+        <textarea id="fTese" placeholder="Por que esse ativo está na carteira? Qual o racional de longo prazo? Escreva em 2-4 linhas como explicaria para um aluno." oninput="atualizarPreview()"></textarea>
+        <div class="field-hint">2 a 4 linhas — seja direto e didático, como explicaria ao vivo</div>
+      </div>
+
+      <div class="field">
+        <label>Tags de categoria</label>
+        <div class="tags-input-wrap" id="tagsWrap" onclick="document.getElementById('tagsInput').focus()">
+          <input type="text" class="tags-input" id="tagsInput" placeholder="Digite e pressione Enter..." onkeydown="onTagKeydown(event)" oninput="atualizarPreview()">
+        </div>
+        <div class="field-hint">Ex: Dividendos · Semicondutores · Alta Convicção · Cripto · Renda</div>
+      </div>
+
+      <input type="hidden" id="fTicker">
+
+      <div class="modal-btns">
+        <button class="btn-cancel" onclick="fecharModal()">Cancelar</button>
+        <button class="btn-save" id="btnSave" onclick="salvarTese()">Salvar tese</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+var _cfg={apiKey:"AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",authDomain:"g20-masterclass.firebaseapp.com",projectId:"g20-masterclass",storageBucket:"g20-masterclass.firebasestorage.app",messagingSenderId:"1052719482127",appId:"1:1052719482127:web:537c1d67c96532be8a2a7a"};
+if(!firebase.apps.length)firebase.initializeApp(_cfg);
+var auth=firebase.auth(),db=firebase.firestore();
+
+// Estado
+var _ativos=[];
+var _teses={};
+var _filtro='todos';
+var _busca='';
+var _tags=[];
+
+// Mapa de logos TradingView (subconjunto dos principais)
+var TV_LOGOS_MAP={
+  'NVDA':'nvidia','AAPL':'apple','MSFT':'microsoft','META':'meta-platforms','AMZN':'amazon','TSLA':'tesla','GOOG':'google','GOOGL':'google',
+  'BRK.B':'berkshire-hathaway','UNH':'unitedhealth','JNJ':'johnson-and-johnson','JPM':'jpmorgan','V':'visa','MA':'mastercard',
+  'WEGE3':'weg','PETR4':'petrobras','VALE3':'vale','ITUB4':'itau-unibanco','BBDC4':'bradesco','PRIO3':'petro-rio',
+  'O':'realty-income','NNN':'nnn-reit','SLG':'sl-green-realty','VNQ':'vanguard-real-estate','EQIX':'equinix',
+  'QQQ':'invesco','NOBL':'proshares','XBI':'spdr','SCHA':'schwab',
+  'BTC':'crypto/XTVCBTC','ETH':'crypto/XTVCETH','BNB':'crypto/XTVCBNB','SOL':'crypto/XTVCSOL',
+  'ASML':'asml','TSM':'taiwan-semiconductor','MELI':'mercadolibre','NU':'nu-holdings',
+  'LULU':'lululemon','DPZ':'dominos-pizza','MNST':'monster-beverage','CROX':'crocs',
+};
+
+function getLogoUrl(ticker){
+  var slug=TV_LOGOS_MAP[ticker];
+  if(!slug) return '';
+  return 'https://s3-symbol-logo.tradingview.com/'+slug+'.svg';
+}
+
+auth.onAuthStateChanged(function(user){
+  if(!user){location.href='login.html';return;}
+  db.collection('users').doc(user.uid).get().then(function(doc){
+    if(!doc.exists)return;
+    var d=doc.data();
+    var profile=d.profile||d;
+    var name=profile.name||profile.nome||user.email||'Israel';
+    var el=document.getElementById('sidebarName');
+    if(el){var nt=el.querySelector('.user-name-text');if(nt)nt.textContent=name;}
+    var ini=name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase();
+    var eli=document.getElementById('sidebarInitials');if(eli)eli.textContent=ini;
+    try{localStorage.setItem('g20_user_profile',JSON.stringify({name:name,role:d.role||'',turma:d.turma||'',photo:'',infinite:d.infinite===true}));}catch(e){}
+  }).catch(function(){});
+  carregarDados();
+});
+
+function carregarDados(){
+  // Carrega aportes do localStorage para obter lista de ativos da CG20
+  var aportes=[];
+  try{
+    var raw=localStorage.getItem('g20_aportes');
+    if(raw) aportes=JSON.parse(raw);
+    else{
+      // Tenta via Firestore
+      db.collection('data').doc('g20_aportes').get().then(function(d){
+        if(d.exists&&d.data().value){
+          aportes=d.data().value;
+          processarAtivos(aportes);
+        }
+      });
+    }
+  }catch(e){}
+
+  // Carrega teses salvas no Firestore
+  db.collection('atlas_teses').doc('teses').get().then(function(doc){
+    _teses=doc.exists?(doc.data()||{}):{};
+    if(aportes.length) processarAtivos(aportes);
+  }).catch(function(){
+    if(aportes.length) processarAtivos(aportes);
+  });
+}
+
+function processarAtivos(aportes){
+  // Agrupa por ticker, só posições abertas
+  var pos={};
+  aportes.forEach(function(a){
+    if(!pos[a.ticker]) pos[a.ticker]={ticker:a.ticker,nome:a.nome||a.name||a.ticker,tipo:a.tipo||'stock',qtd:0,region:''};
+    if(a.op==='C') pos[a.ticker].qtd+=parseFloat(a.qtd)||0;
+    else pos[a.ticker].qtd-=parseFloat(a.qtd)||0;
+  });
+  _ativos=Object.values(pos).filter(function(p){return p.qtd>0.0001;}).sort(function(a,b){return a.ticker.localeCompare(b.ticker);});
+
+  // Determina região por tipo
+  _ativos.forEach(function(a){
+    var t=a.tipo.toLowerCase();
+    if(t==='cripto') a.region='cripto';
+    else if(t.includes('fii')||t.includes('fiagro')||t==='ação'||t==='acao'||t==='acoes') a.region='brasil';
+    else if(t==='reit'||t==='etf'||t==='stock') a.region='eua';
+    else a.region='outros';
+  });
+
+  renderStats();
+  renderLista();
+}
+
+function renderStats(){
+  var total=_ativos.length;
+  var comTese=_ativos.filter(function(a){return _teses[a.ticker]&&_teses[a.ticker].tese;}).length;
+  var allTags=[];
+  Object.values(_teses).forEach(function(t){if(t.tags) allTags=allTags.concat(t.tags);});
+  var uniqueTags=new Set(allTags).size;
+  document.getElementById('statTotal').textContent=total;
+  document.getElementById('statComTese').textContent=comTese;
+  document.getElementById('statSemTese').textContent=total-comTese;
+  document.getElementById('statTags').textContent=uniqueTags;
+}
+
+function renderLista(){
+  var lista=_ativos.filter(function(a){
+    if(_filtro==='com' && !(_teses[a.ticker]&&_teses[a.ticker].tese)) return false;
+    if(_filtro==='sem' && (_teses[a.ticker]&&_teses[a.ticker].tese)) return false;
+    if(_filtro==='eua' && a.region!=='eua') return false;
+    if(_filtro==='brasil' && a.region!=='brasil') return false;
+    if(_filtro==='cripto' && a.region!=='cripto') return false;
+    if(_busca && !a.ticker.toUpperCase().includes(_busca.toUpperCase()) && !(a.nome||'').toUpperCase().includes(_busca.toUpperCase())) return false;
+    return true;
+  });
+
+  document.getElementById('countLbl').textContent=lista.length+' ativo'+(lista.length!==1?'s':'');
+
+  if(!lista.length){
+    document.getElementById('assetList').innerHTML='<div class="empty-state">Nenhum ativo encontrado</div>';
+    return;
+  }
+
+  var html=lista.map(function(a){
+    var t=_teses[a.ticker]||{};
+    var temTese=!!(t.tese);
+    var tags=(t.tags||[]).map(function(tag){return '<span class="tag-pill">'+esc(tag)+'</span>';}).join('');
+    var logo=getLogoUrl(a.ticker);
+    var logoHtml=logo?'<img src="'+logo+'" alt="'+a.ticker+'" onerror="this.style.display=\'none\'">':'';
+    var tipoClass=a.tipo.toLowerCase().replace(/[^a-z]/g,'');
+    return '<div class="asset-row'+(temTese?' tem-tese':'')+'">'
+      +'<div class="asset-logo">'+logoHtml+'</div>'
+      +'<div class="asset-info">'
+        +'<div style="display:flex;align-items:center;gap:6px">'
+          +'<span class="asset-ticker">'+esc(a.ticker)+'</span>'
+          +'<span class="tipo-pill '+tipoClass+'">'+esc(a.tipo)+'</span>'
+          +(!temTese?'<span class="sem-tese-badge">sem tese</span>':'')
+        +'</div>'
+        +'<div class="asset-nome">'+esc(a.nome||a.ticker)+'</div>'
+        +(temTese?'<div class="asset-tese-prev">'+esc(t.tese)+'</div>':'')
+        +(tags?'<div class="asset-tags">'+tags+'</div>':'')
+      +'</div>'
+      +'<div class="row-actions">'
+        +'<button class="btn-edit" onclick="abrirModal(\''+a.ticker+'\')">✏️ Editar</button>'
+        +(temTese?'<button class="btn-del" onclick="deletarTese(\''+a.ticker+'\')">🗑</button>':'')
+      +'</div>'
+    +'</div>';
+  }).join('');
+  document.getElementById('assetList').innerHTML=html;
+}
+
+function filtrar(cat,btn){
+  _filtro=cat;
+  document.querySelectorAll('.cat-tab').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  renderLista();
+}
+
+function buscar(v){
+  _busca=v;
+  renderLista();
+}
+
+function abrirModal(ticker){
+  _tags=[];
+  var a=ticker?_ativos.find(function(x){return x.ticker===ticker;}):null;
+  var t=ticker?(_teses[ticker]||{}):{};
+
+  document.getElementById('modalTitle').textContent=ticker?'Editar tese — '+ticker:'Nova tese';
+  document.getElementById('fTicker').value=ticker||'';
+  document.getElementById('fTese').value=t.tese||'';
+
+  if(a){
+    var logo=getLogoUrl(a.ticker);
+    document.getElementById('modalLogoImg').src=logo;
+    document.getElementById('modalTicker').textContent=a.ticker;
+    document.getElementById('modalNome').textContent=a.nome||a.ticker;
+  } else {
+    document.getElementById('modalLogoImg').src='';
+    document.getElementById('modalTicker').textContent='Novo ativo';
+    document.getElementById('modalNome').textContent='';
+  }
+
+  // Restaura tags
+  _tags=(t.tags||[]).slice();
+  renderTagChips();
+  atualizarPreview();
+  document.getElementById('modalOverlay').classList.add('show');
+  setTimeout(function(){document.getElementById('fTese').focus();},100);
+}
+
+function fecharModal(){
+  document.getElementById('modalOverlay').classList.remove('show');
+  _tags=[];
+}
+
+function onTagKeydown(e){
+  var inp=document.getElementById('tagsInput');
+  if((e.key==='Enter'||e.key===',')&&inp.value.trim()){
+    e.preventDefault();
+    var tag=inp.value.trim().replace(/,$/,'');
+    if(tag&&!_tags.includes(tag)){
+      _tags.push(tag);
+      renderTagChips();
+      atualizarPreview();
+    }
+    inp.value='';
+  } else if(e.key==='Backspace'&&!inp.value&&_tags.length){
+    _tags.pop();
+    renderTagChips();
+    atualizarPreview();
+  }
+}
+
+function removerTag(i){
+  _tags.splice(i,1);
+  renderTagChips();
+  atualizarPreview();
+}
+
+function renderTagChips(){
+  var wrap=document.getElementById('tagsWrap');
+  var inp=document.getElementById('tagsInput');
+  wrap.querySelectorAll('.tag-chip').forEach(function(el){el.remove();});
+  _tags.forEach(function(tag,i){
+    var chip=document.createElement('span');
+    chip.className='tag-chip';
+    chip.innerHTML=esc(tag)+'<button class="tag-chip-del" onclick="removerTag('+i+')">×</button>';
+    wrap.insertBefore(chip,inp);
+  });
+}
+
+function atualizarPreview(){
+  var tese=document.getElementById('fTese').value;
+  document.getElementById('previewTese').textContent=tese||'Escreva a tese abaixo para ver o preview aqui...';
+  var tagsHtml=_tags.map(function(t){return '<span class="preview-tag">'+esc(t)+'</span>';}).join('');
+  document.getElementById('previewTags').innerHTML=tagsHtml;
+}
+
+function salvarTese(){
+  var ticker=document.getElementById('fTicker').value.trim().toUpperCase();
+  var tese=document.getElementById('fTese').value.trim();
+  if(!ticker){showToast('Ticker obrigatório','err');return;}
+  if(!tese){showToast('Tese não pode estar vazia','err');return;}
+
+  document.getElementById('btnSave').disabled=true;
+  document.getElementById('btnSave').textContent='Salvando...';
+
+  _teses[ticker]={tese:tese,tags:_tags.slice(),updatedAt:Date.now()};
+
+  db.collection('atlas_teses').doc('teses').set(_teses).then(function(){
+    showToast('Tese salva com sucesso ✓','ok');
+    fecharModal();
+    renderStats();
+    renderLista();
+  }).catch(function(e){
+    showToast('Erro ao salvar: '+e.message,'err');
+  }).finally(function(){
+    document.getElementById('btnSave').disabled=false;
+    document.getElementById('btnSave').textContent='Salvar tese';
+  });
+}
+
+function deletarTese(ticker){
+  if(!confirm('Remover tese de '+ticker+'?')) return;
+  delete _teses[ticker];
+  db.collection('atlas_teses').doc('teses').set(_teses).then(function(){
+    showToast('Tese removida','ok');
+    renderStats();
+    renderLista();
+  }).catch(function(e){showToast('Erro: '+e.message,'err');});
+}
+
+function showToast(msg,type){
+  var t=document.getElementById('toast');
+  t.textContent=msg;
+  t.className='toast show '+(type||'');
+  clearTimeout(t._t);
+  t._t=setTimeout(function(){t.classList.remove('show');},2800);
+}
+
+function esc(s){
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Tema
+(function(){
+  var saved=localStorage.getItem('g20_theme')||'dark';
+  if(saved==='light') document.body.classList.add('light');
+  document.querySelectorAll('.v21-theme-opt').forEach(function(btn){
+    btn.classList.toggle('active',btn.dataset.theme===saved);
+    btn.addEventListener('click',function(){
+      var t=btn.dataset.theme;
+      document.body.classList.toggle('light',t==='light');
+      localStorage.setItem('g20_theme',t);
+      document.querySelectorAll('.v21-theme-opt').forEach(function(b){b.classList.toggle('active',b.dataset.theme===t);});
+    });
+  });
+})();
+
+function toggleSidebar(){var sb=document.getElementById('sidebar'),ov=document.getElementById('overlay');if(sb){sb.classList.toggle('open');if(ov)ov.classList.toggle('show',sb.classList.contains('open'));}}
+function closeSidebar(){var sb=document.getElementById('sidebar'),ov=document.getElementById('overlay');if(sb){sb.classList.remove('open');if(ov)ov.classList.remove('show');}}
+function csm(){if(window.innerWidth<=768)closeSidebar();}
+function toggleSidebarCollapse(){var sb=document.getElementById('sidebar');if(sb)sb.classList.toggle('collapsed');}
+
+if(typeof lucide!=='undefined') lucide.createIcons();
+document.addEventListener('DOMContentLoaded',function(){if(typeof lucide!=='undefined')lucide.createIcons();});
+</script>
+</body>
+</html>
