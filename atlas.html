@@ -320,6 +320,7 @@ body.day .a-ticker{color:#111113}
 .tem-btn-save{background:var(--gold);color:#1a191e;border:none;border-radius:9px;padding:9px 22px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;transition:opacity .15s}
 .tem-btn-save:hover{opacity:.88}
 .tem-btn-save:disabled{opacity:.4;cursor:not-allowed}
+.tt-click-hint{margin-top:10px;font-size:10px;color:var(--gold);opacity:.75;text-align:center;letter-spacing:.05em}
 </style>
 </head>
 <body>
@@ -466,6 +467,7 @@ body.day .a-ticker{color:#111113}
         <div class="tt-social" id="tt-social" style="display:none">
           🎓 <span class="tt-social-count" id="tt-social-count">0</span>&nbsp;alunos G20 têm esse ativo
         </div>
+        <div class="tt-click-hint">Clique para ver a tese →</div>
       </div>
 
       <!-- Timeline -->
@@ -1010,7 +1012,6 @@ function _buildAssetsFromGrouped(ativos, quotes){
   const comPos=ativos.map(g=>{
     // Tenta o ticker exato e variações comuns
     const q=quotes&&(quotes[g.ticker]||quotes[g.ticker.replace('.','-')]||quotes[g.ticker.replace('-USD','')]||quotes[g.ticker+'.SA']);
-    // Guarda ref da cotação para sparkline histórico
     if(q) g._cot=q;
     const precoAtual=q?parseFloat(q.price||q.regularMarketPrice||q.close||q.bid||0)||0:0;
     if(precoAtual>0) comCotacao.push(`${g.ticker}=${precoAtual}`);
@@ -1073,7 +1074,6 @@ function _buildAssetsFromGrouped(ativos, quotes){
     ASSETS.length=0;
     novos.forEach(a=>ASSETS.push(a));
     ASSETS_CG20=[...ASSETS];
-    // Busca histórico em background para sparkline real
     if(quotes) _fetchHistoricoBackground(ativos, novos);
     // Atualiza patrimônio com total real das posições em BRL
     const elPatr=document.getElementById('rp-patrimonio');
@@ -1119,8 +1119,6 @@ function _fetchHistoricoForTicker(ticker){
     if(h.refSemana != null) cot.refSemana=h.refSemana;
     if(h.ref3m     != null) cot.ref3m    =h.ref3m;
     if(hoveredAsset&&hoveredAsset.ticker===ticker){
-      const pts=buildSparkFromRefs(cot);
-      if(pts&&pts.length>2) drawSparklineData(pts,asset.color);
     }
   }).catch(()=>{});
 }
@@ -2140,7 +2138,7 @@ container.addEventListener('click',e=>{
       for(let i=window._drawnMarkers.length-1;i>=0;i--){
         const m=window._drawnMarkers[i];
         if(Math.hypot(mx-m.sx,my-m.sy)<=m.r+2){
-          hoveredAsset=m.a;showTooltip(m.a,e.clientX,e.clientY);openTese(m.a);return;
+          hoveredAsset=m.a;showTooltip(m.a,e.clientX,e.clientY);abrirTeseModal(m.a);return;
         }
       }
     }
@@ -2150,7 +2148,7 @@ container.addEventListener('click',e=>{
   if(window._explodedHits){
     for(const h of window._explodedHits){
       if(Math.hypot(mx-h.sx,my-h.sy)<h.r){
-        hoveredAsset=h.a;showTooltip(h.a,e.clientX,e.clientY);openTese(h.a);return;
+        hoveredAsset=h.a;showTooltip(h.a,e.clientX,e.clientY);abrirTeseModal(h.a);return;
       }
     }
   }
@@ -2340,7 +2338,7 @@ function showTooltip(a,cx,cy){
   if(fl){if(cc){fl.style.display='inline-block';fl.src=`https://flagcdn.com/w40/${cc}.png`;}else fl.style.display='none';}
   const cnt=SOCIAL_COUNTS[a.ticker]||0;const sc=document.getElementById('tt-social');
   if(cnt>0){document.getElementById('tt-social-count').textContent=cnt;sc.style.display='flex';}else sc.style.display='none';
-  const _isBR=a.region==='brasil'||a.type==='fii'||a.type==='fiagro';drawSparkline(a.spark,a.color,a.ticker,_isBR);
+
   const rect=container.getBoundingClientRect();
   let lx=cx-rect.left+120, ly=cy-rect.top-120;
   if(lx+390>container.clientWidth-8) lx=cx-rect.left-410;
@@ -2348,51 +2346,6 @@ function showTooltip(a,cx,cy){
   if(ly<10) ly=10;
   if(ly+420>container.clientHeight-20) ly=container.clientHeight-430;
   const tt=document.getElementById('tooltip');tt.style.left=lx+'px';tt.style.top=ly+'px';tt.classList.add('show');
-}
-function drawSparklineData(data,color){
-  const sc=document.getElementById('sparkline'),sx=sc.getContext('2d');sx.clearRect(0,0,326,48);
-  if(!data||data.length<2){sx.fillStyle=color+'22';sx.fillRect(0,0,326,48);return;}
-  const mn=Math.min(...data),mx=Math.max(...data),rng=mx-mn||1;
-  sx.beginPath();data.forEach((v,i)=>{const x=(i/(data.length-1))*326,y=44-((v-mn)/rng)*40;i===0?sx.moveTo(x,y):sx.lineTo(x,y);});
-  sx.strokeStyle=color;sx.lineWidth=2;sx.stroke();sx.lineTo(326,48);sx.lineTo(0,48);sx.fillStyle=color+'22';sx.fill();
-}
-
-const _sparkCache={};
-function buildSparkFromRefs(cot){
-  // Constrói série aproximada de 30 dias usando os pontos de referência disponíveis
-  if(!cot||!cot.preco||cot.preco<=0) return null;
-  const p=cot.preco;
-  const r30=cot.ref30d; // variação % dos últimos 30 dias
-  const r7=cot.refSemana;
-  const r3m=cot.ref3m;
-  if(r30==null&&r7==null) return null;
-  // Preço base 30 dias atrás
-  const p30 = r30!=null ? p/(1+r30/100) : (r7!=null ? p/(1+r7/100)*0.85 : p*0.95);
-  const p7  = r7!=null  ? p/(1+r7/100)  : p30+(p-p30)*0.75;
-  // Interpola ~20 pontos: p30 → p7 → p (últimos 5 dias)
-  const pts=[];
-  const seg1=12, seg2=8;
-  for(let i=0;i<=seg1;i++) pts.push(p30+(p7-p30)*(i/seg1));
-  for(let i=1;i<=seg2;i++) pts.push(p7+(p-p7)*(i/seg2));
-  // Adiciona leve ruído realista
-  return pts.map((v,i)=>{
-    const noise=(Math.sin(i*2.3)*0.003+Math.cos(i*1.7)*0.002)*v;
-    return Math.max(0,v+noise);
-  });
-}
-
-function drawSparkline(data,color,ticker,isBRasset){
-  // Tenta usar dados reais de cotacoes primeiro
-  if(ticker && typeof ASSETS!=='undefined'){
-    const asset=ASSETS.find(a=>a.ticker===ticker);
-    if(asset && asset._cot && asset._cot.preco>0){
-      const pts=buildSparkFromRefs(asset._cot);
-      if(pts&&pts.length>2){drawSparklineData(pts,color);return;}
-    }
-  }
-  // Fallback: cache ou dados estáticos
-  if(ticker && _sparkCache[ticker]){drawSparklineData(_sparkCache[ticker],color);return;}
-  drawSparklineData(data,color);
 }
 
 /* ══ FLY-TO ══ */
@@ -2790,8 +2743,17 @@ function abrirTeseModal(a){
   _temTags=(t.tags||[]).slice();
   temRenderChips();
   temAtualizarPreview();
+  // Modo leitura para alunos, edição para admin
+  const editFields=document.getElementById('tem-edit-fields');
+  const readView=document.getElementById('tem-read-view');
+  const readTese=document.getElementById('tem-read-tese');
+  const readTags=document.getElementById('tem-read-tags');
+  if(editFields) editFields.style.display=_isAdmin?'block':'none';
+  if(readView)   readView.style.display=_isAdmin?'none':'block';
+  if(readTese)   readTese.textContent=t.tese||'Tese não cadastrada para este ativo ainda.';
+  if(readTags)   readTags.innerHTML=(t.tags||[]).map(tag=>'<span class="tem-preview-tag">'+tag+'</span>').join('');
   document.getElementById('tese-edit-overlay').classList.add('show');
-  setTimeout(()=>document.getElementById('tem-tese').focus(),150);
+  if(_isAdmin) setTimeout(()=>document.getElementById('tem-tese').focus(),150);
 }
 
 function fecharTeseModal(){
@@ -2912,26 +2874,40 @@ function salvarTeseModal(){
       <button class="tem-close" onclick="fecharTeseModal()">✕</button>
     </div>
     <div class="tem-body">
-      <div class="tem-preview">
-        <div class="tem-preview-lbl">Preview</div>
-        <div class="tem-preview-txt" id="tem-preview-txt">Escreva a tese abaixo...</div>
-        <div class="tem-preview-tags" id="tem-preview-tags"></div>
+      <!-- Modo leitura — alunos -->
+      <div id="tem-read-view" style="display:none">
+        <div class="tem-preview" style="margin-bottom:0">
+          <div class="tem-preview-lbl">Por que esse ativo?</div>
+          <div class="tem-preview-txt" id="tem-read-tese" style="font-size:13px;line-height:1.8;min-height:60px"></div>
+          <div class="tem-preview-tags" id="tem-read-tags" style="margin-top:10px"></div>
+        </div>
+        <div class="tem-btns" style="border-top:none;padding-top:0;margin-top:14px">
+          <button class="tem-btn-cancel" onclick="fecharTeseModal()">Fechar</button>
+        </div>
       </div>
-      <div class="tem-field">
-        <label>Tese de investimento</label>
-        <textarea id="tem-tese" placeholder="Por que esse ativo está na carteira? Qual o racional de longo prazo?" oninput="temAtualizarPreview()"></textarea>
-        <div class="tem-field-hint">2 a 4 linhas — direto e didático, como explicaria ao vivo</div>
-      </div>
-      <div class="tem-field">
-        <label>Tags</label>
-        <div class="tem-tags-wrap" id="temTagsWrap" onclick="document.getElementById('temTagsInput').focus()"></div>
-        <div class="tem-field-hint">Digite e pressione Enter para adicionar</div>
+      <!-- Modo edição — admin -->
+      <div id="tem-edit-fields" style="display:none">
+        <div class="tem-preview">
+          <div class="tem-preview-lbl">Preview</div>
+          <div class="tem-preview-txt" id="tem-preview-txt">Escreva a tese abaixo...</div>
+          <div class="tem-preview-tags" id="tem-preview-tags"></div>
+        </div>
+        <div class="tem-field">
+          <label>Tese de investimento</label>
+          <textarea id="tem-tese" placeholder="Por que esse ativo está na carteira? Qual o racional de longo prazo?" oninput="temAtualizarPreview()"></textarea>
+          <div class="tem-field-hint">2 a 4 linhas — direto e didático, como explicaria ao vivo</div>
+        </div>
+        <div class="tem-field">
+          <label>Tags</label>
+          <div class="tem-tags-wrap" id="temTagsWrap" onclick="document.getElementById('temTagsInput').focus()"></div>
+          <div class="tem-field-hint">Digite e pressione Enter para adicionar</div>
+        </div>
+        <div class="tem-btns">
+          <button class="tem-btn-cancel" onclick="fecharTeseModal()">Cancelar</button>
+          <button class="tem-btn-save" id="tem-btn-save" onclick="salvarTeseModal()">Salvar tese</button>
+        </div>
       </div>
       <input type="hidden" id="tem-ticker-val">
-      <div class="tem-btns">
-        <button class="tem-btn-cancel" onclick="fecharTeseModal()">Cancelar</button>
-        <button class="tem-btn-save" id="tem-btn-save" onclick="salvarTeseModal()">Salvar tese</button>
-      </div>
     </div>
   </div>
 </div>
