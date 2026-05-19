@@ -491,6 +491,12 @@ body.is-admin .btn-admin{display:inline-flex}
   letter-spacing:.2px;
 }
 
+/* Drag and drop */
+.book-card.draggable-card{cursor:grab}
+.book-card.draggable-card:active{cursor:grabbing}
+.book-card.dragging{opacity:0.4;transform:scale(0.95)}
+.book-card.drag-over{outline:2px dashed var(--gold);outline-offset:4px;border-radius:6px}
+
 /* Empty state */
 .shelf-empty{
   padding:60px 20px;
@@ -675,22 +681,23 @@ body.is-admin .btn-admin{display:inline-flex}
 
 .book-delete-btn{
   position:absolute;
-  top:7px;right:7px;
-  width:26px;height:26px;
-  background:rgba(0,0,0,.45);
-  border:1px solid rgba(255,255,255,.12);
-  border-radius:6px;
-  color:rgba(255,255,255,.5);
+  top:8px;right:8px;
+  width:30px;height:30px;
+  padding:0;
+  background:rgba(0,0,0,.6);
+  border:1px solid rgba(255,255,255,.18);
+  border-radius:8px;
+  color:rgba(255,255,255,.75);
   cursor:pointer;
   display:none;
   align-items:center;justify-content:center;
-  z-index:10;
-  font-size:12px;
+  z-index:20;
   line-height:1;
   transition:all .2s;
   backdrop-filter:blur(8px);
   opacity:0;
 }
+.book-delete-btn svg{display:block}
 body.is-admin .book-delete-btn{display:flex}
 .book-card:hover .book-delete-btn{opacity:1}
 .book-delete-btn:hover{background:rgba(180,40,40,.85);border-color:#e63946;color:#fff;transform:scale(1.08)}
@@ -952,7 +959,7 @@ body.is-admin .book-delete-btn{display:flex}
     <div class="admin-tabs">
       <button class="admin-tab active" data-tab="form"><i data-lucide="plus-circle" style="width:14px;height:14px"></i> Adicionar / Editar</button>
       <button class="admin-tab" data-tab="lista"><i data-lucide="list" style="width:14px;height:14px"></i> Listar todos</button>
-      <button class="admin-tab" data-tab="importar"><i data-lucide="download-cloud" style="width:14px;height:14px"></i> Importar curadoria</button>
+      
     </div>
 
     <div class="admin-body">
@@ -1079,23 +1086,7 @@ body.is-admin .book-delete-btn{display:flex}
         <div class="admin-list" id="adminList"></div>
       </div>
 
-      <!-- TAB: IMPORTAR -->
-      <div id="tabImportar" style="display:none">
-        <div style="padding:14px 18px;background:rgba(201,169,97,.08);border:1px solid var(--border-gold);border-radius:12px;margin-bottom:18px">
-          <div style="font-family:var(--serif);font-size:18px;font-weight:600;color:var(--ivory);margin-bottom:6px">📦 Curadoria Inicial G20</div>
-          <div style="font-family:var(--sans);font-size:13px;color:var(--text-2);line-height:1.5">18 livros recomendados já organizados por categoria. Depois de importar, edite cada livro para adicionar seu link de afiliado Amazon.</div>
-        </div>
-        <div id="importPreview" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;margin-bottom:14px"></div>
-        <div class="form-actions" style="border:none;margin:0">
-          <button class="btn-form ghost" onclick="trocarTab('lista')">Cancelar</button>
-          <button class="btn-form primary" onclick="importarCuradoria()" id="btnImportar">
-            <i data-lucide="upload-cloud" style="width:14px;height:14px"></i>
-            <span id="btnImportarTxt">Importar todos (0)</span>
-          </button>
-        </div>
       </div>
-
-    </div>
   </div>
 </div>
 
@@ -1242,6 +1233,12 @@ function carregarBiblioteca(){
         dataInicio: s.dataInicio || null,
         dataLido: s.dataLido || null
       });
+    });
+
+    // Ordenar pela posição salva
+    _livros.sort(function(a,b){
+      var oa = a.ordem || 9999, ob = b.ordem || 9999;
+      return oa - ob;
     });
 
     // Se não tem dados, popular com defaults visuais para Israel adicionar
@@ -1418,6 +1415,7 @@ function renderEstantes(){
   });
 
   if(window.lucide) lucide.createIcons();
+  if(_isAdmin) setupDragAndDrop();
 }
 
 function renderBookCard(l){
@@ -1431,14 +1429,14 @@ function renderBookCard(l){
 
   var readingTag = isReading ? '<div class="reading-now-tag"><span class="pulse"></span> Lendo</div>' : '';
   var delId = 'del_'+l.id; window[delId]=l.id;
-  var deleteBtn = _isAdmin ? '<button class="book-delete-btn" onclick="event.stopPropagation();confirmarExclusao(window[\''+delId+'\'])" title="Excluir livro"></button>' : '';
+  var deleteBtn = _isAdmin ? '<button class="book-delete-btn" onclick="event.stopPropagation();confirmarExclusao(window[\''+delId+'\'])" title="Excluir livro"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path></svg></button>' : '';
 
   var capaImg = l.capa ?
     '<img src="'+l.capa+'" alt="'+escapeHtml(l.titulo)+'" onerror="this.style.display=\'none\';this.parentNode.style.background=\'linear-gradient(135deg,#3b2616,#5a3a23)\'">' :
     '<div style="display:flex;align-items:center;justify-content:center;height:100%;padding:14px;text-align:center;font-family:var(--serif);color:var(--ivory);background:linear-gradient(135deg,#3b2616,#5a3a23)">'+escapeHtml(l.titulo)+'</div>';
 
   return ''+
-    '<div class="book-card '+(l.lido?'lido':'')+'" onclick="abrirDetalhes(\''+l.id+'\')">'+
+    '<div class="book-card '+(l.lido?'lido':'')+(_isAdmin?" draggable-card":"")+'" data-bid="'+l.id+'" '+(_isAdmin?'draggable="true"':'')+' onclick="abrirDetalhes(\''+l.id+'\')">'+
       '<div class="book-cover">'+
         deleteBtn+
         readingTag+
@@ -2191,6 +2189,69 @@ async function corrigirCapas(){
     toast('✓ Todas as ' + atualizados + ' capas atualizadas!');
   }
   carregarBiblioteca();
+}
+
+
+
+// ============================================================
+//  DRAG AND DROP — Reordenar livros (só admin)
+// ============================================================
+var _draggedId = null;
+
+function setupDragAndDrop(){
+  if(!_isAdmin) return;
+  document.querySelectorAll('.book-card.draggable-card').forEach(function(card){
+    card.addEventListener('dragstart', function(e){
+      _draggedId = card.dataset.bid;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try{ e.dataTransfer.setData('text/plain', _draggedId); }catch(_){}
+    });
+    card.addEventListener('dragend', function(){
+      card.classList.remove('dragging');
+      document.querySelectorAll('.book-card.drag-over').forEach(function(c){c.classList.remove('drag-over')});
+    });
+    card.addEventListener('dragover', function(e){
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if(card.dataset.bid !== _draggedId) card.classList.add('drag-over');
+    });
+    card.addEventListener('dragleave', function(){
+      card.classList.remove('drag-over');
+    });
+    card.addEventListener('drop', function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      card.classList.remove('drag-over');
+      var targetId = card.dataset.bid;
+      if(!_draggedId || _draggedId === targetId) return;
+      reordenarLivros(_draggedId, targetId);
+    });
+  });
+}
+
+async function reordenarLivros(sourceId, targetId){
+  var src = _livros.find(function(l){return l.id===sourceId});
+  var tgt = _livros.find(function(l){return l.id===targetId});
+  if(!src || !tgt) return;
+  // Reordenar array local
+  var srcIdx = _livros.indexOf(src);
+  var tgtIdx = _livros.indexOf(tgt);
+  _livros.splice(srcIdx, 1);
+  _livros.splice(tgtIdx, 0, src);
+  // Atualizar campo ordem de cada livro e salvar
+  toast('💾 Salvando nova ordem...');
+  var promises = [];
+  for(var i=0;i<_livros.length;i++){
+    _livros[i].ordem = i+1;
+    promises.push(
+      db.collection('biblioteca').doc(_livros[i].id).update({ordem: i+1}).catch(function(){})
+    );
+  }
+  renderEstantes();
+  setTimeout(setupDragAndDrop, 50);
+  await Promise.all(promises);
+  toast('✓ Ordem salva');
 }
 
 </script>
