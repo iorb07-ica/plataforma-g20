@@ -973,8 +973,25 @@ body.is-admin .btn-admin{display:inline-flex}
         <div class="form-row full">
           <div class="form-group">
             <label class="form-label">URL da capa</label>
-            <input class="form-input" id="fCapa" placeholder="https://...">
-            <span class="form-help">Cole o link da imagem da capa (preferencialmente Amazon ou similar)</span>
+            <div style="display:flex;gap:8px;align-items:flex-start">
+              <input class="form-input" id="fCapa" placeholder="https://..." style="flex:1">
+              <button type="button" class="btn-form ghost" onclick="buscarCapaGoogleBooks()" style="padding:0 16px;white-space:nowrap;height:44px" id="btnBuscarCapa" title="Busca capa, páginas, ano e descrição usando Google Books">
+                <i data-lucide="search" style="width:14px;height:14px"></i>
+                Buscar capa
+              </button>
+            </div>
+            <span class="form-help">Preencha título e autor acima, depois clique em "Buscar capa" para preencher tudo automaticamente</span>
+          </div>
+        </div>
+
+        <!-- Preview da capa -->
+        <div class="form-row full" id="capaPreview" style="display:none">
+          <div style="display:flex;gap:16px;padding:14px;background:rgba(74,122,85,.08);border:1px solid rgba(74,122,85,.3);border-radius:12px;align-items:center">
+            <img id="capaPreviewImg" src="" alt="" style="width:60px;height:90px;object-fit:cover;border-radius:4px;background:#1a191e;box-shadow:0 4px 12px rgba(0,0,0,.4)">
+            <div style="flex:1;min-width:0">
+              <div style="font-family:var(--mono);font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#7ed98c;margin-bottom:4px">✓ Capa encontrada via Google Books</div>
+              <div id="capaPreviewMeta" style="font-family:var(--sans);font-size:12px;color:var(--text-2);line-height:1.4"></div>
+            </div>
           </div>
         </div>
 
@@ -1979,6 +1996,104 @@ async function corrigirCapas(){
 
   toast('✓ '+atualizados+' capas atualizadas'+(falhas>0?' ('+falhas+' falhas)':''));
   carregarBiblioteca();
+}
+
+
+
+// ============================================================
+//  BUSCAR CAPA via Google Books — Auto-preenche capa, páginas, ano, descrição
+// ============================================================
+async function buscarCapaGoogleBooks(){
+  var titulo = document.getElementById('fTitulo').value.trim();
+  var autor = document.getElementById('fAutor').value.trim();
+
+  if(!titulo){
+    toast('Preencha o título primeiro', true);
+    document.getElementById('fTitulo').focus();
+    return;
+  }
+
+  var btn = document.getElementById('btnBuscarCapa');
+  var btnOriginal = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i data-lucide="loader" style="width:14px;height:14px;animation:spin 1s linear infinite"></i> Buscando...';
+  if(window.lucide) lucide.createIcons();
+
+  var preview = document.getElementById('capaPreview');
+  preview.style.display = 'none';
+
+  try{
+    var query = encodeURIComponent(titulo + (autor ? ' ' + autor : ''));
+
+    // Tentar primeiro em PT
+    var url = 'https://www.googleapis.com/books/v1/volumes?q=' + query + '&maxResults=1&langRestrict=pt';
+    var resp = await fetch(url);
+    var data = await resp.json();
+
+    // Se não achou em PT, tenta sem restrição
+    if(!data.items || !data.items[0]){
+      url = 'https://www.googleapis.com/books/v1/volumes?q=' + query + '&maxResults=1';
+      resp = await fetch(url);
+      data = await resp.json();
+    }
+
+    if(!data.items || !data.items[0] || !data.items[0].volumeInfo){
+      throw new Error('Nenhum livro encontrado com esse título');
+    }
+
+    var info = data.items[0].volumeInfo;
+
+    // Capa
+    var imageLinks = info.imageLinks || {};
+    var novaCapa = imageLinks.extraLarge || imageLinks.large || imageLinks.medium || imageLinks.thumbnail || imageLinks.smallThumbnail;
+    if(novaCapa){
+      novaCapa = novaCapa.replace('http://', 'https://').replace('&edge=curl', '').replace('zoom=1', 'zoom=3');
+      document.getElementById('fCapa').value = novaCapa;
+    }
+
+    // Páginas (só se vazio)
+    if(info.pageCount && !document.getElementById('fPaginas').value){
+      document.getElementById('fPaginas').value = info.pageCount;
+    }
+
+    // Ano (só se vazio)
+    if(info.publishedDate && !document.getElementById('fAno').value){
+      var ano = info.publishedDate.substring(0, 4);
+      if(/^\d{4}$/.test(ano)) document.getElementById('fAno').value = ano;
+    }
+
+    // Autor (só se vazio)
+    if(info.authors && info.authors.length > 0 && !document.getElementById('fAutor').value){
+      document.getElementById('fAutor').value = info.authors.join(', ');
+    }
+
+    // Descrição (só se vazia)
+    if(info.description && !document.getElementById('fDescricao').value){
+      var desc = info.description.replace(/<[^>]+>/g, '').trim();
+      if(desc.length > 400) desc = desc.substring(0, 400) + '...';
+      document.getElementById('fDescricao').value = desc;
+    }
+
+    // Mostrar preview
+    if(novaCapa){
+      document.getElementById('capaPreviewImg').src = novaCapa;
+      var meta = '<strong style="color:var(--ivory);font-family:var(--serif);font-size:15px">' + escapeHtml(info.title || titulo) + '</strong>';
+      if(info.authors) meta += '<br><span style="font-style:italic">' + escapeHtml(info.authors.join(', ')) + '</span>';
+      if(info.pageCount) meta += ' · ' + info.pageCount + ' páginas';
+      if(info.publishedDate) meta += ' · ' + info.publishedDate.substring(0, 4);
+      document.getElementById('capaPreviewMeta').innerHTML = meta;
+      preview.style.display = 'block';
+    }
+
+    toast('✓ Dados preenchidos automaticamente');
+  }catch(err){
+    console.error('Erro buscar capa:', err);
+    toast('⚠ ' + (err.message || 'Erro ao buscar'), true);
+  }finally{
+    btn.disabled = false;
+    btn.innerHTML = btnOriginal;
+    if(window.lucide) lucide.createIcons();
+  }
 }
 
 </script>
