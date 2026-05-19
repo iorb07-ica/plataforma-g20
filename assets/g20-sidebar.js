@@ -271,7 +271,7 @@
       { href: 'sala-de-aula.html',       ico: '📚', lucide: 'graduation-cap',  label: 'Sala de Aula',   id: 'tut-sala' },
       { href: 'g20flix.html',            ico: '🎬', lucide: 'clapperboard',    label: 'G20Flix',        id: 'tut-flix', badge: '80' },
       { href: 'g20cast.html',            ico: '🎧', lucide: 'headphones',      label: 'G20Cast',        id: 'tut-cast' },
-      { href: 'g20cast-premium.html',    ico: '⭐', lucide: 'star',            label: 'Cast Premium',   id: '' },
+      { href: 'g20cast-premium.html',    ico: '⭐', lucide: 'star',            label: 'G20Cast Premium', id: '' },
       { href: 'carteira.html',           ico: '📊', lucide: 'trending-up',     label: 'Carteira G20',   id: 'tut-carteira' },
       { href: 'game-g20.html',               ico: '🏆', lucide: 'trophy',          label: 'Game G20',       id: '' }
     ]},
