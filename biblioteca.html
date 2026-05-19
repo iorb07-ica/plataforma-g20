@@ -1929,89 +1929,96 @@ trocarTab = function(tab){
 
 
 
+
+
+
+
+
+
+
+
 // ============================================================
-//  CORRIGIR CAPAS — Atualiza URLs de capa dos livros já cadastrados
-//  Usa Google Books API (sem CORS, retorna thumbnails confiáveis)
+//  BUSCA DE CAPAS — Open Library Search API (sem CORS, sem rate limit)
+//  Fallback: Google Books API
 // ============================================================
-async function corrigirCapas(){
-  if(!confirm('Buscar e atualizar as capas de todos os '+_livros.length+' livros via Google Books?\n\nIsso vai sobrescrever as capas atuais.')) return;
 
-  toast('🔍 Buscando capas via Google Books...');
+// Busca capa e dados de um livro pelo título+autor
+// Retorna objeto { capa, titulo, autor, paginas, ano, descricao } ou null
+async function buscarDadosLivro(titulo, autor){
+  var query = encodeURIComponent((titulo||'') + (autor ? ' ' + autor : ''));
 
-  var atualizados = 0;
-  var falhas = 0;
+  // 1) Open Library Search
+  try{
+    var url = 'https://openlibrary.org/search.json?q=' + query + '&limit=1&language=por';
+    var resp = await fetch(url);
+    var data = await resp.json();
 
-  for(var i=0; i<_livros.length; i++){
-    var l = _livros[i];
-    try{
-      var query = encodeURIComponent(l.titulo + ' ' + (l.autor||''));
-      var url = 'https://www.googleapis.com/books/v1/volumes?q='+query+'&maxResults=1&langRestrict=pt';
-      var resp = await fetch(url);
-      var data = await resp.json();
+    if(data.docs && data.docs.length > 0){
+      var doc = data.docs[0];
+      var coverId = doc.cover_i;
+      var capa = coverId
+        ? 'https://covers.openlibrary.org/b/id/' + coverId + '-L.jpg'
+        : null;
 
-      if(data.items && data.items[0] && data.items[0].volumeInfo){
-        var info = data.items[0].volumeInfo;
-        var imageLinks = info.imageLinks || {};
-        // Pegar a maior imagem disponível
-        var novaCapa = imageLinks.extraLarge || imageLinks.large || imageLinks.medium || imageLinks.thumbnail || imageLinks.smallThumbnail;
-
-        // Se não achou em PT, tentar sem restrição
-        if(!novaCapa){
-          var url2 = 'https://www.googleapis.com/books/v1/volumes?q='+query+'&maxResults=1';
-          var resp2 = await fetch(url2);
-          var data2 = await resp2.json();
-          if(data2.items && data2.items[0] && data2.items[0].volumeInfo && data2.items[0].volumeInfo.imageLinks){
-            var il = data2.items[0].volumeInfo.imageLinks;
-            novaCapa = il.extraLarge || il.large || il.medium || il.thumbnail || il.smallThumbnail;
-          }
+      // Se não achou em pt, tenta sem filtro de idioma
+      if(!capa && !coverId){
+        var url2 = 'https://openlibrary.org/search.json?q=' + query + '&limit=1';
+        var resp2 = await fetch(url2);
+        var data2 = await resp2.json();
+        if(data2.docs && data2.docs.length > 0 && data2.docs[0].cover_i){
+          var cid2 = data2.docs[0].cover_i;
+          capa = 'https://covers.openlibrary.org/b/id/' + cid2 + '-L.jpg';
+          doc = data2.docs[0];
         }
-
-        if(novaCapa){
-          // Converter http para https
-          novaCapa = novaCapa.replace('http://', 'https://');
-          // Remover zoom=1 que limita resolução
-          novaCapa = novaCapa.replace('&edge=curl', '').replace('zoom=1', 'zoom=3');
-
-          await db.collection('biblioteca').doc(l.id).update({
-            capa: novaCapa,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-          });
-          l.capa = novaCapa;
-          atualizados++;
-        } else {
-          falhas++;
-        }
-      } else {
-        falhas++;
       }
-    }catch(e){
-      console.error('Erro corrigindo:', l.titulo, e);
-      falhas++;
+
+      if(capa){
+        return {
+          capa: capa,
+          titulo: doc.title || titulo,
+          autor: doc.author_name ? doc.author_name[0] : (autor||''),
+          paginas: doc.number_of_pages_median || null,
+          ano: doc.first_publish_year || null,
+          descricao: null // Open Library não retorna descrição no search
+        };
+      }
     }
+  }catch(e){ console.warn('Open Library falhou:', e); }
 
-    // Atualizar progresso
-    toast('🔍 '+(i+1)+'/'+_livros.length+' — '+l.titulo.substring(0,30)+'...');
-    await new Promise(function(r){setTimeout(r, 200)}); // Evita rate limit
-  }
+  // 2) Fallback: Google Books (com delay para evitar 429)
+  try{
+    await new Promise(function(r){ setTimeout(r, 300); });
+    var gbUrl = 'https://www.googleapis.com/books/v1/volumes?q=' + query + '&maxResults=1';
+    var gbResp = await fetch(gbUrl);
+    if(!gbResp.ok) throw new Error('Google Books ' + gbResp.status);
+    var gbData = await gbResp.json();
 
-  toast('✓ '+atualizados+' capas atualizadas'+(falhas>0?' ('+falhas+' falhas)':''));
-  carregarBiblioteca();
+    if(gbData.items && gbData.items[0] && gbData.items[0].volumeInfo){
+      var info = gbData.items[0].volumeInfo;
+      var imageLinks = info.imageLinks || {};
+      var capa = imageLinks.extraLarge || imageLinks.large || imageLinks.medium || imageLinks.thumbnail || imageLinks.smallThumbnail;
+      if(capa){
+        capa = capa.replace('http://','https://').replace('&edge=curl','').replace('zoom=1','zoom=3');
+        return {
+          capa: capa,
+          titulo: info.title || titulo,
+          autor: info.authors ? info.authors[0] : (autor||''),
+          paginas: info.pageCount || null,
+          ano: info.publishedDate ? parseInt(info.publishedDate.substring(0,4)) : null,
+          descricao: info.description ? info.description.replace(/<[^>]+>/g,'').trim().substring(0,400) : null
+        };
+      }
+    }
+  }catch(e){ console.warn('Google Books falhou:', e); }
+
+  return null;
 }
 
-
-
-// ============================================================
-//  BUSCAR CAPA via Google Books — Auto-preenche capa, páginas, ano, descrição
-// ============================================================
+// Botão "Buscar capa" no formulário de adicionar/editar livro
 async function buscarCapaGoogleBooks(){
   var titulo = document.getElementById('fTitulo').value.trim();
-  var autor = document.getElementById('fAutor').value.trim();
-
-  if(!titulo){
-    toast('Preencha o título primeiro', true);
-    document.getElementById('fTitulo').focus();
-    return;
-  }
+  var autor  = document.getElementById('fAutor').value.trim();
+  if(!titulo){ toast('Preencha o título primeiro', true); document.getElementById('fTitulo').focus(); return; }
 
   var btn = document.getElementById('btnBuscarCapa');
   var btnOriginal = btn.innerHTML;
@@ -2019,81 +2026,77 @@ async function buscarCapaGoogleBooks(){
   btn.innerHTML = '<i data-lucide="loader" style="width:14px;height:14px;animation:spin 1s linear infinite"></i> Buscando...';
   if(window.lucide) lucide.createIcons();
 
-  var preview = document.getElementById('capaPreview');
-  preview.style.display = 'none';
+  document.getElementById('capaPreview').style.display = 'none';
 
   try{
-    var query = encodeURIComponent(titulo + (autor ? ' ' + autor : ''));
+    var dados = await buscarDadosLivro(titulo, autor);
+    if(!dados || !dados.capa) throw new Error('Capa não encontrada para "' + titulo + '"');
 
-    // Tentar primeiro em PT
-    var url = 'https://www.googleapis.com/books/v1/volumes?q=' + query + '&maxResults=1&langRestrict=pt';
-    var resp = await fetch(url);
-    var data = await resp.json();
+    // Preencher campos (sem sobrescrever o que já foi digitado)
+    document.getElementById('fCapa').value = dados.capa;
+    if(dados.paginas && !document.getElementById('fPaginas').value) document.getElementById('fPaginas').value = dados.paginas;
+    if(dados.ano    && !document.getElementById('fAno').value)     document.getElementById('fAno').value = dados.ano;
+    if(dados.autor  && !document.getElementById('fAutor').value)   document.getElementById('fAutor').value = dados.autor;
+    if(dados.descricao && !document.getElementById('fDescricao').value) document.getElementById('fDescricao').value = dados.descricao;
 
-    // Se não achou em PT, tenta sem restrição
-    if(!data.items || !data.items[0]){
-      url = 'https://www.googleapis.com/books/v1/volumes?q=' + query + '&maxResults=1';
-      resp = await fetch(url);
-      data = await resp.json();
-    }
-
-    if(!data.items || !data.items[0] || !data.items[0].volumeInfo){
-      throw new Error('Nenhum livro encontrado com esse título');
-    }
-
-    var info = data.items[0].volumeInfo;
-
-    // Capa
-    var imageLinks = info.imageLinks || {};
-    var novaCapa = imageLinks.extraLarge || imageLinks.large || imageLinks.medium || imageLinks.thumbnail || imageLinks.smallThumbnail;
-    if(novaCapa){
-      novaCapa = novaCapa.replace('http://', 'https://').replace('&edge=curl', '').replace('zoom=1', 'zoom=3');
-      document.getElementById('fCapa').value = novaCapa;
-    }
-
-    // Páginas (só se vazio)
-    if(info.pageCount && !document.getElementById('fPaginas').value){
-      document.getElementById('fPaginas').value = info.pageCount;
-    }
-
-    // Ano (só se vazio)
-    if(info.publishedDate && !document.getElementById('fAno').value){
-      var ano = info.publishedDate.substring(0, 4);
-      if(/^\d{4}$/.test(ano)) document.getElementById('fAno').value = ano;
-    }
-
-    // Autor (só se vazio)
-    if(info.authors && info.authors.length > 0 && !document.getElementById('fAutor').value){
-      document.getElementById('fAutor').value = info.authors.join(', ');
-    }
-
-    // Descrição (só se vazia)
-    if(info.description && !document.getElementById('fDescricao').value){
-      var desc = info.description.replace(/<[^>]+>/g, '').trim();
-      if(desc.length > 400) desc = desc.substring(0, 400) + '...';
-      document.getElementById('fDescricao').value = desc;
-    }
-
-    // Mostrar preview
-    if(novaCapa){
-      document.getElementById('capaPreviewImg').src = novaCapa;
-      var meta = '<strong style="color:var(--ivory);font-family:var(--serif);font-size:15px">' + escapeHtml(info.title || titulo) + '</strong>';
-      if(info.authors) meta += '<br><span style="font-style:italic">' + escapeHtml(info.authors.join(', ')) + '</span>';
-      if(info.pageCount) meta += ' · ' + info.pageCount + ' páginas';
-      if(info.publishedDate) meta += ' · ' + info.publishedDate.substring(0, 4);
-      document.getElementById('capaPreviewMeta').innerHTML = meta;
-      preview.style.display = 'block';
-    }
-
-    toast('✓ Dados preenchidos automaticamente');
-  }catch(err){
-    console.error('Erro buscar capa:', err);
-    toast('⚠ ' + (err.message || 'Erro ao buscar'), true);
+    // Preview verde
+    document.getElementById('capaPreviewImg').src = dados.capa;
+    var meta = '<strong style="color:var(--ivory);font-family:var(--serif);font-size:15px">' + escapeHtml(dados.titulo) + '</strong>';
+    if(dados.autor)  meta += '<br><span style="font-style:italic">' + escapeHtml(dados.autor) + '</span>';
+    if(dados.paginas) meta += ' · ' + dados.paginas + ' pgs';
+    if(dados.ano)    meta += ' · ' + dados.ano;
+    document.getElementById('capaPreviewMeta').innerHTML = meta;
+    document.getElementById('capaPreview').style.display = 'block';
+    toast('✓ Capa encontrada!');
+  }catch(e){
+    console.error(e);
+    toast('Não encontrei capa — cole a URL manualmente', true);
   }finally{
     btn.disabled = false;
     btn.innerHTML = btnOriginal;
     if(window.lucide) lucide.createIcons();
   }
+}
+
+// Botão "Corrigir capas" — atualiza todos os livros já no Firestore
+async function corrigirCapas(){
+  if(!confirm('Buscar e atualizar as capas de todos os ' + _livros.length + ' livros?\n\nIsso vai sobrescrever as capas atuais com imagens novas.')) return;
+
+  var atualizados = 0;
+  var falhas = [];
+
+  for(var i = 0; i < _livros.length; i++){
+    var l = _livros[i];
+    toast('🔍 ' + (i+1) + '/' + _livros.length + ' — ' + l.titulo.substring(0,28) + '...');
+
+    var dados = await buscarDadosLivro(l.titulo, l.autor);
+
+    if(dados && dados.capa){
+      try{
+        await db.collection('biblioteca').doc(l.id).update({
+          capa: dados.capa,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        l.capa = dados.capa;
+        atualizados++;
+      }catch(e){
+        falhas.push(l.titulo);
+      }
+    } else {
+      falhas.push(l.titulo);
+    }
+
+    // Pausa entre livros para não sobreaquecer as APIs
+    await new Promise(function(r){ setTimeout(r, 600); });
+  }
+
+  if(falhas.length > 0){
+    console.warn('Capas não encontradas:', falhas);
+    toast('✓ ' + atualizados + ' capas atualizadas · ' + falhas.length + ' não encontradas', falhas.length === _livros.length);
+  } else {
+    toast('✓ Todas as ' + atualizados + ' capas atualizadas!');
+  }
+  carregarBiblioteca();
 }
 
 </script>
