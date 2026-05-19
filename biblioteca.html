@@ -912,6 +912,23 @@ body.is-admin .book-admin-actions{display:flex}
   <div class="quote-attribution"><span id="quoteAuthor">Thornton T. Munger</span></div>
 </section>
 
+<!-- CAPTURA RÁPIDA AMAZON — só admin -->
+<div id="amazonCaptureBar" style="display:none;background:linear-gradient(135deg,rgba(201,169,97,.1),rgba(201,169,97,.04));border-bottom:1px solid var(--border-gold);padding:14px 48px">
+  <div style="max-width:1600px;margin:0 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <div style="font-family:var(--mono);font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--gold);white-space:nowrap">⚡ Capturar da Amazon</div>
+    <input id="amazonCaptureUrl" type="text" placeholder="Cole o link do livro na Amazon aqui..." style="flex:1;min-width:260px;font-family:var(--sans);font-size:13px;padding:10px 14px;background:rgba(0,0,0,.4);border:1px solid var(--border);border-radius:10px;color:var(--text);outline:none" oninput="amazonCaptureReset()">
+    <button onclick="iniciarCaptura()" id="btnCapturar" style="font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 22px;background:linear-gradient(135deg,var(--gold-deep),var(--gold-light));color:#1a1410;border:none;border-radius:10px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:8px">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      Buscar dados
+    </button>
+    <div id="amazonCaptureStatus" style="font-family:var(--mono);font-size:11px;color:var(--text-2)"></div>
+  </div>
+</div>
+<body.is-admin #amazonCaptureBar style="display:block"></body.is-admin>
+
+<!-- IFRAME invisível para captura -->
+<iframe id="amazonIframe" style="display:none;width:1px;height:1px;border:none;position:absolute;left:-9999px;top:-9999px" sandbox="allow-scripts allow-same-origin"></iframe>
+
 <!-- ESTANTES DE LIVROS -->
 <section class="shelves-section">
   <div class="toolbar">
@@ -1262,7 +1279,11 @@ auth.onAuthStateChanged(function(user){
   db.collection('users').doc(user.uid).get().then(function(doc){
     var data = doc.data() || {};
     _isAdmin = data.role === 'admin' || user.uid === '8xrwHHEKAmd0Us5MCyBJhtkJVBM2';
-    if(_isAdmin) document.body.classList.add('is-admin');
+    if(_isAdmin){
+      document.body.classList.add('is-admin');
+      var bar = document.getElementById('amazonCaptureBar');
+      if(bar) bar.style.display = 'block';
+    }
 
     // Atualiza cache
     try{
@@ -2553,6 +2574,152 @@ function setupBookmarklet(){
   };
   tentar();
 })();
+
+
+
+// ============================================================
+//  CAPTURA RÁPIDA DA AMAZON
+// ============================================================
+var _capturaAbortController = null;
+
+function amazonCaptureReset(){
+  document.getElementById('amazonCaptureStatus').textContent = '';
+  var btn = document.getElementById('btnCapturar');
+  btn.textContent = '';
+  btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg> Buscar dados';
+  btn.disabled = false;
+}
+
+async function iniciarCaptura(){
+  var url = document.getElementById('amazonCaptureUrl').value.trim();
+  if(!url){ toast('Cole o link da Amazon primeiro', true); return; }
+  if(!/amazon\.com/i.test(url)){ toast('O link não parece ser da Amazon', true); return; }
+
+  var btn = document.getElementById('btnCapturar');
+  var status = document.getElementById('amazonCaptureStatus');
+  btn.disabled = true;
+  btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="animation:spin .8s linear infinite" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Buscando...';
+  status.textContent = 'Conectando na Amazon...';
+
+  // Extrair ASIN da URL
+  var asinMatch = url.match(/\/dp\/([A-Z0-9]{10})/i) || url.match(/\/gp\/product\/([A-Z0-9]{10})/i);
+  var asin = asinMatch ? asinMatch[1] : null;
+
+  // Estratégia 1: Google Books pelo ISBN/título (silenciosa, sem CORS)
+  // Estratégia 2: Open Library
+  // Estratégia 3: Extrair ASIN e montar URL de capa direto da Amazon
+
+  var dados = null;
+
+  // Tentar extrair título da URL (alguns links têm o título)
+  var tituloUrl = decodeURIComponent(url).match(/amazon\.com\.br\/([^/]+)\/dp/i);
+  var tituloHint = tituloUrl ? tituloUrl[1].replace(/-/g,' ').replace(/\+/g,' ') : '';
+
+  status.textContent = 'Buscando via Google Books...';
+
+  // Busca pelo título extraído da URL ou pelo ASIN
+  var query = tituloHint || asin || '';
+  if(query){
+    try{
+      var gbUrl = 'https://www.googleapis.com/books/v1/volumes?q=' + encodeURIComponent(query) + '&maxResults=1';
+      var resp = await fetch(gbUrl);
+      var gbData = await resp.json();
+      if(gbData.items && gbData.items[0]){
+        var info = gbData.items[0].volumeInfo;
+        var il = info.imageLinks || {};
+        var capa = il.extraLarge || il.large || il.medium || il.thumbnail || '';
+        if(capa) capa = capa.replace('http://','https://').replace('zoom=1','zoom=3').replace('&edge=curl','');
+        dados = {
+          titulo: info.title || '',
+          autor: info.authors ? info.authors[0] : '',
+          paginas: info.pageCount || '',
+          ano: info.publishedDate ? info.publishedDate.substring(0,4) : '',
+          descricao: info.description ? info.description.replace(/<[^>]+>/g,'').trim().substring(0,400) : '',
+          capa: capa
+        };
+      }
+    }catch(e){ console.warn('Google Books falhou:', e); }
+  }
+
+  // Se não achou pelo título, tenta Open Library
+  if(!dados || !dados.titulo){
+    status.textContent = 'Tentando Open Library...';
+    try{
+      var olQuery = encodeURIComponent(tituloHint || query);
+      var olResp = await fetch('https://openlibrary.org/search.json?q='+olQuery+'&limit=1');
+      var olData = await olResp.json();
+      if(olData.docs && olData.docs[0]){
+        var doc = olData.docs[0];
+        var cid = doc.cover_i;
+        dados = {
+          titulo: doc.title || '',
+          autor: doc.author_name ? doc.author_name[0] : '',
+          paginas: doc.number_of_pages_median || '',
+          ano: doc.first_publish_year || '',
+          descricao: '',
+          capa: cid ? 'https://covers.openlibrary.org/b/id/'+cid+'-L.jpg' : ''
+        };
+      }
+    }catch(e){ console.warn('Open Library falhou:', e); }
+  }
+
+  // Capa da Amazon pelo ASIN (funciona no browser)
+  if(asin){
+    var capaAmazon = 'https://images-na.ssl-images-amazon.com/images/P/'+asin+'.01.LZZZZZZZ.jpg';
+    if(dados) dados.capa = capaAmazon; // preferir Amazon que é mais alta resolução
+    else dados = { titulo: '', autor: '', paginas: '', ano: '', descricao: '', capa: capaAmazon };
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg> Buscar dados';
+
+  if(!dados || (!dados.titulo && !dados.capa)){
+    status.style.color = '#e63946';
+    status.textContent = '⚠ Não encontrei dados. Tente um link diferente ou preencha manualmente.';
+    return;
+  }
+
+  // Preencher formulário e abrir modal
+  status.style.color = '#7ed98c';
+  status.textContent = '✓ Dados encontrados! Formulário aberto →';
+
+  abrirAdmin();
+  trocarTab('form');
+  limparForm();
+
+  setTimeout(function(){
+    if(dados.titulo) document.getElementById('fTitulo').value = dados.titulo;
+    if(dados.autor)  document.getElementById('fAutor').value = dados.autor;
+    if(dados.paginas) document.getElementById('fPaginas').value = dados.paginas;
+    if(dados.ano)    document.getElementById('fAno').value = dados.ano;
+    if(dados.capa)   document.getElementById('fCapa').value = dados.capa;
+    if(dados.descricao && !document.getElementById('fDescricao').value){
+      document.getElementById('fDescricao').value = dados.descricao;
+    }
+    document.getElementById('fAmazon').value = url;
+
+    // Preview da capa
+    if(dados.capa){
+      var prev = document.getElementById('capaPreview');
+      var img  = document.getElementById('capaPreviewImg');
+      var meta = document.getElementById('capaPreviewMeta');
+      if(prev && img){
+        img.src = dados.capa;
+        if(meta) meta.innerHTML =
+          '<strong style="color:var(--ivory);font-family:var(--serif);font-size:15px">'+escapeHtml(dados.titulo)+'</strong>' +
+          (dados.autor ? '<br><span style="font-style:italic">'+escapeHtml(dados.autor)+'</span>' : '') +
+          (dados.paginas ? ' · '+dados.paginas+' pgs' : '') +
+          (dados.ano ? ' · '+dados.ano : '');
+        prev.style.display = 'block';
+      }
+    }
+
+    toast('✓ Dados preenchidos! Complete a categoria e salve.');
+    // Limpar campo de URL
+    document.getElementById('amazonCaptureUrl').value = '';
+    document.getElementById('amazonCaptureStatus').textContent = '';
+  }, 300);
+}
 
 </script>
 </body>
