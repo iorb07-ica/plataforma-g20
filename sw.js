@@ -1,6 +1,4 @@
-﻿const CACHE = 'g20-v8';
-
-// Apenas assets estÃ¡ticos que raramente mudam
+const CACHE = 'g20-v9';
 const STATIC = [
   'manifest.json',
   'icon-192.png',
@@ -8,7 +6,6 @@ const STATIC = [
   'apple-touch-icon.png',
   'G20_Masterclass_-_logo_dashboard.png',
 ];
-
 self.addEventListener('install', function(e) {
   self.skipWaiting();
   e.waitUntil(
@@ -17,7 +14,6 @@ self.addEventListener('install', function(e) {
     })
   );
 });
-
 self.addEventListener('activate', function(e) {
   e.waitUntil(
     caches.keys().then(function(keys) {
@@ -28,13 +24,9 @@ self.addEventListener('activate', function(e) {
     }).then(function() { return self.clients.claim(); })
   );
 });
-
 self.addEventListener('fetch', function(e) {
   if (e.request.method !== 'GET') return;
-
   var url = e.request.url;
-
-  // Nunca intercepta APIs externas
   if (url.includes('firebaseapp') || url.includes('googleapis') ||
       url.includes('firestore') || url.includes('anchor.fm') ||
       url.includes('brapi.dev') || url.includes('twelvedata') ||
@@ -42,8 +34,6 @@ self.addEventListener('fetch', function(e) {
       url.includes('gstatic.com') || url.includes('vercel.app') ||
       url.includes('awesomeapi.com.br') || url.includes('yahoo') ||
       url.includes('cdnjs.cloudflare.com')) return;
-
-  // HTMLs â€” NUNCA usa cache, sempre busca da rede
   if (url.endsWith('.html') || url.endsWith('/')) {
     e.respondWith(
       fetch(e.request).catch(function() {
@@ -52,8 +42,6 @@ self.addEventListener('fetch', function(e) {
     );
     return;
   }
-
-  // Assets â€” network-first (busca rede, cache sÃ³ como fallback offline)
   e.respondWith(
     fetch(e.request).then(function(response) {
       if (response && response.status === 200) {
