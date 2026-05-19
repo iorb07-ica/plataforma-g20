@@ -922,6 +922,7 @@ body.is-admin .btn-admin{display:inline-flex}
     <div class="admin-tabs">
       <button class="admin-tab active" data-tab="form"><i data-lucide="plus-circle" style="width:14px;height:14px"></i> Adicionar / Editar</button>
       <button class="admin-tab" data-tab="lista"><i data-lucide="list" style="width:14px;height:14px"></i> Listar todos</button>
+      <button class="admin-tab" data-tab="importar"><i data-lucide="download-cloud" style="width:14px;height:14px"></i> Importar curadoria</button>
     </div>
 
     <div class="admin-body">
@@ -1029,6 +1030,22 @@ body.is-admin .btn-admin{display:inline-flex}
       <!-- TAB: LISTAR -->
       <div id="tabLista" style="display:none">
         <div class="admin-list" id="adminList"></div>
+      </div>
+
+      <!-- TAB: IMPORTAR -->
+      <div id="tabImportar" style="display:none">
+        <div style="padding:14px 18px;background:rgba(201,169,97,.08);border:1px solid var(--border-gold);border-radius:12px;margin-bottom:18px">
+          <div style="font-family:var(--serif);font-size:18px;font-weight:600;color:var(--ivory);margin-bottom:6px">📦 Curadoria Inicial G20</div>
+          <div style="font-family:var(--sans);font-size:13px;color:var(--text-2);line-height:1.5">18 livros recomendados já organizados por categoria. Depois de importar, edite cada livro para adicionar seu link de afiliado Amazon.</div>
+        </div>
+        <div id="importPreview" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;margin-bottom:14px"></div>
+        <div class="form-actions" style="border:none;margin:0">
+          <button class="btn-form ghost" onclick="trocarTab('lista')">Cancelar</button>
+          <button class="btn-form primary" onclick="importarCuradoria()" id="btnImportar">
+            <i data-lucide="upload-cloud" style="width:14px;height:14px"></i>
+            <span id="btnImportarTxt">Importar todos (0)</span>
+          </button>
+        </div>
       </div>
 
     </div>
@@ -1755,6 +1772,138 @@ function decodeHtml(s){
   t.innerHTML = s;
   return t.value;
 }
+
+
+
+// ============================================================
+//  IMPORTAR CURADORIA INICIAL (18 livros pré-cadastrados)
+// ============================================================
+var CURADORIA_G20 = [
+  // === MENTALIDADE ===
+  {titulo:"O Poder do Hábito", autor:"Charles Duhigg", ano:2012, paginas:408, categoria:"mentalidade",
+   capa:"https://m.media-amazon.com/images/I/81oqXFR1tEL._SY342_.jpg",
+   descricao:"Por que fazemos o que fazemos na vida e nos negócios."},
+  {titulo:"Os Segredos da Mente Milionária", autor:"T. Harv Eker", ano:2005, paginas:208, categoria:"mentalidade",
+   capa:"https://m.media-amazon.com/images/I/71XHK5DkBeL._SY342_.jpg",
+   descricao:"Aprenda a enriquecer mudando seus conceitos sobre o dinheiro."},
+  {titulo:"Como Fazer Amigos e Influenciar Pessoas", autor:"Dale Carnegie", ano:1936, paginas:256, categoria:"mentalidade",
+   capa:"https://m.media-amazon.com/images/I/71vK6BBaP3L._SY342_.jpg",
+   descricao:"O livro de autoajuda mais bem-sucedido de todos os tempos."},
+  {titulo:"Essencialismo", autor:"Greg McKeown", ano:2014, paginas:272, categoria:"mentalidade",
+   capa:"https://m.media-amazon.com/images/I/71jx-MlsesL._SY342_.jpg",
+   descricao:"A disciplinada busca por menos."},
+  {titulo:"As 16 Leis do Sucesso", autor:"Napoleon Hill", ano:1928, paginas:320, categoria:"mentalidade",
+   capa:"https://m.media-amazon.com/images/I/81WHHaScpyL._SY342_.jpg",
+   descricao:"O livro que mais influenciou líderes e empreendedores em todo o mundo."},
+  {titulo:"Mais Esperto que o Diabo", autor:"Napoleon Hill", ano:2011, paginas:208, categoria:"mentalidade",
+   capa:"https://m.media-amazon.com/images/I/71jKO46wesL._SY342_.jpg",
+   descricao:"Os segredos dos grandes sobre a liberdade e o sucesso."},
+
+  // === INVESTIMENTOS ===
+  {titulo:"Faça Fortuna com Ações, Antes que Seja Tarde", autor:"Décio Bazin", ano:1990, paginas:144, categoria:"investimentos",
+   capa:"https://m.media-amazon.com/images/I/61MQ3FUz4iL._SY342_.jpg",
+   descricao:"Profissional do mercado mostra o caminho através do fascinante mundo da bolsa."},
+  {titulo:"O Investidor Inteligente", autor:"Benjamin Graham", ano:1949, paginas:640, categoria:"investimentos",
+   capa:"https://m.media-amazon.com/images/I/81b9DvjB2hL._SY342_.jpg",
+   descricao:"O guia clássico para ganhar dinheiro na bolsa. Prefácio de Warren Buffett."},
+  {titulo:"Investindo em Ações no Longo Prazo", autor:"Jeremy Siegel", ano:1994, paginas:392, categoria:"investimentos",
+   capa:"https://m.media-amazon.com/images/I/71BPzGzGV3L._SY342_.jpg",
+   descricao:"O guia definitivo do mercado financeiro para estratégias de longo prazo."},
+  {titulo:"Ações Comuns, Lucros Extraordinários", autor:"Philip Fisher", ano:1958, paginas:320, categoria:"investimentos",
+   capa:"https://m.media-amazon.com/images/I/71bzmJ0WqIL._SY342_.jpg",
+   descricao:"Uma maneira inteligente de se comprometer com seus investimentos."},
+  {titulo:"Antifrágil", autor:"Nassim Nicholas Taleb", ano:2012, paginas:600, categoria:"investimentos",
+   capa:"https://m.media-amazon.com/images/I/71MwlS17F7L._SY342_.jpg",
+   descricao:"Coisas que se beneficiam com o caos."},
+  {titulo:"Princípios", autor:"Ray Dalio", ano:2017, paginas:592, categoria:"investimentos",
+   capa:"https://m.media-amazon.com/images/I/91ng-7s4SmL._SY342_.jpg",
+   descricao:"Princípios de vida e trabalho do fundador da Bridgewater Associates."},
+
+  // === FINANÇAS PESSOAIS ===
+  {titulo:"Pai Rico, Pai Pobre", autor:"Robert T. Kiyosaki", ano:1997, paginas:336, categoria:"financasPessoais",
+   capa:"https://m.media-amazon.com/images/I/81bsw6fnUiL._SY342_.jpg",
+   descricao:"O que os ricos ensinam a seus filhos sobre dinheiro."},
+
+  // === ECONOMIA ===
+  {titulo:"CRASH — Uma Breve História da Economia", autor:"Alexandre Versignassi", ano:2011, paginas:336, categoria:"economia",
+   capa:"https://m.media-amazon.com/images/I/71Hc6KP5BkL._SY342_.jpg",
+   descricao:"Da Grécia antiga ao século XXI, uma viagem fascinante pela história do dinheiro."},
+
+  // === BIOGRAFIA ===
+  {titulo:"A Bola de Neve", autor:"Alice Schroeder", ano:2008, paginas:840, categoria:"biografia",
+   capa:"https://m.media-amazon.com/images/I/91WW0CFmEjL._SY342_.jpg",
+   descricao:"Warren Buffett e o negócio da vida."},
+  {titulo:"Na Raça", autor:"Maria Luíza Filgueiras", ano:2022, paginas:288, categoria:"biografia",
+   capa:"https://m.media-amazon.com/images/I/71J+VlxFvUL._SY342_.jpg",
+   descricao:"Como Guilherme Benchimol criou a XP e iniciou a maior revolução do mercado financeiro brasileiro."},
+  {titulo:"Fora da Curva", autor:"Florian Bartunek, Giuliana Napolitano e Pierre Moreau", ano:2017, paginas:240, categoria:"biografia",
+   capa:"https://m.media-amazon.com/images/I/71G6CB0CV5L._SY342_.jpg",
+   descricao:"Os segredos dos grandes investidores do Brasil — e o que você pode aprender com eles."},
+
+  // === EMPREENDEDORISMO ===
+  {titulo:"O Milagre da Manhã", autor:"Hal Elrod", ano:2012, paginas:176, categoria:"empreendedorismo",
+   capa:"https://m.media-amazon.com/images/I/71PpD0OBmEL._SY342_.jpg",
+   descricao:"O segredo para transformar sua vida (antes das 8h da manhã)."}
+];
+
+function renderImportPreview(){
+  var container = document.getElementById('importPreview');
+  var nomesCats = {investimentos:'📊 Investimentos', financasPessoais:'💰 Finanças Pessoais', mentalidade:'🧠 Mentalidade', biografia:'📜 Biografia', empreendedorismo:'🚀 Empreendedorismo', economia:'🌐 Economia'};
+  container.innerHTML = CURADORIA_G20.map(function(l, i){
+    return '<div style="display:flex;gap:12px;padding:10px 14px;border-bottom:1px solid var(--border);align-items:center">'+
+      '<div style="font-family:var(--mono);font-size:11px;color:var(--gold);width:24px">'+(i+1).toString().padStart(2,'0')+'</div>'+
+      '<img src="'+l.capa+'" style="width:34px;height:50px;object-fit:cover;border-radius:3px;background:#1a191e;flex-shrink:0" onerror="this.style.display=\'none\'">'+
+      '<div style="flex:1;min-width:0">'+
+        '<div style="font-family:var(--serif);font-weight:600;font-size:14px;color:var(--text);line-height:1.2">'+escapeHtml(l.titulo)+'</div>'+
+        '<div style="font-family:var(--sans);font-size:11px;color:var(--text-2);margin-top:2px">'+escapeHtml(l.autor)+'</div>'+
+      '</div>'+
+      '<div style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--gold);text-transform:uppercase">'+(nomesCats[l.categoria]||l.categoria)+'</div>'+
+    '</div>';
+  }).join('');
+  document.getElementById('btnImportarTxt').textContent = 'Importar todos ('+CURADORIA_G20.length+')';
+}
+
+async function importarCuradoria(){
+  if(!confirm('Importar '+CURADORIA_G20.length+' livros da curadoria G20?\n\nVocê poderá editar cada um depois para adicionar o link de afiliado Amazon.')) return;
+  var btn = document.getElementById('btnImportar');
+  btn.disabled = true;
+  var original = document.getElementById('btnImportarTxt').textContent;
+  var count = 0;
+
+  for(var i=0; i<CURADORIA_G20.length; i++){
+    var l = CURADORIA_G20[i];
+    document.getElementById('btnImportarTxt').textContent = 'Importando '+(i+1)+'/'+CURADORIA_G20.length+'...';
+    try{
+      await db.collection('biblioteca').add(Object.assign({
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        amazonLink: '',
+        frase: '',
+        ordem: i+1
+      }, l));
+      count++;
+    }catch(e){
+      console.error('Erro ao importar:', l.titulo, e);
+    }
+  }
+
+  document.getElementById('btnImportarTxt').textContent = original;
+  btn.disabled = false;
+  toast('✓ '+count+' livros importados com sucesso!');
+  carregarBiblioteca();
+  trocarTab('lista');
+}
+
+// Atualizar a função trocarTab para suportar a nova aba
+var _trocarTabOrig = trocarTab;
+trocarTab = function(tab){
+  document.querySelectorAll('.admin-tab').forEach(function(t){t.classList.toggle('active', t.dataset.tab===tab)});
+  document.getElementById('tabForm').style.display = tab==='form' ? 'block' : 'none';
+  document.getElementById('tabLista').style.display = tab==='lista' ? 'block' : 'none';
+  var ti = document.getElementById('tabImportar');
+  if(ti) ti.style.display = tab==='importar' ? 'block' : 'none';
+  if(tab==='lista') renderAdminList();
+  if(tab==='importar') renderImportPreview();
+};
 
 </script>
 </body>
