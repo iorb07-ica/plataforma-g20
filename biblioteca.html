@@ -426,8 +426,12 @@ body.is-admin .btn-admin{display:inline-flex}
 }
 .book-card:hover{transform:translateY(-10px)}
 
-/* Wrapper neutro — mantido para não quebrar HTML */
-.book-3d{position:relative;}
+/* Wrapper — perspective no pai evita blur nos filhos */
+.book-3d{
+  position:relative;
+  perspective:1200px;
+  perspective-origin:60% 50%;
+}
 
 /* Spine e pages divs não usados nesta versão */
 .book-spine,.book-pages{display:none}
@@ -439,13 +443,11 @@ body.is-admin .btn-admin{display:inline-flex}
   border-radius:2px 7px 7px 2px;
   overflow:hidden;
   background:#27252c;
-  transform:perspective(1000px) rotateY(-4deg);
+  transform:rotateY(-4deg);
   transform-origin:center center;
   transition:transform .4s cubic-bezier(.25,.8,.25,1), box-shadow .4s;
 
-  /* Efeito de páginas: camadas de box-shadow no lado direito */
   box-shadow:
-    /* páginas — finas camadas creme visíveis à direita */
     4px  0px 0 #ece6d6,
     5px  0px 0 #d8d0be,
     7px  0px 0 #ece6d6,
@@ -453,12 +455,11 @@ body.is-admin .btn-admin{display:inline-flex}
     10px 0px 0 #ece6d6,
     11px 0px 0 #d8d0be,
     12px 0px 0 #ece6d6,
-    /* sombra geral */
     14px 14px 40px rgba(0,0,0,.75),
     2px  4px  12px rgba(0,0,0,.5);
 }
 .book-card:hover .book-cover{
-  transform:perspective(1000px) rotateY(-12deg);
+  transform:rotateY(-12deg);
   box-shadow:
     4px  0px 0 #ece6d6,
     6px  0px 0 #d8d0be,
@@ -473,6 +474,34 @@ body.is-admin .btn-admin{display:inline-flex}
 }
 
 .book-cover img{width:100%;height:100%;object-fit:cover;display:block}
+
+/* Nitidez dos elementos filhos dentro do cover */
+.book-admin-actions,
+.reading-now-tag,
+.book-seal{
+  transform:translateZ(0);
+  backface-visibility:hidden;
+  -webkit-backface-visibility:hidden;
+}
+
+/* ── REGRAS DE VISIBILIDADE POR CONTEXTO ──────────
+   G20: botões só para admin
+   Minha Estante: botão deletar para o próprio aluno
+   Comunidade: botões aprovar/rejeitar só para admin
+   Modo Aluno: oculta todos os botões admin ──────── */
+.book-admin-actions{display:none}
+
+/* Biblioteca G20 — só admin, nunca para alunos */
+body.is-admin:not(.modo-aluno) .shelf-grid .book-admin-actions{display:flex !important}
+
+/* Minha Estante — delete sempre visível (é do próprio aluno) */
+#shelvesMinha .book-admin-actions{display:flex !important}
+
+/* Comunidade — só admin */
+body.is-admin:not(.modo-aluno) #shelvesComunidade .book-admin-actions{display:flex !important}
+
+/* Modo Aluno (admin simulando visão do aluno) */
+body.modo-aluno .book-admin-actions{display:none !important}
 
 /* Sombra de lombada na borda esquerda */
 .book-cover::before{
@@ -545,29 +574,135 @@ body.is-admin .btn-admin{display:inline-flex}
 .book-action.danger:hover{background:#e63946;color:#fff}
 
 /* Info do livro abaixo */
-.book-info{padding:14px 4px 0;text-align:center}
-.book-title{
-  font-family:var(--serif);
-  font-size:15px;
-  font-weight:600;
-  line-height:1.2;
-  color:var(--text);
-  margin-bottom:4px;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
-  min-height:36px;
+/* ── ÁREA ABAIXO DO LIVRO ───────────────────────── */
+.book-info{
+  padding:10px 2px 0;
+  display:flex;
+  align-items:center;
+  gap:7px;
 }
-.book-author{
+
+/* Botão Comprar */
+.btn-comprar{
+  flex:1;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:5px;
+  padding:7px 10px;
+  background:linear-gradient(135deg,rgba(201,169,97,.1),rgba(201,169,97,.05));
+  border:1px solid rgba(201,169,97,.28);
+  border-radius:9px;
+  color:var(--gold);
   font-family:var(--sans);
   font-size:11px;
-  color:var(--text-2);
-  font-style:italic;
-  letter-spacing:.2px;
+  font-weight:600;
+  letter-spacing:.4px;
+  cursor:pointer;
+  text-decoration:none;
+  transition:background .2s, border-color .2s, box-shadow .2s, transform .18s;
+  white-space:nowrap;
+  overflow:hidden;
+}
+.btn-comprar svg{flex-shrink:0;transition:transform .2s}
+.btn-comprar:hover{
+  background:linear-gradient(135deg,rgba(201,169,97,.22),rgba(201,169,97,.12));
+  border-color:rgba(201,169,97,.65);
+  box-shadow:0 4px 18px rgba(201,169,97,.18), 0 1px 4px rgba(0,0,0,.3);
+  transform:translateY(-2px);
+}
+.btn-comprar:hover svg{transform:scale(1.15)}
+.btn-comprar:active{transform:translateY(0);box-shadow:none}
+.btn-comprar.sem-link{
+  opacity:.25;
+  pointer-events:none;
+  cursor:default;
 }
 
-/* Drag and drop */
+/* Toggle Lido */
+.toggle-lido{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:3px;
+  cursor:pointer;
+  flex-shrink:0;
+  user-select:none;
+  -webkit-user-select:none;
+}
+.toggle-lido-label{
+  font-family:var(--mono);
+  font-size:8px;
+  letter-spacing:1px;
+  text-transform:uppercase;
+  color:var(--text-3);
+  transition:color .25s;
+  line-height:1;
+}
+.book-card.lido .toggle-lido-label{color:var(--gold)}
 
+.toggle-sw{
+  width:34px;height:18px;
+  background:rgba(255,255,255,.1);
+  border:1px solid rgba(255,255,255,.1);
+  border-radius:20px;
+  position:relative;
+  transition:background .3s, border-color .3s;
+  flex-shrink:0;
+}
+.toggle-sw::after{
+  content:'';
+  position:absolute;
+  top:2px;left:2px;
+  width:12px;height:12px;
+  background:rgba(255,255,255,.5);
+  border-radius:50%;
+  transition:transform .3s cubic-bezier(.4,0,.2,1), background .3s;
+  box-shadow:0 1px 4px rgba(0,0,0,.35);
+}
+.book-card.lido .toggle-sw{
+  background:linear-gradient(135deg,#3d6b48,#52865e);
+  border-color:rgba(74,160,90,.4);
+}
+.book-card.lido .toggle-sw::after{
+  transform:translateX(16px);
+  background:#fff;
+}
 
+/* Checkmark no canto inferior direito da capa */
+.book-check{
+  position:absolute;
+  bottom:10px;right:10px;
+  width:26px;height:26px;
+  background:linear-gradient(135deg,#3d6b48,#52865e);
+  border-radius:50%;
+  display:none;
+  align-items:center;justify-content:center;
+  z-index:6;
+  pointer-events:none;
+  box-shadow:0 2px 10px rgba(0,0,0,.5), 0 0 0 2px rgba(255,255,255,.15);
+  animation:checkPop .35s cubic-bezier(.4,1.5,.5,1) forwards;
+}
+.book-card.lido .book-check{display:flex}
+@keyframes checkPop{
+  0%{opacity:0;transform:scale(.4)}
+  60%{transform:scale(1.15)}
+  100%{opacity:1;transform:scale(1)}
+}
+.book-check svg{filter:drop-shadow(0 1px 2px rgba(0,0,0,.3))}
 
+/* Lido: SEM grayscale — manter cores vivas */
+.book-card.lido .book-cover{filter:none}
+/* Leve brilho dourado muito sutil na capa lida */
+.book-card.lido .book-cover::after{
+  background:linear-gradient(
+    130deg,
+    rgba(201,169,97,.06) 0%,
+    rgba(255,255,255,.02) 25%,
+    transparent 55%,
+    rgba(201,169,97,.04) 100%
+  );
+}
 
 
 /* Empty state */
@@ -770,7 +905,7 @@ body.is-admin .btn-admin{display:inline-flex}
   z-index:999;
   pointer-events:all !important;
 }
-body.is-admin .book-admin-actions{display:flex !important}
+.book-admin-actions-old-removed{display:none}
 
 .book-action-btn{
   width:28px;height:28px;
@@ -864,6 +999,13 @@ body.is-admin .book-admin-actions{display:flex !important}
   </div>
   <div class="g20-tabs"></div>
   <div class="topbar-right">
+    <!-- Toggle Modo Aluno — só admin vê -->
+    <button class="btn-icon" id="btnModoAluno" onclick="toggleModoAluno()"
+      title="Ver como aluno" aria-label="Ver como aluno"
+      style="display:none;position:relative">
+      <i data-lucide="eye"></i>
+      <span id="modoAlunoLabel" style="position:absolute;bottom:-2px;right:-2px;background:#c9a961;color:#1a1410;font-size:8px;font-weight:700;padding:1px 3px;border-radius:3px;line-height:1.2;display:none">ALU</span>
+    </button>
     <button class="btn-gsearch" onclick="if(typeof gsearchAbrir==='function')gsearchAbrir()" title="Buscar (Ctrl+K)" aria-label="Buscar">
       <i data-lucide="search"></i>
       <span class="gs-btn-ico">🔍</span>
@@ -1544,6 +1686,8 @@ auth.onAuthStateChanged(function(user){
       document.body.classList.add('is-admin');
       var bar = document.getElementById('amazonCaptureBar');
       if(bar) bar.style.display = 'block';
+      var btnMA = document.getElementById('btnModoAluno');
+      if(btnMA) btnMA.style.display = 'flex';
     }
 
     // Atualiza cache
@@ -1841,13 +1985,10 @@ function renderBookCard(l){
           deleteBtn+
           readingTag+
           capaImg+
-          '<div class="book-seal"><svg viewBox="0 0 60 60" width="54" height="54"><circle cx="30" cy="30" r="28" fill="#c9a961" stroke="#a08543" stroke-width="2"/><circle cx="30" cy="30" r="22" fill="none" stroke="#1a1410" stroke-width="1" stroke-dasharray="2,2"/><text x="30" y="34" text-anchor="middle" font-family="Cormorant Garamond, serif" font-style="italic" font-weight="700" font-size="20" fill="#1a1410">L</text><text x="30" y="50" text-anchor="middle" font-family="DM Sans" font-size="6" letter-spacing="1.5" fill="#1a1410">LIDO</text></svg></div>'+
+          '<div class="book-check">'+_checkSVG+'</div>'+
         '</div>'+
       '</div>'+
-      '<div class="book-info">'+
-        '<div class="book-title">'+escapeHtml(l.titulo)+'</div>'+
-        '<div class="book-author">'+escapeHtml(l.autor||'')+'</div>'+
-      '</div>'+
+      _bookInfoHTML(l)+
     '</div>';
 }
 
@@ -1878,8 +2019,36 @@ document.querySelectorAll('.chip').forEach(function(chip){
 // ============================================================
 //  TOGGLE LIDO
 // ============================================================
-function toggleLido(id){
-  var livro = _livros.find(function(l){return l.id===id});
+
+// ── Área inferior do card: Comprar + Toggle Lido ─
+function _bookInfoHTML(l){
+  var amazonLink = l.amazonLink || l.amazon_link || '';
+  var isLido = l.lido === true;
+  var comprarBtn = amazonLink
+    ? '<a class="btn-comprar" href="'+amazonLink+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">'+
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>'+
+        'Comprar'+
+      '</a>'
+    : '<span class="btn-comprar sem-link">'+
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>'+
+        'Comprar'+
+      '</span>';
+  var toggle =
+    '<div class="toggle-lido" onclick="toggleLido(\''+l.id+'\',event)" title="'+(isLido?'Desmarcar como lido':'Marcar como lido')+'">'+
+      '<div class="toggle-sw"></div>'+
+      '<span class="toggle-lido-label">Lido</span>'+
+    '</div>';
+  return '<div class="book-info">'+comprarBtn+toggle+'</div>';
+}
+
+// Checkmark SVG reutilizável
+var _checkSVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+
+function toggleLido(id, e){
+  if(e) e.stopPropagation();
+  var livro = _livros.find(function(l){return l.id===id})
+           || _livrosMinha.find(function(l){return l.id===id})
+           || _livrosComunidade.find(function(l){return l.id===id});
   if(!livro) return;
   livro.lido = !livro.lido;
   if(livro.lido){
@@ -1891,10 +2060,11 @@ function toggleLido(id){
     toast('Desmarcado: '+livro.titulo);
   }
   salvarStatusAluno(livro);
-  renderEstantes();
-  atualizarContadores();
-  renderStats();
-  renderHero();
+  // Re-render só a aba visível
+  if(_tabAtual==='g20'){ renderEstantes(); atualizarContadores(); renderStats(); }
+  else if(_tabAtual==='minha') renderMinhaEstante();
+  else if(_tabAtual==='comunidade') renderComunidade();
+  if(window._livroAtual && window._livroAtual.id===id) renderHero(livro);
 }
 
 function marcarComoLido(){
@@ -2964,6 +3134,30 @@ async function iniciarCaptura(){
 }
 
 // ================================================================
+//  MODO ALUNO — admin simula visão do aluno
+// ================================================================
+var _modoAluno = false;
+function toggleModoAluno(){
+  _modoAluno = !_modoAluno;
+  document.body.classList.toggle('modo-aluno', _modoAluno);
+
+  var btn = document.getElementById('btnModoAluno');
+  var lbl = document.getElementById('modoAlunoLabel');
+  if(btn){
+    btn.title  = _modoAluno ? 'Sair do modo aluno' : 'Ver como aluno';
+    btn.style.color = _modoAluno ? 'var(--gold)' : '';
+  }
+  if(lbl) lbl.style.display = _modoAluno ? 'block' : 'none';
+
+  toast(_modoAluno ? '👁 Modo aluno ativado — vendo como aluno' : '🔑 Modo admin restaurado');
+
+  // Re-renderiza aba atual
+  if(_tabAtual==='g20') renderEstantes();
+  else if(_tabAtual==='minha') renderMinhaEstante();
+  else if(_tabAtual==='comunidade') renderComunidade();
+}
+
+// ================================================================
 //  MAIN TABS
 // ================================================================
 function switchMainTab(tab){
@@ -3106,7 +3300,6 @@ function renderBookCardMinha(l){
     ? '<img src="'+escapeHtml(l.capa)+'" alt="'+escapeHtml(l.titulo)+'" onerror="this.style.display=\'none\';this.parentNode.style.background=\'linear-gradient(135deg,#3b2616,#5a3a23)\'">'
     : '<div style="display:flex;align-items:center;justify-content:center;height:100%;padding:14px;text-align:center;font-family:var(--serif);color:var(--ivory);background:linear-gradient(135deg,#3b2616,#5a3a23)">'+escapeHtml(l.titulo)+'</div>';
   var delBtn = '<div class="book-admin-actions"><button class="book-action-btn book-delete-btn" onclick="event.stopPropagation();removerDaEstante(\''+l.id+'\',event)" title="Remover"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path></svg></button></div>';
-  var sealSvg = '<div class="book-seal"><svg viewBox="0 0 60 60" width="54" height="54"><circle cx="30" cy="30" r="28" fill="#c9a961" stroke="#a08543" stroke-width="2"/><circle cx="30" cy="30" r="22" fill="none" stroke="#1a1410" stroke-width="1" stroke-dasharray="2,2"/><text x="30" y="34" text-anchor="middle" font-family="Cormorant Garamond, serif" font-style="italic" font-weight="700" font-size="20" fill="#1a1410">L</text><text x="30" y="50" text-anchor="middle" font-family="DM Sans" font-size="6" letter-spacing="1.5" fill="#1a1410">LIDO</text></svg></div>';
   return (
     '<div class="book-card '+(l.lido?'lido':'')+'" data-bid="'+l.id+'" onclick="abrirDetalhes(this.dataset.bid)">'+
       '<div class="book-3d">'+
@@ -3116,13 +3309,10 @@ function renderBookCardMinha(l){
           delBtn+
           readingTag+
           capaImg+
-          sealSvg+
+          '<div class="book-check">'+_checkSVG+'</div>'+
         '</div>'+
       '</div>'+
-      '<div class="book-info">'+
-        '<div class="book-title">'+escapeHtml(l.titulo)+'</div>'+
-        '<div class="book-author">'+escapeHtml(l.autor||'')+'</div>'+
-      '</div>'+
+      _bookInfoHTML(l)+
     '</div>'
   );
 }
@@ -3148,7 +3338,6 @@ function renderBookCardComunidade(l){
   var sugeridoInfo = l.sugeridoPorNome
     ? '<div style="font-family:var(--mono);font-size:9px;color:var(--text-3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escapeHtml(l.sugeridoPorNome)+'</div>'
     : '';
-  var sealSvgC = '<div class="book-seal"><svg viewBox="0 0 60 60" width="54" height="54"><circle cx="30" cy="30" r="28" fill="#c9a961" stroke="#a08543" stroke-width="2"/><circle cx="30" cy="30" r="22" fill="none" stroke="#1a1410" stroke-width="1" stroke-dasharray="2,2"/><text x="30" y="34" text-anchor="middle" font-family="Cormorant Garamond, serif" font-style="italic" font-weight="700" font-size="20" fill="#1a1410">L</text><text x="30" y="50" text-anchor="middle" font-family="DM Sans" font-size="6" letter-spacing="1.5" fill="#1a1410">LIDO</text></svg></div>';
   return (
     '<div class="book-card '+(l.lido?'lido':'')+'" data-bid="'+l.id+'" onclick="abrirDetalhes(this.dataset.bid)">'+
       '<div class="book-3d">'+
@@ -3159,14 +3348,11 @@ function renderBookCardComunidade(l){
           readingTag+
           capaImg+
           statusTag+
-          sealSvgC+
+          '<div class="book-check">'+_checkSVG+'</div>'+
         '</div>'+
       '</div>'+
-      '<div class="book-info">'+
-        '<div class="book-title">'+escapeHtml(l.titulo||'Sem título')+'</div>'+
-        '<div class="book-author">'+escapeHtml(l.autor||'')+'</div>'+
-        sugeridoInfo+
-      '</div>'+
+      (sugeridoInfo ? '<div style="font-family:var(--mono);font-size:9px;color:var(--text-3);margin-top:4px;text-align:center">'+sugeridoInfo+'</div>' : '')+
+      _bookInfoHTML(l)+
     '</div>'
   );
 }
