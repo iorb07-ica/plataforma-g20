@@ -396,65 +396,73 @@ body.is-admin .btn-admin{display:inline-flex}
 /* ── Scroll horizontal Netflix ─────────────────── */
 .shelf-scroll-wrap{
   position:relative;
+  overflow:hidden;
 }
-/* Fade direita — indica mais conteúdo */
 .shelf-scroll-wrap::after{
   content:'';
   position:absolute;
   top:0;right:0;bottom:0;
-  width:120px;
-  background:linear-gradient(to right, transparent, #0f0e12 90%);
+  width:180px;
+  background:linear-gradient(to right, transparent 0%, rgba(15,14,18,.75) 50%, #0f0e12 100%);
   pointer-events:none;
-  z-index:10;
+  z-index:12;
   transition:opacity .3s;
 }
-/* Fade esquerda — aparece quando scrollado */
 .shelf-scroll-wrap::before{
   content:'';
   position:absolute;
   top:0;left:0;bottom:0;
-  width:60px;
-  background:linear-gradient(to left, transparent, #0f0e12 90%);
+  width:80px;
+  background:linear-gradient(to left, transparent 0%, rgba(15,14,18,.75) 50%, #0f0e12 100%);
   pointer-events:none;
-  z-index:10;
+  z-index:12;
   opacity:0;
   transition:opacity .3s;
 }
 .shelf-scroll-wrap.scrolled-left::before{opacity:1}
 .shelf-scroll-wrap.scrolled-end::after{opacity:0}
 
+/* Setas de navegação */
+.shelf-nav-btn{
+  position:absolute;
+  top:50%;
+  transform:translateY(calc(-50% - 22px));
+  width:42px;height:42px;
+  border-radius:50%;
+  background:rgba(201,169,97,.92);
+  border:none;color:#1a1410;
+  cursor:pointer;z-index:20;
+  display:flex;align-items:center;justify-content:center;
+  opacity:0;
+  transition:opacity .25s, transform .25s, background .2s;
+  box-shadow:0 4px 20px rgba(0,0,0,.65);
+}
+.shelf-scroll-wrap:hover .shelf-nav-btn{opacity:1}
+.shelf-nav-btn:hover{background:#f0d060;transform:translateY(calc(-50% - 22px)) scale(1.12)}
+.shelf-nav-btn.nav-left{left:10px}
+.shelf-nav-btn.nav-right{right:10px}
+
 .shelf-grid{
   display:flex;
   flex-direction:row;
-  gap:28px;
+  gap:24px;
   overflow-x:auto;
   overflow-y:visible;
-  padding:20px 120px 44px 4px;
+  padding:20px 8px 44px 4px;
   scroll-behavior:smooth;
   scroll-snap-type:x proximity;
   cursor:grab;
-  /* Ocultar scrollbar */
   scrollbar-width:none;
   -ms-overflow-style:none;
 }
 .shelf-grid::-webkit-scrollbar{display:none}
-.shelf-grid.dragging{cursor:grabbing;user-select:none}
+.shelf-grid.dragging{cursor:grabbing;user-select:none;scroll-behavior:auto}
 
-/* Prateleira de madeira embaixo */
-.shelf-grid::after{
-  content:'';
-  position:sticky;
-  bottom:0;left:0;
-  flex:0 0 100%;
-  height:8px;
-  display:none;
-}
-
-/* Card de livro — tamanho fixo (20% maior: 190 → 228px) */
+/* Card de livro — 250px */
 .book-card{
   position:relative;
   cursor:pointer;
-  flex:0 0 228px;
+  flex:0 0 250px;
   scroll-snap-align:start;
   transition:transform .4s cubic-bezier(.25,.8,.25,1);
 }
@@ -877,7 +885,8 @@ body.modo-aluno .book-admin-actions{display:none !important}
   .toolbar{flex-direction:column;align-items:stretch}
   .filter-chips{justify-content:flex-start;overflow-x:auto;padding-bottom:4px;flex-wrap:nowrap}
   .chip{flex-shrink:0}
-  .shelf-grid{grid-template-columns:repeat(auto-fill, minmax(140px, 1fr));gap:24px 14px}
+  .shelf-grid{gap:16px;padding:16px 80px 40px 4px}
+  .book-card{flex:0 0 150px}
   .daily-quote{padding:24px 16px}
   .quote-text{font-size:17px}
   .form-row{grid-template-columns:1fr}
@@ -2247,7 +2256,7 @@ function renderEstantes(){
     shelf.className = 'shelf';
     shelf.innerHTML =
       '<div class="shelf-name">' + nomesCategorias[cat] + ' <span class="count">' + grupos[cat].length + ' livros</span></div>' +
-      '<div class="shelf-scroll-wrap"><div class="shelf-grid">' + grupos[cat].map(renderBookCard).join('') + '</div></div>';
+      '<div class="shelf-scroll-wrap"><button class="shelf-nav-btn nav-left" onclick="scrollShelf(this,-1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button><button class="shelf-nav-btn nav-right" onclick="scrollShelf(this,1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button><div class="shelf-grid">' + grupos[cat].map(renderBookCard).join('') + '</div></div>';
     container.appendChild(shelf);
   });
 
@@ -3434,12 +3443,22 @@ async function iniciarCaptura(){
 }
 
 // ================================================================
-//  NETFLIX SCROLL — drag + wheel horizontal
+//  NETFLIX SCROLL — drag + wheel + arrows
 // ================================================================
+function scrollShelf(btn, dir){
+  var wrap = btn.closest('.shelf-scroll-wrap');
+  var grid = wrap && wrap.querySelector('.shelf-grid');
+  if(!grid) return;
+  var amount = grid.clientWidth * 0.75;
+  grid.scrollBy({left: dir * amount, behavior: 'smooth'});
+}
+
 function initNetflixScroll(){
   document.querySelectorAll('.shelf-grid').forEach(function(el){
-    var wrap = el.parentElement;
-    var isDragging = false, startX = 0, scrollLeft = 0;
+    if(el._netflixInit) return;
+    el._netflixInit = true;
+    var wrap = el.closest('.shelf-scroll-wrap');
+    var isDragging = false, startX = 0, scrollLeft = 0, moved = false;
 
     // Wheel → horizontal scroll
     el.addEventListener('wheel', function(e){
@@ -3452,7 +3471,7 @@ function initNetflixScroll(){
     // Drag to scroll
     el.addEventListener('mousedown', function(e){
       if(e.target.closest('a,button')) return;
-      isDragging = true;
+      isDragging = true; moved = false;
       startX = e.pageX - el.offsetLeft;
       scrollLeft = el.scrollLeft;
       el.classList.add('dragging');
@@ -3464,23 +3483,25 @@ function initNetflixScroll(){
     el.addEventListener('mousemove', function(e){
       if(!isDragging) return;
       e.preventDefault();
+      moved = true;
       var x = e.pageX - el.offsetLeft;
-      var walk = (x - startX) * 1.8;
-      el.scrollLeft = scrollLeft - walk;
+      el.scrollLeft = scrollLeft - (x - startX) * 1.6;
     });
+    // Prevent click on drag
+    el.addEventListener('click', function(e){
+      if(moved){ e.preventDefault(); e.stopPropagation(); moved = false; }
+    }, true);
 
     // Fade indicators
-    el.addEventListener('scroll', function(){
-      if(wrap){
-        wrap.classList.toggle('scrolled-left', el.scrollLeft > 20);
-        wrap.classList.toggle('scrolled-end', el.scrollLeft + el.clientWidth >= el.scrollWidth - 20);
-      }
-    });
+    function updateFade(){
+      if(!wrap) return;
+      wrap.classList.toggle('scrolled-left', el.scrollLeft > 20);
+      wrap.classList.toggle('scrolled-end', el.scrollLeft + el.clientWidth >= el.scrollWidth - 20);
+    }
+    el.addEventListener('scroll', updateFade);
+    updateFade();
   });
 }
-
-// Re-init after any render
-var _origRenderEstantes = typeof renderEstantes === 'function' ? renderEstantes : null;
 
 
 var _modoAluno = false;
