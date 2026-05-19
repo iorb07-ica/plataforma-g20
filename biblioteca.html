@@ -426,12 +426,40 @@ body.is-admin .btn-admin{display:inline-flex}
 }
 .book-card:hover{transform:translateY(-10px)}
 
-/* Wrapper — perspective no pai evita blur nos filhos */
+/* Nitidez: botões e badge FORA do book-cover (sem contexto 3D) */
 .book-3d{
   position:relative;
   perspective:1200px;
   perspective-origin:60% 50%;
 }
+
+/* Botões admin — posicionados no book-3d, sem transform 3D */
+.book-admin-actions{
+  position:absolute;
+  top:6px;right:6px;
+  display:none;
+  gap:4px;
+  z-index:20;
+  pointer-events:all !important;
+}
+
+/* Reading tag — posicionada no book-3d, sem transform 3D */
+.reading-now-tag{
+  position:absolute;
+  top:14px;left:14px;
+  font-family:var(--mono);font-size:9px;letter-spacing:2px;text-transform:uppercase;
+  padding:5px 10px;
+  background:rgba(74,122,85,.92);
+  color:#fff;
+  border-radius:20px;
+  display:inline-flex;align-items:center;gap:5px;
+  z-index:20;
+  box-shadow:0 3px 10px rgba(0,0,0,.45);
+  pointer-events:none;
+  /* Sem transform 3D — renderiza nítido */
+}
+.reading-now-tag .pulse{width:6px;height:6px;background:#7ed98c;border-radius:50%;animation:pulse 1.6s infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.7)}}
 
 /* Spine e pages divs não usados nesta versão */
 .book-spine,.book-pages{display:none}
@@ -475,16 +503,7 @@ body.is-admin .btn-admin{display:inline-flex}
 
 .book-cover img{width:100%;height:100%;object-fit:cover;display:block}
 
-/* Nitidez dos elementos filhos dentro do cover */
-.book-admin-actions,
-.reading-now-tag,
-.book-seal{
-  transform:translateZ(0);
-  backface-visibility:hidden;
-  -webkit-backface-visibility:hidden;
-}
-
-/* ── REGRAS DE VISIBILIDADE POR CONTEXTO ──────────
+/* Sombra de lombada na borda esquerda */ ──────────
    G20: botões só para admin
    Minha Estante: botão deletar para o próprio aluno
    Comunidade: botões aprovar/rejeitar só para admin
@@ -880,32 +899,6 @@ body.modo-aluno .book-admin-actions{display:none !important}
   .admin-header{padding:18px}
 }
 
-/* Reading mode badge no canto */
-.reading-now-tag{
-  position:absolute;
-  top:14px;left:14px;
-  font-family:var(--mono);font-size:9px;letter-spacing:2px;text-transform:uppercase;
-  padding:5px 10px;
-  background:rgba(74,122,85,.9);
-  color:#fff;
-  border-radius:20px;
-  display:inline-flex;align-items:center;gap:5px;
-  z-index:4;
-  backdrop-filter:blur(6px);
-  box-shadow:0 4px 12px rgba(0,0,0,.4);
-}
-.reading-now-tag .pulse{width:6px;height:6px;background:#7ed98c;border-radius:50%;animation:pulse 1.6s infinite}
-@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.7)}}
-
-.book-admin-actions{
-  position:absolute;
-  top:6px;right:6px;
-  display:none;
-  gap:4px;
-  z-index:999;
-  pointer-events:all !important;
-}
-.book-admin-actions-old-removed{display:none}
 
 .book-action-btn{
   width:28px;height:28px;
@@ -1125,9 +1118,330 @@ body.modo-aluno .book-admin-actions{display:none !important}
 
 <!-- FRASE DO DIA -->
 <section class="daily-quote" id="dailyQuoteSection">
-  <p class="quote-text" id="quoteText">"O hábito de poupar é, em si mesmo, uma educação. Ele estimula todas as virtudes, ensina a renúncia, força o pensamento, desperta a ordem, fortifica a prudência e amplia a mente."</p>
-  <div class="quote-attribution"><span id="quoteAuthor">Thornton T. Munger</span></div>
+  <p class="quote-text" id="quoteText"></p>
+  <div class="quote-attribution"><span id="quoteAuthor"></span></div>
 </section>
+
+<script>
+(function(){
+  var FRASES = [
+    // ── MENTALIDADE & AUTODESENVOLVIMENTO ──────────────────────────────────
+    {f:"A mente que se abre a uma nova ideia jamais voltará ao seu tamanho original.",a:"Albert Einstein"},
+    {f:"Você não pode mudar o que se recusa a confrontar.",a:"Anônimo"},
+    {f:"O maior inimigo do conhecimento não é a ignorância — é a ilusão do conhecimento.",a:"Stephen Hawking"},
+    {f:"Não é o mais forte que sobrevive, nem o mais inteligente. É o que melhor se adapta.",a:"Charles Darwin"},
+    {f:"A autodisciplina começa com o domínio de seus pensamentos. Se você não controla o que pensa, não pode controlar o que faz.",a:"Napoleon Hill"},
+    {f:"Toda mudança é precedida de caos.",a:"Deepak Chopra"},
+    {f:"O sucesso é a soma de pequenos esforços repetidos dia após dia.",a:"Robert Collier"},
+    {f:"Antes de curar alguém, pergunte se está disposto a abrir mão das coisas que o deixam doente.",a:"Hipócrates"},
+    {f:"Conhece-te a ti mesmo.",a:"Sócrates"},
+    {f:"A vida não é um problema a ser resolvido, mas uma realidade a ser experimentada.",a:"Søren Kierkegaard"},
+    {f:"Você se torna aquilo que você pensa a maior parte do tempo.",a:"Earl Nightingale"},
+    {f:"Ninguém pode te fazer sentir inferior sem o seu consentimento.",a:"Eleanor Roosevelt"},
+    {f:"O homem que move montanhas começa carregando pequenas pedras.",a:"Provérbio Chinês"},
+    {f:"Transformar a adversidade em vantagem é uma habilidade rara e preciosa.",a:"Naval Ravikant"},
+    {f:"A maioria das pessoas não cresce porque prefere a confortável prisão do que conhece.",a:"Joseph Campbell"},
+    {f:"Não espere por circunstâncias ideais. Elas nunca virão.",a:"Janet Erskine Stuart"},
+    {f:"Se você quer algo que nunca teve, precisa fazer algo que nunca fez.",a:"Thomas Jefferson"},
+    {f:"A dor que você sente hoje é a força que você vai sentir amanhã.",a:"Anônimo"},
+    {f:"Seja a mudança que você quer ver no mundo.",a:"Mahatma Gandhi"},
+    {f:"A única maneira de fazer um grande trabalho é amar o que você faz.",a:"Steve Jobs"},
+    {f:"Você nunca cruzará o oceano se não tiver a coragem de perder a costa de vista.",a:"Cristóvão Colombo"},
+    {f:"O sucesso não é final; o fracasso não é fatal. É a coragem de continuar que conta.",a:"Winston Churchill"},
+    {f:"Não é o que você tem que importa, mas o que você faz com o que tem.",a:"Winston Churchill"},
+    {f:"A excelência não é um ato, mas um hábito.",a:"Aristóteles"},
+    {f:"Primeiro você forma hábitos. Depois, os hábitos te formam.",a:"Jim Ryun"},
+    {f:"Cuidado com o homem de um só livro.",a:"Santo Tomás de Aquino"},
+    {f:"A leitura de bons livros é como uma conversa com as mentes mais brilhantes dos séculos passados.",a:"René Descartes"},
+
+    // ── HÁBITO DE LEITURA ─────────────────────────────────────────────────
+    {f:"Um leitor vive mil vidas antes de morrer. O homem que nunca lê vive apenas uma.",a:"George R.R. Martin"},
+    {f:"Não existe amigo mais leal do que um livro.",a:"Ernest Hemingway"},
+    {f:"Livros são espelhos: só vemos neles o que já temos dentro de nós.",a:"Carlos Ruiz Zafón"},
+    {f:"Quanto mais você lê, mais coisas você sabe. Quanto mais você aprende, mais lugares você vai.",a:"Dr. Seuss"},
+    {f:"O livro é a prova de que a humanidade é capaz de realizar milagres.",a:"Carl Sagan"},
+    {f:"Uma sala sem livros é como um corpo sem alma.",a:"Cícero"},
+    {f:"Leia mil livros e suas palavras fluirão como um rio.",a:"Virginia Woolf"},
+    {f:"Ler é respirar com a mente.",a:"Anônimo"},
+    {f:"Os livros são os únicos objetos inanimados que podem ser classificados como amigos.",a:"Franz Kafka"},
+    {f:"Se você ler uma hora por dia num assunto, em sete anos será expert nisso.",a:"Earl Nightingale"},
+    {f:"Nunca confie em alguém que não tem livros em casa.",a:"Lemony Snicket"},
+    {f:"Ler nos permite habitar séculos que não vivemos e mundos que não existem.",a:"C.S. Lewis"},
+    {f:"O homem que lê vive mais intensamente do que aquele que não lê.",a:"Aldous Huxley"},
+    {f:"Tenha sempre um livro junto. Isso é a melhor maneira de não estar só.",a:"Charles Baudelaire"},
+    {f:"Palavras — no papel — podem ser mais poderosas do que qualquer arma.",a:"Abraham Lincoln"},
+    {f:"Todo livro que você lê é um mundo novo que se abre.",a:"Anônimo"},
+    {f:"Um bom livro é aquele que abrimos com expectativa e fechamos com proveito.",a:"Amos Bronson Alcott"},
+    {f:"Leia antes de dormir. Durma com novas ideias. Acorde transformado.",a:"Anônimo"},
+
+    // ── COMPORTAMENTO & DISCIPLINA ────────────────────────────────────────
+    {f:"Disciplina é liberdade.",a:"Jocko Willink"},
+    {f:"O talento você tem. A disciplina você constrói.",a:"Anônimo"},
+    {f:"A consistência é mais importante do que a perfeição.",a:"Anônimo"},
+    {f:"Não se trata de motivação. Trata-se de disciplina.",a:"Jocko Willink"},
+    {f:"A diferença entre um homem bem-sucedido e os outros não é falta de força, nem de conhecimento — mas sim de vontade.",a:"Vince Lombardi"},
+    {f:"Pequenos hábitos criam grandes vidas.",a:"James Clear"},
+    {f:"Cada ação que você toma é um voto para o tipo de pessoa que quer se tornar.",a:"James Clear"},
+    {f:"Você não sobe ao nível de suas metas. Você cai ao nível de seus sistemas.",a:"James Clear"},
+    {f:"A chave não é priorizar o que está na agenda, mas agendar as prioridades.",a:"Stephen Covey"},
+    {f:"O movimento cria mais movimento. Comece.",a:"Anônimo"},
+    {f:"Faça hoje o que os outros não farão. Amanhã você terá o que os outros não terão.",a:"Jerry Rice"},
+    {f:"Ganhe pelo processo, não pelo resultado.",a:"Anônimo"},
+    {f:"Coloque a barra baixa para começar e alta para continuar.",a:"Anônimo"},
+    {f:"O segredo do seu futuro está escondido em sua rotina diária.",a:"Mike Murdock"},
+    {f:"O que você faz consistentemente define quem você é.",a:"Anônimo"},
+    {f:"Ação elimina ansiedade.",a:"Anônimo"},
+    {f:"Foco não é dizer sim. Foco é dizer não.",a:"Steve Jobs"},
+    {f:"Identifique sua coisa mais importante e nunca comprometa ela.",a:"Gary Keller"},
+    {f:"Não fique tão ocupado ganhando a vida a ponto de esquecer de construir uma vida.",a:"Dolly Parton"},
+
+    // ── ESTOICISMO & FILOSOFIA ────────────────────────────────────────────
+    {f:"Você tem poder sobre sua mente, não sobre eventos externos. Perceba isso e encontrará força.",a:"Marco Aurélio"},
+    {f:"A única coisa sobre a qual você tem controle total é como vai responder ao que acontece.",a:"Marco Aurélio"},
+    {f:"Perde seu tempo quem não sabe como usá-lo.",a:"Sêneca"},
+    {f:"Não é que tenhamos pouco tempo. Temos muito tempo e desperdiçamos.",a:"Sêneca"},
+    {f:"Não é o homem que tem pouco que é pobre, mas aquele que deseja mais.",a:"Sêneca"},
+    {f:"A vida é longa se você souber como usá-la.",a:"Sêneca"},
+    {f:"Nunca há vento favorável para quem não sabe onde está indo.",a:"Sêneca"},
+    {f:"Não tenha medo da morte. Tenha medo de nunca começar a viver.",a:"Marco Aurélio"},
+    {f:"Os obstáculos no caminho se tornam o caminho.",a:"Marco Aurélio"},
+    {f:"Não peça que as coisas aconteçam como você deseja. Deseje que elas aconteçam como são.",a:"Epicteto"},
+    {f:"A riqueza consiste não em ter grandes posses, mas em ter poucas necessidades.",a:"Epicteto"},
+    {f:"O homem não é perturbado pelas coisas, mas pela opinião que tem delas.",a:"Epicteto"},
+    {f:"Faça hoje tudo o que pode ser feito hoje. Amanhã terá seus próprios desafios.",a:"Marco Aurélio"},
+    {f:"Não existe um caminho para a felicidade. A felicidade é o caminho.",a:"Buda"},
+    {f:"A paz vem de dentro. Não a busque fora.",a:"Buda"},
+    {f:"Três coisas não podem ficar escondidas por muito tempo: o Sol, a Lua e a Verdade.",a:"Buda"},
+    {f:"A mente é tudo. Você se torna aquilo que pensa.",a:"Buda"},
+    {f:"Tudo que existe é fruto de um pensamento.",a:"Marco Aurélio"},
+    {f:"Age como se tudo dependesse de você. Reze como se tudo dependesse de Deus.",a:"Santo Inácio de Loyola"},
+
+    // ── ESPIRITUALIDADE & PROPÓSITO ──────────────────────────────────────
+    {f:"Quando você age do lugar mais profundo de si mesmo, você ativa o universo.",a:"Deepak Chopra"},
+    {f:"O sentido da vida é dar à vida um sentido.",a:"Viktor Frankl"},
+    {f:"Aquele que tem um porquê para viver suporta quase qualquer como.",a:"Friedrich Nietzsche"},
+    {f:"Quem não tem um propósito claro preenche o tempo com ruído.",a:"Anônimo"},
+    {f:"O maior bem que podemos fazer pelos outros não é compartilhar nossas riquezas, mas revelar as suas.",a:"Benjamin Disraeli"},
+    {f:"A gratidão abre a plenitude da vida. Transforma o que temos em suficiente.",a:"Melody Beattie"},
+    {f:"Sua vida não melhora por acaso. Melhora por mudança.",a:"Jim Rohn"},
+    {f:"O que você é agora é o resultado dos pensamentos de ontem.",a:"Buda"},
+    {f:"Cuide da sua alma tanto quanto cuida do seu corpo.",a:"Anônimo"},
+    {f:"Deus não joga dados com o universo.",a:"Albert Einstein"},
+    {f:"Acredite que pode. Você está na metade do caminho.",a:"Theodore Roosevelt"},
+    {f:"O milagre não é voar pelo ar ou caminhar sobre as águas, mas andar sobre a terra.",a:"Lin Yutang"},
+    {f:"Não basta ter bons valores. É preciso ter coragem para vivê-los.",a:"Anônimo"},
+    {f:"A gratidão não é apenas a maior das virtudes, mas a mãe de todas as outras.",a:"Cícero"},
+    {f:"Seja grato pelo que você tem enquanto trabalha pelo que quer.",a:"Anônimo"},
+    {f:"Você não encontrará o propósito — você o cria.",a:"David Brooks"},
+    {f:"A vida tem sentido precisamente porque ela acaba.",a:"Viktor Frankl"},
+
+    // ── VITÓRIA & PERSEVERANÇA ────────────────────────────────────────────
+    {f:"Caia sete vezes. Levante-se oito.",a:"Provérbio Japonês"},
+    {f:"A vitória mais difícil é a vitória sobre si mesmo.",a:"Aristóteles"},
+    {f:"Não meça seu sucesso pela posição atingida, mas pelos obstáculos superados.",a:"Booker T. Washington"},
+    {f:"O campeão não é aquele que não cai. É aquele que se levanta.",a:"Muhammad Ali"},
+    {f:"Quando você chega à beira do que sabe, você deve estar disposto a entrar na escuridão da ignorância.",a:"E.L. Doctorow"},
+    {f:"Persistência é o caminho do êxito.",a:"Charles Chaplin"},
+    {f:"A coragem não é a ausência do medo. É julgar que algo mais é importante.",a:"Ambrose Redmoon"},
+    {f:"Grandes realizações são possíveis quando você não liga para quem leva o crédito.",a:"Harry S. Truman"},
+    {f:"Não importa quão lento você vá, desde que não pare.",a:"Confúcio"},
+    {f:"A perseverança é sempre recompensada, não pela sorte, mas pela lei da natureza.",a:"Anônimo"},
+    {f:"Não há substituto para o trabalho duro.",a:"Thomas Edison"},
+    {f:"Gênio é um por cento de inspiração e noventa e nove por cento de transpiração.",a:"Thomas Edison"},
+    {f:"Nunca desista de uma coisa que você não consegue ficar um dia sem pensar.",a:"Winston Churchill"},
+    {f:"As coisas difíceis levam tempo. As coisas impossíveis levam um pouco mais.",a:"Fridtjof Nansen"},
+    {f:"Quem acredita que pode e quem acredita que não pode estão ambos certos.",a:"Henry Ford"},
+    {f:"O sucesso é aprender a ir de falha em falha sem desespero.",a:"Winston Churchill"},
+    {f:"A diferença entre o impossível e o possível está na determinação.",a:"Tommy Lasorda"},
+    {f:"Dê o melhor de você ao momento presente — é tudo que você tem.",a:"Wayne Dyer"},
+
+    // ── INVESTIMENTOS & FINANÇAS ──────────────────────────────────────────
+    {f:"Regra número 1: nunca perca dinheiro. Regra número 2: nunca esqueça a regra número 1.",a:"Warren Buffett"},
+    {f:"O mercado de ações é um dispositivo para transferir dinheiro do impaciente para o paciente.",a:"Warren Buffett"},
+    {f:"Preço é o que você paga. Valor é o que você recebe.",a:"Warren Buffett"},
+    {f:"Invista em você mesmo. Ninguém pode tirar isso de você.",a:"Warren Buffett"},
+    {f:"O melhor investimento que você pode fazer é em si mesmo.",a:"Warren Buffett"},
+    {f:"Nosso período de espera favorito é para sempre.",a:"Warren Buffett"},
+    {f:"É muito melhor comprar uma empresa maravilhosa a um preço justo do que uma empresa justa a um preço maravilhoso.",a:"Warren Buffett"},
+    {f:"Risco vem de não saber o que você está fazendo.",a:"Warren Buffett"},
+    {f:"Inverta, sempre inverta.",a:"Charlie Munger"},
+    {f:"A melhor coisa que a humanidade já inventou é o juro composto.",a:"Albert Einstein"},
+    {f:"Compre quando há sangue nas ruas, mesmo que o sangue seja seu.",a:"Nathan Rothschild"},
+    {f:"O tempo no mercado supera o timing do mercado.",a:"Ken Fisher"},
+    {f:"Diversificação é proteção contra a ignorância.",a:"Warren Buffett"},
+    {f:"A paciência é uma virtude especialmente quando se trata de dinheiro.",a:"John Templeton"},
+    {f:"O maior risco é não correr nenhum risco.",a:"Mark Zuckerberg"},
+    {f:"Não guarde o que sobra depois de gastar. Gaste o que sobra depois de guardar.",a:"Warren Buffett"},
+    {f:"Construa riqueza devagar. Destrua rapidamente. A escolha é sua.",a:"Anônimo"},
+    {f:"O que te torna rico não é o quanto você ganha, mas o quanto você guarda.",a:"Robert Kiyosaki"},
+    {f:"Independência financeira não é sobre ter mais. É sobre precisar de menos.",a:"Naval Ravikant"},
+    {f:"O dinheiro é um excelente servo, mas um péssimo senhor.",a:"Francis Bacon"},
+    {f:"Enriqueça devagar. A riqueza rápida raramente sobrevive.",a:"Benjamin Graham"},
+    {f:"A bolsa de valores não é um casino para os pacientes.",a:"Luiz Barsi Filho"},
+    {f:"Invista em boas empresas e esqueça. O tempo fará o trabalho.",a:"Luiz Barsi Filho"},
+    {f:"Quem planta ações colhe dividendos.",a:"Luiz Barsi Filho"},
+    {f:"O ativo mais valioso de um jovem é o tempo — e a maioria não sabe disso.",a:"Anônimo"},
+    {f:"Liberdade financeira é acordar e fazer o que quiser, quando quiser.",a:"Robert Kiyosaki"},
+    {f:"A ignorância financeira custa caro. O conhecimento financeiro paga dividendos.",a:"Anônimo"},
+    {f:"Pague-se primeiro. Sempre.",a:"David Bach"},
+
+    // ── NAVAL RAVIKANT ────────────────────────────────────────────────────
+    {f:"Aprenda a vender. Aprenda a construir. Se você pode fazer ambos, será imparável.",a:"Naval Ravikant"},
+    {f:"Riqueza é ter ativos que ganham enquanto você dorme.",a:"Naval Ravikant"},
+    {f:"Julgue o seu sucesso pela paz de espírito que você tem.",a:"Naval Ravikant"},
+    {f:"Leia o que você ama até que você ame ler.",a:"Naval Ravikant"},
+    {f:"A felicidade não é algo que você persegue. É algo que acontece quando você para de perseguir.",a:"Naval Ravikant"},
+    {f:"O tempo é o único ativo não renovável.",a:"Naval Ravikant"},
+    {f:"Específico supera genérico. Aprofunde-se.",a:"Naval Ravikant"},
+    {f:"Um dos melhores investimentos é pagar para ter mais tempo.",a:"Naval Ravikant"},
+    {f:"Se você não consegue explicar algo simplesmente, é porque ainda não o entende.",a:"Naval Ravikant"},
+    {f:"Construa ou compre sistemas que trabalhem para você enquanto você dorme.",a:"Naval Ravikant"},
+
+    // ── JIM ROHN & CRESCIMENTO PESSOAL ───────────────────────────────────
+    {f:"Trabalhe mais em você do que em seu trabalho.",a:"Jim Rohn"},
+    {f:"Você é a média das cinco pessoas com quem passa mais tempo.",a:"Jim Rohn"},
+    {f:"Não deseje que seja mais fácil. Deseje ser melhor.",a:"Jim Rohn"},
+    {f:"A disciplina é a ponte entre metas e realizações.",a:"Jim Rohn"},
+    {f:"Um bom livro que você não leu é pior do que nenhum livro.",a:"Jim Rohn"},
+    {f:"Não vá onde o caminho possa levar. Vá onde não há caminho e deixe uma trilha.",a:"Ralph Waldo Emerson"},
+    {f:"O que você faz quando ninguém está vendo define quem você realmente é.",a:"Anônimo"},
+    {f:"Seu círculo social determina seu limite.",a:"Anônimo"},
+    {f:"O crescimento e o conforto não coexistem.",a:"Ginni Rometty"},
+
+    // ── VIKTOR FRANKL & PSICOLOGIA ────────────────────────────────────────
+    {f:"Quando não conseguimos mudar a situação, somos desafiados a mudar a nós mesmos.",a:"Viktor Frankl"},
+    {f:"Entre estímulo e resposta há um espaço. Nesse espaço está o poder.",a:"Viktor Frankl"},
+    {f:"Viver é tomar consciência da responsabilidade que cada ser humano tem.",a:"Viktor Frankl"},
+    {f:"O sofrimento deixa de ser sofrimento quando encontra um sentido.",a:"Viktor Frankl"},
+    {f:"A vida nos faz perguntas. Nossa resposta é a nossa existência.",a:"Viktor Frankl"},
+
+    // ── LIDERANÇA & VISÃO ─────────────────────────────────────────────────
+    {f:"A liderança é a capacidade de transformar uma visão em realidade.",a:"Warren Bennis"},
+    {f:"Não lidere com o ego. Lidere com a visão.",a:"Anônimo"},
+    {f:"A única coisa pior do que treinar funcionários e eles saírem é não treiná-los e eles ficarem.",a:"Henry Ford"},
+    {f:"Se suas ações inspiram outros a sonhar mais, aprender mais, fazer mais e ser mais: você é um líder.",a:"John Quincy Adams"},
+    {f:"Os melhores líderes são os que mais ouvem.",a:"Anônimo"},
+    {f:"Clareza é o antídoto para a ansiedade.",a:"Anônimo"},
+    {f:"Um sonho sem um plano é apenas um desejo.",a:"Katherine Paterson"},
+    {f:"Visão sem execução é alucinação.",a:"Thomas Edison"},
+    {f:"O plano mais simples executado vigorosamente vale mais do que o plano perfeito executado de forma medíocre.",a:"George S. Patton"},
+
+    // ── FOCO & SIMPLICIDADE ───────────────────────────────────────────────
+    {f:"Simplicity is the ultimate sophistication.",a:"Leonardo da Vinci"},
+    {f:"Seja excelente em poucas coisas. Medíocre em muitas.",a:"Anônimo"},
+    {f:"Confusão é o sinal de que você precisa simplificar.",a:"Anônimo"},
+    {f:"A atenção é o novo ouro.",a:"Anônimo"},
+    {f:"Elimine o desnecessário. Proteja o essencial.",a:"Anônimo"},
+    {f:"Dizer não é tão estratégico quanto dizer sim.",a:"Anônimo"},
+    {f:"O que você não faz é tão importante quanto o que você faz.",a:"Steve Jobs"},
+    {f:"Concentrar-se no que importa é a habilidade mais rara do nosso tempo.",a:"Cal Newport"},
+    {f:"Trabalho profundo é o superpoder do século 21.",a:"Cal Newport"},
+    {f:"Proteja seu tempo como protege seu dinheiro.",a:"Anônimo"},
+
+    // ── CORAGEM & CRESCIMENTO ─────────────────────────────────────────────
+    {f:"A vida começa no fim da sua zona de conforto.",a:"Neale Donald Walsch"},
+    {f:"Conforto é um bom lugar para visitar mas um lugar perigoso para morar.",a:"Anônimo"},
+    {f:"Assuma riscos calculados. É muito diferente de ser imprudente.",a:"George S. Patton"},
+    {f:"Você perde 100% das chances que não tenta.",a:"Wayne Gretzky"},
+    {f:"Não existe fracasso. Existe feedback.",a:"Anônimo"},
+    {f:"A maior recompensa para o esforço não é o que você ganha, mas o que você se torna.",a:"John Ruskin"},
+    {f:"Não tenha medo de crescer devagar. Apenas tenha medo de ficar parado.",a:"Provérbio Chinês"},
+    {f:"O fracasso é apenas uma oportunidade de começar de novo com mais inteligência.",a:"Henry Ford"},
+    {f:"Erros são a prova de que você está tentando.",a:"Anônimo"},
+    {f:"A diferença entre onde você está e onde quer estar é o que você faz.",a:"Anônimo"},
+
+    // ── RELACIONAMENTOS & CARÁTER ─────────────────────────────────────────
+    {f:"Seu caráter é o que você é no escuro.",a:"Dwight L. Moody"},
+    {f:"Trate todos com gentileza, não porque são gentis, mas porque você é.",a:"Anônimo"},
+    {f:"A generosidade é a virtude mais subestimada.",a:"Anônimo"},
+    {f:"Construir confiança leva anos. Destruí-la leva segundos.",a:"Anônimo"},
+    {f:"As pessoas esquecerão o que você disse, esquecerão o que você fez, mas nunca esquecerão como você as fez sentir.",a:"Maya Angelou"},
+    {f:"A maior necessidade do ser humano é ser compreendido.",a:"Stephen Covey"},
+    {f:"Primeiro busque compreender. Depois ser compreendido.",a:"Stephen Covey"},
+    {f:"Suas palavras têm poder. Use-as para construir, não para destruir.",a:"Anônimo"},
+
+    // ── TEMPO & PRIORIDADES ───────────────────────────────────────────────
+    {f:"O tempo é o recurso mais democrático e mais mal gerenciado do mundo.",a:"Anônimo"},
+    {f:"Não é a quantidade de tempo que você tem, mas o que você faz com ele.",a:"Anônimo"},
+    {f:"Um dia que não foi registrado é um dia que não existiu.",a:"Anônimo"},
+    {f:"Amanhã é a terra onde vive a maioria das pessoas. Seja diferente.",a:"Anônimo"},
+    {f:"Cada dia é uma conta bancária. O tempo é a nossa moeda.",a:"Christopher Rice"},
+    {f:"O que não é medido não é gerenciado.",a:"Peter Drucker"},
+    {f:"O urgente raramente é importante, e o importante raramente é urgente.",a:"Dwight Eisenhower"},
+    {f:"Invista uma hora por dia na sua educação. Em cinco anos, você será um expert.",a:"Earl Nightingale"},
+
+    // ── GRATIDÃO & ABUNDÂNCIA ─────────────────────────────────────────────
+    {f:"O hábito de poupar é, em si mesmo, uma educação. Ele estimula todas as virtudes, ensina a renúncia, força o pensamento, desperta a ordem, fortifica a prudência e amplia a mente.",a:"Thornton T. Munger"},
+    {f:"A abundância não é algo que adquirimos. É algo que nos sintonizamos.",a:"Wayne Dyer"},
+    {f:"Quando você muda a maneira como vê as coisas, as coisas que você vê mudam.",a:"Wayne Dyer"},
+    {f:"Ser rico é ter dinheiro. Ser próspero é ter paz.",a:"Anônimo"},
+    {f:"A riqueza real é saúde, tempo, relacionamentos e paz de espírito.",a:"Anônimo"},
+    {f:"A generosidade cria abundância. O medo cria escassez.",a:"Anônimo"},
+    {f:"O que você aprecia se aprecia.",a:"Tony Robbins"},
+    {f:"Energia flui para onde a atenção vai.",a:"Tony Robbins"},
+
+    // ── EXTRAS & FRASES PODEROSAS ─────────────────────────────────────────
+    {f:"Grandes mentes discutem ideias. Mentes medianas discutem eventos. Mentes pequenas discutem pessoas.",a:"Eleanor Roosevelt"},
+    {f:"A sorte favorece os preparados.",a:"Louis Pasteur"},
+    {f:"Não é sorte. É trabalho disfarçado de sorte.",a:"Anônimo"},
+    {f:"Se você é o mais inteligente da sala, está na sala errada.",a:"Confúcio"},
+    {f:"O mais importante na comunicação é ouvir o que não foi dito.",a:"Peter Drucker"},
+    {f:"Inovação é ver o que todo mundo viu e pensar o que ninguém pensou.",a:"Albert Szent-Györgyi"},
+    {f:"O pessimista vê dificuldade em cada oportunidade. O otimista vê oportunidade em cada dificuldade.",a:"Winston Churchill"},
+    {f:"Educar a mente sem educar o coração não é educação alguma.",a:"Aristóteles"},
+    {f:"A imaginação é mais importante que o conhecimento.",a:"Albert Einstein"},
+    {f:"Se você quer ir rápido, vá sozinho. Se quer ir longe, vá acompanhado.",a:"Provérbio Africano"},
+    {f:"Plante árvores à cuja sombra você sabe que nunca se sentará.",a:"Nelson Henderson"},
+    {f:"A melhor versão de você é aquela que você ainda não conheceu.",a:"Anônimo"},
+    {f:"Comece onde você está. Use o que você tem. Faça o que você pode.",a:"Arthur Ashe"},
+    {f:"O segredo de sair à frente é simplesmente começar.",a:"Mark Twain"},
+    {f:"Não sabendo que era impossível, ele foi lá e fez.",a:"Mark Twain"},
+    {f:"A menos que mude o que você é, você sempre terá o que sempre teve.",a:"Jim Rohn"},
+    {f:"O sucesso não tem atalhos. Só tem o caminho.",a:"Anônimo"},
+    {f:"Você pode ter resultados ou desculpas. Não os dois.",a:"Arnold Schwarzenegger"},
+    {f:"Não conte os dias. Faça os dias contarem.",a:"Muhammad Ali"},
+    {f:"O melhor momento para plantar uma árvore foi há 20 anos. O segundo melhor momento é agora.",a:"Provérbio Chinês"},
+    {f:"Faça mais do que você é pago para fazer e em breve você será pago mais pelo que faz.",a:"Napoleon Hill"},
+    {f:"Não é quem você é que te impede. É quem você acha que não é.",a:"Anônimo"},
+    {f:"#nãofoisorte",a:"G20 Masterclass"}
+  ];
+
+  function renderFraseDiaria(){
+    var hoje = new Date();
+    var inicio = new Date(hoje.getFullYear(), 0, 0);
+    var diff = hoje - inicio;
+    var diaDe365 = Math.floor(diff / (1000*60*60*24));
+    var idx = diaDe365 % FRASES.length;
+    var item = FRASES[idx];
+
+    var elFrase  = document.getElementById('quoteText');
+    var elAutor  = document.getElementById('quoteAuthor');
+    if(!elFrase || !elAutor) return;
+
+    // Fade in
+    elFrase.style.opacity  = '0';
+    elAutor.parentElement.style.opacity = '0';
+    elFrase.textContent  = '\u201C' + item.f + '\u201D';
+    elAutor.textContent  = item.a;
+
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){
+        elFrase.style.transition = 'opacity .8s ease';
+        elAutor.parentElement.style.transition = 'opacity .8s ease .2s';
+        elFrase.style.opacity  = '1';
+        elAutor.parentElement.style.opacity = '1';
+      });
+    });
+  }
+
+  // Roda quando o DOM estiver pronto
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', renderFraseDiaria);
+  } else {
+    renderFraseDiaria();
+  }
+})();
+</script>
 
 <!-- CAPTURA RÁPIDA AMAZON — só admin -->
 <div id="amazonCaptureBar" style="display:none;background:linear-gradient(135deg,rgba(201,169,97,.1),rgba(201,169,97,.04));border-bottom:1px solid var(--border-gold);padding:14px 48px">
@@ -1979,14 +2293,12 @@ function renderBookCard(l){
   return ''+
     '<div class="book-card '+(l.lido?'lido':'')+'" data-bid="'+l.id+'" onclick="abrirDetalhes(this.dataset.bid)">'+
       '<div class="book-3d">'+
-        '<div class="book-spine"></div>'+
-        '<div class="book-pages"></div>'+
         '<div class="book-cover">'+
-          deleteBtn+
-          readingTag+
           capaImg+
           '<div class="book-check">'+_checkSVG+'</div>'+
         '</div>'+
+        deleteBtn+
+        readingTag+
       '</div>'+
       _bookInfoHTML(l)+
     '</div>';
@@ -3303,14 +3615,12 @@ function renderBookCardMinha(l){
   return (
     '<div class="book-card '+(l.lido?'lido':'')+'" data-bid="'+l.id+'" onclick="abrirDetalhes(this.dataset.bid)">'+
       '<div class="book-3d">'+
-        '<div class="book-spine"></div>'+
-        '<div class="book-pages"></div>'+
         '<div class="book-cover">'+
-          delBtn+
-          readingTag+
           capaImg+
           '<div class="book-check">'+_checkSVG+'</div>'+
         '</div>'+
+        delBtn+
+        readingTag+
       '</div>'+
       _bookInfoHTML(l)+
     '</div>'
@@ -3341,15 +3651,13 @@ function renderBookCardComunidade(l){
   return (
     '<div class="book-card '+(l.lido?'lido':'')+'" data-bid="'+l.id+'" onclick="abrirDetalhes(this.dataset.bid)">'+
       '<div class="book-3d">'+
-        '<div class="book-spine"></div>'+
-        '<div class="book-pages"></div>'+
-        '<div class="book-cover" style="position:relative">'+
-          adminBtns+
-          readingTag+
+        '<div class="book-cover">'+
           capaImg+
           statusTag+
           '<div class="book-check">'+_checkSVG+'</div>'+
         '</div>'+
+        adminBtns+
+        readingTag+
       '</div>'+
       (sugeridoInfo ? '<div style="font-family:var(--mono);font-size:9px;color:var(--text-3);margin-top:4px;text-align:center">'+sugeridoInfo+'</div>' : '')+
       _bookInfoHTML(l)+
