@@ -673,6 +673,24 @@ body.is-admin .btn-admin{display:inline-flex}
 .reading-now-tag .pulse{width:6px;height:6px;background:#7ed98c;border-radius:50%;animation:pulse 1.6s infinite}
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.7)}}
 
+.book-delete-btn{
+  position:absolute;
+  top:8px;right:8px;
+  width:30px;height:30px;
+  background:rgba(180,40,40,.85);
+  border:none;
+  border-radius:8px;
+  color:#fff;
+  cursor:pointer;
+  display:none;
+  align-items:center;justify-content:center;
+  z-index:10;
+  transition:all .2s;
+  backdrop-filter:blur(6px);
+}
+body.is-admin .book-delete-btn{display:flex}
+.book-delete-btn:hover{background:#e63946;transform:scale(1.1)}
+
 /* Loading overlay inicial */
 #g20LoadingOverlay{position:fixed;inset:0;background:#0f0e12;z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;font-family:var(--serif);font-style:italic;color:var(--gold);font-size:20px;letter-spacing:2px}
 #g20LoadingOverlay::before{content:"";width:40px;height:40px;border:2px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin .8s linear infinite}
@@ -915,8 +933,11 @@ body.is-admin .btn-admin{display:inline-flex}
         Gerenciar Biblioteca
       </h2>
       <div style="display:flex;gap:8px;align-items:center">
-        <button onclick="corrigirCapas()" style="background:rgba(201,169,97,.12);border:1px solid var(--gold);color:var(--gold);font-family:var(--mono);font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:8px 14px;border-radius:8px;cursor:pointer;display:inline-flex;align-items:center;gap:6px" title="Atualiza as capas dos livros existentes com URLs novas">
+        <button onclick="corrigirCapas()" style="background:rgba(201,169,97,.12);border:1px solid var(--gold);color:var(--gold);font-family:var(--mono);font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:8px 14px;border-radius:8px;cursor:pointer;display:inline-flex;align-items:center;gap:6px" title="Atualiza as capas dos livros existentes">
           <i data-lucide="refresh-cw" style="width:12px;height:12px"></i> Corrigir capas
+        </button>
+        <button onclick="excluirTodos()" style="background:rgba(180,40,40,.15);border:1px solid #e63946;color:#e63946;font-family:var(--mono);font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:8px 14px;border-radius:8px;cursor:pointer;display:inline-flex;align-items:center;gap:6px" title="Excluir todos os livros (para limpar duplicatas)">
+          <i data-lucide="trash" style="width:12px;height:12px"></i> Excluir tudo
         </button>
         <button class="btn-close" onclick="fecharAdmin()" aria-label="Fechar">
           <i data-lucide="x" style="width:18px;height:18px"></i>
@@ -1399,6 +1420,7 @@ function renderBookCard(l){
     '<button class="book-action secondary" onclick="event.stopPropagation();toggleLido(\''+l.id+'\')"><i data-lucide="check" style="width:11px;height:11px"></i> Lido</button>';
 
   var readingTag = isReading ? '<div class="reading-now-tag"><span class="pulse"></span> Lendo</div>' : '';
+  var deleteBtn = _isAdmin ? '<button class="book-delete-btn" onclick="event.stopPropagation();confirmarExclusao(\'' + l.id + '\',\'' + escapeHtml(l.titulo).replace(/\'/g,\'\\\'\')+'\')" title="Excluir livro"><i data-lucide=\"trash-2\" style=\"width:13px;height:13px\"></i></button>' : '';
 
   var capaImg = l.capa ?
     '<img src="'+l.capa+'" alt="'+escapeHtml(l.titulo)+'" onerror="this.style.display=\'none\';this.parentNode.style.background=\'linear-gradient(135deg,#3b2616,#5a3a23)\'">' :
@@ -1407,6 +1429,7 @@ function renderBookCard(l){
   return ''+
     '<div class="book-card '+(l.lido?'lido':'')+'" onclick="abrirDetalhes(\''+l.id+'\')">'+
       '<div class="book-cover">'+
+        deleteBtn+
         readingTag+
         capaImg+
         '<div class="book-seal">'+
@@ -1630,12 +1653,39 @@ function editarLivro(id){
 }
 
 function excluirLivro(id){
+  confirmarExclusao(id);
+}
+function confirmarExclusao(id, titulo){
   var l = _livros.find(function(x){return x.id===id});
-  if(!l) return;
-  if(!confirm('Excluir "'+l.titulo+'" da biblioteca?')) return;
+  var nome = titulo || (l ? l.titulo : id);
+  if(!confirm('🗑 Excluir "'+nome+'" da biblioteca?\n\nEssa ação não pode ser desfeita.')) return;
   db.collection('biblioteca').doc(id).delete()
-  .then(function(){ toast('Livro excluído'); carregarBiblioteca(); })
+  .then(function(){
+    toast('Livro excluído');
+    _livros = _livros.filter(function(x){return x.id!==id});
+    renderEstantes();
+    atualizarContadores();
+    renderStats();
+    renderHero();
+  })
   .catch(function(e){ toast('Erro: '+e.message, true); });
+}
+
+// Excluir TODOS os livros (para limpar duplicatas)
+async function excluirTodos(){
+  if(!confirm('⚠️ ATENÇÃO: Isso vai excluir TODOS os '+_livros.length+' livros da biblioteca.\n\nUse isso para limpar duplicatas e depois reimporte.\n\nConfirmar?')) return;
+  if(!confirm('Tem certeza? Não tem como desfazer.')) return;
+  var count = 0;
+  for(var i=0;i<_livros.length;i++){
+    try{
+      await db.collection('biblioteca').doc(_livros[i].id).delete();
+      count++;
+    }catch(e){ console.error(e); }
+  }
+  toast('✓ '+count+' livros excluídos. Reimporte a curadoria.');
+  _livros = [];
+  renderEstantes();
+  atualizarContadores();
 }
 
 // ============================================================
@@ -2087,7 +2137,7 @@ async function corrigirCapas(){
     }
 
     // Pausa entre livros para não sobreaquecer as APIs
-    await new Promise(function(r){ setTimeout(r, 600); });
+    await new Promise(function(r){ setTimeout(r, 1200); });
   }
 
   if(falhas.length > 0){
