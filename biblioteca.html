@@ -914,9 +914,14 @@ body.is-admin .btn-admin{display:inline-flex}
         <i data-lucide="book-marked"></i>
         Gerenciar Biblioteca
       </h2>
-      <button class="btn-close" onclick="fecharAdmin()" aria-label="Fechar">
-        <i data-lucide="x" style="width:18px;height:18px"></i>
-      </button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button onclick="corrigirCapas()" style="background:rgba(201,169,97,.12);border:1px solid var(--gold);color:var(--gold);font-family:var(--mono);font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:8px 14px;border-radius:8px;cursor:pointer;display:inline-flex;align-items:center;gap:6px" title="Atualiza as capas dos livros existentes com URLs novas">
+          <i data-lucide="refresh-cw" style="width:12px;height:12px"></i> Corrigir capas
+        </button>
+        <button class="btn-close" onclick="fecharAdmin()" aria-label="Fechar">
+          <i data-lucide="x" style="width:18px;height:18px"></i>
+        </button>
+      </div>
     </header>
 
     <div class="admin-tabs">
@@ -1904,6 +1909,77 @@ trocarTab = function(tab){
   if(tab==='lista') renderAdminList();
   if(tab==='importar') renderImportPreview();
 };
+
+
+
+// ============================================================
+//  CORRIGIR CAPAS — Atualiza URLs de capa dos livros já cadastrados
+//  Usa Google Books API (sem CORS, retorna thumbnails confiáveis)
+// ============================================================
+async function corrigirCapas(){
+  if(!confirm('Buscar e atualizar as capas de todos os '+_livros.length+' livros via Google Books?\n\nIsso vai sobrescrever as capas atuais.')) return;
+
+  toast('🔍 Buscando capas via Google Books...');
+
+  var atualizados = 0;
+  var falhas = 0;
+
+  for(var i=0; i<_livros.length; i++){
+    var l = _livros[i];
+    try{
+      var query = encodeURIComponent(l.titulo + ' ' + (l.autor||''));
+      var url = 'https://www.googleapis.com/books/v1/volumes?q='+query+'&maxResults=1&langRestrict=pt';
+      var resp = await fetch(url);
+      var data = await resp.json();
+
+      if(data.items && data.items[0] && data.items[0].volumeInfo){
+        var info = data.items[0].volumeInfo;
+        var imageLinks = info.imageLinks || {};
+        // Pegar a maior imagem disponível
+        var novaCapa = imageLinks.extraLarge || imageLinks.large || imageLinks.medium || imageLinks.thumbnail || imageLinks.smallThumbnail;
+
+        // Se não achou em PT, tentar sem restrição
+        if(!novaCapa){
+          var url2 = 'https://www.googleapis.com/books/v1/volumes?q='+query+'&maxResults=1';
+          var resp2 = await fetch(url2);
+          var data2 = await resp2.json();
+          if(data2.items && data2.items[0] && data2.items[0].volumeInfo && data2.items[0].volumeInfo.imageLinks){
+            var il = data2.items[0].volumeInfo.imageLinks;
+            novaCapa = il.extraLarge || il.large || il.medium || il.thumbnail || il.smallThumbnail;
+          }
+        }
+
+        if(novaCapa){
+          // Converter http para https
+          novaCapa = novaCapa.replace('http://', 'https://');
+          // Remover zoom=1 que limita resolução
+          novaCapa = novaCapa.replace('&edge=curl', '').replace('zoom=1', 'zoom=3');
+
+          await db.collection('biblioteca').doc(l.id).update({
+            capa: novaCapa,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          l.capa = novaCapa;
+          atualizados++;
+        } else {
+          falhas++;
+        }
+      } else {
+        falhas++;
+      }
+    }catch(e){
+      console.error('Erro corrigindo:', l.titulo, e);
+      falhas++;
+    }
+
+    // Atualizar progresso
+    toast('🔍 '+(i+1)+'/'+_livros.length+' — '+l.titulo.substring(0,30)+'...');
+    await new Promise(function(r){setTimeout(r, 200)}); // Evita rate limit
+  }
+
+  toast('✓ '+atualizados+' capas atualizadas'+(falhas>0?' ('+falhas+' falhas)':''));
+  carregarBiblioteca();
+}
 
 </script>
 </body>
