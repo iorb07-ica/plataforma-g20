@@ -2173,10 +2173,12 @@ auth.onAuthStateChanged(function(user){
     carregarBiblioteca();
     carregarMinhaEstante();
     carregarComunidade();
+    carregarStatsLeitura();
   }).catch(function(){
     carregarBiblioteca();
     carregarMinhaEstante();
     carregarComunidade();
+    carregarStatsLeitura();
   });
 });
 
@@ -2369,34 +2371,93 @@ function typewriterHero(el, text){
 
 // ── PARALLAX REMOVIDO — livro mantém rotação estática 3D ──────
 
+// ================================================================
+//  STATS DE LEITURA — Firestore + localStorage cache
+//  users/{uid}/stats/leitura { streak, ultimaLeitura, diasLeitura:{} }
+// ================================================================
+
+var _statsRef = null;
+var _statsCache = { streak:0, ultimaLeitura:null, diasLeitura:{} };
+
+function carregarStatsLeitura(){
+  if(!_user) return;
+  _statsRef = db.collection('users').doc(_user.uid).collection('stats').doc('leitura');
+  _statsRef.get().then(function(doc){
+    if(doc.exists){
+      var d = doc.data();
+      _statsCache.streak        = d.streak || 0;
+      _statsCache.ultimaLeitura = d.ultimaLeitura || null;
+      _statsCache.diasLeitura   = d.diasLeitura || {};
+      var hoje  = new Date().toDateString();
+      var ontem = new Date(Date.now()-86400000).toDateString();
+      if(_statsCache.ultimaLeitura && _statsCache.ultimaLeitura!==hoje && _statsCache.ultimaLeitura!==ontem){
+        _statsCache.streak = 0;
+        _salvarStatsFirestore();
+      }
+    } else {
+      _migrarLocalStorageParaFirestore();
+    }
+    renderStats();
+  }).catch(function(){ renderStats(); });
+}
+
+function _salvarStatsFirestore(){
+  if(!_statsRef) return;
+  var limite = Date.now() - 90*86400000;
+  var dias = {};
+  Object.keys(_statsCache.diasLeitura).forEach(function(dia){
+    if(new Date(dia).getTime() >= limite) dias[dia] = _statsCache.diasLeitura[dia];
+  });
+  _statsCache.diasLeitura = dias;
+  _statsRef.set({
+    streak:_statsCache.streak,
+    ultimaLeitura:_statsCache.ultimaLeitura,
+    diasLeitura:_statsCache.diasLeitura,
+    updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+  },{merge:true}).catch(function(e){console.warn('Salvar stats:',e);});
+}
+
+function _migrarLocalStorageParaFirestore(){
+  var streak = parseInt(localStorage.getItem('biblioteca_streak')||'0',10);
+  var ultima  = localStorage.getItem('biblioteca_ultimaLeitura');
+  var dias = {};
+  for(var i=0;i<30;i++){
+    var dia = new Date(Date.now()-i*86400000).toDateString();
+    var min = parseInt(localStorage.getItem('biblioteca_hoje_min_'+dia)||'0',10);
+    var pgs = parseInt(localStorage.getItem('biblioteca_pgs_'+dia)||'0',10);
+    if(min>0||pgs>0) dias[dia]={min:min,pgs:pgs};
+  }
+  _statsCache = {streak:streak,ultimaLeitura:ultima,diasLeitura:dias};
+  _salvarStatsFirestore();
+}
+
 function renderStats(){
-  var streak = parseInt(localStorage.getItem('biblioteca_streak') || '0', 10);
-  var ultimaLeitura = localStorage.getItem('biblioteca_ultimaLeitura');
-  var hoje = new Date().toDateString();
-  var ontem = new Date(Date.now() - 86400000).toDateString();
-  if(ultimaLeitura && ultimaLeitura !== hoje && ultimaLeitura !== ontem){
-    streak = 0;
-    localStorage.setItem('biblioteca_streak', '0');
-  }
-  var sb = document.getElementById('streakBadge');
-  document.getElementById('streakDays').textContent = streak;
-  sb.classList.toggle('zero', streak === 0);
+  var hoje  = new Date().toDateString();
+  var ontem = new Date(Date.now()-86400000).toDateString();
 
-  var hojeMin = parseInt(localStorage.getItem('biblioteca_hoje_min_'+hoje) || '0', 10);
-  document.getElementById('hojeMin').textContent = hojeMin;
+  var streak = _statsCache.streak || parseInt(localStorage.getItem('biblioteca_streak')||'0',10);
+  var ultima = _statsCache.ultimaLeitura || localStorage.getItem('biblioteca_ultimaLeitura');
+  if(ultima && ultima!==hoje && ultima!==ontem) streak=0;
 
-  var semanaPgs = 0;
+  var sb=document.getElementById('streakBadge');
+  if(sb){document.getElementById('streakDays').textContent=streak;sb.classList.toggle('zero',streak===0);}
+
+  var hojeEntry=(_statsCache.diasLeitura&&_statsCache.diasLeitura[hoje])||{};
+  var hojeMin=hojeEntry.min||parseInt(localStorage.getItem('biblioteca_hoje_min_'+hoje)||'0',10);
+  var el=document.getElementById('hojeMin'); if(el) el.textContent=hojeMin;
+
+  var semanaPgs=0;
   for(var i=0;i<7;i++){
-    var d = new Date(Date.now() - i*86400000).toDateString();
-    semanaPgs += parseInt(localStorage.getItem('biblioteca_pgs_'+d) || '0', 10);
+    var dia=new Date(Date.now()-i*86400000).toDateString();
+    var entry=(_statsCache.diasLeitura&&_statsCache.diasLeitura[dia])||{};
+    semanaPgs+=entry.pgs||parseInt(localStorage.getItem('biblioteca_pgs_'+dia)||'0',10);
   }
-  document.getElementById('semanaPaginas').textContent = semanaPgs;
+  var elS=document.getElementById('semanaPaginas'); if(elS) elS.textContent=semanaPgs;
 
-  var lidos = _livros.filter(function(l){return l.lido}).length;
-  document.getElementById('totalLidos').textContent = lidos;
+  var lidos=_livros.filter(function(l){return l.lido}).length;
+  var elT=document.getElementById('totalLidos'); if(elT) elT.textContent=lidos;
 
-  // ── NÍVEIS DE LEITOR ─────────────────────────────────────
-  var niveis = [
+  var niveis=[
     {nome:'Curioso',    min:0,  max:1,  prox:'Leitor'},
     {nome:'Leitor',     min:1,  max:3,  prox:'Estudioso'},
     {nome:'Estudioso',  min:3,  max:6,  prox:'Intelectual'},
@@ -2405,51 +2466,40 @@ function renderStats(){
     {nome:'Mestre',     min:15, max:20, prox:'Lendário'},
     {nome:'Lendário',   min:20, max:999,prox:'—'}
   ];
-  var nivel = niveis[0];
-  for(var n=0;n<niveis.length;n++){
-    if(lidos >= niveis[n].min) nivel = niveis[n];
-  }
-  var pctNivel = nivel.max < 999
-    ? Math.min(100, Math.round((lidos - nivel.min) / (nivel.max - nivel.min) * 100))
-    : 100;
-  var faltam = nivel.max < 999 ? (nivel.max - lidos) : 0;
+  var nivel=niveis[0];
+  for(var n=0;n<niveis.length;n++){if(lidos>=niveis[n].min)nivel=niveis[n];}
+  var pctNivel=nivel.max<999?Math.min(100,Math.round((lidos-nivel.min)/(nivel.max-nivel.min)*100)):100;
+  var faltam=nivel.max<999?(nivel.max-lidos):0;
 
-  document.getElementById('statsNivel').textContent = nivel.nome;
-  document.getElementById('statsProxNivel').textContent = nivel.prox;
-  document.getElementById('statsNivelBar').style.width = pctNivel + '%';
-  document.getElementById('statsNivelDesc').textContent = faltam > 0
-    ? pctNivel + '% → faltam ' + faltam + ' livro' + (faltam > 1 ? 's' : '') + ' para ' + nivel.prox
-    : 'Nível máximo atingido!';
+  var elN=document.getElementById('statsNivel'); if(elN) elN.textContent=nivel.nome;
+  var elP=document.getElementById('statsProxNivel'); if(elP) elP.textContent=nivel.prox;
+  var elB=document.getElementById('statsNivelBar'); if(elB) elB.style.width=pctNivel+'%';
+  var elD=document.getElementById('statsNivelDesc'); if(elD) elD.textContent=faltam>0
+    ?pctNivel+'% → faltam '+faltam+' livro'+(faltam>1?'s':'')+' para '+nivel.prox
+    :'Nível máximo atingido!';
 
-  // ── BADGES DE CONQUISTAS ─────────────────────────────────
-  var badges = [];
-  if(lidos >= 1)  badges.push({txt:'1º livro lido', cor:'rgba(201,169,97,.15)', borda:'rgba(201,169,97,.35)', texto:'var(--gold)'});
-  if(streak >= 7) badges.push({txt:'🔥 '+streak+' dias', cor:'rgba(249,123,79,.12)', borda:'rgba(249,123,79,.35)', texto:'#f97b4f'});
-  if(streak >= 3 && streak < 7) badges.push({txt:'🔥 '+streak+' dias', cor:'rgba(249,123,79,.1)', borda:'rgba(249,123,79,.25)', texto:'#f97b4f'});
-  if(hojeMin >= 30) badges.push({txt:'Meta diária ✓', cor:'rgba(126,217,140,.1)', borda:'rgba(126,217,140,.3)', texto:'#7ed98c'});
-  if(semanaPgs >= 100) badges.push({txt:'100 pgs na semana', cor:'rgba(126,217,140,.1)', borda:'rgba(126,217,140,.3)', texto:'#7ed98c'});
-  if(lidos === 0) badges.push({txt:'Comece a ler!', cor:'rgba(255,255,255,.04)', borda:'rgba(255,255,255,.1)', texto:'var(--text-3)'});
+  var badges=[];
+  if(lidos>=1)  badges.push({txt:'1º livro lido',cor:'rgba(201,169,97,.15)',borda:'rgba(201,169,97,.35)',texto:'var(--gold)'});
+  if(streak>=7) badges.push({txt:'🔥 '+streak+' dias',cor:'rgba(249,123,79,.12)',borda:'rgba(249,123,79,.35)',texto:'#f97b4f'});
+  else if(streak>=3) badges.push({txt:'🔥 '+streak+' dias',cor:'rgba(249,123,79,.1)',borda:'rgba(249,123,79,.25)',texto:'#f97b4f'});
+  if(hojeMin>=30) badges.push({txt:'Meta diária ✓',cor:'rgba(126,217,140,.1)',borda:'rgba(126,217,140,.3)',texto:'#7ed98c'});
+  if(semanaPgs>=100) badges.push({txt:'100 pgs semana',cor:'rgba(126,217,140,.1)',borda:'rgba(126,217,140,.3)',texto:'#7ed98c'});
+  if(badges.length===0) badges.push({txt:'Comece a ler!',cor:'rgba(255,255,255,.04)',borda:'rgba(255,255,255,.1)',texto:'var(--text-3)'});
 
-  var badgesEl = document.getElementById('statsBadges');
-  if(badgesEl){
-    badgesEl.innerHTML = badges.map(function(b){
-      return '<div style="background:'+b.cor+';border:1px solid '+b.borda+';border-radius:20px;padding:3px 10px;font-family:var(--mono);font-size:9px;color:'+b.texto+';letter-spacing:.5px">'+b.txt+'</div>';
-    }).join('');
-  }
+  var bEl=document.getElementById('statsBadges');
+  if(bEl) bEl.innerHTML=badges.map(function(b){
+    return '<div style="background:'+b.cor+';border:1px solid '+b.borda+';border-radius:20px;padding:3px 10px;font-family:var(--mono);font-size:9px;color:'+b.texto+';letter-spacing:.5px">'+b.txt+'</div>';
+  }).join('');
 
-  // ── RANKING vs ALUNOS G20 ────────────────────────────────
-  var rankingEl = document.getElementById('statsRanking');
-  var rankingTxt = document.getElementById('statsRankingTxt');
-  if(rankingEl && rankingTxt && (lidos > 0 || semanaPgs > 0)){
-    // Ranking simulado baseado em lidos + atividade semanal
-    var score = lidos * 10 + Math.min(semanaPgs, 100) + Math.min(streak * 3, 30);
-    var pct = Math.min(95, Math.max(5, 100 - Math.round(score * 1.2)));
-    rankingTxt.textContent = 'Top ' + pct + '% dos leitores G20 esta semana';
-    rankingEl.style.display = 'block';
-  } else if(rankingEl){
-    rankingEl.style.display = 'none';
-  }
+  var rEl=document.getElementById('statsRanking'),rTxt=document.getElementById('statsRankingTxt');
+  if(rEl&&rTxt&&(lidos>0||semanaPgs>0)){
+    var score=lidos*10+Math.min(semanaPgs,100)+Math.min(streak*3,30);
+    var pct=Math.min(95,Math.max(5,100-Math.round(score*1.2)));
+    rTxt.textContent='Top '+pct+'% dos leitores G20 esta semana';
+    rEl.style.display='block';
+  } else if(rEl) rEl.style.display='none';
 }
+
 
 function atualizarContadores(){
   var total = _livros.length;
@@ -2646,23 +2696,32 @@ function salvarLeitura(){
   var hoje = new Date().toDateString();
   var ultima = localStorage.getItem('biblioteca_ultimaLeitura');
 
-  // Streak
+  // Streak — via _statsCache (Firestore)
+  var ultima = _statsCache.ultimaLeitura || localStorage.getItem('biblioteca_ultimaLeitura');
   if(ultima !== hoje){
     var ontem = new Date(Date.now() - 86400000).toDateString();
-    var streak = parseInt(localStorage.getItem('biblioteca_streak') || '0', 10);
+    var streak = _statsCache.streak || parseInt(localStorage.getItem('biblioteca_streak') || '0', 10);
     if(ultima === ontem) streak++;
     else streak = 1;
+    _statsCache.streak = streak;
+    _statsCache.ultimaLeitura = hoje;
     localStorage.setItem('biblioteca_streak', String(streak));
     localStorage.setItem('biblioteca_ultimaLeitura', hoje);
   }
 
-  // Minutos reais do dia (acumula se registrar mais de uma vez)
-  var hojeMin = parseInt(localStorage.getItem('biblioteca_hoje_min_'+hoje) || '0', 10);
-  localStorage.setItem('biblioteca_hoje_min_'+hoje, String(hojeMin + minEstimados));
+  // Minutos e páginas — via _statsCache
+  if(!_statsCache.diasLeitura) _statsCache.diasLeitura = {};
+  var diaEntry = _statsCache.diasLeitura[hoje] || { min:0, pgs:0 };
+  diaEntry.min = (diaEntry.min || 0) + minEstimados;
+  diaEntry.pgs = (diaEntry.pgs || 0) + pgsLidas;
+  _statsCache.diasLeitura[hoje] = diaEntry;
 
-  // Páginas reais do dia
-  var pgsHoje = parseInt(localStorage.getItem('biblioteca_pgs_'+hoje) || '0', 10);
-  localStorage.setItem('biblioteca_pgs_'+hoje, String(pgsHoje + pgsLidas));
+  // Também atualiza localStorage como cache local
+  localStorage.setItem('biblioteca_hoje_min_'+hoje, String(diaEntry.min));
+  localStorage.setItem('biblioteca_pgs_'+hoje, String(diaEntry.pgs));
+
+  // Persiste no Firestore
+  _salvarStatsFirestore();
 
   var msg = pgsLidas > 0
     ? 'Leitura registrada — ' + pgsLidas + ' pgs · ~' + minEstimados + ' min'
@@ -4785,34 +4844,23 @@ function fecharStreakAlert(){
 }
 
 function verificarStreakAlerta(){
-  var streak = parseInt(localStorage.getItem('biblioteca_streak') || '0', 10);
-  if(streak === 0) return; // ainda não tem sequência para perder
+  var streak = _statsCache.streak || parseInt(localStorage.getItem('biblioteca_streak') || '0', 10);
+  if(streak === 0) return;
 
   var hoje = new Date().toDateString();
-  var ultima = localStorage.getItem('biblioteca_ultimaLeitura');
-
-  // Já registrou hoje — tudo certo
+  var ultima = _statsCache.ultimaLeitura || localStorage.getItem('biblioteca_ultimaLeitura');
   if(ultima === hoje) return;
 
-  // Tem sequência mas não registrou hoje — verificar horário
   var agora = new Date();
-  var hora = agora.getHours();
-
-  // Mostra alerta a partir das 18h se não registrou
-  if(hora >= 18){
+  if(agora.getHours() >= 18){
     var el = document.getElementById('streakAlert');
     var diasEl = document.getElementById('streakAlertDias');
     if(diasEl) diasEl.textContent = '🔥 ' + streak + ' dias de sequência em risco!';
-
-    // Só mostra uma vez por sessão
     var jaViu = sessionStorage.getItem('streak_alert_shown');
     if(!jaViu){
       el.style.display = 'block';
       sessionStorage.setItem('streak_alert_shown', '1');
-      // Auto-fecha após 15s
-      setTimeout(function(){
-        if(el.style.display !== 'none') fecharStreakAlert();
-      }, 15000);
+      setTimeout(function(){ if(el.style.display !== 'none') fecharStreakAlert(); }, 15000);
     }
   }
 }
