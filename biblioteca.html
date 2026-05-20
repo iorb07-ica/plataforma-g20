@@ -3015,7 +3015,12 @@ trocarTab = function(tab){
 
 // Busca capa e dados de um livro pelo título+autor
 // Retorna objeto { capa, titulo, autor, paginas, ano, descricao } ou null
+var _gbCache = {}; // cache de buscas Google Books p/ evitar 429
+
 async function buscarDadosLivro(titulo, autor){
+  var cacheKey = (titulo||'') + '|' + (autor||'');
+  if(_gbCache[cacheKey]) return _gbCache[cacheKey];
+
   var query = encodeURIComponent((titulo||'') + (autor ? ' ' + autor : ''));
 
   // 1) Open Library Search
@@ -3070,7 +3075,7 @@ async function buscarDadosLivro(titulo, autor){
       var capa = imageLinks.extraLarge || imageLinks.large || imageLinks.medium || imageLinks.thumbnail || imageLinks.smallThumbnail;
       if(capa){
         capa = capa.replace('http://','https://').replace('&edge=curl','').replace('zoom=1','zoom=6').replace('zoom=3','zoom=6');
-        return {
+        var result = {
           capa: capa,
           titulo: info.title || titulo,
           autor: info.authors ? info.authors[0] : (autor||''),
@@ -3078,6 +3083,8 @@ async function buscarDadosLivro(titulo, autor){
           ano: info.publishedDate ? parseInt(info.publishedDate.substring(0,4)) : null,
           descricao: info.description ? info.description.replace(/<[^>]+>/g,'').trim().substring(0,400) : null
         };
+        _gbCache[cacheKey] = result;
+        return result;
       }
     }
   }catch(e){ console.warn('Google Books falhou:', e); }
@@ -3763,32 +3770,24 @@ function renderComunidade(){
   var el = document.getElementById('shelvesComunidade');
   if(!el) return;
 
-  // Separar aprovados e pendentes
   var aprovados = _livrosComunidade.filter(function(l){ return l.aprovado; });
   var pendentes  = _isAdmin ? _livrosComunidade.filter(function(l){ return !l.aprovado; }) : [];
 
   var html = '';
-
-  if(pendentes.length > 0){
-    html += '<div style="padding:0 0 8px"><div style="font-family:var(--mono);font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#f97b4f;margin-bottom:12px">⏳ Aguardando aprovação ('+pendentes.length+')</div>';
-    html += '<div class="books-grid">';
-    html += pendentes.map(function(l){ return renderCardSugestao(l); }).join('');
-    html += '</div></div>';
-    if(aprovados.length > 0) html += '<hr style="border:none;border-top:1px solid var(--border);margin:24px 0">';
-  }
+  var navBtns = '<button class="shelf-nav-btn nav-left" onclick="scrollShelf(this,-1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button><button class="shelf-nav-btn nav-right" onclick="scrollShelf(this,1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>';
 
   if(aprovados.length === 0 && pendentes.length === 0){
     html = '<div class="minha-empty"><div class="minha-empty-icon">💡</div><h3>Nenhuma sugestão ainda</h3><p>Seja o primeiro a sugerir um livro para a comunidade G20!</p></div>';
   } else {
     if(pendentes.length > 0){
       html += '<div class="shelf"><div style="font-family:var(--mono);font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#f97b4f;margin-bottom:14px">⏳ Aguardando aprovação ('+pendentes.length+')</div>';
-      html += '<div class="shelf-scroll-wrap"><div class="shelf-grid">';
+      html += '<div class="shelf-scroll-wrap">'+navBtns+'<div class="shelf-grid">';
       html += pendentes.map(function(l){ return renderBookCardComunidade(l); }).join('');
       html += '</div></div></div>';
       if(aprovados.length > 0) html += '<hr style="border:none;border-top:1px solid var(--border);margin:24px 0">';
     }
     if(aprovados.length > 0){
-      html += '<div class="shelf"><div class="shelf-scroll-wrap"><div class="shelf-grid">';
+      html += '<div class="shelf"><div class="shelf-scroll-wrap">'+navBtns+'<div class="shelf-grid">';
       html += aprovados.map(function(l){ return renderBookCardComunidade(l); }).join('');
       html += '</div></div></div>';
     }
@@ -3798,6 +3797,7 @@ function renderComunidade(){
   if(window.lucide) lucide.createIcons();
   setTimeout(initAllShelfDrags, 100);
 }
+
 
 function renderBookCardMinha(l){
   var isReading = l.lendo && !l.lido;
