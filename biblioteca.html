@@ -1717,6 +1717,7 @@ body.modo-aluno .book-admin-actions{display:none !important}
       <!-- campo sugestão comunidade: mensagem -->
       <div id="addMsgWrap" style="display:none;margin-top:10px">
         <textarea id="addMensagem" placeholder="Por que você recomenda este livro? (opcional)" style="width:100%;background:rgba(0,0,0,.4);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;color:var(--text);outline:none;resize:vertical;min-height:64px"></textarea>
+        <input type="hidden" id="addFrase">
       </div>
     </div>
 
@@ -2884,6 +2885,7 @@ async function buscarDadosAdmin(){
           if(info.publishedDate) dados.ano = info.publishedDate.substring(0,4);
           if(info.description) dados.descricao = info.description.replace(/<[^>]+>/g,'').trim().substring(0,400);
           if(!capaAmazon && capaGB) dados.capa = capaGB;
+          dados.frase = _buscarFraseAutomatica(dados.titulo, dados.descricao);
         }
       }
     }catch(er){ console.warn('Google Books admin:', er); }
@@ -2905,6 +2907,7 @@ async function buscarDadosAdmin(){
   if(dados.paginas) { var el=document.getElementById('fPaginas');if(el) el.value=dados.paginas; }
   if(dados.ano)     { var el=document.getElementById('fAno');    if(el) el.value=dados.ano; }
   if(dados.descricao){ var el=document.getElementById('fDescricao'); if(el && !el.value) el.value=dados.descricao; }
+  if(dados.frase){ var elF=document.getElementById('fFrase'); if(elF && !elF.value) elF.value=dados.frase; }
   if(dados.capa){
     var elCapa = document.getElementById('fCapa');
     if(elCapa) elCapa.value = dados.capa;
@@ -3231,6 +3234,107 @@ trocarTab = function(tab){
 // Busca capa e dados de um livro pelo título+autor
 // Retorna objeto { capa, titulo, autor, paginas, ano, descricao } ou null
 var _gbCache = {}; // cache de buscas Google Books p/ evitar 429
+
+/* ── DICIONÁRIO DE FRASES FAMOSAS ───────────────────────────────
+   Chave: fragmento do título em minúsculas (sem acentos, sem artigos)
+   Cobertura: ~80 bestsellers de investimentos, negócios e autoajuda
+──────────────────────────────────────────────────────────────── */
+var _FRASES_LIVROS = {
+  // Investimentos / Finanças
+  'antifrágil':      'O vento apaga a vela e alimenta o fogo.',
+  'antifragil':      'O vento apaga a vela e alimenta o fogo.',
+  'investidor inteligente': 'O mercado é um pêndulo que oscila entre esperança insustentável e desespero injustificado.',
+  'pai rico':        'Os ricos adquirem ativos. Os pobres e a classe média adquirem passivos.',
+  'bola de neve':    'A vida é como uma bola de neve. O importante é encontrar neve molhada e uma ladeira muito longa.',
+  'princípios':      'Dor + Reflexão = Progresso.',
+  'principios':      'Dor + Reflexão = Progresso.',
+  'faça fortuna':    'Dividendo é o salário que o capital paga ao seu dono.',
+  'faca fortuna':    'Dividendo é o salário que o capital paga ao seu dono.',
+  'investindo em ações': 'No longo prazo, os retornos das ações sempre superam a inflação.',
+  'ações no longo':  'No longo prazo, os retornos das ações sempre superam a inflação.',
+  'psicologia financeira': 'A riqueza é o que você não vê. São os carros não comprados, as roupas não usadas, as férias não feitas.',
+  'do mil ao milhão': 'Consistência bate talento quando o talento não é consistente.',
+  'mais esperto que o mercado': 'Invista apenas no que você entende.',
+  'ações comuns':    'A função do mercado de curto prazo é transferir dinheiro dos impacientes para os pacientes.',
+  'warren buffett':  'Seja ganancioso quando os outros têm medo, e tenha medo quando os outros são gananciosos.',
+  'jeito lobo':      'Seja o lobo, não o cordeiro.',
+  'pequeno livro':   'Compre empresas maravilhosas a preços justos, não empresas justas a preços maravilhosos.',
+  'mágica de pensar': 'Grandes pensamentos produzem grandes realizações.',
+
+  // Mentalidade / Comportamento
+  'poder do hábito': 'Primeiro formamos hábitos, depois eles nos formam.',
+  'habito atomico':  'Pequenas mudanças geram resultados notáveis.',
+  'hábito atômico':  'Pequenas mudanças geram resultados notáveis.',
+  'essencialismo':   'Se não é um sim claro, é um não.',
+  'segredos da mente': 'Seus pensamentos levam a sentimentos, que levam a ações, que levam a resultados.',
+  'como fazer amigos': 'O nome de uma pessoa é, para ela, o som mais doce em qualquer idioma.',
+  'como fazer amigo': 'O nome de uma pessoa é, para ela, o som mais doce em qualquer idioma.',
+  '7 hábitos':       'Comece com o fim em mente.',
+  'sete habitos':    'Comece com o fim em mente.',
+  'mindset':         'Não é a habilidade que define o sucesso, mas a mentalidade.',
+  'poder do agora':  'O momento presente é o único lugar onde a vida existe.',
+  'quem mexeu':      'A vida começa no fim da sua zona de conforto.',
+  'perseverança':    'Nada no mundo pode substituir a persistência.',
+  'atitude mental':  'Você se torna o que pensa a maior parte do tempo.',
+  'flow':            'A felicidade não acontece. Deve ser preparada e cultivada.',
+  'pense e enriqueça': 'Tudo que a mente humana pode conceber e acreditar, pode ser conquistado.',
+  'pense e fique':   'Tudo que a mente humana pode conceber e acreditar, pode ser conquistado.',
+  'como suportar':   'Não buscamos ser heroicos. Buscamos ser úteis.',
+  'meditações':      'Você tem poder sobre sua mente, não sobre eventos externos.',
+  'estoicismo':      'Não é o que acontece com você, mas como você reage que importa.',
+  'arte da guerra':  'Conhece a ti mesmo e conhecerás o inimigo.',
+  'the subtle art':  'A chave para uma boa vida não é se importar com mais coisas, mas com as certas.',
+
+  // Negócios / Empreendedorismo
+  'de zero a um':    'Toda empresa de sucesso é construída em torno de um segredo que o mundo ainda não sabe.',
+  'zero a um':       'Toda empresa de sucesso é construída em torno de um segredo que o mundo ainda não sabe.',
+  'startup enxuta':  'Aprender é a unidade essencial de progresso de uma startup.',
+  'lean startup':    'Aprender é a unidade essencial de progresso de uma startup.',
+  'high output':     'A produção de um gerente é a produção das equipes que gerencia.',
+  'apenas faça':     'Não importa quantas vezes você cair, o que importa é quantas vezes você se levantar.',
+  'sapiens':         'A história não termina. Uma nova era começa.',
+  'homo deus':       'A humanidade está prestes a adquirir poderes divinos.',
+  'ikigai':          'O segredo de uma vida longa e feliz é encontrar seu ikigai.',
+  'start with why':  'As pessoas não compram o que você faz; elas compram por que você faz.',
+  'comece pelo porquê': 'As pessoas não compram o que você faz; elas compram por que você faz.',
+
+  // Biografias
+  'steve jobs':      'Sua curiosidade, criatividade e visão transformam o mundo.',
+  'elon musk':       'Quando algo é suficientemente importante, você o faz mesmo que as probabilidades não estejam do seu lado.',
+  'jeff bezos':      'Seja teimoso na visão e flexível nos detalhes.',
+  'bill gates':      'O sucesso é um péssimo professor. Ele seduz pessoas inteligentes a pensar que não podem perder.',
+  'walter isaacson': 'Criatividade é conectar pontos que outros não conseguem ver.',
+  'shoe dog':        'Não pare. Não pense em parar. Não pense em amanhã. Pense no próximo quilômetro.',
+  'anos de luta':    'O sucesso não é definitivo, o fracasso não é fatal: é a coragem de continuar que conta.',
+};
+
+function _buscarFraseAutomatica(titulo, descricao){
+  if(!titulo) return '';
+  var t = titulo.toLowerCase()
+    .replace(/[àáâãä]/g,'a').replace(/[èéêë]/g,'e').replace(/[ìíîï]/g,'i')
+    .replace(/[òóôõö]/g,'o').replace(/[ùúûü]/g,'u').replace(/[ç]/g,'c');
+
+  // 1. Busca no dicionário por fragmento
+  for(var key in _FRASES_LIVROS){
+    if(t.indexOf(key) >= 0 || key.split(' ').every(function(w){ return t.indexOf(w) >= 0; })){
+      return _FRASES_LIVROS[key];
+    }
+  }
+
+  // 2. Extrai frase da descrição do Google Books (fallback)
+  if(descricao){
+    var sentences = descricao.split(/[.!?]+/).map(function(s){ return s.trim(); })
+      .filter(function(s){ return s.length > 30 && s.length < 160; });
+    if(sentences.length > 0){
+      // Prefere frases com palavras de impacto
+      var impacto = sentences.find(function(s){
+        return /sucesso|riqueza|investir|habito|mentalidade|mudança|liberdade|disciplina|foco/i.test(s);
+      });
+      return (impacto || sentences[0]) + '.';
+    }
+  }
+  return '';
+}
 
 async function buscarDadosLivro(titulo, autor){
   var cacheKey = (titulo||'') + '|' + (autor||'');
@@ -4159,7 +4263,7 @@ function fecharModalAdicionar(){
 }
 
 function _limparFormAdd(){
-  ['addTitulo','addAutor','addAno','addPaginas','addCapa','addLivroUrl','addMensagem'].forEach(function(id){
+  ['addTitulo','addAutor','addAno','addPaginas','addCapa','addLivroUrl','addMensagem','addFrase'].forEach(function(id){
     var el = document.getElementById(id);
     if(el) el.value = '';
   });
@@ -4258,6 +4362,12 @@ async function buscarDadosAddModal(){
     document.getElementById('addCapaPreview').style.display = 'block';
     document.getElementById('addCapaEmpty').style.display = 'none';
   }
+  // Auto-preenche frase de destaque
+  var fraseAuto = _buscarFraseAutomatica(dados.titulo, dados.descricao||'');
+  if(fraseAuto){
+    var elAddFrase = document.getElementById('addFrase');
+    if(elAddFrase && !elAddFrase.value) elAddFrase.value = fraseAuto;
+  }
   var temTudo = dados.titulo && dados.autor && dados.ano;
   status.style.color = temTudo ? '#7ed98c' : '#e8c766';
   status.textContent = temTudo
@@ -4304,6 +4414,7 @@ async function salvarNovoLivro(){
       dados.sugeridoPor = _user.uid;
       dados.sugeridoPorNome = nome;
       dados.mensagem = document.getElementById('addMensagem').value.trim();
+      dados.frase = document.getElementById('addFrase').value.trim();
       var ref2 = await db.collection('sugestoes').add(dados);
       _livrosComunidade.unshift(Object.assign({id:ref2.id, _source:'comunidade'}, dados));
       toast('✓ Sugestão enviada! Aguarde a aprovação.');
