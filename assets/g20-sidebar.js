@@ -275,13 +275,13 @@
       { href: 'carteira.html',           ico: '📊', lucide: 'trending-up',     label: 'Carteira G20',   id: 'tut-carteira' },
       { href: 'game-g20.html',               ico: '🏆', lucide: 'trophy',          label: 'Game G20',       id: '' },
       { href: 'biblioteca.html',         ico: '📖', lucide: 'book-open',       label: 'Biblioteca G20', id: '' },
-      { href: 'arena.html',              ico: '⚔️', lucide: 'users',            label: 'Arena G20',      id: '' }
     ]},
     { section: 'Investimentos', cls: 'nav-section--investimentos', items: [
       { href: 'gestao-patrimonial.html', ico: '💰', lucide: 'briefcase',       label: 'Minha Carteira', id: 'tut-gestao' },
       { href: 'atlas.html',              ico: '🌍', lucide: 'globe',            label: 'Atlas G20',      id: 'tut-atlas'  }
     ]},
     { section: 'Comunidade', cls: 'nav-section--comunidade', items: [
+      { href: 'arena.html',               ico: '💬', lucide: 'message-square',   label: 'Arena G20',      id: '' },
       { href: 'consultoria.html',         ico: '👨\u200d💻', lucide: 'user-round',   label: 'Consultoria',    id: '' },
       { href: '#',                        ico: '💬', lucide: 'message-circle',  label: 'Grupo WhatsApp', id: '' }
     ]}
