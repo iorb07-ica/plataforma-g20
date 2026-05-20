@@ -383,10 +383,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
 
 <script>
 var firebaseConfig={
-  apiKey:"AIzaSyBsF6NkpdevnQlJC_eL91YkJPlNVfPKzYY",
+  apiKey:"AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",
   authDomain:"g20-masterclass.firebaseapp.com",
   projectId:"g20-masterclass",
-  storageBucket:"g20-masterclass.appspot.com",
+  storageBucket:"g20-masterclass.firebasestorage.app",
   messagingSenderId:"1052719482127",
   appId:"1:1052719482127:web:537c1d67c96532be8a2a7a"
 };
@@ -416,22 +416,34 @@ var FILTER_LABELS={
 
 // ─── AUTH ───
 auth.onAuthStateChanged(function(user){
-  if(!user){location.href='login.html';return;}
+  if(!user){ location.href='login.html'; return; }
   _user=user;
-  db.collection('users').doc(user.uid).get().then(function(doc){
-    if(!doc.exists){location.href='aguardando.html';return;}
-    var d=doc.data();
-    if(!d.aprovado&&d.role!=='admin'){location.href='aguardando.html';return;}
-    _userData=d; _isAdmin=(d.role==='admin');
-    try{localStorage.setItem('g20_user_profile',JSON.stringify({
-      name:d.name||(d.perfil&&d.perfil.nome)||user.email,
-      role:d.role||'aluno',turma:d.turma||'G20',
-      photo:(d.perfil&&d.perfil.foto)||d.photo||user.photoURL||'',
-      infinite:d.infinite===true
-    }));}catch(e){}
-    if(typeof _g20PreloadSidebar==='function') _g20PreloadSidebar();
-    initArena();
-  }).catch(function(){location.href='aguardando.html';});
+
+  function verificarAcesso(tentativa){
+    db.collection('users').doc(user.uid).get().then(function(doc){
+      if(!doc.exists||(doc.data().aprovado!==true&&doc.data().role!=='admin')){
+        if((tentativa||0)<20){
+          setTimeout(function(){verificarAcesso((tentativa||0)+1);},3000);
+        } else {
+          auth.signOut().then(function(){location.href='login.html';});
+        }
+        return;
+      }
+      var d=doc.data();
+      _userData=d; _isAdmin=(d.role==='admin');
+      try{localStorage.setItem('g20_user_profile',JSON.stringify({
+        name:d.name||(d.perfil&&d.perfil.nome)||user.email,
+        role:d.role||'aluno',turma:d.turma||'G20',
+        photo:(d.perfil&&d.perfil.foto)||d.photo||user.photoURL||'',
+        infinite:d.infinite===true
+      }));}catch(e){}
+      if(typeof _g20PreloadSidebar==='function') _g20PreloadSidebar();
+      initArena();
+    }).catch(function(){
+      setTimeout(function(){verificarAcesso((tentativa||0)+1);},5000);
+    });
+  }
+  verificarAcesso(0);
 });
 
 function initArena(){
