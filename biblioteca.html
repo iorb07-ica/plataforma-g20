@@ -1770,8 +1770,14 @@ body.modo-aluno .book-admin-actions{display:none !important}
         <div class="form-row full">
           <div class="form-group">
             <label class="form-label">Link Amazon (afiliado)</label>
-            <input class="form-input" id="fAmazon" placeholder="https://amzn.to/..." oninput="onAmazonChange()">
-            <span class="form-help">Cole o link de afiliado da Amazon para este livro</span>
+            <div style="display:flex;gap:8px">
+              <input class="form-input" id="fAmazon" placeholder="https://www.amazon.com.br/..." style="flex:1" oninput="onAmazonChange()">
+              <button type="button" class="btn-form ghost" onclick="buscarDadosAdmin()" style="padding:0 16px;white-space:nowrap;height:44px" id="btnBuscarAdmin" title="Busca nome, autor, páginas, ano e capa pelo link da Amazon">
+                <i data-lucide="search" style="width:14px;height:14px"></i>
+                Buscar dados
+              </button>
+            </div>
+            <span class="form-help" id="adminAmazonStatus">Cole o link da Amazon e clique em "Buscar dados" para preencher tudo automaticamente</span>
           </div>
         </div>
 
@@ -2698,9 +2704,100 @@ window.addEventListener('DOMContentLoaded', function(){
 //  EXTRAÇÃO AUTOMÁTICA DE DADOS DA AMAZON
 // ============================================================
 function onAmazonChange(){
-  // Esconde preview se o link mudar
   var link = document.getElementById('fAmazon').value.trim();
-  if(!link) document.getElementById('amazonPreview').style.display='none';
+  if(!link){ document.getElementById('amazonPreview').style.display='none'; return; }
+  // Auto-busca quando parece URL Amazon completa
+  if(/amazon\.com\.br\/.+\/dp\//i.test(link)) buscarDadosAdmin();
+}
+
+async function buscarDadosAdmin(){
+  var url = document.getElementById('fAmazon').value.trim();
+  if(!url){ toast('Cole o link da Amazon primeiro'); return; }
+  if(!/amazon|amzn/i.test(url)){ toast('O link não parece ser da Amazon'); return; }
+
+  var btn = document.getElementById('btnBuscarAdmin');
+  var status = document.getElementById('adminAmazonStatus');
+  btn.disabled = true;
+  btn.innerHTML = '<i data-lucide="loader" style="width:14px;height:14px;animation:spin 1s linear infinite"></i> Buscando...';
+  if(window.lucide) lucide.createIcons();
+  status.style.color = 'var(--text-3)';
+  status.textContent = 'Conectando...';
+
+  // Extrai ASIN
+  var asinMatch = url.match(/\/dp\/([A-Z0-9]{10})/i) || url.match(/\/gp\/product\/([A-Z0-9]{10})/i);
+  var asin = asinMatch ? asinMatch[1] : null;
+
+  // Extrai título do path da URL
+  var decodedUrl = decodeURIComponent(url);
+  var pathMatch = decodedUrl.match(/amazon\.com\.br\/([^/?]+)\/dp/i);
+  var tituloHint = '';
+  if(pathMatch){
+    tituloHint = pathMatch[1].replace(/-/g,' ').replace(/\+/g,' ').replace(/\s+/g,' ').trim();
+    tituloHint = tituloHint.split(' ').slice(0, 6).join(' ');
+  }
+
+  var capaAmazon = asin ? 'https://images-na.ssl-images-amazon.com/images/P/'+asin+'.01.LZZZZZZZ.jpg' : '';
+  var dados = { titulo: tituloHint, autor: '', paginas: '', ano: '', capa: capaAmazon };
+
+  // Google Books para metadados precisos
+  if(tituloHint){
+    try{
+      var query = tituloHint.split(' ').slice(0,4).join(' ');
+      var gbUrl = 'https://www.googleapis.com/books/v1/volumes?q='+encodeURIComponent(query)+'&maxResults=3';
+      var resp = await fetch(gbUrl);
+      if(resp.ok){
+        var gbData = await resp.json();
+        if(gbData.items && gbData.items.length > 0){
+          var best = gbData.items[0];
+          gbData.items.forEach(function(item){
+            var v = item.volumeInfo||{}, vb = best.volumeInfo||{};
+            if((v.pageCount||0)+(v.authors?10:0) > (vb.pageCount||0)+(vb.authors?10:0)) best = item;
+          });
+          var info = best.volumeInfo || {};
+          var il = info.imageLinks || {};
+          var capaGB = il.extraLarge||il.large||il.medium||il.thumbnail||'';
+          if(capaGB) capaGB = capaGB.replace('http://','https://').replace('zoom=1','zoom=6').replace('zoom=3','zoom=6').replace('&edge=curl','');
+          if(info.title) dados.titulo = info.title;
+          if(info.authors && info.authors[0]) dados.autor = info.authors[0];
+          if(info.pageCount) dados.paginas = info.pageCount;
+          if(info.publishedDate) dados.ano = info.publishedDate.substring(0,4);
+          if(info.description) dados.descricao = info.description.replace(/<[^>]+>/g,'').trim().substring(0,400);
+          if(!capaAmazon && capaGB) dados.capa = capaGB;
+        }
+      }
+    }catch(er){ console.warn('Google Books admin:', er); }
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '<i data-lucide="search" style="width:14px;height:14px"></i> Buscar dados';
+  if(window.lucide) lucide.createIcons();
+
+  if(!dados.titulo && !dados.capa){
+    status.style.color = 'var(--red)';
+    status.textContent = 'Não encontrei dados. Preencha manualmente.';
+    return;
+  }
+
+  // Preenche os campos do formulário admin
+  if(dados.titulo)  { var el=document.getElementById('fTitulo'); if(el && !el.value) el.value=dados.titulo; else if(el) el.value=dados.titulo; }
+  if(dados.autor)   { var el=document.getElementById('fAutor');  if(el) el.value=dados.autor; }
+  if(dados.paginas) { var el=document.getElementById('fPaginas');if(el) el.value=dados.paginas; }
+  if(dados.ano)     { var el=document.getElementById('fAno');    if(el) el.value=dados.ano; }
+  if(dados.descricao){ var el=document.getElementById('fDescricao'); if(el && !el.value) el.value=dados.descricao; }
+  if(dados.capa){
+    var elCapa = document.getElementById('fCapa');
+    if(elCapa) elCapa.value = dados.capa;
+    var prev = document.getElementById('capaPreview');
+    if(prev){ prev.src=dados.capa; prev.style.display='block'; }
+    var empty = document.getElementById('capaEmpty');
+    if(empty) empty.style.display='none';
+  }
+
+  var temTudo = dados.titulo && dados.autor && dados.ano;
+  status.style.color = temTudo ? '#7ed98c' : '#e8c766';
+  status.textContent = temTudo
+    ? '✓ Todos os dados preenchidos!'
+    : '✓ Dados parciais — confira antes de salvar.';
 }
 
 async function extrairDadosAmazon(){
@@ -3968,8 +4065,8 @@ function previewCapaAdd(){
 
 async function buscarDadosAddModal(){
   var url = document.getElementById('addLivroUrl').value.trim();
-  if(!url){ toast('Cole o link da Amazon primeiro', true); return; }
-  if(!/amazon\.com/i.test(url)){ toast('O link não parece ser da Amazon', true); return; }
+  if(!url){ toast('Cole o link da Amazon primeiro'); return; }
+  if(!/amazon\.com/i.test(url)){ toast('O link não parece ser da Amazon'); return; }
 
   var btn = document.getElementById('btnBuscarAdd');
   var status = document.getElementById('addLivroStatus');
@@ -3981,45 +4078,76 @@ async function buscarDadosAddModal(){
   // Extrai ASIN
   var asinMatch = url.match(/\/dp\/([A-Z0-9]{10})/i) || url.match(/\/gp\/product\/([A-Z0-9]{10})/i);
   var asin = asinMatch ? asinMatch[1] : null;
-  var tituloUrl = decodeURIComponent(url).match(/amazon\.com\.br\/([^/]+)\/dp/i);
-  var tituloHint = tituloUrl ? tituloUrl[1].replace(/-/g,' ').replace(/\+/g,' ') : '';
-  var query = tituloHint || asin || '';
-  var dados = null;
 
-  if(query){
-    try{
-      var gbUrl = 'https://www.googleapis.com/books/v1/volumes?q='+encodeURIComponent(query)+'&maxResults=1';
-      var resp = await fetch(gbUrl);
-      var gbData = await resp.json();
-      if(gbData.items && gbData.items[0]){
-        var info = gbData.items[0].volumeInfo;
-        var il = info.imageLinks || {};
-        var capa = il.extraLarge||il.large||il.medium||il.thumbnail||'';
-        if(capa) capa = capa.replace('http://','https://').replace('zoom=1','zoom=6').replace('zoom=3','zoom=6').replace('&edge=curl','').replace('http://','https://');
-        dados = { titulo:info.title||'', autor:info.authors?info.authors[0]:'', paginas:info.pageCount||'', ano:info.publishedDate?info.publishedDate.substring(0,4):'', capa:capa };
-      }
-    }catch(er){}
+  // Extrai título limpo do path da URL Amazon
+  var decodedUrl = decodeURIComponent(url);
+  var pathMatch = decodedUrl.match(/amazon\.com\.br\/([^/?]+)\/dp/i);
+  var tituloHint = '';
+  if(pathMatch){
+    tituloHint = pathMatch[1].replace(/-/g,' ').replace(/\+/g,' ').replace(/\s+/g,' ').trim();
+    var palavras = tituloHint.split(' ');
+    tituloHint = palavras.slice(0, Math.min(palavras.length, 6)).join(' ');
   }
-  if(asin){ var capaAmazon='https://images-na.ssl-images-amazon.com/images/P/'+asin+'.01.LZZZZZZZ.jpg'; if(dados) dados.capa=capaAmazon; else dados={titulo:'',autor:'',paginas:'',ano:'',capa:capaAmazon}; }
+
+  // Cover Amazon via ASIN (sempre HD)
+  var capaAmazon = asin ? 'https://images-na.ssl-images-amazon.com/images/P/'+asin+'.01.LZZZZZZZ.jpg' : '';
+  var dados = { titulo: tituloHint, autor: '', paginas: '', ano: '', capa: capaAmazon };
+
+  // Google Books para enriquecer com metadados precisos
+  if(tituloHint){
+    try{
+      var query = tituloHint.split(' ').slice(0,4).join(' ');
+      var gbUrl = 'https://www.googleapis.com/books/v1/volumes?q='+encodeURIComponent(query)+'&maxResults=3';
+      var resp = await fetch(gbUrl);
+      if(resp.ok){
+        var gbData = await resp.json();
+        if(gbData.items && gbData.items.length > 0){
+          // Escolhe item com mais informações completas
+          var best = gbData.items[0];
+          gbData.items.forEach(function(item){
+            var v = item.volumeInfo||{}, vb = best.volumeInfo||{};
+            if((v.pageCount||0)+(v.authors?10:0) > (vb.pageCount||0)+(vb.authors?10:0)) best = item;
+          });
+          var info = best.volumeInfo || {};
+          var il = info.imageLinks || {};
+          var capaGB = il.extraLarge||il.large||il.medium||il.thumbnail||'';
+          if(capaGB) capaGB = capaGB.replace('http://','https://').replace('zoom=1','zoom=6').replace('zoom=3','zoom=6').replace('&edge=curl','');
+          if(info.title) dados.titulo = info.title;
+          if(info.authors && info.authors[0]) dados.autor = info.authors[0];
+          if(info.pageCount) dados.paginas = info.pageCount;
+          if(info.publishedDate) dados.ano = info.publishedDate.substring(0,4);
+          if(!capaAmazon && capaGB) dados.capa = capaGB;
+        }
+      }
+    }catch(er){ console.warn('Google Books:', er); }
+  }
 
   btn.disabled = false;
   btn.textContent = 'Buscar dados';
 
-  if(!dados){ status.style.color='var(--red)'; status.textContent='Não encontrei dados. Preencha manualmente.'; return; }
+  if(!dados.titulo && !dados.capa){
+    status.style.color='var(--red)';
+    status.textContent='Não encontrei dados. Preencha manualmente.';
+    return;
+  }
 
-  if(dados.titulo) document.getElementById('addTitulo').value = dados.titulo;
-  if(dados.autor)  document.getElementById('addAutor').value  = dados.autor;
+  if(dados.titulo)  document.getElementById('addTitulo').value  = dados.titulo;
+  if(dados.autor)   document.getElementById('addAutor').value   = dados.autor;
   if(dados.paginas) document.getElementById('addPaginas').value = dados.paginas;
-  if(dados.ano)    document.getElementById('addAno').value    = dados.ano;
+  if(dados.ano)     document.getElementById('addAno').value     = dados.ano;
   if(dados.capa){
     document.getElementById('addCapa').value = dados.capa;
     document.getElementById('addCapaPreview').src = dados.capa;
     document.getElementById('addCapaPreview').style.display = 'block';
     document.getElementById('addCapaEmpty').style.display = 'none';
   }
-  status.style.color = '#7ed98c';
-  status.textContent = '✓ Dados preenchidos! Escolha a categoria e salve.';
+  var temTudo = dados.titulo && dados.autor && dados.ano;
+  status.style.color = temTudo ? '#7ed98c' : '#e8c766';
+  status.textContent = temTudo
+    ? '✓ Dados preenchidos! Escolha a categoria e salve.'
+    : '✓ Capa encontrada — confira e complete os campos antes de salvar.';
 }
+
 
 async function salvarNovoLivro(){
   var titulo = document.getElementById('addTitulo').value.trim();
