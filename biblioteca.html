@@ -1150,6 +1150,9 @@ body.modo-aluno #shelves .book-card{cursor:default !important}
       <i data-lucide="bell"></i>
       <span class="notif-dot" id="notifDot"></span>
     </button>
+    <button class="btn-icon" onclick="iniciarTourBiblioteca()" title="Tour da Biblioteca" aria-label="Ajuda e tour">
+      <i data-lucide="help-circle"></i>
+    </button>
     <button class="btn-icon" id="themeBtn" onclick="if(typeof toggleTheme==='function')toggleTheme()" aria-label="Alternar tema">
       <i data-lucide="moon"></i>
     </button>
@@ -4530,6 +4533,279 @@ document.addEventListener('keydown', function(ev){
   }
 });
 
+</script>
+
+<style>
+.tour-overlay{position:fixed;inset:0;z-index:9000;pointer-events:none}
+.tour-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(2px);z-index:9001;pointer-events:all}
+.tour-highlight{position:fixed;z-index:9002;border-radius:10px;box-shadow:0 0 0 4px rgba(201,169,97,.8),0 0 0 8px rgba(201,169,97,.2),0 0 40px rgba(201,169,97,.3);pointer-events:none;transition:all .4s cubic-bezier(.2,.8,.3,1)}
+.tour-bubble{position:fixed;z-index:9003;background:linear-gradient(145deg,#1e1c22,#16151a);border:1px solid rgba(201,169,97,.4);border-radius:16px;padding:24px 26px;max-width:340px;box-shadow:0 20px 60px rgba(0,0,0,.7);pointer-events:all;transition:all .35s cubic-bezier(.2,.8,.3,1)}
+.tour-bubble::before{content:'';position:absolute;width:12px;height:12px;background:#1e1c22;border:1px solid rgba(201,169,97,.4);transform:rotate(45deg)}
+.tour-bubble.arrow-top::before{top:-7px;left:28px;border-bottom:none;border-right:none}
+.tour-bubble.arrow-bottom::before{bottom:-7px;left:28px;border-top:none;border-left:none}
+.tour-bubble.arrow-left::before{left:-7px;top:28px;border-right:none;border-bottom:none;transform:rotate(-45deg)}
+.tour-step-num{font-family:monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--gold);margin-bottom:8px}
+.tour-title{font-family:'Georgia',serif;font-size:18px;font-weight:700;color:#ffffff;margin-bottom:8px;line-height:1.2}
+.tour-desc{font-family:'DM Sans',sans-serif;font-size:13px;color:rgba(240,236,224,.75);line-height:1.65;margin-bottom:18px}
+.tour-desc strong{color:#f4ead5;font-weight:600}
+.tour-desc .alert{display:block;margin-top:10px;padding:8px 12px;background:rgba(249,123,79,.1);border:1px solid rgba(249,123,79,.3);border-radius:8px;color:#f97b4f;font-size:12px}
+.tour-actions{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.tour-dots{display:flex;gap:5px}
+.tour-dot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.15);transition:background .2s}
+.tour-dot.active{background:var(--gold)}
+.tour-btn{font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;border:none;cursor:pointer;border-radius:20px;padding:9px 20px;transition:all .2s}
+.tour-btn-next{background:linear-gradient(135deg,#a08543,#e8c766);color:#1a1410}
+.tour-btn-next:hover{transform:translateY(-1px);box-shadow:0 6px 16px rgba(201,169,97,.35)}
+.tour-btn-skip{background:transparent;color:rgba(240,236,224,.4);font-size:12px;padding:6px 10px}
+.tour-btn-skip:hover{color:rgba(240,236,224,.7)}
+
+/* Alerta de streak diário */
+.streak-alert{position:fixed;bottom:24px;right:24px;z-index:8000;background:linear-gradient(135deg,rgba(249,123,79,.95),rgba(200,80,30,.95));border-radius:14px;padding:16px 20px;max-width:300px;box-shadow:0 12px 40px rgba(249,123,79,.4);animation:slideInRight .4s cubic-bezier(.2,.8,.3,1);pointer-events:all}
+.streak-alert.hiding{animation:slideOutRight .3s ease forwards}
+@keyframes slideInRight{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes slideOutRight{to{transform:translateX(120%);opacity:0}}
+</style>
+
+<!-- Tour overlay -->
+<div id="tourOverlay" class="tour-overlay" style="display:none">
+  <div class="tour-backdrop" onclick="fecharTour()"></div>
+  <div class="tour-highlight" id="tourHighlight"></div>
+  <div class="tour-bubble" id="tourBubble">
+    <div class="tour-step-num" id="tourStepNum"></div>
+    <div class="tour-title" id="tourTitle"></div>
+    <div class="tour-desc" id="tourDesc"></div>
+    <div class="tour-actions">
+      <div class="tour-dots" id="tourDots"></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="tour-btn tour-btn-skip" onclick="fecharTour()">Pular</button>
+        <button class="tour-btn tour-btn-next" id="tourBtnNext" onclick="tourNext()">Próximo →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Alerta de streak -->
+<div id="streakAlert" style="display:none" class="streak-alert">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+    <span style="font-size:22px">🔥</span>
+    <div>
+      <div style="font-family:'Georgia',serif;font-size:15px;font-weight:700;color:#fff">Sua sequência está em risco!</div>
+      <div style="font-family:monospace;font-size:10px;color:rgba(255,255,255,.7);letter-spacing:1px" id="streakAlertDias"></div>
+    </div>
+  </div>
+  <div style="font-family:'DM Sans',sans-serif;font-size:12px;color:rgba(255,255,255,.85);line-height:1.5;margin-bottom:12px">Você ainda não registrou leitura hoje. Se não registrar antes da meia-noite, perde sua sequência!</div>
+  <div style="display:flex;gap:8px">
+    <button onclick="abrirModalLeitura();fecharStreakAlert()" style="flex:1;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:8px;padding:8px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer">📖 Registrar agora</button>
+    <button onclick="fecharStreakAlert()" style="background:transparent;border:none;color:rgba(255,255,255,.5);font-size:18px;cursor:pointer;padding:4px 8px">✕</button>
+  </div>
+</div>
+
+<script>
+// ================================================================
+//  TOUR DA BIBLIOTECA G20
+// ================================================================
+var _tourStep = 0;
+var _tourSteps = [
+  {
+    selector: '#heroSection',
+    title: 'Seu livro em destaque',
+    desc: 'Aqui fica o livro que você está lendo agora. A capa muda o fundo automaticamente criando um clima único para cada obra.<br><br>Clique em qualquer livro na estante para trazê-lo para este destaque.',
+    pos: 'bottom', offsetY: 10
+  },
+  {
+    selector: '#heroProgressFill',
+    title: 'Progresso da leitura',
+    desc: 'Esta barra mostra exatamente em que ponto você está. Clique em <strong>"Registrar leitura"</strong> para atualizar a página em que parou.<br><br>Cada registro conta minutos e páginas para suas estatísticas.',
+    pos: 'bottom', offsetY: 10
+  },
+  {
+    selector: '.hero-stats',
+    title: 'Suas estatísticas e nível',
+    desc: 'Aqui está o coração da sua jornada de leitor. Você evolui de <strong>Curioso → Leitor → Estudioso → Intelectual → Sábio → Mestre → Lendário</strong> conforme conclui livros.<br><br>O ranking mostra sua posição entre os alunos G20 ativos.',
+    pos: 'left', offsetX: -10
+  },
+  {
+    selector: '#streakBadge',
+    title: '🔥 A sequência — não quebre nunca!',
+    desc: '<strong>Esse número é o mais importante de todos.</strong><br><br>Cada dia que você registra leitura, a sequência cresce. Se passar um dia sem registrar, ela volta para zero.<br><span class="alert">⚠️ A sequência zera à meia-noite. Não precisa ler horas — 5 minutos por dia já contam. O hábito diário vale mais do que maratonas semanais.</span>',
+    pos: 'left', offsetX: -10
+  },
+  {
+    selector: '#tabContentG20',
+    title: 'Coleção G20',
+    desc: 'Aqui estão os livros curados por Israel — a leitura obrigatória de quem busca independência financeira.<br><br>Use os <strong>filtros</strong> para navegar por categoria, status de leitura ou livros em andamento.',
+    pos: 'top', offsetY: -10
+  },
+  {
+    selector: '.shelf',
+    title: 'As estantes',
+    desc: 'Cada livro fica na estante até você concluí-lo. O <strong>checkmark verde</strong> indica livro lido. O toggle <strong>LIDO</strong> abaixo do livro registra a conclusão.<br><br>Clique na capa de qualquer livro para ver detalhes e navegar.',
+    pos: 'top', offsetY: -10
+  },
+  {
+    selector: '#tabContentMinha',
+    title: 'Minha Estante',
+    desc: 'Espaço exclusivamente seu — adicione livros que está lendo fora da curadoria G20, livros pessoais ou que pretende ler.<br><br>Só você vê esta estante. Arraste para reordenar.',
+    pos: 'top', offsetY: -10
+  },
+  {
+    selector: '#tabContentComunidade',
+    title: 'Comunidade G20',
+    desc: 'Aqui aparecem sugestões dos alunos aprovadas por Israel. Você também pode sugerir um livro — ele ficará pendente até aprovação.<br><br>Livros aprovados ficam visíveis para todos.',
+    pos: 'top', offsetY: -10
+  },
+  {
+    selector: '#leituraOverlay',
+    title: 'Registrar leitura diária',
+    desc: 'Este é o gesto mais importante da plataforma. <strong>Todo dia, informe em que página parou.</strong><br><br>Isso alimenta:<br>• Minutos de leitura de hoje<br>• Páginas lidas na semana<br>• Sua sequência de dias<br>• Previsão de conclusão do livro<span class="alert">🔥 Faça isso todos os dias — mesmo que sejam só 10 páginas. O hábito composto transforma leitores medianos em leitores extraordinários.</span>',
+    pos: 'center'
+  }
+];
+
+function iniciarTourBiblioteca(){
+  _tourStep = 0;
+  document.getElementById('tourOverlay').style.display = 'block';
+  document.body.style.overflow = 'hidden';
+  renderTourStep();
+}
+
+function fecharTour(){
+  document.getElementById('tourOverlay').style.display = 'none';
+  document.body.style.overflow = '';
+  localStorage.setItem('biblioteca_tour_done', '1');
+}
+
+function tourNext(){
+  _tourStep++;
+  if(_tourStep >= _tourSteps.length){ fecharTour(); return; }
+  renderTourStep();
+}
+
+function renderTourStep(){
+  var step = _tourSteps[_tourStep];
+  var overlay = document.getElementById('tourOverlay');
+  var highlight = document.getElementById('tourHighlight');
+  var bubble = document.getElementById('tourBubble');
+
+  // Dots
+  var dots = document.getElementById('tourDots');
+  dots.innerHTML = _tourSteps.map(function(_,i){
+    return '<div class="tour-dot'+(i===_tourStep?' active':'')+'" onclick="jumpTour('+i+')" style="cursor:pointer"></div>';
+  }).join('');
+
+  // Step num
+  document.getElementById('tourStepNum').textContent = (_tourStep+1) + ' / ' + _tourSteps.length;
+  document.getElementById('tourTitle').textContent = step.title;
+  document.getElementById('tourDesc').innerHTML = step.desc;
+  document.getElementById('tourBtnNext').textContent = _tourStep === _tourSteps.length-1 ? 'Concluir ✓' : 'Próximo →';
+
+  // Se for o step do modal de leitura, abrir e posicionar no centro
+  if(step.pos === 'center'){
+    highlight.style.display = 'none';
+    bubble.style.top = '50%';
+    bubble.style.left = '50%';
+    bubble.style.transform = 'translate(-50%,-50%)';
+    bubble.className = 'tour-bubble';
+    return;
+  }
+
+  // Encontrar elemento
+  var el = document.querySelector(step.selector);
+  if(!el){ tourNext(); return; }
+
+  // Scroll para o elemento
+  el.scrollIntoView({behavior:'smooth', block:'center'});
+
+  setTimeout(function(){
+    var r = el.getBoundingClientRect();
+    var pad = 8;
+
+    highlight.style.display = 'block';
+    highlight.style.left = (r.left - pad) + 'px';
+    highlight.style.top = (r.top - pad) + 'px';
+    highlight.style.width = (r.width + pad*2) + 'px';
+    highlight.style.height = (r.height + pad*2) + 'px';
+
+    bubble.style.transform = '';
+    bubble.className = 'tour-bubble';
+
+    var bw = 340, bh = 200;
+    var vw = window.innerWidth, vh = window.innerHeight;
+
+    if(step.pos === 'bottom'){
+      bubble.style.top = (r.bottom + pad + 10 + (step.offsetY||0)) + 'px';
+      bubble.style.left = Math.min(r.left, vw - bw - 20) + 'px';
+      bubble.classList.add('arrow-top');
+    } else if(step.pos === 'top'){
+      bubble.style.top = Math.max(10, r.top - bh - 20 + (step.offsetY||0)) + 'px';
+      bubble.style.left = Math.min(r.left, vw - bw - 20) + 'px';
+      bubble.classList.add('arrow-bottom');
+    } else if(step.pos === 'left'){
+      bubble.style.top = Math.min(r.top, vh - bh - 20) + 'px';
+      bubble.style.left = Math.max(10, r.left - bw - 20 + (step.offsetX||0)) + 'px';
+      bubble.classList.add('arrow-left');
+    }
+  }, 300);
+}
+
+function jumpTour(i){
+  _tourStep = i;
+  renderTourStep();
+}
+
+// ================================================================
+//  STREAK ALERT — avisa se não leu hoje
+// ================================================================
+function fecharStreakAlert(){
+  var el = document.getElementById('streakAlert');
+  el.classList.add('hiding');
+  setTimeout(function(){ el.style.display='none'; el.classList.remove('hiding'); }, 300);
+}
+
+function verificarStreakAlerta(){
+  var streak = parseInt(localStorage.getItem('biblioteca_streak') || '0', 10);
+  if(streak === 0) return; // ainda não tem sequência para perder
+
+  var hoje = new Date().toDateString();
+  var ultima = localStorage.getItem('biblioteca_ultimaLeitura');
+
+  // Já registrou hoje — tudo certo
+  if(ultima === hoje) return;
+
+  // Tem sequência mas não registrou hoje — verificar horário
+  var agora = new Date();
+  var hora = agora.getHours();
+
+  // Mostra alerta a partir das 18h se não registrou
+  if(hora >= 18){
+    var el = document.getElementById('streakAlert');
+    var diasEl = document.getElementById('streakAlertDias');
+    if(diasEl) diasEl.textContent = '🔥 ' + streak + ' dias de sequência em risco!';
+
+    // Só mostra uma vez por sessão
+    var jaViu = sessionStorage.getItem('streak_alert_shown');
+    if(!jaViu){
+      el.style.display = 'block';
+      sessionStorage.setItem('streak_alert_shown', '1');
+      // Auto-fecha após 15s
+      setTimeout(function(){
+        if(el.style.display !== 'none') fecharStreakAlert();
+      }, 15000);
+    }
+  }
+}
+
+// Auto-tour para novos usuários
+(function checkFirstVisit(){
+  if(!localStorage.getItem('biblioteca_tour_done')){
+    setTimeout(function(){
+      if(typeof _livros !== 'undefined') iniciarTourBiblioteca();
+    }, 2000);
+  }
+  // Verifica alerta de streak periodicamente
+  setTimeout(verificarStreakAlerta, 3000);
+  setInterval(verificarStreakAlerta, 10 * 60 * 1000); // a cada 10 min
+})();
 </script>
 </body>
 </html>
