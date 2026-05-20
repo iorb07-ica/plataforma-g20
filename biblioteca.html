@@ -2632,11 +2632,21 @@ function salvarLeitura(){
   if(!l) return;
   var pagN = parseInt(document.getElementById('leituraInputPag').value, 10);
   if(isNaN(pagN) || pagN < 0){ toast('Página inválida', true); return; }
+
+  // ── Calcular páginas lidas agora (diferença real) ──────────
+  var pagAnterior = l.paginaAtual || 0;
+  var pgsLidas = Math.max(0, pagN - pagAnterior);
+
+  // ── Estimar minutos: 1 página ≈ 2 min (média adulto) ───────
+  var minEstimados = pgsLidas > 0 ? Math.max(5, Math.round(pgsLidas * 2)) : 5;
+
   l.paginaAtual = pagN;
   l.lendo = true;
 
   var hoje = new Date().toDateString();
   var ultima = localStorage.getItem('biblioteca_ultimaLeitura');
+
+  // Streak
   if(ultima !== hoje){
     var ontem = new Date(Date.now() - 86400000).toDateString();
     var streak = parseInt(localStorage.getItem('biblioteca_streak') || '0', 10);
@@ -2645,13 +2655,21 @@ function salvarLeitura(){
     localStorage.setItem('biblioteca_streak', String(streak));
     localStorage.setItem('biblioteca_ultimaLeitura', hoje);
   }
+
+  // Minutos reais do dia (acumula se registrar mais de uma vez)
   var hojeMin = parseInt(localStorage.getItem('biblioteca_hoje_min_'+hoje) || '0', 10);
-  localStorage.setItem('biblioteca_hoje_min_'+hoje, String(hojeMin + 15));
+  localStorage.setItem('biblioteca_hoje_min_'+hoje, String(hojeMin + minEstimados));
+
+  // Páginas reais do dia
   var pgsHoje = parseInt(localStorage.getItem('biblioteca_pgs_'+hoje) || '0', 10);
-  localStorage.setItem('biblioteca_pgs_'+hoje, String(pgsHoje + 5));
+  localStorage.setItem('biblioteca_pgs_'+hoje, String(pgsHoje + pgsLidas));
+
+  var msg = pgsLidas > 0
+    ? 'Leitura registrada — ' + pgsLidas + ' pgs · ~' + minEstimados + ' min'
+    : 'Posição registrada — pág ' + pagN;
 
   salvarStatusAluno(l);
-  toast('Leitura registrada - pag ' + pagN);
+  toast(msg);
   fecharModalLeitura();
   renderHero(l);
   renderStats();
