@@ -743,7 +743,8 @@ body.modo-aluno #shelves .book-card{cursor:default !important}
 }
 
 /* Selo de Lido */
-.book-card.lido .book-cover{filter:brightness(.72) saturate(.55)}
+/* Lido: transição cinematográfica — P&B gradual (via classe .lido-animating) */
+.book-card.lido:not(.lido-flash) .book-cover{filter:grayscale(1) brightness(.7);transition:filter 0s}
 
 /* Faixa diagonal LIDO */
 .book-lido-ribbon{
@@ -859,17 +860,19 @@ body.modo-aluno #shelves .book-card{cursor:default !important}
 }
 .book-check svg{filter:drop-shadow(0 1px 2px rgba(0,0,0,.3))}
 
-/* Lido: SEM grayscale — manter cores vivas */
-.book-card.lido .book-cover{filter:none}
-/* Leve brilho dourado muito sutil na capa lida */
-.book-card.lido .book-cover::after{
-  background:linear-gradient(
-    130deg,
-    rgba(201,169,97,.06) 0%,
-    rgba(255,255,255,.02) 25%,
-    transparent 55%,
-    rgba(201,169,97,.04) 100%
-  );
+/* Flash dourado → P&B: fase 1 = brilho ouro, fase 2 = grayscale suave */
+.book-card.lido-flash .book-cover{
+  animation: lidoFlash .45s ease-out forwards;
+}
+.book-card.lido-settle .book-cover{
+  filter: grayscale(1) brightness(.7);
+  transition: filter .85s ease-in-out;
+}
+@keyframes lidoFlash{
+  0%  { filter: grayscale(0) brightness(1) saturate(1); }
+  25% { filter: grayscale(0) brightness(2.2) saturate(1.4) sepia(.2); }
+  60% { filter: grayscale(.3) brightness(1.4) saturate(.8); }
+  100%{ filter: grayscale(.8) brightness(.85) saturate(.3); }
 }
 
 
@@ -2656,6 +2659,19 @@ function toggleLido(id, e){
     // Classe lido
     card.classList.toggle('lido', livro.lido);
 
+    // Efeito cinematográfico ao marcar como lido
+    if(livro.lido){
+      card.classList.remove('lido-flash','lido-settle');
+      void card.offsetWidth; // force reflow
+      card.classList.add('lido-flash');
+      setTimeout(function(){
+        card.classList.remove('lido-flash');
+        card.classList.add('lido-settle');
+      }, 450);
+    } else {
+      card.classList.remove('lido-flash','lido-settle');
+    }
+
     // Faixa LIDO
     var cover = card.querySelector('.book-cover');
     if(cover){
@@ -2675,8 +2691,6 @@ function toggleLido(id, e){
     if(toggleEl){
       toggleEl.title = livro.lido ? 'Desmarcar como lido' : 'Marcar como lido';
     }
-    var toggleLabel = card.querySelector('.toggle-lido-label');
-    if(toggleLabel) toggleLabel.textContent = 'Lido';
   });
 
   // Só atualiza contadores e stats (sem re-render visual)
