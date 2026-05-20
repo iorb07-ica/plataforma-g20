@@ -2417,10 +2417,10 @@ function toggleLido(id, e){
     toast('Desmarcado: '+livro.titulo);
   }
   salvarStatusAluno(livro);
-  // Re-render só a aba visível
-  if(_tabAtual==='g20'){ renderEstantes(); atualizarContadores(); renderStats(); }
-  else if(_tabAtual==='minha') renderMinhaEstante();
-  else if(_tabAtual==='comunidade') renderComunidade();
+  // Re-render todas as seções (sempre visíveis)
+  renderEstantes(); atualizarContadores(); renderStats();
+  renderMinhaEstante();
+  renderComunidade();
   if(window._livroAtual && window._livroAtual.id===id) renderHero(livro);
 }
 
@@ -3764,17 +3764,8 @@ function toggleModoAluno(){
 // ================================================================
 //  MAIN TABS
 // ================================================================
-function switchMainTab(tab){
-  _tabAtual = tab;
-  ['g20','minha','comunidade'].forEach(function(t){
-    document.getElementById('mainTab'+t.charAt(0).toUpperCase()+t.slice(1)).classList.toggle('active', t===tab);
-    document.getElementById('tabContent'+t.charAt(0).toUpperCase()+t.slice(1)).style.display = t===tab ? '' : 'none';
-  });
-  if(tab==='g20') renderEstantes();
-  if(tab==='minha') renderMinhaEstante();
-  if(tab==='comunidade') renderComunidade();
-  setTimeout(initNetflixScroll,50);
-}
+function switchMainTab(tab){ /* tabs removidas — todas seções sempre visíveis */ }
+
 
 // ================================================================
 //  MINHA ESTANTE — load + render
@@ -3788,7 +3779,7 @@ function carregarMinhaEstante(){
       _livrosMinha = snap.docs.map(function(d){
         return Object.assign({id:d.id, _source:'minha'}, d.data());
       });
-      if(_tabAtual==='minha') renderMinhaEstante();
+      renderMinhaEstante(); // sempre visível
     })
     .catch(function(e){ console.warn('Minha estante:', e); });
 }
@@ -3855,7 +3846,7 @@ function carregarComunidade(){
           badge.style.display = pendentes > 0 ? '' : 'none';
         }
       }
-      if(_tabAtual==='comunidade') renderComunidade();
+      renderComunidade(); // sempre visível — sem tabs
     });
   }).catch(function(e){ console.warn('Comunidade:', e); });
 }
@@ -3923,22 +3914,28 @@ function renderBookCardComunidade(l){
   var capaImg = l.capa
     ? '<img src="'+escapeHtml(l.capa)+'" alt="'+escapeHtml(l.titulo)+'" onerror="this.style.display=\'none\';this.parentNode.style.background=\'linear-gradient(135deg,#3b2616,#5a3a23)\'">'
     : '<div style="display:flex;align-items:center;justify-content:center;height:100%;padding:14px;text-align:center;font-family:var(--serif);color:var(--ivory);background:linear-gradient(135deg,#3b2616,#5a3a23)">'+escapeHtml(l.titulo)+'</div>';
-  var adminBtns = '';
+
+  var statusTag = !l.aprovado
+    ? '<div style="position:absolute;top:8px;left:50%;transform:translateX(-50%);background:rgba(249,123,79,.92);color:#fff;font-size:9px;font-weight:700;padding:3px 10px;border-radius:10px;letter-spacing:.5px;white-space:nowrap;z-index:5">⏳ PENDENTE</div>'
+    : '';
+
+  var sugeridoInfo = l.sugeridoPorNome
+    ? '<div style="font-family:var(--mono);font-size:10px;color:var(--text-3);margin-top:6px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">👤 '+escapeHtml(l.sugeridoPorNome)+'</div>'
+    : '';
+
+  // Barra de moderação proeminente (só para admin, só livros pendentes)
+  var moderacaoBar = '';
   if(_isAdmin && !l.aprovado){
-    adminBtns =
-      '<div class="book-admin-actions" style="display:flex!important;opacity:1">'+
-        '<button class="book-action-btn" style="background:rgba(74,180,85,.2);color:#7ed98c" onclick="event.stopPropagation();aprovarSugestao(\''+l.id+'\',event)" title="Aprovar">✓</button>'+
-        '<button class="book-action-btn" style="background:rgba(201,169,97,.15);color:var(--gold)" onclick="event.stopPropagation();promoverParaBiblioteca(\''+l.id+'\',event)" title="Promover para G20">⬆</button>'+
-        '<button class="book-action-btn book-delete-btn" onclick="event.stopPropagation();rejeitarSugestao(\''+l.id+'\',event)" title="Rejeitar"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>'+
+    moderacaoBar =
+      '<div style="display:flex;gap:6px;margin-top:10px;padding:0 2px">'+
+        '<button onclick="event.stopPropagation();aprovarSugestao(\''+l.id+'\',event)" style="flex:1;padding:7px 4px;background:rgba(74,180,85,.18);border:1px solid rgba(74,180,85,.5);border-radius:8px;color:#7ed98c;font-size:11px;font-weight:600;cursor:pointer;font-family:var(--sans)" title="Aprovar — torna visível para todos os alunos">✓ Aprovar</button>'+
+        '<button onclick="event.stopPropagation();promoverParaBiblioteca(\''+l.id+'\',event)" style="flex:1;padding:7px 4px;background:rgba(201,169,97,.15);border:1px solid rgba(201,169,97,.4);border-radius:8px;color:var(--gold);font-size:11px;font-weight:600;cursor:pointer;font-family:var(--sans)" title="Promover — move para Coleção G20">⬆ Coleção</button>'+
+        '<button onclick="event.stopPropagation();rejeitarSugestao(\''+l.id+'\',event)" style="padding:7px 10px;background:rgba(220,60,60,.15);border:1px solid rgba(220,60,60,.4);border-radius:8px;color:#e06060;font-size:13px;font-weight:700;cursor:pointer" title="Rejeitar e remover">✕</button>'+
       '</div>';
   }
-  var statusTag = !l.aprovado
-    ? '<div style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%);background:rgba(249,123,79,.9);color:#fff;font-size:9px;font-weight:700;padding:2px 8px;border-radius:10px;letter-spacing:.5px;white-space:nowrap">⏳ PENDENTE</div>'
-    : '';
-  var sugeridoInfo = l.sugeridoPorNome
-    ? '<div style="font-family:var(--mono);font-size:9px;color:var(--text-3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escapeHtml(l.sugeridoPorNome)+'</div>'
-    : '';
+
   var dragHandleCom = '<div class="drag-handle" title="Arrastar para reordenar" onmousedown="event.stopPropagation()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1.2" fill="currentColor"/><circle cx="9" cy="12" r="1.2" fill="currentColor"/><circle cx="9" cy="19" r="1.2" fill="currentColor"/><circle cx="15" cy="5" r="1.2" fill="currentColor"/><circle cx="15" cy="12" r="1.2" fill="currentColor"/><circle cx="15" cy="19" r="1.2" fill="currentColor"/></svg></div>';
+
   return (
     '<div class="book-card '+(l.lido?'lido':'')+'" data-bid="'+l.id+'" draggable="true" onclick="abrirDetalhes(this.dataset.bid)">'+
       dragHandleCom+
@@ -3949,14 +3946,13 @@ function renderBookCardComunidade(l){
           '<div class="book-check">'+_checkSVG+'</div>'+
         '</div>'+
       '</div>'+
-      adminBtns+
       readingTag+
-      (sugeridoInfo ? '<div style="font-family:var(--mono);font-size:9px;color:var(--text-3);margin-top:4px;text-align:center">'+sugeridoInfo+'</div>' : '')+
-      _bookInfoHTML(l)+
+      sugeridoInfo+
+      moderacaoBar+
+      (l.aprovado ? _bookInfoHTML(l) : '')+
     '</div>'
   );
 }
-
 function renderCardSugestao(l){ return renderBookCardComunidade(l); }
 function renderCardLivro(l){ return renderBookCardMinha(l); }
 
