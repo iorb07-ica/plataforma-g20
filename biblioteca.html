@@ -693,7 +693,30 @@ body.modo-aluno .book-admin-actions{display:none !important}
 
 /* Info do livro abaixo */
 /* ── ÁREA ABAIXO DO LIVRO ───────────────────────── */
-.book-info{padding:10px 4px 4px;display:flex;align-items:center;justify-content:center;gap:6px;position:relative;z-index:10;}
+.book-info{padding:28px 4px 4px;display:flex;align-items:center;justify-content:center;gap:6px;position:relative;z-index:10;}
+
+/* Handle de arrastar */
+.drag-handle{
+  position:absolute;
+  top:6px;left:50%;
+  transform:translateX(-50%);
+  width:32px;height:20px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:grab;
+  opacity:0;
+  transition:opacity .2s;
+  z-index:20;
+  background:rgba(15,14,18,.7);
+  border-radius:6px;
+  border:1px solid rgba(201,169,97,.3);
+  color:var(--gold);
+  gap:2px;
+}
+.drag-handle:active{cursor:grabbing}
+.drag-handle svg{width:14px;height:14px;opacity:.8}
+.book-card:hover .drag-handle{opacity:1}
+.book-card.dragging{opacity:.4;transform:scale(.97);transition:none}
+.book-card.drag-over{border-left:3px solid var(--gold);transform:translateX(4px)}
 
 /* ── Botão Comprar — dourado sólido ─────────────── */
 .btn-comprar{
@@ -2096,6 +2119,11 @@ function carregarBiblioteca(){
 
     // Ordenar pela posição salva
     _livros.sort(function(a,b){
+      var oa = (a.ordem !== undefined) ? a.ordem : 9999;
+      var ob = (b.ordem !== undefined) ? b.ordem : 9999;
+      if(oa !== ob) return oa - ob;
+      return (a.titulo||'').localeCompare(b.titulo||'');
+    });
       var oa = a.ordem || 9999, ob = b.ordem || 9999;
       return oa - ob;
     });
@@ -2276,6 +2304,7 @@ function renderEstantes(){
   if(window.lucide) lucide.createIcons();
   if(_isAdmin) setupDragAndDrop();
   setTimeout(initNetflixScroll, 80);
+  setTimeout(initAllShelfDrags, 100);
 }
 
 function renderBookCard(l){
@@ -2301,8 +2330,10 @@ function renderBookCard(l){
     '<img src="'+l.capa+'" alt="'+escapeHtml(l.titulo)+'" onerror="this.style.display=\'none\';this.parentNode.style.background=\'linear-gradient(135deg,#3b2616,#5a3a23)\'">' :
     '<div style="display:flex;align-items:center;justify-content:center;height:100%;padding:14px;text-align:center;font-family:var(--serif);color:var(--ivory);background:linear-gradient(135deg,#3b2616,#5a3a23)">'+escapeHtml(l.titulo)+'</div>';
 
+  var dragHandleG20 = _isAdmin ? '<div class="drag-handle" title="Arrastar para reordenar" onmousedown="event.stopPropagation()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1.2" fill="currentColor"/><circle cx="9" cy="12" r="1.2" fill="currentColor"/><circle cx="9" cy="19" r="1.2" fill="currentColor"/><circle cx="15" cy="5" r="1.2" fill="currentColor"/><circle cx="15" cy="12" r="1.2" fill="currentColor"/><circle cx="15" cy="19" r="1.2" fill="currentColor"/></svg></div>' : '';
   return ''+
-    '<div class="book-card '+(l.lido?'lido':'')+'" data-bid="'+l.id+'" onclick="abrirDetalhes(this.dataset.bid)">'+
+    '<div class="book-card '+(l.lido?'lido':'')+'" data-bid="'+l.id+'"'+(_isAdmin?' draggable="true"':'')+' onclick="abrirDetalhes(this.dataset.bid)">'+
+      dragHandleG20+
       '<div class="book-3d">'+
         '<div class="book-cover">'+
           capaImg+
@@ -3146,7 +3177,130 @@ async function corrigirCapas(){
 // ============================================================
 var _draggedId = null;
 
-function setupDragAndDrop(){ /* drag removido */ }
+function setupDragAndDrop(){ /* legado G20 — setup feito em setupShelfDrag */ }
+
+/* ── DRAG & DROP — reordenação nas 3 estantes ─────────────── */
+var _dragSrc = null;
+
+function setupShelfDrag(gridEl, onReorder){
+  if(!gridEl || gridEl._dragInit) return;
+  gridEl._dragInit = true;
+
+  gridEl.addEventListener('dragstart', function(e){
+    var card = e.target.closest('.book-card[draggable]');
+    if(!card) return;
+    _dragSrc = card;
+    card.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', card.dataset.bid);
+  });
+
+  gridEl.addEventListener('dragend', function(e){
+    var card = e.target.closest('.book-card');
+    if(card) card.classList.remove('dragging');
+    gridEl.querySelectorAll('.book-card').forEach(function(c){
+      c.classList.remove('drag-over');
+    });
+    _dragSrc = null;
+  });
+
+  gridEl.addEventListener('dragover', function(e){
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    var card = e.target.closest('.book-card');
+    if(!card || card === _dragSrc) return;
+    gridEl.querySelectorAll('.book-card').forEach(function(c){c.classList.remove('drag-over');});
+    card.classList.add('drag-over');
+  });
+
+  gridEl.addEventListener('dragleave', function(e){
+    var card = e.target.closest('.book-card');
+    if(card) card.classList.remove('drag-over');
+  });
+
+  gridEl.addEventListener('drop', function(e){
+    e.preventDefault();
+    var target = e.target.closest('.book-card');
+    if(!target || !_dragSrc || target === _dragSrc) return;
+    gridEl.querySelectorAll('.book-card').forEach(function(c){c.classList.remove('drag-over');});
+
+    // Reorder in DOM
+    var cards = Array.from(gridEl.querySelectorAll('.book-card'));
+    var srcIdx = cards.indexOf(_dragSrc);
+    var tgtIdx = cards.indexOf(target);
+    if(srcIdx < tgtIdx){
+      gridEl.insertBefore(_dragSrc, target.nextSibling);
+    } else {
+      gridEl.insertBefore(_dragSrc, target);
+    }
+
+    // Collect new order and persist
+    var newOrder = Array.from(gridEl.querySelectorAll('.book-card')).map(function(c){return c.dataset.bid;});
+    if(typeof onReorder === 'function') onReorder(newOrder);
+  });
+}
+
+function initAllShelfDrags(){
+  // G20 — admin only
+  if(_isAdmin){
+    document.querySelectorAll('#shelves .shelf-grid').forEach(function(grid){
+      setupShelfDrag(grid, function(newOrder){
+        salvarOrdemG20(newOrder);
+      });
+    });
+  }
+  // Minha Estante — qualquer usuário logado
+  if(_uid){
+    document.querySelectorAll('#shelvesMinha .shelf-grid').forEach(function(grid){
+      setupShelfDrag(grid, function(newOrder){
+        salvarOrdemMinha(newOrder);
+      });
+    });
+    // Comunidade
+    document.querySelectorAll('#shelvesComunidade .shelf-grid').forEach(function(grid){
+      setupShelfDrag(grid, function(newOrder){
+        salvarOrdemComunidade(newOrder);
+      });
+    });
+  }
+}
+
+function salvarOrdemG20(newOrder){
+  if(!db || !_isAdmin) return;
+  newOrder.forEach(function(id, idx){
+    db.collection('biblioteca').doc(id).update({ordem: idx}).catch(function(){});
+  });
+  // Atualiza array local
+  _livros.sort(function(a,b){
+    var ia = newOrder.indexOf(a.id); var ib = newOrder.indexOf(b.id);
+    return (ia<0?999:ia) - (ib<0?999:ib);
+  });
+  toast('Ordem salva ✓');
+}
+
+function salvarOrdemMinha(newOrder){
+  if(!db || !_uid) return;
+  newOrder.forEach(function(id, idx){
+    db.collection('users').doc(_uid).collection('minhaEstante').doc(id).update({ordem: idx}).catch(function(){});
+  });
+  _livrosMinha.sort(function(a,b){
+    var ia = newOrder.indexOf(a.id); var ib = newOrder.indexOf(b.id);
+    return (ia<0?999:ia) - (ib<0?999:ib);
+  });
+  toast('Ordem salva ✓');
+}
+
+function salvarOrdemComunidade(newOrder){
+  if(!db || !_uid) return;
+  newOrder.forEach(function(id, idx){
+    db.collection('sugestoes').doc(id).update({ordem: idx}).catch(function(){});
+  });
+  _livrosComunidade.sort(function(a,b){
+    var ia = newOrder.indexOf(a.id); var ib = newOrder.indexOf(b.id);
+    return (ia<0?999:ia) - (ib<0?999:ib);
+  });
+  toast('Ordem salva ✓');
+}
 
 
 
@@ -3561,6 +3715,7 @@ function renderMinhaEstante(){
       '</div>'+
     '</div>';
   if(window.lucide) lucide.createIcons();
+  setTimeout(initAllShelfDrags, 100);
 }
 
 // ================================================================
@@ -3641,6 +3796,7 @@ function renderComunidade(){
 
   el.innerHTML = html;
   if(window.lucide) lucide.createIcons();
+  setTimeout(initAllShelfDrags, 100);
 }
 
 function renderBookCardMinha(l){
@@ -3650,8 +3806,10 @@ function renderBookCardMinha(l){
     ? '<img src="'+escapeHtml(l.capa)+'" alt="'+escapeHtml(l.titulo)+'" onerror="this.style.display=\'none\';this.parentNode.style.background=\'linear-gradient(135deg,#3b2616,#5a3a23)\'">'
     : '<div style="display:flex;align-items:center;justify-content:center;height:100%;padding:14px;text-align:center;font-family:var(--serif);color:var(--ivory);background:linear-gradient(135deg,#3b2616,#5a3a23)">'+escapeHtml(l.titulo)+'</div>';
   var delBtn = '<div class="book-admin-actions"><button class="book-action-btn book-delete-btn" onclick="event.stopPropagation();removerDaEstante(\''+l.id+'\',event)" title="Remover"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path></svg></button></div>';
+  var dragHandleMinha = '<div class="drag-handle" title="Arrastar para reordenar" onmousedown="event.stopPropagation()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1.2" fill="currentColor"/><circle cx="9" cy="12" r="1.2" fill="currentColor"/><circle cx="9" cy="19" r="1.2" fill="currentColor"/><circle cx="15" cy="5" r="1.2" fill="currentColor"/><circle cx="15" cy="12" r="1.2" fill="currentColor"/><circle cx="15" cy="19" r="1.2" fill="currentColor"/></svg></div>';
   return (
-    '<div class="book-card '+(l.lido?'lido':'')+'" data-bid="'+l.id+'" onclick="abrirDetalhes(this.dataset.bid)">'+
+    '<div class="book-card '+(l.lido?'lido':'')+'" data-bid="'+l.id+'" draggable="true" onclick="abrirDetalhes(this.dataset.bid)">'+
+      dragHandleMinha+
       '<div class="book-3d">'+
         '<div class="book-cover">'+
           capaImg+
@@ -3686,8 +3844,10 @@ function renderBookCardComunidade(l){
   var sugeridoInfo = l.sugeridoPorNome
     ? '<div style="font-family:var(--mono);font-size:9px;color:var(--text-3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escapeHtml(l.sugeridoPorNome)+'</div>'
     : '';
+  var dragHandleCom = '<div class="drag-handle" title="Arrastar para reordenar" onmousedown="event.stopPropagation()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1.2" fill="currentColor"/><circle cx="9" cy="12" r="1.2" fill="currentColor"/><circle cx="9" cy="19" r="1.2" fill="currentColor"/><circle cx="15" cy="5" r="1.2" fill="currentColor"/><circle cx="15" cy="12" r="1.2" fill="currentColor"/><circle cx="15" cy="19" r="1.2" fill="currentColor"/></svg></div>';
   return (
-    '<div class="book-card '+(l.lido?'lido':'')+'" data-bid="'+l.id+'" onclick="abrirDetalhes(this.dataset.bid)">'+
+    '<div class="book-card '+(l.lido?'lido':'')+'" data-bid="'+l.id+'" draggable="true" onclick="abrirDetalhes(this.dataset.bid)">'+
+      dragHandleCom+
       '<div class="book-3d">'+
         '<div class="book-cover">'+
           capaImg+
