@@ -32,10 +32,11 @@
 a{text-decoration:none;color:inherit}
 button{font-family:inherit}
 body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;display:flex;overflow-x:hidden}
-.main{margin-left:var(--sidebar,200px);flex:1;display:flex;flex-direction:column;height:100svh;overflow:hidden;transition:margin-left .4s cubic-bezier(.4,0,.2,1);min-width:0}
-body.sidebar-collapsed .main{margin-left:68px!important}
-@media(max-width:768px){.main{margin-left:0}}
-.arena-layout{display:flex;flex:1;overflow:hidden;min-height:0}
+.main{margin-left:var(--sidebar,200px);flex:1;display:flex;flex-direction:column;height:100svh;overflow:hidden;transition:margin-left .4s cubic-bezier(.4,0,.2,1);min-width:0;position:relative}
+body.sidebar-collapsed .main,html.sidebar-collapsed .main{margin-left:68px!important}
+.sidebar.sidebar-collapsed~.main{margin-left:68px!important}
+@media(max-width:768px){.main{margin-left:0!important}}
+.arena-layout{display:flex;flex:1;overflow:hidden;min-height:0;min-width:0}
 
 .arena-side{width:210px;background:var(--surface2);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto;padding:12px 0 20px}
 .arena-side::-webkit-scrollbar{width:3px}.arena-side::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08)}
@@ -243,16 +244,22 @@ body.sidebar-collapsed .main{margin-left:68px!important}
     </div>
     <div class="g20-tabs"></div>
     <div class="topbar-right">
-      <button class="btn-gsearch" onclick="if(typeof gsearchAbrir==='function')gsearchAbrir()" title="Buscar (Ctrl+K)" aria-label="Buscar">
+      <button class="btn-gsearch" onclick="gsearchAbrir()" title="Buscar (Ctrl+K)" aria-label="Buscar">
         <i data-lucide="search"></i>
         <span class="gs-btn-ico">🔍</span>
         <span class="gs-btn-label">Buscar ativo, notícia ou página…</span>
-        <span class="gs-btn-kbd">⌘K</span>
+        <span class="gs-btn-kbd" id="gsKbd">⌘K</span>
       </button>
       <button class="btn-icon" title="Notificações" onclick="abrirNotificacoes()" aria-label="Notificações">
         <i data-lucide="bell"></i>
         <span class="notif-dot" id="notifDot"></span>
       </button>
+      <button class="btn-icon" id="themeBtn" onclick="toggleTheme()" aria-label="Alternar tema">
+        <i data-lucide="moon"></i>
+      </button>
+      <div class="user-avatar-topbar" id="topbarAvatar" onclick="window.location.href='perfil.html'" title="Meu perfil" style="cursor:pointer;width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#a08543,#e8c766);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#1a1410;flex-shrink:0;overflow:hidden;border:2px solid rgba(201,169,97,.3)">
+        <span id="topbarInitials">G20</span>
+      </div>
     </div>
   </header>
 
@@ -432,6 +439,22 @@ body.sidebar-collapsed .main{margin-left:68px!important}
     }
   } catch(e) {}
 })();
+
+// Preenche avatar do topbar a partir do cache
+(function(){
+  try {
+    var cached = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
+    if (cached && cached.name) {
+      var ini = cached.name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase()||'G20';
+      var el = document.getElementById('topbarInitials');
+      var av = document.getElementById('topbarAvatar');
+      if(el) el.textContent = ini;
+      if(av && cached.photo) {
+        av.innerHTML = '<img src="'+cached.photo+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display='none'">';
+      }
+    }
+  } catch(e) {}
+})();
 </script>
 <script>
 var firebaseConfig={
@@ -490,6 +513,16 @@ auth.onAuthStateChanged(function(user){
         infinite:d.infinite===true
       }));}catch(e){}
       if(typeof _g20PreloadSidebar==='function') _g20PreloadSidebar();
+      // Atualizar avatar topbar com dados reais
+      (function(){
+        var nome=(_userData.perfil&&_userData.perfil.nome)||_userData.name||user.email;
+        var foto=(_userData.perfil&&_userData.perfil.foto)||_userData.photo||user.photoURL||'';
+        var ini=nome.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase()||'G20';
+        var el=document.getElementById('topbarInitials');
+        var av=document.getElementById('topbarAvatar');
+        if(el) el.textContent=ini;
+        if(av&&foto) av.innerHTML='<img src="'+foto+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display='none'">';
+      })();
       initArena();
     }).catch(function(){
       setTimeout(function(){verificarAcesso((tentativa||0)+1);},5000);
