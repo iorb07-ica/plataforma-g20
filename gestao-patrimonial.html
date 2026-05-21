@@ -3194,34 +3194,126 @@ function renderKPIs(){
   ];
 
   // Sparklines por card — pontos aleatórios com tendência
-  function genSparkline(color, trend){
-    var pts=[30,28,32,26,29,24,27,22,25,20,18,15,12,8,5];
-    if(trend===1) pts=[28,30,26,28,24,26,22,24,20,22,18,14,10,6,2];
-    else if(trend===0) pts=[20,22,18,21,19,22,18,20,17,21,19,18,20,17,19];
+  // Gera sparkline SVG com dados reais de cada categoria
+  function buildSparklineSVG(values, color){
+    if(!values||values.length<2) return '';
     var w=160,h=64;
-    var minP=Math.min.apply(null,pts),maxP=Math.max.apply(null,pts);
-    var range=maxP-minP||1;
-    var coords=pts.map(function(v,i){
-      return (i*(w/14))+','+(h-((v-minP)/range)*(h-8)+4);
+    var minP=Math.min.apply(null,values),maxP=Math.max.apply(null,values);
+    var range=maxP-minP||maxP*0.01||1;
+    var n=values.length-1;
+    var coords=values.map(function(v,i){
+      return (i*(w/n))+','+(h-((v-minP)/range)*(h-8)+4);
     });
     var points=coords.join(' ');
-    var fillPts=coords[0]+' '+points+' '+(w)+','+h+' 0,'+h;
+    var fillPts='0,'+h+' '+points+' '+w+','+h;
+    var gid='sg'+color.replace(/[^a-f0-9]/gi,'');
     return '<svg class="pat-kpi-sparkline" viewBox="0 0 '+w+' '+h+'" width="'+w+'" height="'+h+'">'+
-      '<defs><linearGradient id="sg'+color.replace('#','')+'" x1="0" y1="0" x2="0" y2="1">'+
-        '<stop offset="0%" stop-color="'+color+'" stop-opacity=".3"/>'+
+      '<defs><linearGradient id="'+gid+'" x1="0" y1="0" x2="0" y2="1">'+
+        '<stop offset="0%" stop-color="'+color+'" stop-opacity=".35"/>'+
         '<stop offset="100%" stop-color="'+color+'" stop-opacity="0"/>'+
       '</linearGradient></defs>'+
-      '<polygon points="'+fillPts+'" fill="url(#sg'+color.replace('#','')+')" />'+
+      '<polygon points="'+fillPts+'" fill="url(#'+gid+')" />'+
       '<polyline points="'+points+'" fill="none" stroke="'+color+'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'+
       '</svg>';
   }
 
-  var kpiTrends=[1,1,1,-1,1,0,1,1];
+  // Calcula série histórica de um valor ao longo de N meses passados
+  function serieHistorica(calcFn, meses){
+    meses = meses||7;
+    var serie=[];
+    var hoje=new Date();
+    for(var m=meses-1;m>=0;m--){
+      var d=new Date(hoje.getFullYear(),hoje.getMonth()-m,1);
+      serie.push(calcFn(d));
+    }
+    return serie;
+  }
+
+  // RF histórico — simula valor líquido da RF a cada mês
+  function serieRF(meses){
+    var rfAtivosLocal=loadRF().filter(function(r){return !r.encerrado;});
+    if(!rfAtivosLocal.length) return null;
+    return serieHistorica(function(dataRef){
+      return rfAtivosLocal.reduce(function(s,r){
+        if(!r.dataInicio||new Date(r.dataInicio)>dataRef) return s+(r.valorInv||0);
+        var dias=Math.max(0,Math.floor((dataRef-new Date(r.dataInicio))/86400000));
+        var t=parseFloat(r.taxa||0)/100;
+        var fator=1;
+        if(r.indexador==='CDI'||r.indexador==='Selic'){
+          var du=Math.floor(dias*0.71);
+          fator=Math.pow(1+(getCDI()/100),t*du/252);
+        } else if(r.indexador==='IPCA'||r.indexador==='IGPM'){
+          fator=Math.pow(1+(getIPCA()/100)+t,dias/365);
+        } else if(r.indexador==='Prefixado'){
+          fator=Math.pow(1+t,dias/365);
+        }
+        return s+(r.valorInv||0)*fator;
+      },0);
+    },meses);
+  }
+
+  // RV histórico — usa cotações atuais como proxy (sem histórico real, usa % do total)
+  function serieRV(meses){
+    var pos=calcRVPosicoes();
+    if(!pos.length) return null;
+    var atual=calcRVTotal();
+    if(!atual) return null;
+    var inv=pos.reduce(function(s,p){return s+p.totalInv;},0);
+    if(!inv) return null;
+    // Simula crescimento linear do aportado até atual ao longo dos meses
+    var serie=[];
+    for(var m=meses-1;m>=0;m--){
+      var t=(meses-1-m)/(meses-1);
+      serie.push(inv+(atual-inv)*Math.pow(t,0.7));
+    }
+    return serie;
+  }
+
+  // Patrimônio histórico — RF + Bens (estático) + RV
+  function seriePatrimonio(meses){
+    var rf=serieRF(meses);
+    var rv=serieRV(meses);
+    var bensLiqLocal=loadPat().reduce(function(s,b){return s+calcBemValorAtual(b)-(b.divida||0);},0);
+    if(!rf&&!rv) return null;
+    var serie=[];
+    for(var i=0;i<meses;i++){
+      serie.push((rf?rf[i]:0)+bensLiqLocal+(rv?rv[i]:0));
+    }
+    return serie;
+  }
+
+  // Proventos histórico — acumula por mês
+  function serieProventos(meses){
+    var lista=loadProventos();
+    if(!lista.length) return null;
+    var hoje=new Date();
+    var serie=[];
+    for(var m=meses-1;m>=0;m--){
+      var dataRef=new Date(hoje.getFullYear(),hoje.getMonth()-m+1,0); // fim do mês
+      var total=lista.filter(function(p){return p.data<=dataRef.toISOString().split('T')[0]&&p.status!=='futuro';})
+        .reduce(function(s,p){var v=p.total>0?p.total:(p.valor||0)*(p.qtdEx||p.qtd||1);return s+v;},0);
+      serie.push(total);
+    }
+    return serie;
+  }
+
+  function genSparkline(color, tipo){
+    var meses=7;
+    var serie=null;
+    if(tipo==='patrimonio') serie=seriePatrimonio(meses);
+    else if(tipo==='rf') serie=serieRF(meses);
+    else if(tipo==='rv') serie=serieRV(meses);
+    else if(tipo==='provRec') serie=serieProventos(meses);
+    if(!serie||serie.length<2) return '';
+    return buildSparklineSVG(serie,color);
+  }
+
+  var kpiTipos=['patrimonio','rf','rv','rf','rv','rv','provRec','provRec'];
 
   var grid=document.getElementById('patKpiGrid');
   if(grid) grid.innerHTML=kpis.map(function(k,i){
     return '<div class="pat-kpi" style="--pk:'+k.color+'">'+
-      genSparkline(k.color, kpiTrends[i]||1)+
+      genSparkline(k.color, kpiTipos[i]||'rv')+
       '<div class="pat-kpi-label">'+k.label+'</div>'+
       '<div class="pat-kpi-val" style="color:'+k.color+'">'+k.val+'</div>'+
       '<div class="pat-kpi-sub">'+k.sub+'</div>'+
