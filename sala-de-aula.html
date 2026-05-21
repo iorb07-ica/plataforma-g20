@@ -1602,11 +1602,27 @@ function saveConcluidas(uid, db) {
 }
 
 // ─── Carrega módulos + aulas do Firestore ───
+var SA_CACHE_KEY = 'g20_sa_modulos_v2';
+
+function salvarModulosCache(modulos) {
+  try { localStorage.setItem(SA_CACHE_KEY, JSON.stringify(modulos)); } catch(e) {}
+}
+
+function carregarModulosCache() {
+  try {
+    var raw = localStorage.getItem(SA_CACHE_KEY);
+    if (!raw) return null;
+    var mods = JSON.parse(raw);
+    return (Array.isArray(mods) && mods.length > 0) ? mods : null;
+  } catch(e) { return null; }
+}
+
 function loadModulosFromFirestore(db) {
   return db.collection('cursos').doc('g20-masterclass')
     .collection('modulos').orderBy('ordem').get()
     .then(function(modsSnap) {
       var promises = [];
+      var newModulos = [];
       modsSnap.forEach(function(modDoc) {
         var mod = modDoc.data();
         mod.id = modDoc.id;
@@ -1623,9 +1639,12 @@ function loadModulosFromFirestore(db) {
             mod.aulas = mod.aulas_list.length;
           });
         promises.push(p);
+        newModulos.push(mod);
         SA_MODULOS.push(mod);
       });
-      return Promise.all(promises);
+      return Promise.all(promises).then(function() {
+        salvarModulosCache(newModulos);
+      });
     });
 }
 
@@ -2228,8 +2247,26 @@ function saInit(uid, db, role) {
   window._saUid = uid;
   window._saDb = db;
 
-  // Carrega concluidas + módulos em paralelo
   var overlay = document.getElementById('saLoadingMsg');
+
+  // Tentar cache primeiro — mostrar conteúdo imediatamente
+  var cached = carregarModulosCache();
+  if (cached && cached.length > 0) {
+    SA_MODULOS = cached;
+    if (overlay) overlay.style.display = 'none';
+    showHome();
+    // Atualizar concluídas e módulos em background silenciosamente
+    loadConcluidas(uid, db).catch(function(){});
+    loadModulosFromFirestore(db).then(function() {
+      // Atualizar grid em background sem piscar (só se estiver na home)
+      if (typeof showHome === 'function' && document.getElementById('moduleGrid')) {
+        showHome();
+      }
+    }).catch(function(){});
+    return;
+  }
+
+  // Sem cache — carregar do Firestore (primeira visita)
   Promise.all([
     loadConcluidas(uid, db),
     loadModulosFromFirestore(db)
@@ -2238,7 +2275,6 @@ function saInit(uid, db, role) {
     showHome();
   }).catch(function(err) {
     console.warn('[SA] Firestore erro, usando fallback:', err);
-    // Fallback: carrega dados embutidos de emergência se existirem
     if (window.SA_MODULOS_FALLBACK && SA_MODULOS.length === 0) {
       SA_MODULOS = window.SA_MODULOS_FALLBACK;
     }
@@ -2248,14 +2284,17 @@ function saInit(uid, db, role) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-  // Mostra loading enquanto dados chegam
-  var main = document.querySelector('.main .content');
-  if (main) {
-    var msg = document.createElement('div');
-    msg.id = 'saLoadingMsg';
-    msg.style.cssText = 'text-align:center;padding:60px 20px;color:#6b6862;font-size:14px';
-    msg.innerHTML = '<div style="font-size:32px;margin-bottom:12px">📚</div>Carregando aulas...';
-    main.prepend(msg);
+  // Mostrar loading só se não houver cache
+  var hasCached = !!localStorage.getItem('g20_sa_modulos_v2');
+  if (!hasCached) {
+    var main = document.querySelector('.main .content');
+    if (main) {
+      var msg = document.createElement('div');
+      msg.id = 'saLoadingMsg';
+      msg.style.cssText = 'text-align:center;padding:60px 20px;color:#6b6862;font-size:14px';
+      msg.innerHTML = '<div style="font-size:32px;margin-bottom:12px">📚</div>Carregando aulas...';
+      main.prepend(msg);
+    }
   }
   // saInit chamado pelo bloco Firebase quando auth resolver
 });
