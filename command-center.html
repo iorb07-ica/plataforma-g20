@@ -4102,6 +4102,8 @@ function toggleTheme(){
 // ════════════════════════════════════════════════════════
 var _cgLoaded = false;
 
+// ytdRef é apenas FALLBACK se o /api/history falhar.
+// O YTD real é calculado de (preço hoje − refYTD.close) / refYTD.close.
 var CG_ETFS = {
   // EUA — arcMax 201
   'SPY':  {ytdRef:11.4,  arcMax:201, arcEl:'cga-sp500', txtEl:'cgt-sp500', valEl:'cgv-sp500', dayEl:'cgd-sp500'},
@@ -4133,10 +4135,11 @@ function cgArcColor(ytd){
   return '#ff1744';                    // vermelho forte — queda
 }
 
-function cgRenderETF(ticker, cfg, price, changePct){
-  var ytd   = cfg.ytdRef;
+function cgRenderETF(ticker, cfg, price, changePct, ytdReal){
+  // YTD: usa o real calculado do historico; cai pro ytdRef so se nao houver dado
+  var ytd   = (typeof ytdReal === 'number') ? ytdReal : cfg.ytdRef;
   var dash  = cgArcDash(ytd, cfg.arcMax);
-  var color = cgArcColor(ytd);  // arco e % seguem o YTD
+  var color = cgArcColor(ytd);
   var arcEl = document.getElementById(cfg.arcEl);
   var txtEl = document.getElementById(cfg.txtEl);
   var valEl = document.getElementById(cfg.valEl);
@@ -4144,7 +4147,6 @@ function cgRenderETF(ticker, cfg, price, changePct){
   if(arcEl){
     arcEl.setAttribute('stroke-dasharray', dash + ' ' + cfg.arcMax);
     arcEl.setAttribute('stroke', color);
-    // Remove a classe de loading — tira o SVG inteiro dos 35% de opacidade
     var svg = arcEl.closest('svg');
     if(svg) svg.classList.remove('cg-loading-arc');
   }
@@ -4160,26 +4162,49 @@ function cgRenderETF(ticker, cfg, price, changePct){
         : price.toFixed(2);
     valEl.textContent = fmt;
   }
-  if(dayEl && changePct != null){
-    var sign = changePct >= 0 ? '+' : '';
-    dayEl.textContent = sign + changePct.toFixed(2) + '% hoje';
+  if(dayEl){
     var isUsa = (cfg.arcMax === 201);
-    dayEl.className = 'cg-today ' + (isUsa ? 'cg-today-usa ' : '') + (changePct > 0 ? 'pos' : changePct < 0 ? 'neg' : 'neu');
+    if(changePct != null){
+      var sign = changePct >= 0 ? '+' : '';
+      dayEl.textContent = sign + changePct.toFixed(2) + '% hoje';
+      dayEl.className = 'cg-today ' + (isUsa ? 'cg-today-usa ' : '') + (changePct > 0 ? 'pos' : changePct < 0 ? 'neg' : 'neu');
+    } else {
+      dayEl.textContent = '';
+      dayEl.className = 'cg-today ' + (isUsa ? 'cg-today-usa ' : '') + 'neu';
+    }
   }
 }
 
 function cgLoadQuotes(){
   if(_cgLoaded) return;
+  _cgLoaded = true;
   var tickers = Object.keys(CG_ETFS);
-  fetchQuotes(tickers).then(function(quotes){
-    _cgLoaded = true;
+  var symbols = tickers.join(',');
+
+  Promise.all([
+    fetchQuotes(tickers),
+    fetch(PROXY_URL + '/api/history?symbol=' + encodeURIComponent(symbols))
+      .then(function(r){ return r.json(); })
+      .catch(function(){ return {}; })
+  ]).then(function(results){
+    var quotes = results[0] || {};
+    var hist   = results[1] || {};
+
     tickers.forEach(function(t){
       var q   = quotes[t];
       var cfg = CG_ETFS[t];
       if(!q || !cfg) return;
-      var price  = q.preco  != null ? q.preco  : (q.price  != null ? q.price  : null);
-      var chgPct = q.variacao != null ? q.variacao : (q.changePercent != null ? q.changePercent : null);
-      cgRenderETF(t, cfg, price, chgPct);
+
+      var price  = q.preco != null ? q.preco : (q.price != null ? q.price : null);
+      var chgPct = (typeof q.chgPct === 'number') ? q.chgPct : null;
+
+      var ytdReal = null;
+      var h = hist[t];
+      if(h && h.refYTD && typeof h.refYTD.close === 'number' && price != null && h.refYTD.close > 0){
+        ytdReal = ((price - h.refYTD.close) / h.refYTD.close) * 100;
+      }
+
+      cgRenderETF(t, cfg, price, chgPct, ytdReal);
     });
   }).catch(function(){});
 }
