@@ -75,6 +75,19 @@
     var notifs = [];
     var hoje = _todayISO();
     var arr = (typeof _patSnapLoad==='function') ? _patSnapLoad() : [];
+    // Se _dashRVCot não existe (outras páginas), tenta o cache salvo pelo dashboard
+    if(!window._dashRVCot){
+      try{
+        var cached = localStorage.getItem('g20_dashRVCot_cache');
+        if(cached){
+          var cacheObj = JSON.parse(cached);
+          // Só usa se o cache for de hoje (evita dados velhos)
+          if(cacheObj && cacheObj._cacheDate === _todayISO()){
+            window._dashRVCot = cacheObj.data;
+          }
+        }
+      }catch(e){}
+    }
 
     // 1) Novo topo de patrimônio em 60d
     if(arr.length >= 5){
@@ -322,9 +335,19 @@
     var notifs=getNotifs();
     var readIds=getReadIds();
     var unread=notifs.filter(function(n){return !readIds.includes(n.id);}).length;
-    var btn=document.querySelector('[onclick*="mostrarNotificacoes"]');
+    var showClass = 'notif-dot' + (unread>0?' show':'');
+
+    // Prioridade: atualizar só o span #notifDot existente (preserva ícone Lucide SVG)
+    var dot = document.getElementById('notifDot');
+    if(dot){
+      dot.className = showClass;
+      return;
+    }
+
+    // Fallback: botão sem span (páginas antigas) — recria o innerHTML
+    var btn = document.querySelector('[onclick*="mostrarNotificacoes"]');
     if(btn){
-      btn.innerHTML = '🔔<span class="notif-dot' + (unread>0?' show':'') + '" id="notifDot"></span>';
+      btn.innerHTML = '🔔<span class="' + showClass + '" id="notifDot"></span>';
     }
   };
 
@@ -510,6 +533,10 @@
       });
       // Primeiro render do badge
       if(typeof renderNotifBadge==='function') try{ renderNotifBadge(); }catch(e){}
+      // Refresh automático do badge a cada 5 min — funciona em qualquer página
+      setInterval(function(){
+        if(typeof renderNotifBadge==='function') try{ renderNotifBadge(); }catch(e){}
+      }, 5 * 60 * 1000);
     }
   };
 
