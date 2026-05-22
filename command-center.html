@@ -163,22 +163,22 @@ a{text-decoration:none;color:inherit}
 .cg-badge-europe{background:rgba(46,204,113,.09);color:rgba(46,204,113,.9);border:1px solid rgba(46,204,113,.25)}
 .cg-badge-latam{background:rgba(201,169,97,.1);color:rgba(201,169,97,.95);border:1px solid rgba(201,169,97,.3)}
 .cg-section-desc{font-size:13px;color:rgba(255,255,255,.6);font-family:'JetBrains Mono',monospace}
-/* EUA: 2x2, cards quadrados — header e grid centralizados juntos */
-.cg-usa-panel{display:flex;flex-direction:column;align-items:center}
+/* EUA: 2x2, cards quadrados — header e grid alinhados à esquerda */
+.cg-usa-panel{display:flex;flex-direction:column;align-items:flex-start}
 .cg-usa-hdr{display:flex;flex-direction:column;align-items:flex-start;gap:6px;height:62px;justify-content:flex-start}
-.cg-usa-grid{display:grid;justify-content:center}
+.cg-usa-grid{display:grid}
 .cg-usa-grid .cg-card{aspect-ratio:1/1}
 /* Direita: 3 colunas com gap 2cm entre si */
 .cg-right-panel{display:grid;grid-template-columns:1fr 1fr 1fr;column-gap:28px}
-/* Cada região: header e cards centralizados juntos */
-.cg-region-block{padding:0;display:flex;flex-direction:column;gap:0;background:none;border:none;align-items:center}
+/* Cada região: header e cards alinhados à esquerda */
+.cg-region-block{padding:0;display:flex;flex-direction:column;gap:0;background:none;border:none;align-items:flex-start}
 .cg-region-asia{}
 .cg-region-europe{}
 .cg-region-latam{}
 .cg-region-hdr{display:flex;flex-direction:column;align-items:flex-start;gap:6px;height:62px;justify-content:flex-start}
 /* 1 card por linha, empilhados, quadrados */
-.cg-region-grid{display:flex;flex-direction:column;gap:8px;align-items:center}
-.cg-region-grid .cg-card{aspect-ratio:1/1;width:100%}
+.cg-region-grid{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.cg-region-grid .cg-card{aspect-ratio:1/1}
 @media(max-width:1200px){.cg-layout{grid-template-columns:1fr}.cg-right-panel{grid-template-columns:1fr 1fr}}
 @media(max-width:768px){.cg-usa-grid{grid-template-columns:1fr}.cg-right-panel{grid-template-columns:1fr}}
 /* Cards base */
@@ -199,8 +199,8 @@ a{text-decoration:none;color:inherit}
 .cg-ticker{font-size:11px;letter-spacing:1px;color:rgba(255,255,255,.9);font-family:'JetBrains Mono',monospace;font-weight:700}
 .cg-val{font-size:24px;font-weight:800;color:#ffffff;letter-spacing:-1px;line-height:1;font-family:'JetBrains Mono',monospace}
 .cg-val-usa{font-size:30px;letter-spacing:-1.5px}
-.cg-today{font-size:13px;font-weight:800;font-family:'JetBrains Mono',monospace}
-.cg-today-usa{font-size:16px}
+.cg-today{font-size:11px;font-weight:800;font-family:'JetBrains Mono',monospace}
+.cg-today-usa{font-size:14px}
 .cg-today.pos{color:#00e676}
 .cg-today.neg{color:#ff1744}
 .cg-today.neu{color:#ffc400}
@@ -4248,7 +4248,7 @@ function cgFitCards(){
     usaGrid.style.gridTemplateColumns = usaSize + 'px ' + usaSize + 'px';
     usaGrid.style.gap = usaGap + 'px';
     usaGrid.style.marginTop = usaTopPad + 'px';
-    usaGrid.style.justifyContent = 'center';
+    usaGrid.style.justifyContent = 'start'; // alinha à esquerda com o título
   }
   // Header EUA com a mesma largura do bloco de cards → badge alinha com a coluna esquerda
   var usaHdr = document.querySelector('.cg-usa-hdr');
@@ -4271,8 +4271,8 @@ function cgFitCards(){
 
   document.querySelectorAll('.cg-region-grid').forEach(function(grid){
     grid.style.gap = emGap + 'px';
-    // Alinha o topo dos cards regionais com o topo dos cards EUA
     grid.style.marginTop = usaTopPad + 'px';
+    grid.style.alignItems = 'flex-start'; // alinha à esquerda com o badge
   });
 
   document.querySelectorAll('.cg-region-grid .cg-card').forEach(function(el){
@@ -4289,6 +4289,28 @@ function cgFitCards(){
 
   cgScaleSVGs(usaSize, emSize);
   cgScaleFonts(usaSize, emSize);
+  cgLiftArc();
+}
+
+function cgLiftArc(){
+  // Levanta o texto % e o label YTD dentro de cada SVG
+  // para criar mais respiro entre o arco e o percentual anual
+  Object.keys(CG_ETFS).forEach(function(t){
+    var cfg = CG_ETFS[t];
+    var svg = document.getElementById(cfg.arcEl);
+    if(!svg) return;
+    svg = svg.closest('svg');
+    if(!svg) return;
+    var texts = svg.querySelectorAll('text');
+    if(texts.length < 2) return;
+    var isUsa = (cfg.arcMax === 201);
+    var cy = isUsa ? 82 : 62;
+    var r  = isUsa ? 64 : 48;
+    // % YTD: sobe de cy-r/3 para cy-r*0.48 (mais respiro abaixo)
+    texts[0].setAttribute('y', Math.round(cy - r * 0.48));
+    // Label "YTD": sobe de cy-2 para cy-r*0.2
+    texts[1].setAttribute('y', Math.round(cy - r * 0.2));
+  });
 }
 
 function cgScaleSVGs(usaSize, emSize){
@@ -4308,7 +4330,7 @@ function cgScaleSVGs(usaSize, emSize){
 
 function cgScaleFonts(usaSize, emSize){
   var uVal   = Math.max(16, Math.round(usaSize * 0.12));
-  var uToday = Math.max(11, Math.round(usaSize * 0.07));
+  var uToday = Math.max(9,  Math.round(usaSize * 0.07) - 2); // -2pt
   var uTick  = Math.max(9,  Math.round(usaSize * 0.045));
   var uSub   = Math.max(8,  Math.round(usaSize * 0.038));
   document.querySelectorAll('.cg-usa-grid .cg-card').forEach(function(el){
@@ -4318,7 +4340,7 @@ function cgScaleFonts(usaSize, emSize){
     var s = el.querySelector('.cg-sub');   if(s) s.style.fontSize = uSub   + 'px';
   });
   var eVal   = Math.max(13, Math.round(emSize * 0.14));
-  var eToday = Math.max(10, Math.round(emSize * 0.08));
+  var eToday = Math.max(8,  Math.round(emSize * 0.08) - 2); // -2pt
   var eTick  = Math.max(8,  Math.round(emSize * 0.055));
   var eSub   = Math.max(7,  Math.round(emSize * 0.046));
   document.querySelectorAll('.cg-region-grid .cg-card').forEach(function(el){
