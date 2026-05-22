@@ -3742,18 +3742,30 @@ function renderHeatmap(){
   }).map(function(p){
     return {ticker:p.ticker,tipo:p.tipo,val:p.totalInv,rentPct:0,weight:p.totalInv/total*100};
   });
-  // Top altas + top baixas preenchendo 2 linhas de 4
+  // Top altas + top baixas. Lista única sem duplicar.
   var altas=comCot.filter(function(p){return p.rentPct>=0;}).sort(function(a,b){return b.rentPct-a.rentPct;});
   var baixas=comCot.filter(function(p){return p.rentPct<0;}).sort(function(a,b){return a.rentPct-b.rentPct;});
   var neutros=semCot;
-  // Priorizar linha 1: preenche sempre com 4 antes de ir para linha 2
-  var todos=altas.concat(neutros).concat(baixas);
-  var linha1=todos.slice(0,4);
-  // Linha 2: baixas primeiro, depois o que sobrar das altas
-  var restAltas=altas.slice(Math.max(0,4-neutros.length-baixas.length));
-  var linha2=baixas.concat(restAltas).concat(neutros).slice(0,4);
-  // Se linha 2 ficou vazia/pequena, completar com o que sobrou de todos
-  if(linha2.length<4) linha2=todos.slice(4,8);
+  // Linha 1 = 4 maiores altas. Linha 2 = 4 maiores baixas.
+  // Se faltar em uma linha, completa com o que sobrou da outra, sem repetir.
+  var topAltas=altas.slice(0,4);
+  var topBaixas=baixas.slice(0,4);
+  // Conjunto já usado, para nunca repetir
+  var usados={};
+  topAltas.forEach(function(p){usados[p.ticker]=1;});
+  topBaixas.forEach(function(p){usados[p.ticker]=1;});
+  // Pool de sobras (não usados ainda), para completar
+  var sobras=altas.concat(baixas).concat(neutros).filter(function(p){return !usados[p.ticker];});
+  // Completar linha 1 até 4
+  var linha1=topAltas.slice();
+  while(linha1.length<4&&sobras.length){
+    var s=sobras.shift(); linha1.push(s); usados[s.ticker]=1;
+  }
+  // Completar linha 2 até 4
+  var linha2=topBaixas.slice();
+  while(linha2.length<4&&sobras.length){
+    var s2=sobras.shift(); linha2.push(s2); usados[s2.ticker]=1;
+  }
   var display=linha1.concat(linha2);
 
   el.innerHTML='<div style="display:flex;flex-wrap:wrap;gap:8px">'+
