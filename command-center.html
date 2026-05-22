@@ -4237,7 +4237,12 @@ function cgFitCards(){
 
   // EUA: 2×2, gap igual em todos os lados, cards quadrados de tamanho fixo
   var usaGap  = 18;
-  var usaSize = Math.floor(((available - usaGap) / 2) * 0.85);
+  // Bound por altura disponível E por largura da coluna (para não transbordar)
+  var usaPanel = document.querySelector('.cg-usa-panel');
+  var panelW   = usaPanel ? usaPanel.offsetWidth : Math.floor(window.innerWidth * 0.4);
+  var usaSizeH = Math.floor(((available - usaGap) / 2) * 0.85);
+  var usaSizeW = Math.floor((panelW - usaGap) / 2);
+  var usaSize  = Math.min(usaSizeH, usaSizeW); // nunca transborda a coluna
 
   // Centralizar EUA verticalmente
   var usaTotalH = usaSize * 2 + usaGap;
@@ -4293,23 +4298,37 @@ function cgFitCards(){
 }
 
 function cgLiftArc(){
-  // Levanta o texto % e o label YTD dentro de cada SVG
-  // para criar mais respiro entre o arco e o percentual anual
+  // Move os PATH do arco para cima (não os textos)
+  // — cria respiro entre os pés do arco e o label "YTD"
   Object.keys(CG_ETFS).forEach(function(t){
     var cfg = CG_ETFS[t];
-    var svg = document.getElementById(cfg.arcEl);
+    var arcEl = document.getElementById(cfg.arcEl);
+    if(!arcEl) return;
+    var svg = arcEl.closest('svg');
     if(!svg) return;
-    svg = svg.closest('svg');
-    if(!svg) return;
-    var texts = svg.querySelectorAll('text');
-    if(texts.length < 2) return;
+
     var isUsa = (cfg.arcMax === 201);
-    var cy = isUsa ? 82 : 62;
-    var r  = isUsa ? 64 : 48;
-    // % YTD: sobe de cy-r/3 para cy-r*0.48 (mais respiro abaixo)
-    texts[0].setAttribute('y', Math.round(cy - r * 0.48));
-    // Label "YTD": sobe de cy-2 para cy-r*0.2
-    texts[1].setAttribute('y', Math.round(cy - r * 0.2));
+    var cy0 = isUsa ? 82 : 62;    // cy original do HTML
+    var r   = isUsa ? 64 : 48;    // raio original
+    var x1  = isUsa ? 18 : 14;    // endpoint esq
+    var x2  = isUsa ? 142 : 106;  // endpoint dir
+    var lift = 8;                  // px que o arco sobe
+    var cyNew = cy0 - lift;        // EUA: 74 | regional: 54
+
+    // Move os dois paths do arco (background track + arco colorido) para cima
+    svg.querySelectorAll('path').forEach(function(p){
+      p.setAttribute('d',
+        'M ' + x1 + ' ' + cyNew +
+        ' A ' + r + ' ' + r + ' 0 0 1 ' + x2 + ' ' + cyNew
+      );
+    });
+
+    // Textos: REVERTE qualquer mudança anterior → posições originais do HTML
+    var texts = svg.querySelectorAll('text');
+    // texts[0] = % YTD (ex: "+9.7%") — posição original: cy0 - r/3
+    if(texts[0]) texts[0].setAttribute('y', String(Math.round(cy0 - r / 3)));
+    // texts[1] = label "YTD" — sobe junto com o arco para não ficar abaixo dos pés
+    if(texts[1]) texts[1].setAttribute('y', String(cyNew - 3));
   });
 }
 
