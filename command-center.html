@@ -2212,40 +2212,38 @@ function calcPosicoesFromStorage(storageKey){
     var aportes = JSON.parse(localStorage.getItem(storageKey) || '[]');
     if(!Array.isArray(aportes) || aportes.length === 0) return [];
 
-    // Agrupa por ticker, soma valores investidos (qtd * preco)
-    // Também guarda o 'tipo' (do último aporte de compra desse ticker)
     var totalsByTicker = {};
-    var tipoByTicker = {};
+    var qtdByTicker    = {};   // rastreia QUANTIDADE real, não valor
+    var tipoByTicker   = {};
     aportes.forEach(function(a){
       if(!a.ticker || !a.qtd || !a.preco) return;
-      var op = (a.op || 'C').toUpperCase();
+      var op   = (a.op || 'C').toUpperCase();
       var sign = (op === 'C' ? 1 : -1);
-      var qtd = parseFloat(a.qtd) * sign;
-      var valor = qtd * parseFloat(a.preco);
-      var t = a.ticker.toUpperCase();
-      totalsByTicker[t] = (totalsByTicker[t] || 0) + valor;
-      // Guarda o tipo (prioriza compras pra evitar tipo de venda errada)
+      var qtd  = parseFloat(a.qtd) * sign;
+      var t    = a.ticker.toUpperCase();
+      qtdByTicker[t]    = (qtdByTicker[t]    || 0) + qtd;
+      totalsByTicker[t] = (totalsByTicker[t] || 0) + qtd * parseFloat(a.preco);
       if(a.tipo && (op === 'C' || !tipoByTicker[t])){
         tipoByTicker[t] = a.tipo;
       }
     });
 
-    // Filtra só tickers com saldo positivo
+    // Filtra por QUANTIDADE positiva (> 0.001 evita ruído de float)
     var totalGeral = 0;
-    var positions = [];
-    Object.keys(totalsByTicker).forEach(function(t){
-      if(totalsByTicker[t] > 0){
+    var positions  = [];
+    Object.keys(qtdByTicker).forEach(function(t){
+      if(qtdByTicker[t] > 0.001){
+        var val = totalsByTicker[t];
         positions.push({
           ticker: t,
-          valor: totalsByTicker[t],
-          tipo: tipoByTicker[t] || '',
-          setor: tipoToCategoria(tipoByTicker[t])  // setor = categoria pra reaproveitar render setorial
+          valor:  val,
+          tipo:   tipoByTicker[t] || '',
+          setor:  tipoToCategoria(tipoByTicker[t])
         });
-        totalGeral += totalsByTicker[t];
+        totalGeral += val;
       }
     });
 
-    // Calcula peso e ordena por peso desc
     positions.forEach(function(p){
       p.peso = (p.valor / totalGeral) * 100;
     });
