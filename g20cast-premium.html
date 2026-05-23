@@ -83,9 +83,12 @@ audio::-webkit-media-controls-panel{background:var(--sur2)}
 .progress-bar-wrap:hover{height:8px}
 .progress-fill{height:100%;background:linear-gradient(90deg,#c9a961,#e8c766);border-radius:3px;transition:width .1s}
 .time-row{display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:"JetBrains Mono",monospace}
-.speed-btn{background:var(--sur2);border:1px solid var(--border);color:var(--text2);font-size:11px;font-weight:700;padding:4px 10px;border-radius:8px;cursor:pointer;font-family:inherit;transition:all .15s}
+.speed-btn{background:var(--sur2);border:1px solid var(--border);color:var(--text2);font-size:11px;font-weight:700;padding:4px 10px;border-radius:8px;cursor:pointer;font-family:inherit;transition:all .15s;text-align:center}
 .speed-btn:hover{border-color:var(--gold);color:var(--gold)}
 .speed-btn.active{background:var(--gold-soft);border-color:var(--gold);color:var(--gold)}
+/* Waveform */
+.wf-wrap{border-radius:6px;overflow:hidden;background:rgba(0,0,0,.2)}
+.wf-wrap:hover{background:rgba(0,0,0,.3)}
 
 /* Episódios */
 .sec-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
@@ -284,19 +287,10 @@ setTimeout(_g20PreloadSidebar, 50);
   <div class="content">
 
     <!-- Hero premium redesenhado -->
-    <div class="premium-hero">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px">
-        <div>
-          <div class="premium-badge">⭐ Exclusivo para alunos G20</div>
-          <h1>G20Cast Premium</h1>
-          <p>Análises cirúrgicas, bastidores da carteira e raciocínios que não vão para o Spotify.<br>Conteúdo exclusivo do Israel para quem está dentro do G20 Masterclass.</p>
-        </div>
-        <div class="premium-stats">
-          <div class="pstat"><strong id="statTotalEps">0</strong>Episódios</div>
-          <div class="pstat"><strong id="statUltimoEp">—</strong>Último</div>
-          <div class="pstat"><strong>100%</strong>Exclusivo</div>
-        </div>
-      </div>
+    <div class="premium-hero" style="padding:0;background:transparent;border:none;overflow:hidden;border-radius:20px">
+      <img src="assets/g20cast-premium-banner.jpg"
+           style="width:100%;display:block;border-radius:20px;object-fit:cover"
+           alt="G20Cast Premium">
     </div>
 
     <!-- Player fixo no topo quando tocando -->
@@ -324,15 +318,26 @@ setTimeout(_g20PreloadSidebar, 50);
         <div class="player-controls">
           <button class="btn-play" id="btnPlay" onclick="togglePlay()">▶</button>
           <div class="progress-wrap">
-            <div class="progress-bar-wrap" id="progressBar" onclick="seekAudio(event)">
-              <div class="progress-fill" id="progressFill" style="width:0%"></div>
+            <div class="wf-wrap" id="wfWrap" onclick="seekWaveform(event)" style="cursor:pointer;position:relative;height:52px;margin-bottom:4px">
+              <svg id="wfSvg" width="100%" height="52" style="display:block"></svg>
+              <div id="wfCursor" style="position:absolute;top:0;bottom:0;width:2px;background:rgba(255,255,255,.6);border-radius:1px;left:0;pointer-events:none;box-shadow:0 0 6px rgba(255,255,255,.3)"></div>
             </div>
             <div class="time-row">
               <span id="timeNow">0:00</span>
               <span id="timeTot">0:00</span>
             </div>
           </div>
-          <button class="speed-btn active" id="speedBtn" onclick="toggleSpeed()">1×</button>
+          <div style="display:flex;flex-direction:column;gap:4px;align-items:center">
+            <button class="btn-play" id="btnSkipBack" onclick="skipAudio(-15)" style="width:32px;height:32px;font-size:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);color:#7a7585;box-shadow:none;flex-direction:column;gap:0;display:flex;align-items:center;justify-content:center"><span>⏮</span><span style="font-size:7px;color:#5a5565">15s</span></button>
+            <button class="btn-play" id="btnSkipFwd" onclick="skipAudio(30)" style="width:32px;height:32px;font-size:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);color:#7a7585;box-shadow:none;flex-direction:column;gap:0;display:flex;align-items:center;justify-content:center"><span>⏭</span><span style="font-size:7px;color:#5a5565">30s</span></button>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <button class="speed-btn active" id="spd1" onclick="setSpeed(1)" style="font-size:10px;padding:3px 8px">1×</button>
+            <button class="speed-btn" id="spd125" onclick="setSpeed(1.25)" style="font-size:10px;padding:3px 8px">1.25×</button>
+            <button class="speed-btn" id="spd15" onclick="setSpeed(1.5)" style="font-size:10px;padding:3px 8px">1.5×</button>
+            <button class="speed-btn" id="spd2" onclick="setSpeed(2)" style="font-size:10px;padding:3px 8px">2×</button>
+            <button class="speed-btn" id="spd25" onclick="setSpeed(2.5)" style="font-size:10px;padding:3px 8px">2.5×</button>
+          </div>
         </div>
       </div>
     </div>
@@ -393,6 +398,15 @@ setTimeout(_g20PreloadSidebar, 50);
       <div class="upload-status" id="uploadStatus"></div>
     </div>
 
+    <!-- Episódios relacionados — aparece ao terminar um episódio -->
+    <div id="relacionadosWrap" style="display:none;margin-bottom:20px">
+      <div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(201,169,97,.6);margin-bottom:10px;display:flex;align-items:center;gap:10px">
+        Você também pode gostar
+        <div style="flex:1;height:1px;background:rgba(201,169,97,.08)"></div>
+      </div>
+      <div id="relacionadosList" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+
     <div class="ep-list" id="epList">
       <div style="text-align:center;padding:48px;color:var(--text3)">
         <div style="font-size:32px;margin-bottom:10px">⏳</div>
@@ -422,8 +436,11 @@ var _episodios=[];
 var _filtro='todos';
 var _audioEl=null;
 var _epAtual=null;
-var _speeds=[1,1.25,1.5,2];
-var _speedIdx=0;
+var _speeds=[1,1.5,2,3];
+var _speedCur=1;  // velocidade inicial
+var _speedOpts=[1,1.25,1.5,2,2.5];
+var _wfCache={};  // cache de waveforms por episódio ID
+var _resumeMap=JSON.parse(localStorage.getItem('g20_resume')||'{}'); // {epId: currentTime}
 
 // ── Cache instantâneo ──
 (function(){
@@ -517,6 +534,7 @@ function renderEps(){
         '</div>'+
       '</div>'+
       (isNovo?'<span class="ep-new">NOVO</span>':'')+
+      (_resumeMap[ep.id]&&_resumeMap[ep.id]>5&&!isPlaying?'<span style="font-size:9px;background:rgba(201,169,97,.12);color:#c9a961;border:1px solid rgba(201,169,97,.2);border-radius:6px;padding:2px 7px;flex-shrink:0;margin-left:4px">▶ '+fmtDur(_resumeMap[ep.id])+'</span>':'')+
       '<div class="ep-play-btn" onclick="event.stopPropagation();'+(isPlaying?'togglePlay()':'tocarEpisodio(\''+ep.id+'\')')+'">'+(isPlaying&&_audioEl&&!_audioEl.paused?'⏸':'▶')+'</div>'+
       (_isAdmin?'<button onclick="event.stopPropagation();excluirEpisodio(event,\''+ep.id+'\')" style="margin-left:4px;background:transparent;border:none;color:var(--red);cursor:pointer;font-size:14px;padding:4px">🗑</button>':'')+
     '</div>';
@@ -543,25 +561,40 @@ function tocarEpisodio(id){
   var dt=ep.createdAt?ep.createdAt.toDate():null;
   document.getElementById('playerMeta').textContent=(dt?fmtData(dt):'')+(ep.ativo?' · $'+ep.ativo:'');
   _audioEl=new Audio(ep.audioUrl);
-  _audioEl.playbackRate=_speeds[_speedIdx];
   _audioEl.addEventListener('timeupdate',function(){
     if(!_audioEl.duration)return;
-    var pct=(_audioEl.currentTime/_audioEl.duration)*100;
-    document.getElementById('progressFill').style.width=pct+'%';
     document.getElementById('timeNow').textContent=fmtDur(_audioEl.currentTime);
     document.getElementById('timeTot').textContent=fmtDur(_audioEl.duration);
+    updateWaveform();
+    // Salva posição para retomar depois
+    _resumeMap[ep.id]=_audioEl.currentTime;
+    try{localStorage.setItem('g20_resume',JSON.stringify(_resumeMap));}catch(e){}
   });
   _audioEl.addEventListener('ended',function(){
     document.getElementById('btnPlay').textContent='▶';
     var eq = document.getElementById('eqBars');
     if(eq) eq.classList.remove('playing');
+    // Limpa posição salva (episódio concluído)
+    delete _resumeMap[ep.id];
+    try{localStorage.setItem('g20_resume',JSON.stringify(_resumeMap));}catch(e){}
     renderEps();
+    mostrarRelacionados(ep);
   });
+  _audioEl.playbackRate=_speedCur;
+  // Retoma do ponto onde parou (com delay para o metadata carregar)
+  if(_resumeMap[ep.id]&&_resumeMap[ep.id]>5){
+    _audioEl.currentTime=_resumeMap[ep.id];
+  }
   _audioEl.play();
   document.getElementById('btnPlay').textContent='⏸';
   var eq = document.getElementById('eqBars');
   if(eq) eq.classList.add('playing');
+  // Gera waveform inicial
+  drawWaveform(ep.id, ep.audioUrl, _resumeMap[ep.id]?(_resumeMap[ep.id]/(_audioEl.duration||1)):0);
   renderEps();
+  // Esconde relacionados ao iniciar novo episódio
+  var rel=document.getElementById('relacionadosWrap');
+  if(rel)rel.style.display='none';
   window.scrollTo({top:0,behavior:'smooth'});
 }
 
@@ -579,19 +612,95 @@ function togglePlay(){
   }
 }
 
-function seekAudio(e){
+function seekWaveform(e){
   if(!_audioEl||!_audioEl.duration)return;
-  var bar=document.getElementById('progressBar');
-  var rect=bar.getBoundingClientRect();
-  var pct=(e.clientX-rect.left)/rect.width;
+  var wrap=document.getElementById('wfWrap');
+  var rect=wrap.getBoundingClientRect();
+  var pct=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
   _audioEl.currentTime=pct*_audioEl.duration;
 }
 
-function toggleSpeed(){
-  _speedIdx=(_speedIdx+1)%_speeds.length;
-  var s=_speeds[_speedIdx];
+function skipAudio(sec){
+  if(!_audioEl||!_audioEl.duration)return;
+  _audioEl.currentTime=Math.max(0,Math.min(_audioEl.duration,_audioEl.currentTime+sec));
+}
+
+function setSpeed(s){
+  _speedCur=s;
   if(_audioEl)_audioEl.playbackRate=s;
-  document.getElementById('speedBtn').textContent=s+'×';
+  [1,1.25,1.5,2,2.5].forEach(function(v){
+    var el=document.getElementById('spd'+String(v).replace('.',''));
+    if(el){el.classList.toggle('active',v===s);}
+  });
+  // Equalizer mais rápido com a velocidade
+  var dur=(1/s).toFixed(2)+'s';
+  document.querySelectorAll('.eq-bar').forEach(function(b){b.style.animationDuration=dur;});
+}
+
+// ── WAVEFORM ──────────────────────────────────────────────────────────────
+function drawWaveform(epId, audioUrl, pct){
+  var svg=document.getElementById('wfSvg');
+  if(!svg)return;
+  var W=svg.clientWidth||svg.parentElement.clientWidth||500;
+  var H=52;
+  var bars=Math.floor(W/4);
+  var catColors={analise:'#378ADD',carteira:'#2ecc71',aporte:'#c9a961',macro:'#9b59b6',especial:'#e8c766'};
+  var cat=_epAtual?_epAtual.categoria:'analise';
+  var playedColor=catColors[cat]||'#c9a961';
+
+  function render(heights){
+    var html='';
+    for(var i=0;i<bars;i++){
+      var h=Math.max(3,heights[i%heights.length]*H*0.85);
+      var x=i*4+1;
+      var y=(H-h)/2;
+      var isPlayed=i/bars<pct;
+      var opacity=isPlayed?0.9:0.2;
+      var color=isPlayed?playedColor:'rgba(255,255,255,0.4)';
+      html+='<rect x="'+x+'" y="'+y.toFixed(1)+'" width="3" height="'+h.toFixed(1)+'" rx="1.5" fill="'+color+'" opacity="'+opacity+'"/>';
+    }
+    svg.innerHTML=html;
+    var cursor=document.getElementById('wfCursor');
+    if(cursor)cursor.style.left=(pct*100)+'%';
+  }
+
+  if(_wfCache[epId]){render(_wfCache[epId]);return;}
+
+  // Gera waveform determinística a partir do ID (seed) como fallback rápido
+  var seed=epId.split('').reduce(function(a,c){return a+c.charCodeAt(0)},0);
+  var fakeH=[];
+  for(var i=0;i<64;i++){
+    var s=Math.sin(seed*i*0.37+i*0.83)*0.5+0.5;
+    var s2=Math.sin(seed*i*0.13+i*0.41)*0.3+0.5;
+    fakeH.push(Math.max(0.08,Math.min(1,(s*0.6+s2*0.4))));
+  }
+  _wfCache[epId]=fakeH;
+  render(fakeH);
+
+  // Tenta gerar waveform real via Web Audio API (async, substitui a fake)
+  try{
+    var ctx=new(window.AudioContext||window.webkitAudioContext)();
+    fetch(audioUrl).then(function(r){return r.arrayBuffer();}).then(function(buf){
+      return ctx.decodeAudioData(buf);
+    }).then(function(decoded){
+      var data=decoded.getChannelData(0);
+      var step=Math.floor(data.length/64);
+      var realH=[];
+      for(var i=0;i<64;i++){
+        var sum=0;
+        for(var j=0;j<step;j++)sum+=Math.abs(data[i*step+j]||0);
+        realH.push(Math.max(0.05,Math.min(1,sum/step*8)));
+      }
+      _wfCache[epId]=realH;
+      render(realH);
+    }).catch(function(){});
+  }catch(e){}
+}
+
+function updateWaveform(){
+  if(!_audioEl||!_audioEl.duration||!_epAtual)return;
+  var pct=_audioEl.currentTime/_audioEl.duration;
+  drawWaveform(_epAtual.id,_epAtual.audioUrl,pct);
 }
 
 // ══ UPLOAD ADMIN ══
@@ -668,6 +777,47 @@ async function excluirEpisodio(e,id){
 }
 
 // ══ UTILS ══
+// ── EPISÓDIOS RELACIONADOS ────────────────────────────────────────────────
+function mostrarRelacionados(epFim){
+  var wrap=document.getElementById('relacionadosWrap');
+  var list=document.getElementById('relacionadosList');
+  if(!wrap||!list)return;
+  // Busca até 3 episódios da mesma categoria, excluindo o atual
+  var relacionados=_episodios.filter(function(e){
+    return e.id!==epFim.id && e.categoria===epFim.categoria;
+  }).slice(0,3);
+  // Se não tem 3 da mesma categoria, completa com outros
+  if(relacionados.length<3){
+    var outros=_episodios.filter(function(e){
+      return e.id!==epFim.id && e.categoria!==epFim.categoria && relacionados.indexOf(e)===-1;
+    }).slice(0,3-relacionados.length);
+    relacionados=relacionados.concat(outros);
+  }
+  if(!relacionados.length){wrap.style.display='none';return;}
+  var catColors={analise:'#5dade2',carteira:'#2ecc71',aporte:'#c9a961',macro:'#9b59b6',especial:'#e8c766'};
+  var catLabels={analise:'🔍 Análise',carteira:'💼 Carteira',aporte:'💰 Aporte',macro:'🌐 Macro',especial:'⭐ Especial'};
+  list.innerHTML=relacionados.map(function(ep){
+    var cor=catColors[ep.categoria]||'#c9a961';
+    var label=catLabels[ep.categoria]||ep.categoria;
+    var dur=ep.duracao?fmtDur(ep.duracao):'';
+    var dt=ep.createdAt?ep.createdAt.toDate():null;
+    var epId=ep.id;
+    return '<div onclick="tocarEpisodio(\'' + epId + '\')" style="background:var(--surface);border:1px solid rgba(201,169,97,.08);border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:border-color .2s" onmouseover="this.style.borderColor=\'rgba(201,169,97,.25)\'" onmouseout="this.style.borderColor=\'rgba(201,169,97,.08)\'">'
+      +'<div style="width:40px;height:40px;border-radius:8px;background:rgba(201,169,97,.08);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">'+{'analise':'🔍','carteira':'💼','aporte':'💰','macro':'🌐','especial':'⭐'}[ep.categoria]+'</div>'
+      +'<div style="flex:1;min-width:0">'
+        +'<div style="font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px">'+esc(ep.titulo)+'</div>'
+        +'<div style="display:flex;align-items:center;gap:6px">'
+          +'<span style="font-size:9px;font-weight:700;color:'+cor+';background:rgba(0,0,0,.2);padding:1px 7px;border-radius:5px">'+label+'</span>'
+          +(dur?'<span style="font-size:9px;color:var(--text3);font-family:monospace">'+dur+'</span>':'')
+        +'</div>'
+      +'</div>'
+      +'<div style="width:28px;height:28px;border-radius:50%;background:rgba(201,169,97,.12);display:flex;align-items:center;justify-content:center;font-size:10px;color:#c9a961">▶</div>'
+    +'</div>';
+  }).join('');
+  wrap.style.display='block';
+  wrap.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
 function fmtData(d){
   var m=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   return d.getDate()+' '+m[d.getMonth()]+'. '+d.getFullYear();
