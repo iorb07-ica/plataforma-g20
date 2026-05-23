@@ -8419,6 +8419,13 @@ function _buscarCotacoesEAtualizarRV(){
         };
       });
       localStorage.setItem('g20_precos', JSON.stringify(precosAtuais));
+      // Salva _dashRVCot com data de hoje — outras páginas usam para notificações de queda/destaques
+      try{
+        localStorage.setItem('g20_dashRVCot_cache', JSON.stringify({
+          _cacheDate: (function(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })(),
+          data: _dashRVCot
+        }));
+      }catch(e){}
     }catch(e){ console.warn('v3 save precos:', e); }
 
     // Calcula varia  o total RV
@@ -8455,6 +8462,25 @@ function _buscarCotacoesEAtualizarRV(){
     // Atualiza snapshot de hoje com total "real" (cota  es ao vivo) + re-renderiza sparklines + notifica  es
     try{ if(typeof _patSnapUpsert==='function'){ _patSnapUpsert(totalReal, rfLiq, rvTotal); _patRenderAllSparks(); } }catch(e){}
     try{ if(typeof renderNotifBadge==='function'){ renderNotifBadge(); renderNotifList(); } }catch(e){}
+    // Web Push: notifica o próprio usuário para eventos de topo e CDI
+    try{
+      if(window.G20Push && window.firebase && window.firebase.auth().currentUser){
+        var _pushUid = window.firebase.auth().currentUser.uid;
+        var _notifsDash = window.gerarNotifsDinamicas ? window.gerarNotifsDinamicas() : [];
+        _notifsDash.forEach(function(n){
+          if(n.id.indexOf('dyn-topo-') === 0){
+            G20Push.send(_pushUid, 'Novo topo de patrimônio! 🏆', n.desc,
+              'https://iorb07-ica.github.io/plataforma-g20/gestao-patrimonial.html', n.id);
+          } else if(n.id.indexOf('dyn-cdi30-') === 0){
+            G20Push.send(_pushUid, 'Você bateu o CDI! 🎯', n.desc,
+              'https://iorb07-ica.github.io/plataforma-g20/gestao-patrimonial.html', n.id);
+          } else if(n.id.indexOf('dyn-metaif-') === 0){
+            G20Push.send(_pushUid, n.titulo, n.desc,
+              'https://iorb07-ica.github.io/plataforma-g20/gestao-patrimonial.html', n.id);
+          }
+        });
+      }
+    }catch(e){}
     try{ if(typeof renderDailyBrief==='function') renderDailyBrief(); }catch(e){}
     // Etapa 2D: atualiza movers quando cotações chegam
     try{ if(typeof v21SyncMoversLabel==='function') v21SyncMoversLabel(); }catch(e){}
