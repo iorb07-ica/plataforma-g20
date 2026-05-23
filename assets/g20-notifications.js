@@ -97,7 +97,8 @@
 
   // ═══════════════ GERADOR DINÂMICO ═══════════════
   window.gerarNotifsDinamicas = function(){
-    var notifs = [];\n    var hoje = _todayISO();
+    var notifs = [];
+    var hoje = _todayISO();
     // Lê preferências do aluno (default: tudo ativo)
     var prefs = {};
     try{ prefs = JSON.parse(localStorage.getItem('g20_notifPrefs')||'{}'); }catch(e){}
