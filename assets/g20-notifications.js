@@ -662,6 +662,94 @@
       setInterval(function(){
         if(typeof renderNotifBadge==='function') try{ renderNotifBadge(); }catch(e){}
       }, 5 * 60 * 1000);
+      // Web Push: registra service worker e solicita permissão após login
+      if('serviceWorker' in navigator && 'PushManager' in window){
+        navigator.serviceWorker.register('/plataforma-g20/service-worker.js')
+          .then(function(reg){
+            window._g20SwReg = reg;
+            // Só solicita permissão se o aluno já fez login (uid disponível)
+            setTimeout(function(){ window.G20Push && window.G20Push.initPermission(reg); }, 3000);
+          })
+          .catch(function(e){ console.warn('[G20Push] SW register failed:', e.message); });
+      }
+    }
+  };
+
+  // ─── Web Push — gerencia permissão e subscription ─────────────────────────
+  window.G20Push = {
+    VAPID_PUBLIC: 'BJCftOYlNUNRkSXBlsNwj4wu9yF9TjKfflqMq6dggv-LSg1Opxf6gyaDWMB-pIYmiVaE_qS78L0aMCaXJYSA3Uo',
+    PROXY:        'https://g20-proxy.vercel.app',
+
+    // Converte base64url → Uint8Array (requerido pela API do browser)
+    urlBase64ToUint8Array: function(base64String){
+      var padding = '='.repeat((4 - base64String.length % 4) % 4);
+      var base64  = (base64String + padding).replace(/-/g,'+').replace(/_/g,'/');
+      var raw     = atob(base64);
+      var out     = new Uint8Array(raw.length);
+      for(var i=0;i<raw.length;i++) out[i]=raw.charCodeAt(i);
+      return out;
+    },
+
+    // Chamado 3s após login — solicita permissão se ainda não foi decidida
+    initPermission: function(reg){
+      var self = this;
+      // Não pede se já foi negado ou se o aluno não fez login
+      if(Notification.permission === 'denied') return;
+      // Pega uid do Firebase Auth (se disponível)
+      var uid = (window.firebase && window.firebase.auth().currentUser)
+              ? window.firebase.auth().currentUser.uid
+              : null;
+      if(!uid) return;
+
+      // Verifica se já tem subscription salva e válida
+      reg.pushManager.getSubscription().then(function(existing){
+        if(existing){
+          // Já inscrito — garante que está salvo no Firestore
+          self._saveSubToFirestore(uid, existing);
+          return;
+        }
+        // Primeira vez — só pede permissão se ainda não decidiu
+        if(Notification.permission === 'default'){
+          self._requestAndSubscribe(reg, uid);
+        }
+      }).catch(function(){});
+    },
+
+    // Pede permissão e cria subscription
+    _requestAndSubscribe: function(reg, uid){
+      var self = this;
+      Notification.requestPermission().then(function(perm){
+        if(perm !== 'granted') return;
+        reg.pushManager.subscribe({
+          userVisibleOnly:      true,
+          applicationServerKey: self.urlBase64ToUint8Array(self.VAPID_PUBLIC)
+        }).then(function(sub){
+          self._saveSubToFirestore(uid, sub);
+        }).catch(function(e){ console.warn('[G20Push] Subscribe failed:', e.message); });
+      });
+    },
+
+    // Salva subscription no Firestore users/{uid}
+    _saveSubToFirestore: function(uid, sub){
+      try{
+        if(!window.firebase || !window.firebase.firestore) return;
+        var db = window.firebase.firestore();
+        db.collection('users').doc(uid).update({
+          pushSubscription: sub.toJSON(),
+          pushEnabled:      true,
+          pushUpdatedAt:    new Date().toISOString()
+        }).catch(function(){});
+      }catch(e){}
+    },
+
+    // Envia push para UID específico ou '__all__' (chamado pelo dashboard)
+    send: function(uid, title, body, url, tag){
+      var payload = { uid: uid, title: title, body: body, url: url, tag: tag };
+      fetch(this.PROXY + '/api/push-notify', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload)
+      }).catch(function(){});
     }
   };
 
