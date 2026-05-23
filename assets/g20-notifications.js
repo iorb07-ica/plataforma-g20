@@ -97,8 +97,18 @@
 
   // ═══════════════ GERADOR DINÂMICO ═══════════════
   window.gerarNotifsDinamicas = function(){
-    var notifs = [];
-    var hoje = _todayISO();
+    var notifs = [];\n    var hoje = _todayISO();
+    // Lê preferências do aluno (default: tudo ativo)
+    var prefs = {};
+    try{ prefs = JSON.parse(localStorage.getItem('g20_notifPrefs')||'{}'); }catch(e){}
+    var p = {
+      patrimonio:  prefs.patrimonio  !== false,
+      benchmarks:  prefs.benchmarks  !== false,
+      mercado:     prefs.mercado     !== false,
+      conteudo:    prefs.conteudo    !== false,
+      macro:       prefs.macro       !== false,
+      conquistas:  prefs.conquistas  !== false
+    };
     var arr = (typeof _patSnapLoad==='function') ? _patSnapLoad() : [];
     // Se _dashRVCot não existe (outras páginas), tenta o cache salvo pelo dashboard
     if(!window._dashRVCot){
@@ -143,7 +153,7 @@
     }
 
     // 3) Ativos em queda forte hoje (agrupados)
-    try{
+    if(p.mercado) try{
       if(window._dashRVCot){
         var quedas=[];
         Object.keys(window._dashRVCot).forEach(function(t){
@@ -162,7 +172,7 @@
     }catch(e){}
 
     // 4) Novidades no G20Flix desde última visita
-    try{
+    if(p.conteudo) try{
       var lastSeen = parseInt(localStorage.getItem('g20_lastSeenFlix')||'0',10);
       if(!lastSeen){
         localStorage.setItem('g20_lastSeenFlix', String(window.FLIX_CURRENT_EP));
@@ -210,7 +220,7 @@
     }
 
     // 6c) Melhor e pior ativo do dia
-    try{
+    if(p.mercado) try{
       if(window._dashRVCot){
         var tickers = Object.keys(window._dashRVCot).map(function(t){return {ticker:t, pct:window._dashRVCot[t].varPct};}).filter(function(x){return typeof x.pct==='number' && !isNaN(x.pct);});
         if(tickers.length>=2){
@@ -234,7 +244,7 @@
     }
 
     // 6e) Panorama macro
-    try{
+    if(p.macro) try{
       var ind = _getIND();
       if(ind && ind.selic){
         notifs.push({id:'dyn-macro-'+hoje, ico:'🏦', bg:'rgba(59,130,246,.14)', titulo:'Panorama macro', desc:'Selic '+ind.selic.toFixed(2)+'% · CDI '+(ind.cdi||0).toFixed(2)+'% · IPCA '+(ind.ipca||0).toFixed(2)+'%', ts:Date.now(), link:'gestao-patrimonial.html'});
@@ -242,7 +252,7 @@
     }catch(e){}
 
     // 7) Semana em revisão (segundas)
-    try{
+    if(p.benchmarks) try{
       var dow = new Date().getDay();
       var lastReview = localStorage.getItem('g20_lastWeekReview')||'';
       if(dow===1 && lastReview!==hoje && arr.length>=8){
@@ -258,7 +268,7 @@
     }catch(e){}
 
     // 8) Live de aportes CG20 — agrupa múltiplos aportes do mesmo dia em uma única notificação
-    try{
+    if(p.conteudo) try{
       var db = window.firebase && window.firebase.firestore ? window.firebase.firestore() : null;
       if(db){
         var lastLiveId = localStorage.getItem('g20_notifs_lastLive')||'';
@@ -321,7 +331,7 @@
     }catch(e){}
 
     // 9) Meta IF — alerta quando patrimônio cruza marcos (10/25/50/75/90/100%)
-    try{
+    if(p.conquistas) try{
       var metaIFraw = localStorage.getItem('g20_metaIF_cache') || localStorage.getItem('g20_metaIF');
       var metaIF = 0;
       try{ var mObj = JSON.parse(metaIFraw||'{}'); metaIF = parseFloat(mObj.valor || mObj.alvo || '0'); }catch(e){};
@@ -348,10 +358,24 @@
       }
     }catch(e){}
 
+    // Filtra por preferências do aluno
+    var prefMap = {
+      'dyn-topo':'patrimonio','dyn-cdi30':'patrimonio','dyn-pulso':'patrimonio','dyn-streak':'patrimonio',
+      'dyn-vscdi':'benchmarks','dyn-aloc':'benchmarks','dyn-semana':'benchmarks',
+      'dyn-quedas':'mercado','dyn-destaques':'mercado',
+      'dyn-flix':'conteudo','dyn-live':'conteudo','admin-live':'conteudo',
+      'dyn-macro':'macro',
+      'dyn-metaif':'conquistas'
+    };
+    notifs = notifs.filter(function(n){
+      var cat = null;
+      Object.keys(prefMap).forEach(function(pfx){ if(n.id && n.id.indexOf(pfx)===0) cat=prefMap[pfx]; });
+      if(!cat) return true;
+      return p[cat] !== false;
+    });
+
     return notifs;
   };
-
-  // ─── Notificações admin (lives, avisos) — lidas do Firestore ──────────────
   window._fetchAdminNotifs = function(){
     try{
       if(!window.firebase || !window.firebase.firestore) return;
