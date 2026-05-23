@@ -2,8 +2,8 @@
 // Responsável por: receber push notifications e exibir ao usuário
 
 var G20_SW_VERSION = '1.0.0';
-var G20_ICON = '/plataforma-g20/assets/logo-g20-notif.png';
-var G20_BADGE = '/plataforma-g20/assets/logo-g20-badge.png';
+var G20_ICON  = '/plataforma-g20/icon-192.png';
+var G20_BADGE = '/plataforma-g20/apple-touch-icon.png';
 var G20_BASE_URL = 'https://iorb07-ica.github.io/plataforma-g20/';
 
 // ─── Instalação e ativação ───────────────────────────────────────────────────
