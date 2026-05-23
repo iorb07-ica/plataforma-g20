@@ -414,6 +414,8 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
     var cached=JSON.parse(localStorage.getItem('g20_user_profile')||'{}');
     if(cached.role==='admin'){
       document.body.classList.add('is-admin');
+      var btnArte = document.getElementById('btnArteWrap');
+      if(btnArte) btnArte.style.display = 'block';
     }
     if(cached.infinite===true){
       document.body.classList.add('is-infinity');
@@ -571,6 +573,12 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
         </div>
       </div>
       <div class="ranking-grid">
+        <!-- Botão Arte Instagram — visível só para admin -->
+        <div id="btnArteWrap" style="display:none;grid-column:1/-1;text-align:right;margin-bottom:4px">
+          <button onclick="abrirModalArte()" style="display:inline-flex;align-items:center;gap:8px;background:rgba(201,169,97,.12);border:1px solid rgba(201,169,97,.3);color:var(--gold);border-radius:10px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:.2s" onmouseover="this.style.background='rgba(201,169,97,.2)'" onmouseout="this.style.background='rgba(201,169,97,.12)'">
+            📸 Gerar arte Instagram
+          </button>
+        </div>
         <div class="ranking-col">
           <div class="ranking-col-header"><h3>Mensal</h3><span class="periodo" id="periodoMensal"></span></div>
           <table class="ranking-table"><thead><tr><th>#</th><th>Jogador</th><th>Rent.</th></tr></thead><tbody id="tbodyMensal"><tr><td colspan="3" style="padding:20px;text-align:center;color:var(--text2);font-size:12px">Carregando...</td></tr></tbody></table>
@@ -1749,5 +1757,253 @@ document.addEventListener('DOMContentLoaded',function(){
     document.body.classList.toggle('light',t==='light');
   }}catch(e2){}}});
 function g20Logout(){auth.signOut().then(function(){location.href='login.html';});}
+</script>
+<!-- ═══ MODAL ARTE INSTAGRAM ══════════════════════════════════════════════ -->
+<div id="modalArte" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;align-items:center;justify-content:center;padding:16px">
+  <div style="background:#27252c;border:1px solid rgba(201,169,97,.3);border-radius:16px;padding:24px;width:100%;max-width:560px;box-shadow:0 24px 48px rgba(0,0,0,.7);max-height:90vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div style="font-size:15px;font-weight:800;color:#fff">📸 Arte Instagram — Game G20</div>
+      <button onclick="fecharModalArte()" style="background:none;border:none;color:rgba(255,255,255,.5);font-size:20px;cursor:pointer">✕</button>
+    </div>
+
+    <!-- Seletor de ciclo -->
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button onclick="selecionarCicloArte('mensal',this)" class="ciclo-btn active" id="arteBtnMensal" style="flex:1;padding:8px;font-size:12px">Mensal</button>
+      <button onclick="selecionarCicloArte('trimestral',this)" class="ciclo-btn" id="arteBtnTrimestral" style="flex:1;padding:8px;font-size:12px">Trimestral</button>
+      <button onclick="selecionarCicloArte('anual',this)" class="ciclo-btn" id="arteBtnAnual" style="flex:1;padding:8px;font-size:12px">Anual</button>
+    </div>
+
+    <!-- Preview canvas -->
+    <div style="background:#111;border-radius:10px;overflow:hidden;margin-bottom:16px;text-align:center">
+      <canvas id="canvasArte" width="1080" height="1350" style="width:100%;max-width:400px;height:auto;display:block;margin:0 auto"></canvas>
+    </div>
+
+    <div style="display:flex;gap:10px">
+      <button onclick="baixarArte()" style="flex:1;background:linear-gradient(135deg,#c9a961,#e8c766);border:none;border-radius:10px;padding:12px;font-size:13px;font-weight:800;color:#0d0c10;cursor:pointer">
+        ⬇ Baixar imagem
+      </button>
+      <button onclick="fecharModalArte()" style="background:transparent;border:1px solid var(--border);color:var(--text2);border-radius:10px;padding:12px 20px;font-size:13px;cursor:pointer;font-family:inherit">
+        Fechar
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══ ARTE INSTAGRAM ═══════════════════════════════════════════════════════
+var _cicloArteAtual = 'mensal';
+
+function abrirModalArte(){
+  document.getElementById('modalArte').style.display = 'flex';
+  gerarArte(_cicloArteAtual);
+}
+
+function fecharModalArte(){
+  document.getElementById('modalArte').style.display = 'none';
+}
+
+function selecionarCicloArte(ciclo, btn){
+  _cicloArteAtual = ciclo;
+  document.querySelectorAll('#modalArte .ciclo-btn').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+  gerarArte(ciclo);
+}
+
+function gerarArte(ciclo){
+  var jogadores = rankingData[ciclo] || [];
+  var top10     = jogadores.slice(0, 10);
+  var canvas    = document.getElementById('canvasArte');
+  var ctx       = canvas.getContext('2d');
+  var W = 1080, H = 1350;
+
+  // Fundo escuro luxo
+  ctx.clearRect(0, 0, W, H);
+  var grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#1a191e');
+  grad.addColorStop(1, '#0d0c10');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Faixa dourada topo
+  var topGrad = ctx.createLinearGradient(0, 0, W, 0);
+  topGrad.addColorStop(0, 'rgba(201,169,97,0)');
+  topGrad.addColorStop(0.5, 'rgba(201,169,97,0.4)');
+  topGrad.addColorStop(1, 'rgba(201,169,97,0)');
+  ctx.fillStyle = topGrad;
+  ctx.fillRect(0, 0, W, 4);
+
+  // Linha decorativa
+  ctx.fillStyle = 'rgba(201,169,97,0.08)';
+  ctx.fillRect(80, 0, W-160, H);
+
+  // Logo / título
+  ctx.fillStyle = '#c9a961';
+  ctx.font = 'bold 52px DM Sans, Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('G20 MASTERCLASS', W/2, 80);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.font = 'bold 38px DM Sans, Arial, sans-serif';
+  var cicloLabel = ciclo === 'mensal' ? 'Mensal' : ciclo === 'trimestral' ? 'Trimestral' : 'Anual';
+  ctx.fillText('🏆 Ranking ' + cicloLabel, W/2, 148);
+
+  // Período
+  var periodoEl = document.getElementById('periodo' + cicloLabel);
+  var periodoTxt = periodoEl ? periodoEl.textContent : '';
+  ctx.fillStyle = 'rgba(201,169,97,0.7)';
+  ctx.font = '26px DM Sans, Arial, sans-serif';
+  ctx.fillText(periodoTxt, W/2, 192);
+
+  // Linha divisória
+  ctx.strokeStyle = 'rgba(201,169,97,0.2)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(80, 220); ctx.lineTo(W-80, 220); ctx.stroke();
+
+  if(!top10.length){
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.font = '28px DM Sans, Arial, sans-serif';
+    ctx.fillText('Nenhuma carteira cadastrada', W/2, H/2);
+    return;
+  }
+
+  // Linhas do ranking
+  var startY = 248, lineH = 90;
+  var medals = ['🥇','🥈','🥉'];
+  var imgCache = {};
+  var pendingImgs = 0;
+
+  function drawRanking(){
+    top10.forEach(function(j, i){
+      var cy = startY + i * lineH + lineH/2;
+
+      // Background linha
+      if(i < 3){
+        var alpha = i === 0 ? 0.15 : i === 1 ? 0.1 : 0.07;
+        ctx.fillStyle = 'rgba(201,169,97,' + alpha + ')';
+        roundRect(ctx, 80, startY + i * lineH + 4, W-160, lineH-8, 12);
+        ctx.fill();
+      }
+
+      // Medalha ou número
+      ctx.font = 'bold 34px DM Sans, Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      if(i < 3){
+        ctx.font = '36px serif';
+        ctx.fillText(medals[i], 136, cy);
+      } else {
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        ctx.font = 'bold 28px JetBrains Mono, monospace';
+        ctx.fillText(String(i+1), 136, cy);
+      }
+
+      // Foto circular
+      var img = imgCache[j.foto];
+      var cx = 198, r = 28;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, 2*Math.PI);
+      ctx.clip();
+      if(img && img.complete && img.naturalWidth > 0){
+        ctx.drawImage(img, cx-r, cy-r, r*2, r*2);
+      } else {
+        ctx.fillStyle = 'rgba(201,169,97,0.2)';
+        ctx.fill();
+        ctx.fillStyle = '#c9a961';
+        ctx.font = 'bold 22px DM Sans, Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText((j.nome||'?')[0].toUpperCase(), cx, cy);
+      }
+      ctx.restore();
+
+      // Borda circular
+      ctx.strokeStyle = i < 3 ? 'rgba(201,169,97,0.6)' : 'rgba(255,255,255,0.15)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2*Math.PI); ctx.stroke();
+
+      // Badge Infinity
+      if(j.infinite){
+        ctx.fillStyle = '#c9a961';
+        ctx.font = 'bold 18px DM Sans, Arial, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('∞', cx+r-4, cy-r+6);
+      }
+
+      // Nome
+      ctx.fillStyle = i < 3 ? '#fff' : 'rgba(255,255,255,0.85)';
+      ctx.font = (i < 3 ? 'bold ' : '') + '30px DM Sans, Arial, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      var nome = j.nome || '';
+      if(nome.length > 18) nome = nome.slice(0,17) + '…';
+      ctx.fillText(nome, 240, cy);
+
+      // Rentabilidade
+      var r2 = j.rentabilidade || 0;
+      var rStr = (r2 >= 0 ? '+' : '') + r2.toFixed(2) + '%';
+      ctx.fillStyle = r2 >= 0 ? '#2ecc71' : '#e63946';
+      ctx.font = 'bold 30px JetBrains Mono, monospace';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(rStr, W-100, cy);
+    });
+
+    // Rodapé
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.font = '24px DM Sans, Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('@valorizeinvestir  ·  G20 Masterclass  ·  #nãofoisorte', W/2, H-60);
+
+    ctx.strokeStyle = 'rgba(201,169,97,0.15)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(80, H-90); ctx.lineTo(W-80, H-90); ctx.stroke();
+  }
+
+  // Pré-carrega fotos e depois desenha
+  top10.forEach(function(j){
+    if(!j.foto) return;
+    if(imgCache[j.foto]) return;
+    pendingImgs++;
+    var img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = img.onerror = function(){
+      pendingImgs--;
+      if(pendingImgs <= 0) drawRanking();
+    };
+    img.src = j.foto;
+    imgCache[j.foto] = img;
+  });
+
+  if(pendingImgs === 0) drawRanking();
+}
+
+function roundRect(ctx, x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
+  ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r);
+  ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h);
+  ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r);
+  ctx.quadraticCurveTo(x,y,x+r,y);
+  ctx.closePath();
+}
+
+function baixarArte(){
+  var canvas = document.getElementById('canvasArte');
+  var link   = document.createElement('a');
+  link.download = 'game-g20-' + _cicloArteAtual + '-' + new Date().toISOString().split('T')[0] + '.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+}
+
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape') fecharModalArte();
+});
 </script>
 </body>
