@@ -351,6 +351,51 @@
     return notifs;
   };
 
+  // ─── Notificações admin (lives, avisos) — lidas do Firestore ──────────────
+  window._fetchAdminNotifs = function(){
+    try{
+      if(!window.firebase || !window.firebase.firestore) return;
+      var db    = window.firebase.firestore();
+      var agora = Date.now();
+      var turmaAluno = (function(){
+        try{ return JSON.parse(localStorage.getItem('g20_user_profile')||'{}').turma||''; }catch(e){ return ''; }
+      })();
+
+      db.collection('g20_admin_notificacoes')
+        .orderBy('ts','desc')
+        .limit(10)
+        .get()
+        .then(function(snap){
+          if(snap.empty) return;
+          var injected = [];
+          snap.forEach(function(doc){
+            var n = doc.data();
+            // Filtra por turma
+            if(n.turma && n.turma !== 'all' && n.turma !== turmaAluno) return;
+            // Filtra por expiração
+            if(n.expiresAt && n.expiresAt < agora) return;
+            injected.push({
+              id:     n.id || doc.id,
+              ico:    n.ico || '📡',
+              bg:     n.bg  || 'rgba(201,169,97,.22)',
+              titulo: n.titulo || '',
+              desc:   n.desc   || '',
+              ts:     n.ts     || agora,
+              link:   n.link   || 'dashboard.html'
+            });
+          });
+          if(!injected.length) return;
+          // Salva no log e atualiza badge
+          if(typeof window.saveNotif==='function'){
+            injected.forEach(function(n){ window.saveNotif(n); });
+          }
+          if(typeof renderNotifBadge==='function') renderNotifBadge();
+          if(typeof renderNotifList==='function'){ try{ renderNotifList(); }catch(e){} }
+        })
+        .catch(function(){});
+    }catch(e){}
+  };
+
   // Fallback quando nada dinâmico dispara
   window.NOTIFS_FALLBACK = [{id:'fb-calm-'+_todayISO(), ico:'✨', bg:'rgba(139,92,246,.12)', titulo:'Tudo tranquilo por aqui', desc:'Nenhum evento relevante hoje. Continue sua jornada.', ts: Date.now(), link:'dashboard.html'}];
 
@@ -463,42 +508,6 @@
       if(btn) btn.innerHTML = '🔔<span class="' + showClass + '" id="notifDot"></span>';
     }
 
-    // C) Badge no favicon — número de não lidas na aba do browser
-    try{
-      var faviconEl = document.querySelector("link[rel~='icon']") || document.querySelector("link[rel='shortcut icon']");
-      if(!faviconEl) return;
-      if(!window._g20FaviconOrigSrc){
-        window._g20FaviconOrigSrc = faviconEl.href;
-      }
-      if(unread <= 0){
-        faviconEl.href = window._g20FaviconOrigSrc;
-        return;
-      }
-      var img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = function(){
-        var sz = 32;
-        var canvas = document.createElement('canvas');
-        canvas.width = sz; canvas.height = sz;
-        var ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, sz, sz);
-        // Círculo vermelho no canto superior direito
-        var r = 9;
-        ctx.fillStyle = '#e63946';
-        ctx.beginPath();
-        ctx.arc(sz - r, r, r, 0, 2 * Math.PI);
-        ctx.fill();
-        // Número
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 11px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(unread > 9 ? '9+' : String(unread), sz - r, r);
-        try{ faviconEl.href = canvas.toDataURL('image/png'); }catch(e){}
-      };
-      img.onerror = function(){};
-      img.src = window._g20FaviconOrigSrc + '?_cb=' + Date.now();
-    }catch(e){}
   };
 
   window.renderNotifList = function(){
@@ -683,6 +692,8 @@
       });
       // Primeiro render do badge
       if(typeof renderNotifBadge==='function') try{ renderNotifBadge(); }catch(e){}
+      // Busca notificações admin (lives, avisos) do Firestore
+      setTimeout(function(){ if(typeof window._fetchAdminNotifs==='function') window._fetchAdminNotifs(); }, 4000);
       // Refresh automático do badge a cada 5 min — funciona em qualquer página
       setInterval(function(){
         if(typeof renderNotifBadge==='function') try{ renderNotifBadge(); }catch(e){}
