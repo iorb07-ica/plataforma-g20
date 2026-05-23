@@ -568,20 +568,27 @@ async function publicarEpisodio(){
   var btn=document.getElementById('btnPublicar');
   var status=document.getElementById('uploadStatus');
   btn.disabled=true;
-  setStatus('loading','⏳ Fazendo upload do áudio... aguarde',status);
+  setStatus('loading','⏳ Obtendo URL de upload... aguarde',status);
   try{
-    // Upload via Vercel proxy → Cloudflare R2
-    var formData = new FormData();
-    formData.append('file', file);
-    var uploadRes = await fetch('https://g20-proxy.vercel.app/api/r2-upload', {
+    // Passo 1: pede presigned URL ao proxy
+    var presignRes = await fetch('https://g20-proxy.vercel.app/api/r2-upload', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: file.name, contentType: file.type || 'audio/mpeg' })
+    });
+    if(!presignRes.ok) throw new Error('Presign falhou: HTTP ' + presignRes.status);
+    var presignData = await presignRes.json();
+    if(!presignData.uploadUrl) throw new Error(presignData.error || 'URL não retornada');
+
+    // Passo 2: upload direto para o R2 via presigned URL
+    setStatus('loading','⏳ Fazendo upload do áudio... aguarde',status);
+    var r2Res = await fetch(presignData.uploadUrl, {
+      method: 'PUT',
       headers: { 'Content-Type': file.type || 'audio/mpeg' },
       body: file
     });
-    if(!uploadRes.ok) throw new Error('Upload falhou: HTTP ' + uploadRes.status);
-    var uploadData = await uploadRes.json();
-    if(!uploadData.url) throw new Error(uploadData.error || 'URL não retornada');
-    var url = uploadData.url;
+    if(!r2Res.ok) throw new Error('Upload R2 falhou: HTTP ' + r2Res.status);
+    var url = presignData.publicUrl;
 
     // Tenta ler duração
     var dur=0;
