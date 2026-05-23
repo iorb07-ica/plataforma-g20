@@ -156,7 +156,6 @@ audio::-webkit-media-controls-panel{background:var(--sur2)}
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 </head>
 <body>
@@ -390,7 +389,6 @@ var FIREBASE_CONFIG={apiKey:"AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",authDomain
 if(!firebase.apps.length){firebase.initializeApp(FIREBASE_CONFIG);}
 var db=firebase.firestore();
 var auth=firebase.auth();
-function getStorage(){return firebase.storage();}
 
 var _isAdmin=false;
 var _episodios=[];
@@ -567,17 +565,37 @@ async function publicarEpisodio(){
   var btn=document.getElementById('btnPublicar');
   var status=document.getElementById('uploadStatus');
   btn.disabled=true;
-  setStatus('loading','⏳ Fazendo upload do áudio...',status);
+  setStatus('loading','⏳ Fazendo upload do áudio... aguarde',status);
   try{
-    var ext=file.name.split('.').pop();
-    var nome='premium_'+Date.now()+'.'+ext;
-    var ref=getStorage().ref('g20cast-premium/'+nome);
-    var snap=await ref.put(file);
-    var url=await snap.ref.getDownloadURL();
+    // Upload via Vercel proxy → Cloudflare R2
+    var formData = new FormData();
+    formData.append('file', file);
+    var uploadRes = await fetch('https://g20-proxy.vercel.app/api/r2-upload', {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'audio/mpeg' },
+      body: file
+    });
+    if(!uploadRes.ok) throw new Error('Upload falhou: HTTP ' + uploadRes.status);
+    var uploadData = await uploadRes.json();
+    if(!uploadData.url) throw new Error(uploadData.error || 'URL não retornada');
+    var url = uploadData.url;
+
     // Tenta ler duração
     var dur=0;
-    try{var tmpAudio=new Audio(url);await new Promise(function(res){tmpAudio.addEventListener('loadedmetadata',function(){dur=Math.round(tmpAudio.duration);res();});setTimeout(res,3000);});}catch(e){}
-    await db.collection('g20cast_premium').add({titulo:titulo,categoria:categoria,descricao:descricao,ativo:ativo,audioUrl:url,duracao:dur,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+    try{
+      var tmpAudio=new Audio(url);
+      await new Promise(function(res){
+        tmpAudio.addEventListener('loadedmetadata',function(){dur=Math.round(tmpAudio.duration);res();});
+        setTimeout(res,3000);
+      });
+    }catch(e){}
+
+    // Salva no Firestore
+    await db.collection('g20cast_premium').add({
+      titulo:titulo, categoria:categoria, descricao:descricao, ativo:ativo,
+      audioUrl:url, duracao:dur,
+      createdAt:firebase.firestore.FieldValue.serverTimestamp()
+    });
     setStatus('ok','✅ Episódio publicado com sucesso!',status);
     document.getElementById('epTitulo').value='';
     document.getElementById('epDescricao').value='';
