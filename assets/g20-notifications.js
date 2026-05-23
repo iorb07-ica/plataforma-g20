@@ -18,8 +18,33 @@
   window.NOTIFS_LOG_MAX = 100;
   window._notifsHistoryMode = false;
   // Último episódio do G20Flix (mantém sincronia com o card do dashboard)
-  if(typeof window.FLIX_CURRENT_EP === 'undefined') window.FLIX_CURRENT_EP = 80;
-  if(typeof window.FLIX_CURRENT_TITLE === 'undefined') window.FLIX_CURRENT_TITLE = '#80 – Aporte da Carteira G20 – Março/2026';
+  // FLIX_CURRENT_EP — lido dinamicamente do Firestore g20flix/videos/items
+  // Fallback para o valor hardcoded se Firebase não estiver disponível
+  if(typeof window.FLIX_CURRENT_EP === 'undefined') window.FLIX_CURRENT_EP = 84;
+  if(typeof window.FLIX_CURRENT_TITLE === 'undefined') window.FLIX_CURRENT_TITLE = '';
+
+  // Busca o episódio mais recente do Firestore (roda uma vez por sessão)
+  (function _fetchFlixEp(){
+    try{
+      if(!window.firebase || !window.firebase.firestore) return;
+      var db = window.firebase.firestore();
+      db.collection('g20flix').doc('videos').collection('items')
+        .orderBy('ep', 'desc')
+        .limit(1)
+        .get()
+        .then(function(snap){
+          if(snap.empty) return;
+          var data = snap.docs[0].data();
+          var ep    = parseInt(data.ep || 0, 10);
+          var title = data.title || data.titulo || '';
+          if(ep > 0){
+            window.FLIX_CURRENT_EP    = ep;
+            window.FLIX_CURRENT_TITLE = '#' + ep + (title ? ' – ' + title : '');
+          }
+        })
+        .catch(function(){});
+    }catch(e){}
+  })();
 
   // ═══════════════ UTIL ═══════════════
   if(typeof window._todayISO !== 'function'){
