@@ -14,7 +14,7 @@
   window.NOTIFS_KEY = 'g20_notifications';
   window.NOTIFS_READ_KEY = 'g20_notifs_read';
   window.NOTIFS_LOG_KEY = 'g20_notifs_log';
-  window.NOTIFS_MAX = 8;
+  window.NOTIFS_MAX = 12;
   window.NOTIFS_LOG_MAX = 100;
   window._notifsHistoryMode = false;
   // Último episódio do G20Flix (mantém sincronia com o card do dashboard)
@@ -232,6 +232,97 @@
       }
     }catch(e){}
 
+    // 8) Live de aportes CG20 — agrupa múltiplos aportes do mesmo dia em uma única notificação
+    try{
+      var db = window.firebase && window.firebase.firestore ? window.firebase.firestore() : null;
+      if(db){
+        var lastLiveId = localStorage.getItem('g20_notifs_lastLive')||'';
+        db.collection('g20_aportes')
+          .orderBy('data','desc')
+          .limit(20)
+          .get()
+          .then(function(snap){
+            if(snap.empty) return;
+            // Agrupa por data (campo 'data' é string YYYY-MM-DD ou Timestamp)
+            var groups = {};
+            snap.forEach(function(doc){
+              var d = doc.data();
+              var rawDate = d.data || d.date || d.dt || '';
+              var dateKey = '';
+              if(rawDate && rawDate.toDate){
+                var dd = rawDate.toDate();
+                dateKey = dd.getFullYear()+'-'+String(dd.getMonth()+1).padStart(2,'0')+'-'+String(dd.getDate()).padStart(2,'0');
+              } else {
+                dateKey = String(rawDate).slice(0,10);
+              }
+              if(!dateKey) return;
+              if(!groups[dateKey]) groups[dateKey] = [];
+              groups[dateKey].push(d.ticker || d.ativo || '');
+            });
+            // Pega o grupo mais recente
+            var dates = Object.keys(groups).sort().reverse();
+            if(!dates.length) return;
+            var latestDate = dates[0];
+            var tickers = groups[latestDate].filter(Boolean);
+            var liveId = 'dyn-live-'+latestDate;
+            // Só notifica se for novo (não visto antes) e tiver 2+ aportes
+            if(tickers.length >= 2 && liveId !== lastLiveId){
+              var mes = (function(){
+                var meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+                var parts = latestDate.split('-');
+                return meses[parseInt(parts[1],10)-1]+'/'+(parts[0]||'');
+              })();
+              var log = JSON.parse(localStorage.getItem(window.NOTIFS_LOG_KEY)||'[]');
+              var jaViu = log.some(function(n){ return n.id===liveId; });
+              if(!jaViu){
+                localStorage.setItem('g20_notifs_lastLive', liveId);
+                // Injeta na fila global de notificações via saveNotif
+                if(typeof window.saveNotif==='function'){
+                  window.saveNotif({
+                    id: liveId,
+                    ico: '📊',
+                    bg: 'rgba(201,169,97,.20)',
+                    titulo: 'Live de aportes realizada',
+                    desc: tickers.length+' novos aportes na Carteira G20 · '+mes,
+                    ts: Date.now(),
+                    link: 'carteira.html'
+                  });
+                  if(typeof renderNotifBadge==='function') renderNotifBadge();
+                }
+              }
+            }
+          }).catch(function(){});
+      }
+    }catch(e){}
+
+    // 9) Meta IF — alerta quando patrimônio cruza marcos (10/25/50/75/90/100%)
+    try{
+      var metaIFraw = localStorage.getItem('g20_metaIF_cache') || localStorage.getItem('g20_metaIF');
+      var metaIF = 0;
+      try{ var mObj = JSON.parse(metaIFraw||'{}'); metaIF = parseFloat(mObj.valor || mObj.alvo || '0'); }catch(e){};
+      if(metaIF > 0 && arr.length > 0){
+        var patAtual = arr[arr.length-1].t;
+        var pct = (patAtual / metaIF) * 100;
+        var marcos = [10,25,50,75,90,100];
+        marcos.forEach(function(marco){
+          if(pct >= marco){
+            var midIF = 'dyn-metaif-'+marco;
+            var log = JSON.parse(localStorage.getItem(window.NOTIFS_LOG_KEY)||'[]');
+            var jaDisparou = log.some(function(n){ return n.id===midIF; });
+            if(!jaDisparou){
+              var ico = marco===100 ? '🏆' : marco>=75 ? '🎯' : marco>=50 ? '🚀' : '📈';
+              var bg  = marco===100 ? 'rgba(232,184,75,.25)' : 'rgba(46,204,113,.18)';
+              var titulo = marco===100
+                ? 'Você atingiu sua Meta IF! 🏆'
+                : 'Você atingiu '+marco+'% da sua Meta IF!';
+              var desc = 'Patrimônio '+_fmtBRLshort(patAtual)+' · Meta '+_fmtBRLshort(metaIF);
+              notifs.push({id:midIF, ico:ico, bg:bg, titulo:titulo, desc:desc, ts:Date.now(), link:'gestao-patrimonial.html'});
+            }
+          }
+        });
+      }
+    }catch(e){}
+
     return notifs;
   };
 
@@ -341,14 +432,48 @@
     var dot = document.getElementById('notifDot');
     if(dot){
       dot.className = showClass;
-      return;
+    } else {
+      // Fallback: botão sem span (páginas antigas) — recria o innerHTML
+      var btn = document.querySelector('[onclick*="mostrarNotificacoes"]');
+      if(btn) btn.innerHTML = '🔔<span class="' + showClass + '" id="notifDot"></span>';
     }
 
-    // Fallback: botão sem span (páginas antigas) — recria o innerHTML
-    var btn = document.querySelector('[onclick*="mostrarNotificacoes"]');
-    if(btn){
-      btn.innerHTML = '🔔<span class="' + showClass + '" id="notifDot"></span>';
-    }
+    // C) Badge no favicon — número de não lidas na aba do browser
+    try{
+      var faviconEl = document.querySelector("link[rel~='icon']") || document.querySelector("link[rel='shortcut icon']");
+      if(!faviconEl) return;
+      if(!window._g20FaviconOrigSrc){
+        window._g20FaviconOrigSrc = faviconEl.href;
+      }
+      if(unread <= 0){
+        faviconEl.href = window._g20FaviconOrigSrc;
+        return;
+      }
+      var img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = function(){
+        var sz = 32;
+        var canvas = document.createElement('canvas');
+        canvas.width = sz; canvas.height = sz;
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, sz, sz);
+        // Círculo vermelho no canto superior direito
+        var r = 9;
+        ctx.fillStyle = '#e63946';
+        ctx.beginPath();
+        ctx.arc(sz - r, r, r, 0, 2 * Math.PI);
+        ctx.fill();
+        // Número
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 11px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(unread > 9 ? '9+' : String(unread), sz - r, r);
+        try{ faviconEl.href = canvas.toDataURL('image/png'); }catch(e){}
+      };
+      img.onerror = function(){};
+      img.src = window._g20FaviconOrigSrc + '?_cb=' + Date.now();
+    }catch(e){}
   };
 
   window.renderNotifList = function(){
