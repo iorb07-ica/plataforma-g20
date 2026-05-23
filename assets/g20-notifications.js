@@ -438,6 +438,21 @@
     }catch(e){}
   };
 
+  // saveNotif — injeta uma notificação avulsa no localStorage (usado por admin lives e live de aportes)
+  window.saveNotif = function(n){
+    try{
+      var saved = [];
+      try{ saved = JSON.parse(localStorage.getItem(NOTIFS_KEY)||'[]'); }catch(e){}
+      var map = {};
+      saved.forEach(function(x){ map[x.id]=x; });
+      if(!map[n.id]) map[n.id] = n; // não sobrescreve se já existe
+      var arr = Object.keys(map).map(function(k){ return map[k]; });
+      arr.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
+      localStorage.setItem(NOTIFS_KEY, JSON.stringify(arr.slice(0, NOTIFS_MAX)));
+      _appendNotifLog([n]);
+    }catch(e){}
+  };
+
   window.getNotifs = function(){
     var saved=[];
     try{
