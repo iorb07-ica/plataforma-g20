@@ -80,9 +80,8 @@ body.sidebar-collapsed .sidebar-footer span:not(.ico){display:none}
   position:absolute;
   inset:0;
   background:
-    url('assets/g20cast-player-bg.jpg') right center/55% auto no-repeat,
-    linear-gradient(90deg, #1a1825 35%, rgba(26,24,37,0.85) 60%, rgba(26,24,37,0.4) 100%);
-  opacity:.18;
+    radial-gradient(ellipse 60% 80% at 100% 50%, rgba(201,169,97,.12) 0%, transparent 70%),
+    radial-gradient(ellipse 30% 60% at 0% 50%, rgba(201,169,97,.05) 0%, transparent 60%);
   pointer-events:none;
   z-index:0;
 }
@@ -139,7 +138,6 @@ body.sidebar-collapsed .sidebar-footer span:not(.ico){display:none}
 .ep-list{display:flex;flex-direction:column;gap:8px}
 @media(min-width:900px){.ep-list{display:grid;grid-template-columns:1fr 1fr;gap:10px}}
 .ep-item{background:#1e1c28;border:1px solid rgba(201,169,97,.08);border-radius:12px;padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:all .2s ease;position:relative;overflow:hidden}
-.ep-item::after{content:'';position:absolute;inset:0;background:url('assets/g20cast-player-bg.jpg') right center/45% auto no-repeat;opacity:.06;pointer-events:none;z-index:0;}
 .ep-item::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:transparent;border-radius:0;transition:background .2s}
 .ep-item:hover{border-color:rgba(201,169,97,.22);background:#242130;transform:translateX(2px)}
 .ep-item:hover::before{background:rgba(201,169,97,.5)}
@@ -727,79 +725,65 @@ function setSpeed(s){
 }
 
 // ── WAVEFORM ──────────────────────────────────────────────────────────────
-// ── WAVEFORM REAL-TIME ───────────────────────────────────────────────────
-var _analyser=null, _animFrame=null, _wfCtx=null, _wfCanvas=null;
+// ── WAVEFORM ESTILO SPOTIFY ─────────────────────────────────────────────
+var _animFrame=null, _wfCtx=null, _wfCanvas=null;
 
-function initAnalyser(){
-  // Não usa createMediaElementSource por causa de CORS
-  // A animação é feita via simulação com seed temporal
-  _analyser=null;
-}
+function initAnalyser(){}
 
 function startWaveformCanvas(){
   var wrap=document.getElementById('wfWrap');
   if(!wrap)return;
   wrap.innerHTML='<canvas id="wfCanvas" style="display:block;width:100%;height:44px;cursor:pointer;"></canvas>'+
-    '<div id="wfCursor" style="position:absolute;top:0;bottom:0;width:2px;background:rgba(255,255,255,.4);border-radius:1px;left:0;pointer-events:none"></div>';
+    '<div id="wfCursor" style="position:absolute;top:0;bottom:0;width:2px;background:rgba(255,255,255,.5);border-radius:1px;left:0;pointer-events:none"></div>';
   _wfCanvas=document.getElementById('wfCanvas');
   _wfCanvas.width=wrap.clientWidth||800;
   _wfCanvas.height=44;
   _wfCtx=_wfCanvas.getContext('2d');
   _wfCanvas.onclick=function(e){seekWaveform(e);};
+  // Gera perfil fixo baseado no ID do episódio
+  _buildWfProfile();
   drawLiveWaveform();
+}
+
+var _wfProfile=[];
+function _buildWfProfile(){
+  _wfProfile=[];
+  var W=_wfCanvas?_wfCanvas.width:800;
+  var bars=Math.floor(W/4);
+  var seed=_epAtual?_epAtual.id.split('').reduce(function(a,c){return a+c.charCodeAt(0)},0):42;
+  for(var i=0;i<bars;i++){
+    var v=Math.sin(seed*0.017+i*0.38)*0.38+Math.sin(i*0.13+seed*0.007)*0.28+Math.sin(i*0.07)*0.18+0.42;
+    _wfProfile.push(Math.max(0.06,Math.min(1,v)));
+  }
 }
 
 function drawLiveWaveform(){
   if(_animFrame)cancelAnimationFrame(_animFrame);
   if(!_wfCanvas||!_wfCtx)return;
-
   var W=_wfCanvas.width, H=_wfCanvas.height;
-  var bars=Math.floor(W/4);
-  var playedColor='#c9a961';
-  var unplayedColor='rgba(201,169,97,0.15)';
-  var seed=_epAtual?_epAtual.id.split('').reduce(function(a,c){return a+c.charCodeAt(0)},0):42;
-
-  // Gera perfil base do episódio (alturas naturais)
-  var baseH=[];
-  for(var i=0;i<bars;i++){
-    var v=Math.sin(seed*0.017+i*0.38)*0.4+Math.sin(i*0.13+seed*0.007)*0.3+Math.sin(i*0.07)*0.2+0.45;
-    baseH.push(Math.max(0.08,Math.min(1,v)));
-  }
+  var bars=_wfProfile.length||Math.floor(W/4);
 
   function draw(){
     _wfCtx.clearRect(0,0,W,H);
     var pct=(_audioEl&&_audioEl.duration)?_audioEl.currentTime/_audioEl.duration:0;
     var cutoff=Math.floor(bars*pct);
-    var isPlaying=_audioEl&&!_audioEl.paused;
-    var t=Date.now()/1000;
-
     for(var i=0;i<bars;i++){
-      var h=baseH[i];
-      // Animação nas barras tocadas — simula oscilação de voz
-      if(isPlaying && i<cutoff){
-        var anim=Math.sin(t*8+i*0.4)*0.12+Math.sin(t*5.3+i*0.7)*0.08+1;
-        h=Math.min(1,h*anim);
-      }
-      var px=Math.max(3,h*H*0.88);
+      var h=Math.max(3,(_wfProfile[i]||0.3)*H*0.88);
       var x=i*4+1;
-      var y=(H-px)/2;
-      _wfCtx.fillStyle=i<cutoff?playedColor:unplayedColor;
+      var y=(H-h)/2;
+      _wfCtx.fillStyle=i<cutoff?'#c9a961':'rgba(201,169,97,0.15)';
       _wfCtx.beginPath();
-      if(_wfCtx.roundRect){
-        _wfCtx.roundRect(x,y,3,px,1.5);
-      } else {
-        _wfCtx.rect(x,y,3,px);
-      }
+      if(_wfCtx.roundRect) _wfCtx.roundRect(x,y,3,h,1.5);
+      else _wfCtx.rect(x,y,3,h);
       _wfCtx.fill();
     }
-
     var cursor=document.getElementById('wfCursor');
     if(cursor) cursor.style.left=(pct*100)+'%';
-
     _animFrame=requestAnimationFrame(draw);
   }
   draw();
 }
+
 
 function drawWaveform(epId, audioUrl, pct){
   // Fallback SVG para compatibilidade — mas se canvas existe, não usa
