@@ -365,10 +365,10 @@ body.day .a-ticker{color:#111113}
 .sidebar .nav-item:hover{color:#fff !important}
 .sidebar .nav-item.active{color:var(--gold,#c9a961) !important}
 </style>
-<link rel="stylesheet" href="assets/g20-topbar.css?v=10">
 <link rel="stylesheet" href="assets/g20-search.css?v=10">
 <script src="assets/g20-notifications.js?v=10"></script>
 <script src="assets/g20-search.js?v=10"></script>
+<script src="assets/market-hours.js?v=1"></script>
 </head>
 <body>
 <script>
@@ -2681,8 +2681,20 @@ function closeShare(){document.getElementById('share-overlay').classList.remove(
 function updateMarketStatus(){
   const u=new Date().getUTCHours();
   const set=(id,l,c)=>{const el=document.getElementById(id);if(el){el.textContent='● '+l;el.className='rt-st '+c;}};
-  set('ms-eua',u>=13&&u<20?'ABERTO':u===12?'PRÉ-MKT':'FECHADO',u>=13&&u<20?'st-open':u===12?'st-pre':'st-closed');
-  set('ms-br',u>=13&&u<21?'ABERTO':'FECHADO',u>=13&&u<21?'st-open':'st-closed');
+  // Usa MarketHours se disponível, senão fallback simples
+  if(typeof MarketHours!=='undefined'){
+    var nyse=MarketHours.isNYSEOpen(new Date());
+    var b3=MarketHours.isB3Open(new Date());
+    var euaLabel=nyse.open?'ABERTO':nyse.status==='pre'?'PRÉ-MKT':nyse.motivo||'FECHADO';
+    var euaCls=nyse.open?'st-open':nyse.status==='holiday'?'st-holiday':nyse.status==='pre'?'st-pre':'st-closed';
+    var brLabel=b3.open?'ABERTO':b3.motivo||'FECHADO';
+    var brCls=b3.open?'st-open':b3.status==='holiday'?'st-holiday':'st-closed';
+    set('ms-eua',euaLabel,euaCls);
+    set('ms-br',brLabel,brCls);
+  } else {
+    set('ms-eua',u>=13&&u<20?'ABERTO':u===12?'PRÉ-MKT':'FECHADO',u>=13&&u<20?'st-open':u===12?'st-pre':'st-closed');
+    set('ms-br',u>=13&&u<21?'ABERTO':'FECHADO',u>=13&&u<21?'st-open':'st-closed');
+  }
   set('ms-eu',u>=8&&u<16?'ABERTO':'FECHADO',u>=8&&u<16?'st-open':'st-closed');
   set('ms-as',u>=0&&u<8?'ABERTO':'FECHADO',u>=0&&u<8?'st-open':'st-closed');
 }
