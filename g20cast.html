@@ -414,7 +414,7 @@ function renderEps(){
   el.innerHTML=lista.map(function(ep){
     var isNovo=(hoje-new Date(ep.data))<(3*24*60*60*1000);
     var dur=ep.duracao?'<span class="ep-dot"></span><span>'+ep.duracao+'</span>':'';
-    return '<div class="ep-item" onclick="tocarEpisodio(this)" data-url="'+ep.url+'" data-audio="'+(ep.audioUrl||'')+'" data-titulo="'+ep.titulo.replace(/"/g,"&quot;")+'" data-num="'+ep.num+'">'+
+    return '<div class="ep-item" onclick="tocarEpisodio(this)" data-url="'+ep.url+'" data-audio="'+(ep.audioUrl||'')+'" data-sid="'+(ep.spotifyId||'')+'" data-titulo="'+ep.titulo.replace(/"/g,"&quot;")+'" data-num="'+ep.num+'">'+
       '<div class="ep-num">#'+ep.num+'</div>'+
       '<div class="ep-info"><div class="ep-title">'+ep.titulo+'</div><div class="ep-meta"><span>'+fmtDate(ep.data)+'</span>'+dur+'</div></div>'+
       (isNovo?'<span class="ep-new">NOVO</span>':'')+
@@ -436,10 +436,16 @@ function parseRSS(xmlStr){
     // URL de áudio direto (enclosure)
     var enclosure=item.querySelector('enclosure');
     var audioUrl=enclosure?enclosure.getAttribute('url'):'';
-    // URL Spotify do episódio (guid ou link)
+    // GUID pode conter spotify:episode:ID ou URL
     var guid=(item.querySelector('guid')||{}).textContent||'';
+    // Extrair Spotify episode ID do guid (ex: spotify:episode:4abc123)
+    var spotifyId='';
+    var mGuid=guid.match(/spotify:episode:([A-Za-z0-9]+)/);
+    if(mGuid) spotifyId=mGuid[1];
+    // Tentar extrair do link também
+    if(!spotifyId){ var mLink=(link||'').match(/episode\/([A-Za-z0-9]+)/); if(mLink) spotifyId=mLink[1]; }
     var spotifyEpUrl=link||guid||SPOTIFY_URL;
-    eps.push({titulo:title.trim(),num:extractNum(title),data:pubDate?new Date(pubDate).toISOString():'',url:spotifyEpUrl,audioUrl:audioUrl,duracao:durFmt});
+    eps.push({titulo:title.trim(),num:extractNum(title),data:pubDate?new Date(pubDate).toISOString():'',url:spotifyEpUrl,audioUrl:audioUrl,spotifyId:spotifyId,duracao:durFmt});
   });return eps;}catch(e){return [];}
 }
 function fetchViaProxy(url,idx){
@@ -508,8 +514,10 @@ function atualizarStats(eps){
 
 function tocarEpisodio(el){
   var url = el.dataset.url || '';
+  var sid = el.dataset.sid || '';
   var audioUrl = el.dataset.audio || '';
   var titulo = el.dataset.titulo || '';
+  var iframe = document.getElementById('spotifyPlayer');
 
   // Marcar como tocando na lista
   document.querySelectorAll('.ep-item').forEach(function(i){
@@ -517,47 +525,44 @@ function tocarEpisodio(el){
     var p=i.querySelector('.ep-play'); if(p) p.textContent='▶';
   });
   el.classList.add('tocando');
-  el.querySelector('.ep-play').textContent = '⏸';
+  var playBtn = el.querySelector('.ep-play');
+  if(playBtn) playBtn.textContent='⏸';
 
-  // Tentar Spotify embed via ID do episódio
-  var matchSpotify = url.match(/episode\/([A-Za-z0-9]+)/);
-  var iframe = document.getElementById('spotifyPlayer');
+  if(!iframe){ _scrollToPlayer(); return; }
 
-  if(matchSpotify && matchSpotify[1] && iframe){
-    iframe.src = 'https://open.spotify.com/embed/episode/'+matchSpotify[1]+'?utm_source=generator&theme=0';
-    _scrollToPlayer();
-    return;
+  // Opção 1: Spotify episode ID já extraído do GUID
+  if(sid){
+    iframe.src = 'https://open.spotify.com/embed/episode/'+sid+'?utm_source=generator&theme=0';
+    _scrollToPlayer(); return;
   }
 
-  // Usar áudio nativo HTML5 (URL direta do enclosure do RSS)
+  // Opção 2: extrair ID da URL
+  var matchId = url.match(/episode\/([A-Za-z0-9]+)/);
+  if(matchId){
+    iframe.src = 'https://open.spotify.com/embed/episode/'+matchId[1]+'?utm_source=generator&theme=0';
+    _scrollToPlayer(); return;
+  }
+
+  // Opção 3: áudio nativo (enclosure MP3)
   if(audioUrl){
-    _tocarAudioNativo(audioUrl, titulo);
-    _scrollToPlayer();
-    return;
+    var wrap = iframe.closest('.embed-wrap');
+    if(wrap) wrap.innerHTML =
+      '<div style="background:#1a1825;border-radius:16px;padding:20px 24px;border:1px solid rgba(201,169,97,.2);box-shadow:0 8px 24px rgba(0,0,0,.4)">'+
+      '<div style="font-size:11px;font-weight:700;color:#c9a961;margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">▶ '+titulo+'</div>'+
+      '<audio id="g20AudioPlayer" controls style="width:100%;height:40px;border-radius:8px;accent-color:#c9a961" src="'+audioUrl+'" autoplay></audio>'+
+      '<div style="margin-top:8px;text-align:right"><a href="'+url+'" target="_blank" style="font-size:10px;color:#6b6380;text-decoration:none">Ver no Spotify ↗</a></div>'+
+      '</div>';
+    try{ document.getElementById('g20AudioPlayer').play(); }catch(e){}
+    _scrollToPlayer(); return;
   }
 
-  // Fallback final: abrir no Spotify
+  // Opção 4: fallback — abrir no Spotify
   window.open(url||'https://open.spotify.com/show/6D3NYNYewNBjkiPCcW1yKA', '_blank');
 }
 
 function _scrollToPlayer(){
-  var wrap = document.querySelector('.embed-wrap');
-  if(wrap) wrap.scrollIntoView({behavior:'smooth', block:'start'});
-}
-
-function _tocarAudioNativo(audioUrl, titulo){
-  var wrap = document.querySelector('.embed-wrap:last-of-type') || document.querySelector('.embed-wrap');
-  if(!wrap) return;
-  // Substituir iframe por player HTML5 nativo
-  wrap.innerHTML =
-    '<div style="background:#1a1825;border-radius:16px;padding:20px;border:1px solid rgba(201,169,97,.2)">' +
-    '<div style="font-size:12px;color:#c9a961;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:8px">' +
-    '<span>▶</span><span style="color:#f0ece0">'+titulo+'</span></div>' +
-    '<audio id="g20AudioPlayer" controls style="width:100%;height:44px;outline:none;border-radius:8px" src="'+audioUrl+'" autoplay>' +
-    '</audio>' +
-    '<div style="margin-top:10px;text-align:right"><a href="'+audioUrl+'" target="_blank" style="font-size:10px;color:#6b6380;text-decoration:none">Abrir áudio ↗</a></div>' +
-    '</div>';
-  try{ document.getElementById('g20AudioPlayer').play(); }catch(e){}
+  var el = document.getElementById('spotifyPlayer');
+  if(el) el.closest('.embed-wrap').scrollIntoView({behavior:'smooth', block:'start'});
 }
 
 function toggleSidebar(){var sb=document.getElementById('sidebar'),ov=document.getElementById('overlay');sb.classList.toggle('open');ov.classList.toggle('show');document.body.style.overflow=sb.classList.contains('open')?'hidden':'';}
