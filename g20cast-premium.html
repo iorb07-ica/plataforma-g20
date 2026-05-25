@@ -664,12 +664,18 @@ function tocarEpisodio(id){
   if(_resumeMap[ep.id]&&_resumeMap[ep.id]>5){
     _audioEl.currentTime=_resumeMap[ep.id];
   }
-  _audioEl.play();
+  _wfCanvas=null; // reset canvas anterior
+  if(_animFrame){cancelAnimationFrame(_animFrame);_animFrame=null;}
+  _audioEl.play().then(function(){
+    initAnalyser();
+    startWaveformCanvas();
+  }).catch(function(){
+    initAnalyser();
+    startWaveformCanvas();
+  });
   document.getElementById('btnPlay').textContent='⏸';
   var eq = document.getElementById('eqBars');
   if(eq) eq.classList.add('playing');
-  // Gera waveform inicial
-  drawWaveform(ep.id, ep.audioUrl, _resumeMap[ep.id]?(_resumeMap[ep.id]/(_audioEl.duration||1)):0);
   renderEps();
   // Esconde relacionados ao iniciar novo episódio
   var rel=document.getElementById('relacionadosWrap');
@@ -684,6 +690,7 @@ function togglePlay(){
     _audioEl.play();
     document.getElementById('btnPlay').textContent='⏸';
     if(eq) eq.classList.add('playing');
+    if(!_wfCanvas) startWaveformCanvas();
   } else {
     _audioEl.pause();
     document.getElementById('btnPlay').textContent='▶';
@@ -717,11 +724,110 @@ function setSpeed(s){
 }
 
 // ── WAVEFORM ──────────────────────────────────────────────────────────────
+// ── WAVEFORM REAL-TIME ───────────────────────────────────────────────────
+var _analyser=null, _animFrame=null, _wfCtx=null, _wfCanvas=null;
+
+function initAnalyser(){
+  if(!_audioEl)return;
+  try{
+    var actx=new(window.AudioContext||window.webkitAudioContext)();
+    var src=actx.createMediaElementSource(_audioEl);
+    _analyser=actx.createAnalyser();
+    _analyser.fftSize=256;
+    _analyser.smoothingTimeConstant=0.8;
+    src.connect(_analyser);
+    _analyser.connect(actx.destination);
+  }catch(e){_analyser=null;}
+}
+
+function startWaveformCanvas(){
+  var wrap=document.getElementById('wfWrap');
+  if(!wrap)return;
+  // Substituir SVG por canvas
+  wrap.innerHTML='<canvas id="wfCanvas" style="display:block;width:100%;height:44px;cursor:pointer;"></canvas>'+
+    '<div id="wfCursor" style="position:absolute;top:0;bottom:0;width:2px;background:rgba(255,255,255,.4);border-radius:1px;left:0;pointer-events:none"></div>';
+  _wfCanvas=document.getElementById('wfCanvas');
+  _wfCanvas.width=wrap.clientWidth||800;
+  _wfCanvas.height=44;
+  _wfCtx=_wfCanvas.getContext('2d');
+  // Reanexar click para seek
+  _wfCanvas.onclick=function(e){seekWaveform(e);};
+  drawLiveWaveform();
+}
+
+function drawLiveWaveform(){
+  if(_animFrame)cancelAnimationFrame(_animFrame);
+  if(!_wfCanvas||!_wfCtx)return;
+
+  var W=_wfCanvas.width, H=_wfCanvas.height;
+  var bars=Math.floor(W/4);
+  var playedColor='#c9a961';
+  var unplayedColor='rgba(201,169,97,0.18)';
+
+  function draw(){
+    _wfCtx.clearRect(0,0,W,H);
+    var pct=(_audioEl&&_audioEl.duration)?_audioEl.currentTime/_audioEl.duration:0;
+    var cutoff=Math.floor(bars*pct);
+
+    if(_analyser&&_audioEl&&!_audioEl.paused){
+      // Modo real-time com AnalyserNode
+      var data=new Uint8Array(_analyser.frequencyBinCount);
+      _analyser.getByteFrequencyData(data);
+      var step=Math.floor(data.length/bars);
+      for(var i=0;i<bars;i++){
+        var val=0;
+        for(var j=0;j<step;j++) val+=data[i*step+j];
+        val=val/(step*255);
+        // Boost para amplificar visual
+        val=Math.min(1, val*2.5 + 0.05);
+        var h=Math.max(3, val*H*0.88);
+        var x=i*4+1;
+        var y=(H-h)/2;
+        _wfCtx.fillStyle=i<cutoff?playedColor:unplayedColor;
+        _wfCtx.beginPath();
+        _wfCtx.roundRect(x,y,3,h,1.5);
+        _wfCtx.fill();
+      }
+    } else {
+      // Modo estático (parado) — usa cache ou fake
+      var heights=_wfCache[_epAtual?_epAtual.id:'']||_fakeHeights;
+      if(heights){
+        for(var i=0;i<bars;i++){
+          var h=Math.max(3, heights[i%heights.length]*H*0.85);
+          var x=i*4+1;
+          var y=(H-h)/2;
+          _wfCtx.fillStyle=i<cutoff?playedColor:unplayedColor;
+          _wfCtx.beginPath();
+          _wfCtx.roundRect(x,y,3,h,1.5);
+          _wfCtx.fill();
+        }
+      }
+    }
+
+    // Cursor
+    var cursor=document.getElementById('wfCursor');
+    if(cursor) cursor.style.left=(pct*100)+'%';
+
+    _animFrame=requestAnimationFrame(draw);
+  }
+  draw();
+}
+
+var _fakeHeights=[];
+(function(){
+  for(var i=0;i<64;i++){
+    var v=Math.sin(i*0.37+3)*0.4+Math.sin(i*0.13+1)*0.3+0.35;
+    _fakeHeights.push(Math.max(0.08,Math.min(1,v)));
+  }
+})();
+
 function drawWaveform(epId, audioUrl, pct){
+  // Fallback SVG para compatibilidade — mas se canvas existe, não usa
+  if(_wfCanvas){return;}
   var svg=document.getElementById('wfSvg');
   if(!svg)return;
   var W=svg.clientWidth||svg.parentElement.clientWidth||500;
-  var H=52;
+  var H=44;
   var bars=Math.floor(W/4);
   var catColors={analise:'#c9a961',carteira:'#c9a961',aporte:'#c9a961',macro:'#c9a961',especial:'#e8c766'};
   var cat=_epAtual?_epAtual.categoria:'analise';
@@ -734,9 +840,8 @@ function drawWaveform(epId, audioUrl, pct){
       var x=i*4+1;
       var y=(H-h)/2;
       var isPlayed=i/bars<pct;
-      var opacity=isPlayed?0.9:0.2;
-      var color=isPlayed?playedColor:'rgba(255,255,255,0.4)';
-      html+='<rect x="'+x+'" y="'+y.toFixed(1)+'" width="3" height="'+h.toFixed(1)+'" rx="1.5" fill="'+color+'" opacity="'+opacity+'"/>';
+      var color=isPlayed?playedColor:'rgba(201,169,97,0.18)';
+      html+='<rect x="'+x+'" y="'+y.toFixed(1)+'" width="3" height="'+h.toFixed(1)+'" rx="1.5" fill="'+color+'"/>';
     }
     svg.innerHTML=html;
     var cursor=document.getElementById('wfCursor');
@@ -744,8 +849,6 @@ function drawWaveform(epId, audioUrl, pct){
   }
 
   if(_wfCache[epId]){render(_wfCache[epId]);return;}
-
-  // Gera waveform determinística a partir do ID (seed) como fallback rápido
   var seed=epId.split('').reduce(function(a,c){return a+c.charCodeAt(0)},0);
   var fakeH=[];
   for(var i=0;i<64;i++){
@@ -756,7 +859,6 @@ function drawWaveform(epId, audioUrl, pct){
   _wfCache[epId]=fakeH;
   render(fakeH);
 
-  // Tenta gerar waveform real via Web Audio API (async, substitui a fake)
   try{
     var ctx=new(window.AudioContext||window.webkitAudioContext)();
     fetch(audioUrl).then(function(r){return r.arrayBuffer();}).then(function(buf){
@@ -779,7 +881,7 @@ function drawWaveform(epId, audioUrl, pct){
 function updateWaveform(){
   if(!_audioEl||!_audioEl.duration||!_epAtual)return;
   var pct=_audioEl.currentTime/_audioEl.duration;
-  drawWaveform(_epAtual.id,_epAtual.audioUrl,pct);
+  if(!_wfCanvas) drawWaveform(_epAtual.id,_epAtual.audioUrl,pct);
 }
 
 // ══ UPLOAD ADMIN ══
