@@ -414,7 +414,7 @@ function renderEps(){
   el.innerHTML=lista.map(function(ep){
     var isNovo=(hoje-new Date(ep.data))<(3*24*60*60*1000);
     var dur=ep.duracao?'<span class="ep-dot"></span><span>'+ep.duracao+'</span>':'';
-    return '<div class="ep-item" onclick="tocarEpisodio(this)" data-url="'+ep.url+'" data-audio="'+(ep.audioUrl||'')+'" data-sid="'+(ep.spotifyId||'')+'" data-titulo="'+ep.titulo.replace(/"/g,"&quot;")+'" data-num="'+ep.num+'">'+
+    return '<div class="ep-item" onclick="tocarEpisodio(this)" data-url="'+ep.url+'" data-audio="'+(ep.audioUrl||'')+'" data-titulo="'+ep.titulo.replace(/"/g,"&quot;")+'" data-num="'+ep.num+'">'+
       '<div class="ep-num">#'+ep.num+'</div>'+
       '<div class="ep-info"><div class="ep-title">'+ep.titulo+'</div><div class="ep-meta"><span>'+fmtDate(ep.data)+'</span>'+dur+'</div></div>'+
       (isNovo?'<span class="ep-new">NOVO</span>':'')+
@@ -434,18 +434,18 @@ function parseRSS(xmlStr){
     var durRaw=durEl?durEl.textContent:'';
     var durFmt=durRaw.includes(':')?durRaw.replace(/^0:/,''):fmtDur(durRaw);
     // URL de áudio direto (enclosure)
-    var enclosure=item.querySelector('enclosure');
-    var audioUrl=enclosure?enclosure.getAttribute('url'):'';
-    // GUID pode conter spotify:episode:ID ou URL
+    // Enclosure — MP3 direto
+    var enclosure=item.querySelector('enclosure')||item.getElementsByTagName('enclosure')[0];
+    var audioUrl=enclosure?(enclosure.getAttribute('url')||enclosure.getAttribute('URL')||''):'';
+    // Se não achou, tenta no namespace
+    if(!audioUrl){
+      var encs=item.getElementsByTagNameNS('*','enclosure');
+      if(encs.length) audioUrl=encs[0].getAttribute('url')||'';
+    }
+    // GUID
     var guid=(item.querySelector('guid')||{}).textContent||'';
-    // Extrair Spotify episode ID do guid (ex: spotify:episode:4abc123)
-    var spotifyId='';
-    var mGuid=guid.match(/spotify:episode:([A-Za-z0-9]+)/);
-    if(mGuid) spotifyId=mGuid[1];
-    // Tentar extrair do link também
-    if(!spotifyId){ var mLink=(link||'').match(/episode\/([A-Za-z0-9]+)/); if(mLink) spotifyId=mLink[1]; }
     var spotifyEpUrl=link||guid||SPOTIFY_URL;
-    eps.push({titulo:title.trim(),num:extractNum(title),data:pubDate?new Date(pubDate).toISOString():'',url:spotifyEpUrl,audioUrl:audioUrl,spotifyId:spotifyId,duracao:durFmt});
+    eps.push({titulo:title.trim(),num:extractNum(title),data:pubDate?new Date(pubDate).toISOString():'',url:spotifyEpUrl,audioUrl:audioUrl,duracao:durFmt});
   });return eps;}catch(e){return [];}
 }
 function fetchViaProxy(url,idx){
@@ -514,7 +514,6 @@ function atualizarStats(eps){
 
 function tocarEpisodio(el){
   var url = el.dataset.url || '';
-  var sid = el.dataset.sid || '';
   var audioUrl = el.dataset.audio || '';
   var titulo = el.dataset.titulo || '';
   var iframe = document.getElementById('spotifyPlayer');
@@ -528,36 +527,34 @@ function tocarEpisodio(el){
   var playBtn = el.querySelector('.ep-play');
   if(playBtn) playBtn.textContent='⏸';
 
-  if(!iframe){ _scrollToPlayer(); return; }
-
-  // Opção 1: Spotify episode ID já extraído do GUID
-  if(sid){
-    iframe.src = 'https://open.spotify.com/embed/episode/'+sid+'?utm_source=generator&theme=0';
-    _scrollToPlayer(); return;
-  }
-
-  // Opção 2: extrair ID da URL (/episode/ID ou sufixo -XXXXXXX do anchor)
-  var matchId = url.match(/episode\/([A-Za-z0-9]+)/) ||
-                url.match(/-([a-z0-9]{6,})$/);
-  if(matchId){
-    iframe.src = 'https://open.spotify.com/embed/episode/'+matchId[1]+'?utm_source=generator&theme=0';
-    _scrollToPlayer(); return;
-  }
-
-  // Opção 3: áudio nativo (enclosure MP3)
-  if(audioUrl){
+  // Opção 1: áudio nativo via enclosure MP3
+  if(audioUrl && iframe){
     var wrap = iframe.closest('.embed-wrap');
-    if(wrap) wrap.innerHTML =
-      '<div style="background:#1a1825;border-radius:16px;padding:20px 24px;border:1px solid rgba(201,169,97,.2);box-shadow:0 8px 24px rgba(0,0,0,.4)">'+
-      '<div style="font-size:11px;font-weight:700;color:#c9a961;margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">▶ '+titulo+'</div>'+
-      '<audio id="g20AudioPlayer" controls style="width:100%;height:40px;border-radius:8px;accent-color:#c9a961" src="'+audioUrl+'" autoplay></audio>'+
-      '<div style="margin-top:8px;text-align:right"><a href="'+url+'" target="_blank" style="font-size:10px;color:#6b6380;text-decoration:none">Ver no Spotify ↗</a></div>'+
-      '</div>';
-    try{ document.getElementById('g20AudioPlayer').play(); }catch(e){}
-    _scrollToPlayer(); return;
+    if(wrap){
+      wrap.innerHTML =
+        '<div style="background:#1a1825;border-radius:16px;padding:18px 22px;border:1px solid rgba(201,169,97,.2);box-shadow:0 8px 24px rgba(0,0,0,.4)">'+
+        '<div style="font-size:11px;font-weight:700;color:#c9a961;margin-bottom:10px;display:flex;align-items:center;gap:8px">'+
+        '<span style="font-size:16px">🎙</span>'+
+        '<span style="color:#f0ece0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+titulo+'</span></div>'+
+        '<audio id="g20AudioPlayer" controls style="width:100%;height:44px;accent-color:#c9a961;border-radius:8px" src="'+audioUrl+'" autoplay></audio>'+
+        '<div style="margin-top:8px;text-align:right"><a href="'+url+'" target="_blank" style="font-size:10px;color:#6b6380;text-decoration:none">Abrir no Spotify ↗</a></div>'+
+        '</div>';
+      try{ setTimeout(function(){ var a=document.getElementById('g20AudioPlayer'); if(a) a.play(); },300); }catch(e){}
+      _scrollToPlayer();
+      return;
+    }
   }
 
-  // Opção 4: fallback — abrir no Spotify
+  // Opção 2: embed Spotify com ID do Anchor (sufixo da URL ex: -e3jn6hj)
+  if(iframe && url){
+    var anchorMatch = url.match(/-([a-z0-9]{5,10})$/i);
+    if(anchorMatch){
+      iframe.src = 'https://open.spotify.com/embed/episode/'+anchorMatch[1]+'?utm_source=generator&theme=0';
+      _scrollToPlayer(); return;
+    }
+  }
+
+  // Opção 3: fallback — abrir no Spotify
   window.open(url||'https://open.spotify.com/show/6D3NYNYewNBjkiPCcW1yKA', '_blank');
 }
 
