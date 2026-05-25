@@ -344,8 +344,8 @@ if(localStorage.getItem('g20_uid')){
 
     <div class="info-row">
       <div class="info-card"><div class="info-card-label">Episódios</div><div class="info-card-val" id="statEps">695+</div><div class="info-card-sub">Publicados</div></div>
-      <div class="info-card"><div class="info-card-label">Frequência</div><div class="info-card-val">5✕</div><div class="info-card-sub">Por semana</div></div>
-      <div class="info-card"><div class="info-card-label">Duração</div><div class="info-card-val">~15m</div><div class="info-card-sub">Por episódio</div></div>
+      <div class="info-card"><div class="info-card-label">Frequência</div><div class="info-card-val" id="statFreq">5✕</div><div class="info-card-sub">Por semana</div></div>
+      <div class="info-card"><div class="info-card-label">Duração</div><div class="info-card-val" id="statDur">~15m</div><div class="info-card-sub">Por episódio</div></div>
       <div class="info-card"><div class="info-card-label">Foco</div><div class="info-card-val">BR+US</div><div class="info-card-sub">Mercado global</div></div>
     </div>
 
@@ -414,7 +414,7 @@ function renderEps(){
   el.innerHTML=lista.map(function(ep){
     var isNovo=(hoje-new Date(ep.data))<(3*24*60*60*1000);
     var dur=ep.duracao?'<span class="ep-dot"></span><span>'+ep.duracao+'</span>':'';
-    return '<div class="ep-item" onclick="tocarEpisodio(this)" data-url="'+ep.url+'" data-titulo="'+ep.titulo.replace(/"/g,"&quot;")+'" data-num="'+ep.num+'">'+
+    return '<div class="ep-item" onclick="tocarEpisodio(this)" data-url="'+ep.url+'" data-audio="'+(ep.audioUrl||'')+'" data-titulo="'+ep.titulo.replace(/"/g,"&quot;")+'" data-num="'+ep.num+'">'+
       '<div class="ep-num">#'+ep.num+'</div>'+
       '<div class="ep-info"><div class="ep-title">'+ep.titulo+'</div><div class="ep-meta"><span>'+fmtDate(ep.data)+'</span>'+dur+'</div></div>'+
       (isNovo?'<span class="ep-new">NOVO</span>':'')+
@@ -433,7 +433,13 @@ function parseRSS(xmlStr){
     var durEl=item.querySelector('duration')||item.getElementsByTagNameNS('*','duration')[0];
     var durRaw=durEl?durEl.textContent:'';
     var durFmt=durRaw.includes(':')?durRaw.replace(/^0:/,''):fmtDur(durRaw);
-    eps.push({titulo:title.trim(),num:extractNum(title),data:pubDate?new Date(pubDate).toISOString():'',url:link||SPOTIFY_URL,duracao:durFmt});
+    // URL de áudio direto (enclosure)
+    var enclosure=item.querySelector('enclosure');
+    var audioUrl=enclosure?enclosure.getAttribute('url'):'';
+    // URL Spotify do episódio (guid ou link)
+    var guid=(item.querySelector('guid')||{}).textContent||'';
+    var spotifyEpUrl=link||guid||SPOTIFY_URL;
+    eps.push({titulo:title.trim(),num:extractNum(title),data:pubDate?new Date(pubDate).toISOString():'',url:spotifyEpUrl,audioUrl:audioUrl,duracao:durFmt});
   });return eps;}catch(e){return [];}
 }
 function fetchViaProxy(url,idx){
@@ -453,6 +459,7 @@ function carregarEpisodios(){
     .then(function(xml){var eps=parseRSS(xml);if(!eps.length)throw new Error('vazio');return eps;})
     .then(function(eps){
       _allEps=eps.slice(0,10);renderEps();setStatus('✓ '+eps.length+' episódios','ok');
+      atualizarStats(eps);
       try{localStorage.setItem('g20cast_eps',JSON.stringify({ts:Date.now(),eps:eps}));}catch(e){}
     })
     .catch(function(){
@@ -464,30 +471,93 @@ function carregarEpisodios(){
       setStatus('ⓘ Abre no Spotify','err');
     });
 }
-function tocarEpisodio(el){
-  // Extrair Spotify episode ID da URL
-  var url = el.dataset.url || '';
-  var match = url.match(/episode\/([A-Za-z0-9]+)/);
-  var iframe = document.getElementById('spotifyPlayer');
-  if(!iframe) return;
+function atualizarStats(eps){
+  // Total de episódios
+  var totalEl=document.getElementById('statEps');
+  if(totalEl) totalEl.textContent=eps.length+'+';
 
-  // Atualizar classe ativo na lista
-  document.querySelectorAll('.ep-item').forEach(function(i){ i.classList.remove('tocando'); });
+  // Duração média (em minutos)
+  var durs=[];
+  eps.forEach(function(ep){
+    if(!ep.duracao) return;
+    var d=ep.duracao.trim();
+    var parts=d.split(':').map(Number);
+    var mins=0;
+    if(parts.length===3) mins=parts[0]*60+parts[1]+parts[2]/60;
+    else if(parts.length===2) mins=parts[0]+parts[1]/60;
+    if(mins>1&&mins<120) durs.push(mins);
+  });
+  if(durs.length){
+    var avg=durs.reduce(function(a,b){return a+b;},0)/durs.length;
+    var durEl=document.getElementById('statDur');
+    if(durEl) durEl.textContent='~'+Math.round(avg)+'m';
+  }
+
+  // Frequência: contar episódios nas últimas 4 semanas
+  var agora=Date.now();
+  var quatro_semanas=28*24*60*60*1000;
+  var recentes=eps.filter(function(ep){
+    if(!ep.data) return false;
+    return (agora-new Date(ep.data).getTime())<quatro_semanas;
+  }).length;
+  if(recentes>0){
+    var freqEl=document.getElementById('statFreq');
+    if(freqEl) freqEl.textContent=recentes+'✕';
+  }
+}
+
+function tocarEpisodio(el){
+  var url = el.dataset.url || '';
+  var audioUrl = el.dataset.audio || '';
+  var titulo = el.dataset.titulo || '';
+
+  // Marcar como tocando na lista
+  document.querySelectorAll('.ep-item').forEach(function(i){
+    i.classList.remove('tocando');
+    var p=i.querySelector('.ep-play'); if(p) p.textContent='▶';
+  });
   el.classList.add('tocando');
   el.querySelector('.ep-play').textContent = '⏸';
 
-  if(match && match[1]){
-    // URL de episódio específico
-    iframe.src = 'https://open.spotify.com/embed/episode/'+match[1]+'?utm_source=generator&theme=0';
-  } else {
-    // Fallback: abrir no Spotify
-    window.open(url, '_blank');
+  // Tentar Spotify embed via ID do episódio
+  var matchSpotify = url.match(/episode\/([A-Za-z0-9]+)/);
+  var iframe = document.getElementById('spotifyPlayer');
+
+  if(matchSpotify && matchSpotify[1] && iframe){
+    iframe.src = 'https://open.spotify.com/embed/episode/'+matchSpotify[1]+'?utm_source=generator&theme=0';
+    _scrollToPlayer();
     return;
   }
 
-  // Scroll suave até o player
-  var wrap = iframe.closest('.embed-wrap');
+  // Usar áudio nativo HTML5 (URL direta do enclosure do RSS)
+  if(audioUrl){
+    _tocarAudioNativo(audioUrl, titulo);
+    _scrollToPlayer();
+    return;
+  }
+
+  // Fallback final: abrir no Spotify
+  window.open(url||'https://open.spotify.com/show/6D3NYNYewNBjkiPCcW1yKA', '_blank');
+}
+
+function _scrollToPlayer(){
+  var wrap = document.querySelector('.embed-wrap');
   if(wrap) wrap.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+function _tocarAudioNativo(audioUrl, titulo){
+  var wrap = document.querySelector('.embed-wrap:last-of-type') || document.querySelector('.embed-wrap');
+  if(!wrap) return;
+  // Substituir iframe por player HTML5 nativo
+  wrap.innerHTML =
+    '<div style="background:#1a1825;border-radius:16px;padding:20px;border:1px solid rgba(201,169,97,.2)">' +
+    '<div style="font-size:12px;color:#c9a961;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:8px">' +
+    '<span>▶</span><span style="color:#f0ece0">'+titulo+'</span></div>' +
+    '<audio id="g20AudioPlayer" controls style="width:100%;height:44px;outline:none;border-radius:8px" src="'+audioUrl+'" autoplay>' +
+    '</audio>' +
+    '<div style="margin-top:10px;text-align:right"><a href="'+audioUrl+'" target="_blank" style="font-size:10px;color:#6b6380;text-decoration:none">Abrir áudio ↗</a></div>' +
+    '</div>';
+  try{ document.getElementById('g20AudioPlayer').play(); }catch(e){}
 }
 
 function toggleSidebar(){var sb=document.getElementById('sidebar'),ov=document.getElementById('overlay');sb.classList.toggle('open');ov.classList.toggle('show');document.body.style.overflow=sb.classList.contains('open')?'hidden':'';}
