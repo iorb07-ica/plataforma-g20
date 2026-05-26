@@ -61,6 +61,7 @@ body{background:var(--bg);color:var(--text);font-family:"DM Sans",sans-serif;min
 .fb-status{font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:.05em}
 .fb-status.novo{background:var(--gold-soft);color:var(--gold2)}
 .fb-status.lendo{background:rgba(52,152,219,.14);color:#7bc4ec}
+.fb-status.respondido{background:rgba(46,204,113,.14);color:#7ddca0}
 .fb-status.resolvido{background:rgba(46,204,113,.14);color:#7ddca0}
 .fb-data{font-size:11px;color:var(--text3);font-family:"JetBrains Mono",monospace;margin-left:auto}
 .fb-titulo{font-size:15px;font-weight:700;color:var(--text);margin-bottom:.25rem}
@@ -71,6 +72,15 @@ body{background:var(--bg);color:var(--text);font-family:"DM Sans",sans-serif;min
 .fb-print{width:84px;height:84px;border-radius:8px;border:.5px solid var(--border2);overflow:hidden;cursor:zoom-in}
 .fb-print img{width:100%;height:100%;object-fit:cover;display:block}
 .fb-actions{display:flex;gap:.45rem;flex-wrap:wrap;margin-top:.85rem;padding-top:.75rem;border-top:.5px solid var(--border)}
+.fb-resp{margin-top:.85rem;padding-top:.8rem;border-top:.5px solid var(--border)}
+.fb-resp-lbl{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin-bottom:.5rem}
+.fb-resp-saved{background:var(--gold-soft);border:.5px solid var(--gold-border);border-radius:9px;padding:.7rem .85rem;font-size:13px;color:var(--text);line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.fb-resp-saved .fb-resp-meta{display:block;margin-top:.4rem;font-size:10.5px;color:var(--text3);font-family:"JetBrains Mono",monospace}
+.fb-resp textarea{width:100%;box-sizing:border-box;background:var(--bg);border:.5px solid var(--border2);border-radius:9px;padding:.6rem .75rem;font-size:13px;color:var(--text);font-family:inherit;resize:vertical;min-height:64px;outline:none;transition:border-color .15s}
+.fb-resp textarea:focus{border-color:var(--gold-border)}
+.fb-resp-row{display:flex;gap:.45rem;align-items:center;margin-top:.5rem}
+.fb-btn-resp{background:var(--gold);color:#1a191e;border:none;border-radius:8px;padding:.45rem 1rem;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:opacity .15s}
+.fb-btn-resp:hover{opacity:.88}
 .fb-btn{background:transparent;border:.5px solid var(--border2);color:var(--text2);border-radius:8px;padding:.4rem .85rem;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s}
 .fb-btn:hover{border-color:var(--gold-border);color:var(--gold)}
 .fb-btn.active{background:var(--gold-soft);border-color:var(--gold-border);color:var(--gold)}
@@ -278,7 +288,7 @@ function render(){
 }
 
 var TIPO_LBL={bug:'🐛 Bug',sugestao:'💡 Sugestão',duvida:'❓ Dúvida',outro:'💬 Outro'};
-var STATUS_LBL={novo:'Novo',lendo:'Lendo',resolvido:'Resolvido'};
+var STATUS_LBL={novo:'Novo',lendo:'Lendo',respondido:'Respondido',resolvido:'Resolvido'};
 
 function cardHtml(d){
   var tipo=d.tipo||'outro';
@@ -291,6 +301,31 @@ function cardHtml(d){
   if(d.email)  meta.push('<span><b>Email:</b> '+escHtml(d.email)+'</span>');
   if(d.pagina) meta.push('<span><b>Página:</b> '+escHtml(d.pagina)+'</span>');
   if(d.tela)   meta.push('<span><b>Tela:</b> '+escHtml(d.tela)+'</span>');
+  var respBloco;
+  if(d.resposta){
+    respBloco=''
+    + '<div class="fb-resp">'
+    +   '<div class="fb-resp-lbl">Sua resposta</div>'
+    +   '<div class="fb-resp-saved">'+escHtml(d.resposta)
+    +     '<span class="fb-resp-meta">respondido em '+fmtData(d.respondidoEm)+'</span>'
+    +   '</div>'
+    +   '<div class="fb-resp-row">'
+    +     '<textarea id="resp-'+d._id+'" placeholder="Editar resposta...">'+escHtml(d.resposta)+'</textarea>'
+    +   '</div>'
+    +   '<div class="fb-resp-row">'
+    +     '<button class="fb-btn-resp" onclick="salvarResposta(\''+d._id+'\')">Atualizar resposta</button>'
+    +   '</div>'
+    + '</div>';
+  } else {
+    respBloco=''
+    + '<div class="fb-resp">'
+    +   '<div class="fb-resp-lbl">Responder ao aluno</div>'
+    +   '<textarea id="resp-'+d._id+'" placeholder="Escreva sua resposta para este aluno..."></textarea>'
+    +   '<div class="fb-resp-row">'
+    +     '<button class="fb-btn-resp" onclick="salvarResposta(\''+d._id+'\')">Salvar resposta</button>'
+    +   '</div>'
+    + '</div>';
+  }
   return ''
   +'<div class="fb-card '+(status==='novo'?'novo':'')+'">'
   + '<div class="fb-top">'
@@ -302,6 +337,7 @@ function cardHtml(d){
   + '<div class="fb-msg">'+escHtml(d.mensagem||'(sem mensagem)')+'</div>'
   + (prints?'<div class="fb-prints">'+prints+'</div>':'')
   + (meta.length?'<div class="fb-meta">'+meta.join('')+'</div>':'')
+  + respBloco
   + '<div class="fb-actions">'
   +   '<button class="fb-btn '+(status==='novo'?'active':'')+'" onclick="setStatus(\''+d._id+'\',\'novo\')">Novo</button>'
   +   '<button class="fb-btn '+(status==='lendo'?'active':'')+'" onclick="setStatus(\''+d._id+'\',\'lendo\')">Lendo</button>'
@@ -328,6 +364,27 @@ function apagar(id){
     render();
     toast('Feedback excluído');
   }).catch(function(e){ toast('Erro: '+(e.message||'tente de novo')); });
+}
+
+function salvarResposta(id){
+  var ta=document.getElementById('resp-'+id);
+  if(!ta)return;
+  var texto=(ta.value||'').trim();
+  if(!texto){ toast('Escreva uma resposta antes de salvar.'); ta.focus(); return; }
+  db.collection('sugestoes').doc(id).update({
+    resposta:     texto,
+    respondidoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    status:       'respondido'
+  }).then(function(){
+    var it=_itens.filter(function(x){return x._id===id;})[0];
+    if(it){
+      it.resposta=texto;
+      it.status='respondido';
+      it.respondidoEm={toDate:function(){return new Date();}};
+    }
+    render();
+    toast('Resposta salva');
+  }).catch(function(e){ toast('Erro ao salvar: '+(e.message||'tente de novo')); });
 }
 
 // ── PRINT / LIGHTBOX ──
