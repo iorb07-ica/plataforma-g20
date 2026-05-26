@@ -837,7 +837,7 @@
 
     // aplica o tema salvo (caso o JS legado da página não tenha rodado ainda)
     var saved = 'dark';
-    try { saved = localStorage.getItem('g20_theme') || 'dark'; } catch(e){}
+    try { saved = localStorage.getItem('g20-theme') || 'dark'; } catch(e){}
     document.body.classList.toggle('light', saved === 'light');
 
     // só ícones (sol/lua), sem texto; clona p/ descartar handlers antigos
@@ -864,7 +864,7 @@
     function toggleTheme(){
       var isLight = document.body.classList.toggle('light');
       var theme = isLight ? 'light' : 'dark';
-      try { localStorage.setItem('g20_theme', theme); } catch(e){}
+      try { localStorage.setItem('g20-theme', theme); } catch(e){}
       syncSwitch(theme);
     }
     fresh.addEventListener('click', toggleTheme);
