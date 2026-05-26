@@ -371,19 +371,38 @@ function salvarResposta(id){
   if(!ta)return;
   var texto=(ta.value||'').trim();
   if(!texto){ toast('Escreva uma resposta antes de salvar.'); ta.focus(); return; }
+  var it=_itens.filter(function(x){return x._id===id;})[0];
   db.collection('sugestoes').doc(id).update({
     resposta:     texto,
     respondidoEm: firebase.firestore.FieldValue.serverTimestamp(),
     status:       'respondido'
   }).then(function(){
-    var it=_itens.filter(function(x){return x._id===id;})[0];
+    // cria (ou atualiza) a notificação endereçada ao aluno — collection feedback_respostas
+    var alunoUid = it && it.uid;
+    if(alunoUid){
+      var payload = {
+        uid:        alunoUid,
+        resposta:   texto,
+        feedbackId: id,
+        criadoEm:   firebase.firestore.FieldValue.serverTimestamp()
+      };
+      var notifId = it && it.respostaNotifId;
+      if(notifId){
+        db.collection('feedback_respostas').doc(notifId).set(payload,{merge:true}).catch(function(){});
+      } else {
+        db.collection('feedback_respostas').add(payload).then(function(ref){
+          db.collection('sugestoes').doc(id).update({respostaNotifId:ref.id}).catch(function(){});
+          if(it) it.respostaNotifId=ref.id;
+        }).catch(function(){});
+      }
+    }
     if(it){
       it.resposta=texto;
       it.status='respondido';
       it.respondidoEm={toDate:function(){return new Date();}};
     }
     render();
-    toast('Resposta salva');
+    toast(alunoUid ? 'Resposta salva e enviada ao aluno' : 'Resposta salva');
   }).catch(function(e){ toast('Erro ao salvar: '+(e.message||'tente de novo')); });
 }
 
