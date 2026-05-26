@@ -20,6 +20,7 @@
 <link rel="stylesheet" href="assets/g20-topbar-v21.css?v=11">
 <script src="assets/g20-sidebar.js?v=11"></script>
 <script src="assets/g20-search.js?v=10"></script>
+<script src="assets/b3-classificacao.js?v=1"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 <style>
 :root{
@@ -840,6 +841,7 @@ body.pat-hidden .pat-kpi-sub .kpi-money::after{justify-content:flex-start;paddin
 .badge-Acao{background:rgba(52,152,219,.15);color:#3498db}
 .badge-FII{background:rgba(46,204,113,.15);color:#2ecc71}
 .badge-FIAGRO{background:rgba(241,196,15,.15);color:#f1c40f}
+.badge-FIInfra{background:rgba(20,184,166,.15);color:#14b8a6}
 .badge-Stock{background:rgba(155,89,182,.15);color:#9b59b6}
 .badge-REIT{background:rgba(231,76,60,.15);color:#e74c3c}
 .badge-ETF{background:rgba(230,126,34,.15);color:#e67e22}
@@ -1495,6 +1497,7 @@ body:not(.light) .asset-logo{background:transparent;border-color:rgba(255,255,25
             <option value="Acao">Ação</option>
             <option value="FII">FII</option>
             <option value="FIAGRO">FIAGRO</option>
+            <option value="FIInfra">FI-Infra</option>
             <option value="Stock">Stock</option>
             <option value="REIT">REIT</option>
             <option value="ETF">ETF</option>
@@ -5310,7 +5313,7 @@ function novoAporteExistente(idx){
 // ── RENDA VARIÁVEL — CONFIGURAÇÃO ────────────────────────────
 var PROXY_URL_RV  = 'https://g20-proxy.vercel.app';
 var RV_US_TYPES   = ['Stock','REIT','ETF','Cripto','UCITs'];
-var RV_TIPO_CORES = {Acao:'#3b82f6',FII:'#10b981',FIAGRO:'#f59e0b',Stock:'#8b5cf6',REIT:'#ef4444',ETF:'#f97316',Cripto:'#f7931a',UCITs:'#00bcd4'};
+var RV_TIPO_CORES = {Acao:'#3b82f6',FII:'#10b981',FIAGRO:'#f59e0b',FIInfra:'#14b8a6',Stock:'#8b5cf6',REIT:'#ef4444',ETF:'#f97316',Cripto:'#f7931a',UCITs:'#00bcd4'};
 var rvCotacoes    = {};
 var rvUsdBRL      = 5.85;
 var rvFiltroAtivo = 'todos';
@@ -5795,7 +5798,7 @@ function rvImportarTodosSplits(callback){
   aportes.forEach(function(a){ posMap[a.ticker] = a.tipo || 'Acao'; });
 
   var posBR = Object.entries(posMap).filter(function(e){
-    return ['Acao','FII','FIAGRO'].indexOf(e[1]) >= 0;
+    return ['Acao','FII','FIAGRO','FIInfra'].indexOf(e[1]) >= 0;
   }).map(function(e){ return e[0]; });
 
   var posUS = Object.entries(posMap).filter(function(e){
@@ -6053,6 +6056,7 @@ var LOGO_FALLBACK_COLORS = {
   Acao:'linear-gradient(135deg,#1e3a5f,#2563eb)',
   FII:'linear-gradient(135deg,#064e3b,#10b981)',
   FIAGRO:'linear-gradient(135deg,#78350f,#f59e0b)',
+  FIInfra:'linear-gradient(135deg,#134e4a,#14b8a6)',
   Stock:'linear-gradient(135deg,#3b0764,#8b5cf6)',
   REIT:'linear-gradient(135deg,#7f1d1d,#ef4444)',
   ETF:'linear-gradient(135deg,#7c2d12,#f97316)',
@@ -6754,7 +6758,7 @@ input[type="text"].apl-inp-preco{text-align:right}
         <div id="aplHint0" class="apl-tk-hint"></div>
       </div>
       <select id="aporte_tipo" class="apl-sel" onchange="aplTipoChange0(this.value);aplCalc()">
-        <option>Acao</option><option>FII</option><option>FIAGRO</option>
+        <option>Acao</option><option>FII</option><option>FIAGRO</option><option value="FIInfra">FI-Infra</option>
         <option>Stock</option><option>REIT</option><option>ETF</option><option>UCITs</option><option>Cripto</option>
       </select>
       <input type="number" id="apl_qtd0" class="apl-inp" placeholder="0" min="0" step="any" oninput="aplCalc()">
@@ -7006,7 +7010,7 @@ function aplAddLinha(){
   div.appendChild(tkWrap);
 
   // Tipo
-  var tp=mk('select',{id:'aplTp'+r,className:'apl-sel',innerHTML:['Acao','FII','FIAGRO','Stock','REIT','ETF','UCITs','Cripto'].map(function(t){return '<option value="'+t+'">'+t+'</option>';}).join('')});
+  var tp=mk('select',{id:'aplTp'+r,className:'apl-sel',innerHTML:['Acao','FII','FIAGRO','FIInfra','Stock','REIT','ETF','UCITs','Cripto'].map(function(t){return '<option value="'+t+'">'+(t==='FIInfra'?'FI-Infra':t)+'</option>';}).join('')});
   tp.addEventListener('change',function(){aplTipoExtra(r,this.value);aplCalc();});
   div.appendChild(tp);
 
@@ -7049,14 +7053,14 @@ function aplDetectTipo(r, ticker){
   var sel=document.getElementById('aplTp'+r);
   if(!ticker||ticker.length<2){if(hint)hint.textContent='';return;}
   var t=ticker.toUpperCase().replace(/\.SA$/i,'');
-  var isFII=/^[A-Z]{4}11$/.test(t);
+  var tipo11=/^[A-Z]{4}11$/.test(t)?classificar11(t):null;
   var isBR=/^[A-Z]{3,6}\d{1,2}[A-Z]?$/.test(t)&&!RV_ETFS_CONHECIDOS.includes(t)&&!RV_REITS_CONHECIDOS.includes(t);
   var isCripto=/^(BTC|ETH|SOL|BNB|XRP|ADA|DOGE|AVAX|DOT|MATIC)/.test(t);
-  var tipo=isCripto?'Cripto':isFII?'FII':isBR?'Acao':RV_REITS_CONHECIDOS.includes(t)?'REIT':RV_ETFS_CONHECIDOS.includes(t)?'ETF':typeof rvIsUCITs==='function'&&rvIsUCITs(ticker)?'UCITs':'Stock';
+  var tipo=isCripto?'Cripto':tipo11?tipo11:isBR?'Acao':RV_REITS_CONHECIDOS.includes(t)?'REIT':RV_ETFS_CONHECIDOS.includes(t)?'ETF':typeof rvIsUCITs==='function'&&rvIsUCITs(ticker)?'UCITs':'Stock';
   if(sel) sel.value=tipo;
   aplTipoExtra(r,tipo);
   if(hint){
-    hint.textContent=isBR?'🇧🇷 '+(isFII?'FII':'Ação')+' (B3)':isCripto?'₿ Cripto':tipo==='UCITs'?'🇪🇺 UCITs':'🇺🇸 '+tipo+' (US)';
+    hint.textContent=isBR?'🇧🇷 '+(tipo11?(tipo11==='Acao'?'Ação':tipo11==='FIInfra'?'FI-Infra':tipo11):'Ação')+' (B3)':isCripto?'₿ Cripto':tipo==='UCITs'?'🇪🇺 UCITs':'🇺🇸 '+tipo+' (US)';
     hint.style.color=isBR?'#2ecc71':isCripto?'#f7931a':tipo==='UCITs'?'#00bcd4':'#64b4ff';
   }
 }
@@ -7091,7 +7095,7 @@ function aplBuscarAC(r, q, acId){
       .then(function(d){
         var results=d.results||[];
         if(!results.length){box.innerHTML='<div class="tac-loading">Sem resultados</div>';return;}
-        var TMETA={Acao:{color:'#3b82f6',icon:'🇧🇷'},FII:{color:'#10b981',icon:'🏢'},FIAGRO:{color:'#f59e0b',icon:'🌾'},Stock:{color:'#a855f7',icon:'🇺🇸'},REIT:{color:'#ef4444',icon:'🏬'},ETF:{color:'#f97316',icon:'📦'},UCITs:{color:'#06b6d4',icon:'🇪🇺'},Cripto:{color:'#f7931a',icon:'₿'}};
+        var TMETA={Acao:{color:'#3b82f6',icon:'🇧🇷'},FII:{color:'#10b981',icon:'🏢'},FIAGRO:{color:'#f59e0b',icon:'🌾'},FIInfra:{color:'#14b8a6',icon:'🏗️'},Stock:{color:'#a855f7',icon:'🇺🇸'},REIT:{color:'#ef4444',icon:'🏬'},ETF:{color:'#f97316',icon:'📦'},UCITs:{color:'#06b6d4',icon:'🇪🇺'},Cripto:{color:'#f7931a',icon:'₿'}};
         box.innerHTML=results.map(function(item,i){
           var tip=aplCorrigirTipo(item.symbol,item.g20tipo);
           var m=TMETA[tip]||{color:'#888',icon:''};
@@ -7109,7 +7113,7 @@ function aplBuscarAC(r, q, acId){
 
 function aplSelAC(r, symbol, tipo, acId){
   var tipoFinal=aplCorrigirTipo(symbol,tipo);
-  var flagBR=['Acao','FII','FIAGRO'].includes(tipoFinal);
+  var flagBR=['Acao','FII','FIAGRO','FIInfra'].includes(tipoFinal);
   var ticker=flagBR?symbol.replace(/\.SA$/i,'').toUpperCase():symbol.toUpperCase();
   var tk=document.getElementById('aplTk'+r);
   var tp=document.getElementById('aplTp'+r);
@@ -7269,7 +7273,7 @@ function aplBuscarCotacaoModal(rowId, ticker, tipo, data){
   var today = new Date().toISOString().split('T')[0];
   var isToday = !data || data >= today;
   var isUS = ['Stock','REIT','ETF','Cripto','UCITs'].indexOf(tipo) >= 0;
-  var isBRt = ['Acao','FII','FIAGRO'].indexOf(tipo) >= 0;
+  var isBRt = ['Acao','FII','FIAGRO','FIInfra'].indexOf(tipo) >= 0;
 
   _aplPrecoSource[rowId] = 'loading';
   aplAtualizarBadge(rowId);
@@ -7355,7 +7359,8 @@ function aplTipoChange0(tipo){
 }
 
 // ── AUTODETECÇÃO TIPO (linha 0) ──────────────────────────────
-var FIAGROS_CONHECIDOS = ['CPTR11','HCTR11','KNCA11','XPCA11','SNAG11','RBRR11','BCRI11','VRTA11','TVRI11','BTHF11','KFOF11','MXRF11','BTCI11','HABT11','HGCR11','IRDM11','KNCR11','RBRF11','RBRY11','VGIR11','VGIP11','URPR11','CLIN11','PLCR11','TCPF11','TFOF11','PORD11','BCFF11','BPFF11','CXRI11','DEVA11','FLCR11','FLMA11','GCRA11','HCRI11','HGFF11','HSAF11','HSML11','HTMX11','INTF11','MCCI11','MCHF11','MGFF11','MGCR11','NCHB11','NPAR11','NVHO11','OUJP11','PATC11','PEMA11','PULV11','PVBI11','RCRB11','RECR11','RZTR11','SDIL11','SPAF11','TGAR11','TRXF11','UBSR11','VIFI11','VILG11','VIUR11','VSHO11','VTLT11','VVPR11','XPCA11','XPLG11','XPML11'];
+// UNITS_CONHECIDAS, FIAGROS_CONHECIDOS, FIINFRAS_CONHECIDOS e
+// classificar11() vêm de assets/b3-classificacao.js
 
 function autoDetectTipo(ticker){
   if(!ticker || ticker.length < 1){
@@ -7368,8 +7373,8 @@ function autoDetectTipo(ticker){
   var detected = null, msg = '';
 
   if(/^[A-Z]{4}11$/.test(t)){
-    detected = FIAGROS_CONHECIDOS.includes(t) ? 'FIAGRO' : 'FII';
-    msg = FIAGROS_CONHECIDOS.includes(t) ? '🌾 Detectado: FIAGRO (B3)' : '🇧🇷 Detectado: FII (B3)';
+    detected = classificar11(t);
+    msg = detected==='FIAGRO' ? '🌾 Detectado: FIAGRO (B3)' : detected==='FIInfra' ? '🏗️ Detectado: FI-Infra (B3)' : detected==='Acao' ? '🇧🇷 Detectado: Ação/Unit (B3)' : '🇧🇷 Detectado: FII (B3)';
   }
   else if(/\.SA$/i.test(ticker)){       detected='Acao';  msg='🇧🇷 Detectado: Ação (B3)'; }
   else if(/^[A-Z]{4}[1-9]$/.test(t)){  detected='Acao';  msg='🇧🇷 Detectado: Ação (B3)'; }
@@ -7386,7 +7391,7 @@ function autoDetectTipo(ticker){
   if(detected){
     var editId=document.getElementById('aporte_editId');
     if(!editId||!editId.value){ if(sel){sel.value=detected;} aplTipoChange0(detected); }
-    if(hint){ hint.textContent=msg; hint.style.color=['Acao','FII','FIAGRO'].includes(detected)?'#2ecc71':detected==='UCITs'?'#00bcd4':'#64b4ff'; }
+    if(hint){ hint.textContent=msg; hint.style.color=['Acao','FII','FIAGRO','FIInfra'].includes(detected)?'#2ecc71':detected==='UCITs'?'#00bcd4':'#64b4ff'; }
   } else {
     if(hint) hint.textContent='';
   }
@@ -7396,7 +7401,7 @@ function autoDetectTipo(ticker){
 function aplCorrigirTipo(symbol, tipoProxy){
   var sym = (symbol||'').toUpperCase();
   var t = sym.replace(/\.SA$/i,'');
-  if(/^[A-Z]{4}11$/.test(t)) return 'FII';
+  if(/^[A-Z]{4}11$/.test(t)) return classificar11(t);
   if(/^[A-Z]{4}[1-9]$/.test(t)||/\.SA$/i.test(sym)) return 'Acao';
   if(typeof rvIsUCITs==='function' && rvIsUCITs(sym)) return 'UCITs';
   if(RV_ETFS_CONHECIDOS.includes(t)) return 'ETF';
@@ -7438,6 +7443,7 @@ function buscarSugestoesTicker(q){
             Acao:   {color:'#3b82f6', icon:'🇧🇷', label:'Ação'},
             FII:    {color:'#10b981', icon:'🏢', label:'FII'},
             FIAGRO: {color:'#f59e0b', icon:'🌾', label:'FIAGRO'},
+            FIInfra:{color:'#14b8a6', icon:'🏗️', label:'FI-Infra'},
             Stock:  {color:'#a855f7', icon:'🇺🇸', label:'Stock'},
             REIT:   {color:'#ef4444', icon:'🏬', label:'REIT'},
             ETF:    {color:'#f97316', icon:'📦', label:'ETF'},
@@ -7468,7 +7474,7 @@ function buscarSugestoesTicker(q){
 function selecionarSugestao(symbol, tipo){
   var input = document.getElementById('aporte_ticker');
   var tipoFinal = aplCorrigirTipo(symbol, tipo);
-  var flagBR    = ['Acao','FII','FIAGRO'].includes(tipoFinal);
+  var flagBR    = ['Acao','FII','FIAGRO','FIInfra'].includes(tipoFinal);
   var tickerFinal = flagBR ? symbol.replace(/\.SA$/i,'').toUpperCase() : symbol.toUpperCase();
   if(input){
     input.value = tickerFinal;
@@ -8715,7 +8721,7 @@ function buscarProventosAuto(silent, forcarRefresh){
 
   // Inclui todos os tickers — ativos e vendidos
   var posBR = Object.entries(posMap).filter(function(e){
-    return ['Acao','FII','FIAGRO'].indexOf(e[1])>=0;
+    return ['Acao','FII','FIAGRO','FIInfra'].indexOf(e[1])>=0;
   }).map(function(e){ return e[0]; });
 
   var posUS = Object.entries(posMap).filter(function(e){
@@ -9552,7 +9558,7 @@ function iaRenderPreview(txs){
     html+='<td><input type="number" value="'+tx.preco+'" onchange="_iaTransacoes['+i+'].preco=parseFloat(this.value)||0" style="width:85px"></td>';
     html+='<td><select onchange="_iaTransacoes['+i+'].moeda=this.value"><option value="BRL"'+(tx.moeda==='BRL'?' selected':'')+'>R$</option><option value="USD"'+(tx.moeda==='USD'?' selected':'')+'>US$</option></select></td>';
     html+='<td><select onchange="_iaTransacoes['+i+'].tipo=this.value">';
-    ['Acao','FII','FIAGRO','Stock','REIT','ETF','Cripto','UCITs','RF'].forEach(function(t){ html+='<option value="'+t+'"'+(tx.tipo===t?' selected':'')+'>'+t+'</option>'; });
+    ['Acao','FII','FIAGRO','FIInfra','Stock','REIT','ETF','Cripto','UCITs','RF'].forEach(function(t){ html+='<option value="'+t+'"'+(tx.tipo===t?' selected':'')+'>'+(t==='FIInfra'?'FI-Infra':t)+'</option>'; });
     html+='</select></td>';
     html+='<td><button class="ia-row-remove" onclick="_iaRemoveTx('+i+')">🗑</button></td>';
     html+='</tr>';
