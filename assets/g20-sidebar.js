@@ -826,6 +826,55 @@
     elSend.addEventListener('click', fbSubmit);
   }
 
+  // ═══ SWITCH DE TEMA — chave única, clique em qualquer ponto alterna ═══
+  // Centraliza a lógica do tema: substitui o switch da página por uma versão
+  // que funciona como chave de verdade. O clone remove handlers antigos das
+  // páginas que ainda têm o JS de tema legado no próprio <script>.
+  function setupThemeSwitch(){
+    if (document.getElementById('g20ThemeSwitch')) return;   // já configurado
+    var sw = document.getElementById('v21ThemeSwitch');
+    if (!sw) return;                                          // página sem switch
+
+    // aplica o tema salvo (caso o JS legado da página não tenha rodado ainda)
+    var saved = 'dark';
+    try { saved = localStorage.getItem('g20_theme') || 'dark'; } catch(e){}
+    document.body.classList.toggle('light', saved === 'light');
+
+    // só ícones (sol/lua), sem texto; clona p/ descartar handlers antigos
+    sw.innerHTML =
+      '<div class="v21-theme-opt" data-theme="light"><i data-lucide="sun"></i></div>' +
+      '<div class="v21-theme-opt" data-theme="dark"><i data-lucide="moon"></i></div>';
+    var fresh = sw.cloneNode(true);
+    // id NOVO: o JS de tema legado procura 'v21ThemeSwitch' e não acha mais,
+    // então o bloco antigo é ignorado — sem conflito de handlers.
+    fresh.id = 'g20ThemeSwitch';
+    fresh.setAttribute('role', 'button');
+    fresh.setAttribute('tabindex', '0');
+    fresh.setAttribute('title', 'Alternar tema claro/escuro');
+    fresh.setAttribute('aria-label', 'Alternar tema');
+    sw.parentNode.replaceChild(fresh, sw);
+
+    function syncSwitch(theme){
+      fresh.querySelectorAll('.v21-theme-opt').forEach(function(o){
+        o.classList.toggle('active', o.getAttribute('data-theme') === theme);
+      });
+    }
+    syncSwitch(saved);
+
+    function toggleTheme(){
+      var isLight = document.body.classList.toggle('light');
+      var theme = isLight ? 'light' : 'dark';
+      try { localStorage.setItem('g20_theme', theme); } catch(e){}
+      syncSwitch(theme);
+    }
+    fresh.addEventListener('click', toggleTheme);
+    fresh.addEventListener('keydown', function(e){
+      if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggleTheme(); }
+    });
+
+    if (window.lucide && lucide.createIcons) lucide.createIcons();
+  }
+
   function init(){
     injectSidebarSkeleton();
     aplicarEstado();
@@ -837,6 +886,7 @@
     bindClickBounce();
     injectLogoutConfirm();
     injectFeedbackWidget();
+    setupThemeSwitch();
     atualizarLegendaBtn();
     requestAnimationFrame(function(){
       requestAnimationFrame(function(){
