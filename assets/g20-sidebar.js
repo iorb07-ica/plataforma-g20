@@ -830,49 +830,61 @@
   // Centraliza a lógica do tema: substitui o switch da página por uma versão
   // que funciona como chave de verdade. O clone remove handlers antigos das
   // páginas que ainda têm o JS de tema legado no próprio <script>.
-  function setupThemeSwitch(){
-    if (document.getElementById('g20ThemeSwitch')) return;   // já configurado
-    var sw = document.getElementById('v21ThemeSwitch');
-    if (!sw) return;                                          // página sem switch
-
-    // aplica o tema salvo (caso o JS legado da página não tenha rodado ainda)
-    var saved = 'dark';
-    try { saved = localStorage.getItem('g20-theme') || 'dark'; } catch(e){}
-    document.body.classList.toggle('light', saved === 'light');
-
-    // só ícones (sol/lua), sem texto; clona p/ descartar handlers antigos
-    sw.innerHTML =
-      '<div class="v21-theme-opt" data-theme="light"><i data-lucide="sun"></i></div>' +
-      '<div class="v21-theme-opt" data-theme="dark"><i data-lucide="moon"></i></div>';
-    var fresh = sw.cloneNode(true);
-    // id NOVO: o JS de tema legado procura 'v21ThemeSwitch' e não acha mais,
-    // então o bloco antigo é ignorado — sem conflito de handlers.
-    fresh.id = 'g20ThemeSwitch';
-    fresh.setAttribute('role', 'button');
-    fresh.setAttribute('tabindex', '0');
-    fresh.setAttribute('title', 'Alternar tema claro/escuro');
-    fresh.setAttribute('aria-label', 'Alternar tema');
-    sw.parentNode.replaceChild(fresh, sw);
-
-    function syncSwitch(theme){
-      fresh.querySelectorAll('.v21-theme-opt').forEach(function(o){
-        o.classList.toggle('active', o.getAttribute('data-theme') === theme);
-      });
-    }
-    syncSwitch(saved);
-
-    function toggleTheme(){
-      var isLight = document.body.classList.toggle('light');
-      var theme = isLight ? 'light' : 'dark';
-      try { localStorage.setItem('g20-theme', theme); } catch(e){}
-      syncSwitch(theme);
-    }
-    fresh.addEventListener('click', toggleTheme);
-    fresh.addEventListener('keydown', function(e){
-      if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggleTheme(); }
+  // Sincroniza o estado visual (sol/lua) de TODOS os switches da página.
+  function syncThemeSwitches(){
+    var theme = document.body.classList.contains('light') ? 'light' : 'dark';
+    document.querySelectorAll('.v21-theme-switch .v21-theme-opt').forEach(function(o){
+      o.classList.toggle('active', o.getAttribute('data-theme') === theme);
     });
+  }
 
+  // Normaliza o switch da página: só ícones (sol/lua), sem texto "Dark".
+  // NÃO prende handler de clique — quem cuida do clique é a delegação global.
+  function setupThemeSwitch(){
+    var sw = document.getElementById('v21ThemeSwitch');
+    if (sw && sw.id !== 'g20ThemeSwitch'){
+      sw.innerHTML =
+        '<div class="v21-theme-opt" data-theme="light"><i data-lucide="sun"></i></div>' +
+        '<div class="v21-theme-opt" data-theme="dark"><i data-lucide="moon"></i></div>';
+      // troca o id: o JS de tema legado procura 'v21ThemeSwitch' e não acha mais
+      var fresh = sw.cloneNode(true);
+      fresh.id = 'g20ThemeSwitch';
+      fresh.setAttribute('role', 'button');
+      fresh.setAttribute('tabindex', '0');
+      fresh.setAttribute('title', 'Alternar tema claro/escuro');
+      fresh.setAttribute('aria-label', 'Alternar tema');
+      sw.parentNode.replaceChild(fresh, sw);
+    }
     if (window.lucide && lucide.createIcons) lucide.createIcons();
+    syncThemeSwitches();
+  }
+
+  // Delegação global: um único ouvinte de clique para o switch de tema.
+  // Funciona mesmo que o switch seja recriado/substituído por outro script.
+  function setupThemeDelegation(){
+    if (window.__g20ThemeDelegated) return;
+    window.__g20ThemeDelegated = true;
+
+    // aplica o tema salvo já na carga
+    try {
+      var saved = localStorage.getItem('g20-theme') || 'dark';
+      document.body.classList.toggle('light', saved === 'light');
+    } catch(e){}
+
+    function alternar(){
+      var isLight = document.body.classList.toggle('light');
+      try { localStorage.setItem('g20-theme', isLight ? 'light' : 'dark'); } catch(err){}
+      syncThemeSwitches();
+    }
+    document.addEventListener('click', function(e){
+      if (e.target.closest && e.target.closest('.v21-theme-switch')) alternar();
+    });
+    document.addEventListener('keydown', function(e){
+      if ((e.key === 'Enter' || e.key === ' ') &&
+          e.target.closest && e.target.closest('.v21-theme-switch')){
+        e.preventDefault(); alternar();
+      }
+    });
   }
 
   function init(){
@@ -886,6 +898,7 @@
     bindClickBounce();
     injectLogoutConfirm();
     injectFeedbackWidget();
+    setupThemeDelegation();
     setupThemeSwitch();
     atualizarLegendaBtn();
     requestAnimationFrame(function(){
