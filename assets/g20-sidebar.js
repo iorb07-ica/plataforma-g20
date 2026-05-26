@@ -608,11 +608,11 @@
     +       '<div class="g20fb-count"><span id="g20fbCount">0</span>/2000</div></div>'
     +     '<div class="g20fb-field"><label>Prints <span class="g20fb-opt">(opcional — até 3)</span></label>'
     +       '<div class="g20fb-drop" id="g20fbDrop">' + ICOUP
-    +         + '<span>Arraste, clique ou cole (Ctrl+V) uma imagem</span>'
-    +         + '<input type="file" id="g20fbFile" accept="image/*" multiple style="display:none"></div>'
+    +         '<span>Arraste, clique ou cole (Ctrl+V) uma imagem</span>'
+    +         '<input type="file" id="g20fbFile" accept="image/*" multiple style="display:none"></div>'
     +       '<div class="g20fb-thumbs" id="g20fbThumbs"></div></div>'
     +     '<div class="g20fb-note">' + ICOINFO
-    +       + '<span>Enviaremos junto a página atual e os dados do seu navegador para nos ajudar a entender o contexto.</span></div>'
+    +       '<span>Enviaremos junto a página atual e os dados do seu navegador para nos ajudar a entender o contexto.</span></div>'
     +     '<div class="g20fb-err" id="g20fbErr"></div>'
     +     '<div class="g20fb-foot">'
     +       '<button type="button" class="g20fb-btn-ghost" id="g20fbCancel">Cancelar</button>'
