@@ -747,7 +747,7 @@
       try { u = firebase.auth && firebase.auth().currentUser; } catch(e){}
       var pagina = (location.pathname.split('/').pop() || '').toLowerCase();
 
-      firebase.firestore().collection('feedback').add({
+      firebase.firestore().collection('sugestoes').add({
         tipo:      fbTipo,
         titulo:    (elTit.value || '').trim(),
         mensagem:  msg,
