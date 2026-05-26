@@ -421,6 +421,44 @@
     }catch(e){}
   };
 
+  // Busca respostas de feedback endereçadas a este aluno (collection feedback_respostas)
+  window._fetchFeedbackRespostas = function(){
+    try{
+      if(!window.firebase || !window.firebase.firestore) return;
+      var user = window.firebase.auth && window.firebase.auth().currentUser;
+      if(!user) return;
+      var db = window.firebase.firestore();
+      db.collection('feedback_respostas')
+        .where('uid','==',user.uid)
+        .limit(20)
+        .get()
+        .then(function(snap){
+          if(snap.empty) return;
+          var injected = [];
+          snap.forEach(function(doc){
+            var n = doc.data() || {};
+            var ts = (n.criadoEm && n.criadoEm.toMillis) ? n.criadoEm.toMillis() : (n.ts || Date.now());
+            injected.push({
+              id:     'fbresp-' + doc.id,
+              ico:    '💬',
+              bg:     'rgba(201,169,97,.22)',
+              titulo: 'Resposta ao seu feedback',
+              desc:   n.resposta || '',
+              ts:     ts,
+              link:   'dashboard.html'
+            });
+          });
+          if(!injected.length) return;
+          if(typeof window.saveNotif==='function'){
+            injected.forEach(function(n){ window.saveNotif(n); });
+          }
+          if(typeof renderNotifBadge==='function') renderNotifBadge();
+          if(typeof renderNotifList==='function'){ try{ renderNotifList(); }catch(e){} }
+        })
+        .catch(function(){});
+    }catch(e){}
+  };
+
   // Fallback quando nada dinâmico dispara
   window.NOTIFS_FALLBACK = [{id:'fb-calm-'+_todayISO(), ico:'✨', bg:'rgba(139,92,246,.12)', titulo:'Tudo tranquilo por aqui', desc:'Nenhum evento relevante hoje. Continue sua jornada.', ts: Date.now(), link:'dashboard.html'}];
 
@@ -734,6 +772,8 @@
       if(typeof renderNotifBadge==='function') try{ renderNotifBadge(); }catch(e){}
       // Busca notificações admin (lives, avisos) do Firestore
       setTimeout(function(){ if(typeof window._fetchAdminNotifs==='function') window._fetchAdminNotifs(); }, 4000);
+      // Busca respostas de feedback endereçadas a este aluno
+      setTimeout(function(){ if(typeof window._fetchFeedbackRespostas==='function') window._fetchFeedbackRespostas(); }, 4500);
       // Refresh automático do badge a cada 5 min — funciona em qualquer página
       setInterval(function(){
         if(typeof renderNotifBadge==='function') try{ renderNotifBadge(); }catch(e){}
