@@ -583,6 +583,9 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
       <div class="ranking-grid">
         <!-- Botão Arte Instagram — visível só para admin -->
         <div id="btnArteWrap" style="display:none;grid-column:1/-1;text-align:right;margin-bottom:4px">
+          <button id="btnDemo" onclick="toggleDemo()" style="display:inline-flex;align-items:center;gap:8px;background:rgba(201,169,97,.12);border:1px solid rgba(201,169,97,.3);color:var(--gold);border-radius:10px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:.2s;margin-right:8px">
+            🧪 Demo: dados de exemplo
+          </button>
           <button onclick="abrirModalArte()" style="display:inline-flex;align-items:center;gap:8px;background:rgba(201,169,97,.12);border:1px solid rgba(201,169,97,.3);color:var(--gold);border-radius:10px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:.2s" onmouseover="this.style.background='rgba(201,169,97,.2)'" onmouseout="this.style.background='rgba(201,169,97,.12)'">
             📸 Gerar arte Instagram
           </button>
@@ -1798,6 +1801,101 @@ function g20Logout(){auth.signOut().then(function(){location.href='login.html';}
 </div>
 
 <script>
+// ═══ DEMO — DADOS DE EXEMPLO (admin-only, NÃO grava no Firestore) ══════════
+var G20_DEMO_ON = false;
+var _demoAvatarCache = {};
+
+// Gera avatar circular em base64 (data URI) — CORS-safe para o canvas da arte
+function _demoAvatar(nome, bg){
+  var key = nome + '|' + bg;
+  if(_demoAvatarCache[key]) return _demoAvatarCache[key];
+  var s = 160, cv = document.createElement('canvas');
+  cv.width = s; cv.height = s;
+  var x = cv.getContext('2d');
+  x.fillStyle = bg; x.fillRect(0,0,s,s);
+  var ini = nome.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase();
+  x.fillStyle = 'rgba(255,255,255,0.95)';
+  x.font = 'bold 64px DM Sans, Arial, sans-serif';
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillText(ini, s/2, s/2 + 4);
+  var uri = cv.toDataURL('image/png');
+  _demoAvatarCache[key] = uri;
+  return uri;
+}
+
+// [nome, cor do avatar, infinite?]
+var _DEMO_NOMES = [
+  ['Marina Albuquerque','#c0392b',true],
+  ['Rafael Tavares','#2c3e6b',false],
+  ['Júlia Bernardes','#1e8449',true],
+  ['Thiago Menezes','#7d3c98',false],
+  ['Camila Fontes','#b9770e',false],
+  ['Bruno Carvalho','#2874a6',false],
+  ['Patrícia Lemos','#a04000',true],
+  ['Diego Nogueira','#117864',false],
+  ['Fernanda Quintela','#6c3483',false],
+  ['Lucas Andrade','#1f618d',false],
+  ['Beatriz Siqueira','#922b21',false],
+  ['Gustavo Peixoto','#196f3d',false],
+  ['Renata Vasconcelos','#884ea0',true],
+  ['André Bittencourt','#b7950b',false],
+  ['Larissa Coelho','#21618c',false]
+];
+// Rentabilidade base (ciclo mensal); trimestral/anual derivam por fator
+var _DEMO_RENT = [14.8,11.2,9.6,7.3,5.1,3.8,2.4,0.9,-0.7,-2.1,-3.5,-4.9,-6.2,-8.0,-10.4];
+
+function _buildDemoPlayers(tipo){
+  var fator = tipo === 'trimestral' ? 2.3 : tipo === 'anual' ? 4.1 : 1;
+  var arr = _DEMO_NOMES.map(function(n,i){
+    // pequeno jitter por ciclo p/ os 3 rankings ficarem diferentes
+    var jitter = ((i*7 + tipo.length) % 9 - 4) * 0.6;
+    return {
+      uid:'demo-'+i, nome:n[0], foto:_demoAvatar(n[0],n[1]),
+      infinite:n[2], ativos:[], rentabilidade:_DEMO_RENT[i]*fator + jitter, _demo:true
+    };
+  });
+  // Inclui o admin logado como jogador real — linha destacada (.my-row)
+  try{
+    var cp = JSON.parse(localStorage.getItem('g20_user_profile')||'{}');
+    if(currentUid){
+      arr.push({
+        uid:currentUid, nome:cp.name||'Você', foto:cp.photo||'',
+        infinite:(cp.infinite||cp.role==='admin'), ativos:[],
+        rentabilidade:6.4*fator, _demo:true
+      });
+    }
+  }catch(e){}
+  arr.sort(function(a,b){return b.rentabilidade-a.rentabilidade;});
+  return arr;
+}
+
+function toggleDemo(){
+  G20_DEMO_ON = !G20_DEMO_ON;
+  var btn = document.getElementById('btnDemo');
+  if(G20_DEMO_ON){
+    ['mensal','trimestral','anual'].forEach(function(tipo){
+      var js = _buildDemoPlayers(tipo);
+      rankingData[tipo] = js;
+      renderRanking(tipo, js);
+      atualizarMinha(tipo, js);
+    });
+    if(btn){
+      btn.style.background='rgba(46,204,113,.2)';
+      btn.style.borderColor='rgba(46,204,113,.5)';
+      btn.style.color='#2ecc71';
+      btn.textContent='🧪 Demo ativo — clique p/ sair';
+    }
+  }else{
+    if(btn){
+      btn.style.background='rgba(201,169,97,.12)';
+      btn.style.borderColor='rgba(201,169,97,.3)';
+      btn.style.color='var(--gold)';
+      btn.textContent='🧪 Demo: dados de exemplo';
+    }
+    carregarRanking(); // restaura dados reais do Firestore
+  }
+}
+
 // ═══ ARTE INSTAGRAM ═══════════════════════════════════════════════════════
 var _cicloArteAtual = 'mensal';
 
