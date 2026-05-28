@@ -518,8 +518,8 @@ document.addEventListener('DOMContentLoaded', function(){
   <div class="side-section-line"></div>
   <button class="side-item active" onclick="setFilter('todos',this)"><i data-lucide="flame"></i> Em alta <span class="side-badge" id="cntBadge">0</span></button>
   <button class="side-item" data-filter="recentes" onclick="setFilter('recentes',this)"><div class="side-icon-box" style="background:rgba(255,255,255,.05)"><i data-lucide="clock" style="color:#a09ab5"></i></div> Recentes</button>
-  <button class="side-item" data-filter="meus" onclick="setFilter('meus',this)"><div class="side-icon-box" style="background:rgba(255,255,255,.05)"><i data-lucide="user" style="color:#a09ab5"></i></div> Meus posts</button>
-  <button class="side-item" data-filter="salvos" onclick="setFilter('salvos',this)"><div class="side-icon-box" style="background:rgba(255,255,255,.05)"><i data-lucide="bookmark" style="color:#a09ab5"></i></div> Salvos</button>
+  <button class="side-item" data-filter="meus" onclick="setFilter('meus',this)"><div class="side-icon-box" style="background:rgba(255,255,255,.05)"><i data-lucide="user" style="color:#a09ab5"></i></div> Meus posts <span class="side-badge" id="meusBadge" style="display:none">0</span></button>
+  <button class="side-item" data-filter="salvos" onclick="setFilter('salvos',this)"><div class="side-icon-box" style="background:rgba(255,255,255,.05)"><i data-lucide="bookmark" style="color:#a09ab5"></i></div> Salvos <span class="side-badge" id="salvosBadge" style="display:none">0</span></button>
   <div class="side-divider"></div>
   <div class="side-section" style="color:rgba(201,169,97,.7)">Categorias</div>
   <div class="side-section-line"></div>
@@ -947,16 +947,16 @@ function carregarFeed(){
   }
   var catFiltros=['acoes-br','fiis','stocks','cripto','renda-fixa','mentalidade','leituras','geral'];
   if(catFiltros.includes(_filtro)) q=q.where('categoria','==',_filtro);
-  if(_filtro==='meus'&&_user) q=q.where('autorId','==',_user.uid);
   q=q.orderBy('criadoEm','desc').limit(50);
 
   _unsubFeed=q.onSnapshot(function(snap){
     var posts=[];
     snap.forEach(function(d){posts.push(Object.assign({id:d.id},d.data()));});
+    if(_filtro==='meus'&&_user) posts=posts.filter(function(p){return p.autorId===(_user&&_user.uid);});
     if(_filtro==='salvos') posts=posts.filter(function(p){return _savedPosts.includes(p.id);});
     if(_ordem==='curtidas') posts.sort(function(a,b){return (b.curtidas||[]).length-(a.curtidas||[]).length;});
     else if(_ordem==='respostas') posts.sort(function(a,b){return (b.totalRespostas||0)-(a.totalRespostas||0);});
-    document.getElementById('cntBadge').textContent=posts.length;
+    if(_filtro==='todos') document.getElementById('cntBadge').textContent=posts.length;
     renderFeed(posts);
   },function(e){
     console.error(e);
@@ -1275,14 +1275,22 @@ function curtirResp(postId,respId){
 }
 
 // ─── SALVAR ───
+function setSideBadge(id,n){
+  var el=document.getElementById(id);
+  if(!el) return;
+  el.textContent=n>99?'99+':n;
+  el.style.display=n>0?'inline-block':'none';
+}
 function carregarSalvos(){
   try{_savedPosts=JSON.parse(localStorage.getItem('arena_salvos_'+(_user&&_user.uid))||'[]');}catch(e){_savedPosts=[];}
+  setSideBadge('salvosBadge',_savedPosts.length);
 }
 function toggleSalvar(id){
   if(!_user) return;
   var idx=_savedPosts.indexOf(id);
   if(idx>=0) _savedPosts.splice(idx,1);else _savedPosts.push(id);
   try{localStorage.setItem('arena_salvos_'+_user.uid,JSON.stringify(_savedPosts));}catch(e){}
+  setSideBadge('salvosBadge',_savedPosts.length);
   var salvo=_savedPosts.includes(id);
   toast(salvo?'Post salvo!':'Removido dos salvos');
   // Se estiver na view de salvos e desmarcou, remover o card imediatamente
@@ -1694,6 +1702,7 @@ function carregarStats(){
   if(!_user) return;
   db.collection('arena').where('autorId','==',_user.uid).where('oculto','==',false).get().then(function(snap){
     document.getElementById('stPosts').textContent=snap.size;
+    setSideBadge('meusBadge',snap.size);
     var tot=0;snap.forEach(function(d){tot+=(d.data().curtidas||[]).length;});
     document.getElementById('stCurtidas').textContent=tot;
     var xpPosts=snap.size*10;
