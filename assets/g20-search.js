@@ -52,22 +52,7 @@ var GSEARCH_INDEX = [
   {g:'Ações', ico:'📊', t:'Ver carteira de ações', s:'Sua RV na Gestão Patrimonial', link:'gestao-patrimonial.html'},
   {g:'Ações', ico:'💰', t:'Ver renda fixa', s:'CDB, LCI, Tesouro...', link:'gestao-patrimonial.html'},
   {g:'Ações', ico:'🏠', t:'Ver imóveis e bens', s:'Patrimônio Total', link:'gestao-patrimonial.html'},
-  // G20Flix   Lives mensais (Aporte da Carteira G20)
-  {g:'G20Flix', ico:'🎬', t:'#80 Aporte da Carteira G20 — Março 2026', s:'Live mensal · Análise completa e rebalanceamento', link:'g20flix.html'},
-  {g:'G20Flix', ico:'🎬', t:'#79 Aporte da Carteira G20 — Fevereiro 2026', s:'Live mensal', link:'g20flix.html'},
-  {g:'G20Flix', ico:'🎬', t:'#78 Aporte da Carteira G20 — Janeiro 2026', s:'Live mensal', link:'g20flix.html'},
-  {g:'G20Flix', ico:'🎬', t:'#77 Aporte da Carteira G20 — Dezembro 2025', s:'Live mensal', link:'g20flix.html'},
-  {g:'G20Flix', ico:'🎬', t:'#76 Aporte da Carteira G20 — Novembro 2025', s:'Live mensal', link:'g20flix.html'},
-  {g:'G20Flix', ico:'🎬', t:'#75 Aporte da Carteira G20 — Outubro 2025', s:'Live mensal', link:'g20flix.html'},
-  {g:'G20Flix', ico:'🎬', t:'#74 Aporte da Carteira G20 — Setembro 2025', s:'Live mensal', link:'g20flix.html'},
-  {g:'G20Flix', ico:'🎬', t:'#73 Aporte da Carteira G20 — Agosto 2025', s:'Live mensal', link:'g20flix.html'},
-  {g:'G20Flix', ico:'🎬', t:'#72 Aporte da Carteira G20 — Julho 2025', s:'Live mensal', link:'g20flix.html'},
-  {g:'G20Flix', ico:'🎬', t:'#71 Aporte da Carteira G20 — Junho 2025', s:'Live mensal', link:'g20flix.html'},
-  {g:'G20Flix', ico:'🎬', t:'#70 Aporte da Carteira G20 — Maio 2025', s:'Live mensal', link:'g20flix.html'},
-  {g:'G20Flix', ico:'🎬', t:'#69 Aporte da Carteira G20 — Abril 2025', s:'Live mensal', link:'g20flix.html'},
-  {g:'G20Flix', ico:'🎬', t:'#68 Aporte da Carteira G20 — Março 2025', s:'Live mensal', link:'g20flix.html'},
-  {g:'G20Flix', ico:'🎬', t:'#67 Aporte da Carteira G20 — Fevereiro 2025', s:'Live mensal', link:'g20flix.html'},
-  {g:'G20Flix', ico:'🎬', t:'#66 Aporte da Carteira G20 — Janeiro 2025', s:'Live mensal', link:'g20flix.html'},
+  // G20Flix — itens dinâmicos gerados em _gsearchFlixDinamico() a partir de window.FLIX_CURRENT_EP
   // Cursos   Sala de Aula
   {g:'Cursos', ico:'🎓', t:'Mercado de Capitais do Zero', s:'12 aulas · 3h20 · Fundamentos', link:'sala-de-aula.html'},
   {g:'Cursos', ico:'🎓', t:'Análise Fundamentalista Completa', s:'18 aulas · 5h45 · Análise', link:'sala-de-aula.html'},
@@ -116,7 +101,30 @@ function _gsearchTickersUser(){
   }catch(e){ return []; }
 }
 
-function _gsearchFullIndex(){ return GSEARCH_INDEX.concat(_gsearchTickersUser()); }
+// G20Flix dinâmico — gera item do último episódio a partir de window.FLIX_CURRENT_EP
+// (variável mantida atualizada pelo g20-notifications.js)
+function _gsearchFlixDinamico(){
+  var ep    = window.FLIX_CURRENT_EP || 0;
+  var title = (window.FLIX_CURRENT_TITLE || '').trim();
+  if(!ep) return [];
+  // Se o título já vier com "#N", evita duplicar o número
+  var nome = (title && title.indexOf('#'+ep) === 0) ? title : ('#'+ep + (title ? ' ' + title : ''));
+  return [
+    {g:'G20Flix', ico:'🎬', t:'Último episódio · '+nome, s:'Mais recente no G20Flix', link:'g20flix.html'}
+  ];
+}
+
+function _gsearchFullIndex(){
+  // Patch dinâmico do subtítulo da página G20Flix com o número atual de episódios
+  var ep  = window.FLIX_CURRENT_EP || 0;
+  var idx = GSEARCH_INDEX.map(function(it){
+    if(ep && it.g==='Páginas' && it.t==='G20Flix'){
+      return Object.assign({}, it, {s: ep+' episódios · lives mensais'});
+    }
+    return it;
+  });
+  return idx.concat(_gsearchFlixDinamico()).concat(_gsearchTickersUser());
+}
 
 var _gsActive=0, _gsResults=[];
 
