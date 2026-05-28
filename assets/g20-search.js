@@ -41,7 +41,7 @@ var GSEARCH_INDEX = [
   // P ginas
   {g:'Páginas', ico:'🏠', t:'Dashboard', s:'Painel principal', link:'dashboard.html'},
   {g:'Páginas', ico:'🎓', t:'Sala de Aula', s:'Todos os módulos e aulas', link:'sala-de-aula.html'},
-  {g:'Páginas', ico:'🎬', t:'G20Flix', s:'80 episódios · lives mensais', link:'g20flix.html'},
+  {g:'Páginas', ico:'🎬', t:'G20Flix', s:'84 episódios · lives mensais', link:'g20flix.html'},
   {g:'Páginas', ico:'🎧', t:'G20Cast', s:'Podcast diário', link:'g20cast.html'},
   {g:'Páginas', ico:'📈', t:'Carteira G20', s:'116 ativos · carteira educacional', link:'carteira.html'},
   {g:'Páginas', ico:'💼', t:'Gestão Patrimonial', s:'Seu patrimônio real', link:'gestao-patrimonial.html'},
@@ -52,7 +52,91 @@ var GSEARCH_INDEX = [
   {g:'Ações', ico:'📊', t:'Ver carteira de ações', s:'Sua RV na Gestão Patrimonial', link:'gestao-patrimonial.html'},
   {g:'Ações', ico:'💰', t:'Ver renda fixa', s:'CDB, LCI, Tesouro...', link:'gestao-patrimonial.html'},
   {g:'Ações', ico:'🏠', t:'Ver imóveis e bens', s:'Patrimônio Total', link:'gestao-patrimonial.html'},
-  // G20Flix — itens dinâmicos gerados em _gsearchFlixDinamico() a partir de window.FLIX_CURRENT_EP
+  // G20Flix — 84 episódios (atualizar quando publicar novos via modal admin)
+  {g:'G20Flix', ico:'🎬', t:"#82 - Aporte Carteira G20", s:"Maio 2026 · 2026 · NOVO", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#81 - Aporte Carteira G20", s:"Abril 2026 · 2026", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#80 - Aporte Carteira G20", s:"Março 2026 · 2026", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#79 - Aporte Carteira G20", s:"Fevereiro 2026 · 2026", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#78 - Aporte Carteira G20", s:"Janeiro 2026 · 2026", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#77 - Aporte Carteira G20", s:"Dezembro 2025 · 2025", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#76 - Aporte Carteira G20", s:"Novembro 2025 · 2025", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#75 - Aporte Carteira G20", s:"Outubro 2025 · 2025", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#74 - Aporte Carteira G20", s:"Setembro 2025 · 2025", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#73 - Aporte Carteira G20", s:"Agosto 2025 · 2025", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#72 - Aporte Carteira G20", s:"Julho 2025 · 2025", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#71 - Aporte Carteira G20", s:"Junho 2025 · 2025", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#70 - Aporte Carteira G20", s:"Maio 2025 · 2025", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#69 - Aporte Carteira G20", s:"Abril 2025 · 2025", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#68 - Aporte Carteira G20", s:"Março 2025 · 2025", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#67 - Aporte Carteira G20", s:"Fevereiro 2025 · 2025", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#66 - Aporte Carteira G20", s:"Janeiro 2025 · 2025", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#65 - Aporte Carteira G20", s:"Dezembro 2024 · 2024", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#64 - Aporte Carteira G20", s:"Novembro 2024 · 2024", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#63 - Aporte Carteira G20", s:"Outubro 2024 · 2024", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#62 - Aporte Carteira G20", s:"Setembro 2024 · 2024", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#61 - Aporte Carteira G20", s:"Agosto 2024 · 2024", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#60 - Aporte Carteira G20", s:"Julho 2024 · 2024", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#59 - Aporte Carteira G20", s:"Junho 2024 · 2024", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#58 - Aporte Carteira G20", s:"Maio 2024 · 2024", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#57 - Aporte Carteira G20", s:"Abril 2024 · 2024", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#56 - Aporte Carteira G20", s:"Março 2024 · 2024", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#55 - Aporte Carteira G20", s:"Fevereiro 2024 · 2024", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#54 - Aporte Carteira G20", s:"Janeiro 2024 · 2024", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#53 - Aporte Carteira G20", s:"Dezembro 2023 · 2023", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#52 - Aporte Carteira G20", s:"Novembro 2023 · 2023", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#51 - Aporte Carteira G20", s:"Outubro 2023 · 2023", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#50 - Aporte Carteira G20", s:"Setembro 2023 · 2023", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#49 - Aporte Carteira G20", s:"Agosto 2023 · 2023", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#48 - Aporte Carteira G20", s:"Julho 2023 · 2023", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#47 - Aporte Carteira G20", s:"Junho 2023 · 2023", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#46 - Aporte Carteira G20", s:"Maio 2023 · 2023", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#45 - Aporte Carteira G20", s:"Abril 2023 · 2023", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#44 - Aporte Carteira G20", s:"Março 2023 · 2023", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#43 - Aporte Carteira G20", s:"Fevereiro 2023 · 2023", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#42 - Aporte Carteira G20", s:"Janeiro 2023 · 2023", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#41 - Aporte Carteira G20", s:"Dezembro 2022 · 2022", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#40 - Aporte Carteira G20", s:"Novembro 2022 · 2022", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#39 - Aporte Carteira G20", s:"Outubro 2022 · 2022", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#38 - Aporte Carteira G20", s:"Setembro 2022 · 2022", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#37 - Aporte Carteira G20", s:"Agosto 2022 · 2022", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#36 - Aporte Carteira G20", s:"Julho 2022 · 2022", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#35 - Aporte Carteira G20", s:"Junho 2022 · 2022", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#34 - Aporte Carteira G20", s:"Maio 2022 · 2022", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#33 - Aporte Carteira G20", s:"Abril 2022 · 2022", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#32 - Aporte Carteira G20", s:"Março 2022 · 2022", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#31 - Aporte Carteira G20", s:"Fevereiro 2022 · 2022", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#30 - Aporte Carteira G20", s:"Janeiro 2022 · 2022", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#29 - Aporte Carteira G20", s:"Dezembro 2021 · 2021", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#28 - Aporte Carteira G20", s:"Novembro 2021 · 2021", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#27 - Aporte Carteira G20", s:"Outubro 2021 · 2021", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#26 - Aporte Carteira G20", s:"Setembro 2021 · 2021", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#25 - Aporte Carteira G20", s:"Agosto 2021 · 2021", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#24 - Aporte Carteira G20", s:"Julho 2021 · 2021", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#23 - Aporte Carteira G20", s:"Junho 2021 · 2021", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#22 - Aporte Carteira G20", s:"Maio 2021 · 2021", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#21 - Aporte Carteira G20", s:"Abril 2021 · 2021", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#20 - Aporte Carteira G20", s:"Março 2021 · 2021", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#19 - Aporte Carteira G20", s:"Fevereiro 2021 · 2021", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#18 - Aporte Carteira G20", s:"Janeiro 2021 · 2021", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#17 - Aporte Carteira G20", s:"Dezembro 2020 · 2020", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#16 - Aporte Carteira G20", s:"Novembro 2020 · 2020", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#15 - Aporte Carteira G20", s:"Outubro 2020 · 2020", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#14 - Aporte Carteira G20", s:"Setembro 2020 · 2020", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#13 - Aporte Carteira G20", s:"Agosto 2020 · 2020", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#12 - Aporte Carteira G20", s:"Julho 2020 · 2020", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#11 - Aporte Carteira G20", s:"Junho 2020 · 2020", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#10 - Aporte Carteira G20", s:"Maio 2020 · 2020", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#9 - Aporte Carteira G20", s:"Abril 2020 · 2020", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#8 - Aporte Carteira G20", s:"Março 2020 · 2020", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#7 - Aporte Carteira G20", s:"Fevereiro 2020 · 2020", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#6 - Aporte Carteira G20 (Parte 2)", s:"Janeiro 2020 · 2020", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#6 - Aporte Carteira G20 (Parte 1)", s:"Janeiro 2020 · 2020", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#5 - Aporte Carteira G20", s:"Dezembro 2019 · 2019", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#4 - Aporte Carteira G20", s:"Novembro 2019 · 2019", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#3 - Aporte Carteira G20", s:"Outubro 2019 · 2019", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#2 - Aporte Carteira G20", s:"Setembro 2019 · 2019", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#1 - Aporte Carteira G20 (Parte 2)", s:"Agosto 2019 · 2019", link:'g20flix.html'},
+  {g:'G20Flix', ico:'🎬', t:"#1 - Aporte Carteira G20 (Parte 1)", s:"Agosto 2019 · 2019", link:'g20flix.html'},
   // Cursos   Sala de Aula
   {g:'Cursos', ico:'🎓', t:'Mercado de Capitais do Zero', s:'12 aulas · 3h20 · Fundamentos', link:'sala-de-aula.html'},
   {g:'Cursos', ico:'🎓', t:'Análise Fundamentalista Completa', s:'18 aulas · 5h45 · Análise', link:'sala-de-aula.html'},
@@ -101,30 +185,7 @@ function _gsearchTickersUser(){
   }catch(e){ return []; }
 }
 
-// G20Flix dinâmico — gera item do último episódio a partir de window.FLIX_CURRENT_EP
-// (variável mantida atualizada pelo g20-notifications.js)
-function _gsearchFlixDinamico(){
-  var ep    = window.FLIX_CURRENT_EP || 0;
-  var title = (window.FLIX_CURRENT_TITLE || '').trim();
-  if(!ep) return [];
-  // Se o título já vier com "#N", evita duplicar o número
-  var nome = (title && title.indexOf('#'+ep) === 0) ? title : ('#'+ep + (title ? ' ' + title : ''));
-  return [
-    {g:'G20Flix', ico:'🎬', t:'Último episódio · '+nome, s:'Mais recente no G20Flix', link:'g20flix.html'}
-  ];
-}
-
-function _gsearchFullIndex(){
-  // Patch dinâmico do subtítulo da página G20Flix com o número atual de episódios
-  var ep  = window.FLIX_CURRENT_EP || 0;
-  var idx = GSEARCH_INDEX.map(function(it){
-    if(ep && it.g==='Páginas' && it.t==='G20Flix'){
-      return Object.assign({}, it, {s: ep+' episódios · lives mensais'});
-    }
-    return it;
-  });
-  return idx.concat(_gsearchFlixDinamico()).concat(_gsearchTickersUser());
-}
+function _gsearchFullIndex(){ return GSEARCH_INDEX.concat(_gsearchTickersUser()); }
 
 var _gsActive=0, _gsResults=[];
 
