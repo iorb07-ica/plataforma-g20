@@ -168,7 +168,70 @@ var GSEARCH_INDEX = [
   {g:'Termos', ico:'📘', t:'Rebalanceamento', s:'Ajustar pesos da carteira periodicamente', link:'carteira.html'},
 ];
 
-// Adiciona ativos da carteira do usu rio ao  ndice
+// Networking — alunos lidos do Firestore com cache em sessionStorage.
+// 1-2 leituras por sessão de navegação; resultado fica em memória + cache.
+var _gsAlunos = [];
+var _gsAlunosLoaded = false;
+var _gsAlunosLoading = false;
+
+function _gsearchLoadAlunos(){
+  if(_gsAlunosLoaded || _gsAlunosLoading) return;
+  // 1) tenta cache da sessão (instantâneo)
+  try {
+    var cached = sessionStorage.getItem('g20_search_networking');
+    if(cached){
+      _gsAlunos = JSON.parse(cached) || [];
+      _gsAlunosLoaded = true;
+      return;
+    }
+  } catch(e){}
+  // 2) precisa do firebase inicializado na página
+  if(!window.firebase || !firebase.apps || !firebase.apps.length) return;
+  var db;
+  try { db = firebase.firestore(); } catch(e){ return; }
+  _gsAlunosLoading = true;
+  db.collection('users').where('aprovado','==',true).get().then(function(snap){
+    var lista = [];
+    snap.forEach(function(doc){
+      var d = doc.data() || {};
+      var p = d.perfil || {};
+      if(p.perfilPublico !== true) return; // só alunos com perfil público
+      lista.push({
+        uid: doc.id,
+        nome: p.nome || d.name || 'Aluno G20',
+        profissao: p.profissao || '',
+        empresa: p.empresa || '',
+        negocio: p.negocio || '',
+        categoria: p.negocioCategoria || ''
+      });
+    });
+    _gsAlunos = lista;
+    _gsAlunosLoaded = true;
+    _gsAlunosLoading = false;
+    try { sessionStorage.setItem('g20_search_networking', JSON.stringify(lista)); } catch(e){}
+    // se a busca está aberta, re-renderiza pra incluir os alunos recém-carregados
+    var ov = document.getElementById('gsearchOverlay');
+    if(ov && ov.classList.contains('show')){
+      var inp = document.getElementById('gsearchInput');
+      if(inp) gsearchRender(inp.value);
+    }
+  }).catch(function(){ _gsAlunosLoading = false; });
+}
+
+function _gsearchNetworkingItems(){
+  return _gsAlunos.map(function(a){
+    var sub = [a.profissao, a.empresa, a.negocio].filter(Boolean).join(' · ') || 'Aluno G20';
+    return {
+      g:'Networking',
+      ico:'🤝',
+      t: a.nome,
+      s: sub,
+      link: 'networking.html#aluno-' + a.uid
+    };
+  });
+}
+
+// Adiciona ativos da carteira do usuário ao índice
 function _gsearchTickersUser(){
   try{
     var aportes = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
@@ -185,11 +248,12 @@ function _gsearchTickersUser(){
   }catch(e){ return []; }
 }
 
-function _gsearchFullIndex(){ return GSEARCH_INDEX.concat(_gsearchTickersUser()); }
+function _gsearchFullIndex(){ return GSEARCH_INDEX.concat(_gsearchTickersUser()).concat(_gsearchNetworkingItems()); }
 
 var _gsActive=0, _gsResults=[];
 
 function gsearchAbrir(){
+  _gsearchLoadAlunos(); // garante alunos carregados (lazy, 1× por sessão)
   var ov=document.getElementById('gsearchOverlay');
   if(!ov) return;
   ov.classList.add('show');
