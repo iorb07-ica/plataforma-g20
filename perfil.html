@@ -199,6 +199,24 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .social-icon{font-size:16px;flex-shrink:0;opacity:.6}
 .social-input{flex:1;background:transparent;border:none;color:var(--text);padding:10px 0;font-size:13px;font-family:inherit;outline:none}
 .social-input::placeholder{color:var(--text3)}
+
+/* intl-tel-input — tema Dark Luxury */
+.whatsapp-field{padding:0 8px 0 0}
+.whatsapp-field .iti{width:100%}
+.whatsapp-field .iti__flag-container{position:relative}
+.whatsapp-field .iti__selected-flag{padding:0 10px 0 12px;background:transparent !important;border-radius:8px 0 0 8px}
+.whatsapp-field .iti__selected-flag:focus,
+.whatsapp-field .iti__selected-flag[aria-expanded="true"]{background:rgba(201,169,97,.08) !important}
+.whatsapp-field .iti__arrow{border-top-color:var(--text2);margin-left:6px}
+.whatsapp-field .iti__arrow--up{border-bottom-color:var(--text2)}
+.whatsapp-field .iti--separate-dial-code .iti__selected-dial-code{color:var(--text);font-size:13px}
+.whatsapp-field input.iti__tel-input{padding-left:8px !important}
+.iti__country-list{background:#2a282f !important;border:1px solid var(--border) !important;color:var(--text) !important;border-radius:10px;max-height:280px;box-shadow:0 12px 32px rgba(0,0,0,.5)}
+.iti__country{padding:8px 12px;font-size:13px}
+.iti__country.iti__highlight{background:rgba(201,169,97,.12) !important}
+.iti__country:hover{background:rgba(255,255,255,.04) !important}
+.iti__divider{border-bottom-color:var(--border) !important}
+.iti__dial-code{color:var(--text3)}
 /* ── PERFIL PÚBLICO / NETWORKING ── */
 .netpub-toggle{display:flex;align-items:flex-start;gap:12px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;cursor:pointer}
 .netpub-toggle input{position:absolute;opacity:0;width:0;height:0}
@@ -329,6 +347,8 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 <link rel="stylesheet" href="assets/g20-search.css?v=10">
 <link rel="stylesheet" href="assets/g20-topbar-v21.css?v=11">
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/intl-tel-input@18.5.3/build/css/intlTelInput.min.css">
+<script src="https://cdn.jsdelivr.net/npm/intl-tel-input@18.5.3/build/js/intlTelInput.min.js"></script>
 <script src="assets/g20-notifications.js?v=10"></script>
 <script src="assets/g20-sidebar.js?v=11"></script>
 <script>
@@ -585,10 +605,6 @@ if(localStorage.getItem('g20_uid')){
           <div class="field">
             <label>Data de nascimento <span class="req">★</span></label>
             <input type="date" id="f-nascimento">
-          </div>
-          <div class="field">
-            <label>Telefone / WhatsApp <span class="req">★</span></label>
-            <input type="tel" id="f-telefone" placeholder="+55 (48) 99999-9999">
           </div>
           <div class="field">
             <label>Gênero</label>
@@ -852,9 +868,8 @@ if(localStorage.getItem('g20_uid')){
             <span class="social-icon">📸</span>
             <input class="social-input" id="f-instagram" placeholder="@seuinstagram">
           </div>
-          <div class="social-field">
-            <span class="social-icon">📱</span>
-            <input class="social-input" id="f-whatsapp" placeholder="(48) 99999-0000" inputmode="numeric" oninput="maskWhats(this)">
+          <div class="social-field whatsapp-field" id="whatsappField">
+            <input class="social-input" id="f-whatsapp" type="tel" placeholder="WhatsApp">
           </div>
           <div class="social-field">
             <span class="social-icon">💼</span>
@@ -1182,7 +1197,6 @@ function preencherFormulario(data, user) {
   setVal('f-sobre',         p.sobre || '');
   setVal('f-nome',          p.nome || data.name || user.displayName || '');
   setVal('f-nascimento',    p.nascimento || '');
-  setVal('f-telefone',      p.telefone || '');
   setVal('f-genero',        p.genero || '');
   setVal('f-cidade',        p.cidade || '');
   setVal('f-estado',        p.estado || '');
@@ -1204,7 +1218,8 @@ function preencherFormulario(data, user) {
   setVal('f-escolaridade',  p.escolaridade || '');
   setVal('f-origem',        p.origem || '');
   setVal('f-instagram',     p.instagram || '');
-  setVal('f-whatsapp',      fmtWhats(p.whatsapp));
+  initWhatsappInput();
+  setWhatsappFromDigits(p.whatsapp || '');
   setVal('f-linkedin',      p.linkedin || '');
   setVal('f-twitter',       p.twitter || '');
   setVal('f-youtube',       p.youtube || '');
@@ -1238,26 +1253,30 @@ function preencherFormulario(data, user) {
 }
 
 // ── WhatsApp: máscara, normalização (DDI Brasil) e formatação ──
-function maskWhats(el){
-  var d=el.value.replace(/\D/g,'').slice(0,11);
-  var out=d;
-  if(d.length>7) out='('+d.slice(0,2)+') '+d.slice(2,7)+'-'+d.slice(7);
-  else if(d.length>2) out='('+d.slice(0,2)+') '+d.slice(2);
-  el.value=out;
+// WhatsApp internacional com intl-tel-input — biblioteca com bandeiras + DDI por país
+var _itiWhats = null;
+function initWhatsappInput(){
+  var el = document.getElementById('f-whatsapp');
+  if(!el || _itiWhats || !window.intlTelInput) return;
+  _itiWhats = window.intlTelInput(el, {
+    initialCountry: 'br',
+    preferredCountries: ['br','us','pt','gb','ar','es'],
+    separateDialCode: true,
+    autoPlaceholder: 'aggressive',
+    utilsScript: 'https://cdn.jsdelivr.net/npm/intl-tel-input@18.5.3/build/js/utils.js'
+  });
 }
-function normWhats(v){
-  var d=(v||'').replace(/\D/g,'');
-  if(!d) return '';
-  if(d.length===10 || d.length===11) d='55'+d; // sem DDI → adiciona Brasil
-  return d;
+// Carrega valor do Firestore no widget. Recebe dígitos sem '+' (ex: "5548988227750")
+function setWhatsappFromDigits(digits){
+  if(!_itiWhats || !digits) return;
+  _itiWhats.setNumber('+' + digits);
 }
-function fmtWhats(v){
-  var d=(v||'').replace(/\D/g,'');
-  if(!d) return '';
-  if(d.length>=12 && d.slice(0,2)==='55') d=d.slice(2); // remove DDI para exibir
-  if(d.length>7) return '('+d.slice(0,2)+') '+d.slice(2,7)+'-'+d.slice(7);
-  if(d.length>2) return '('+d.slice(0,2)+') '+d.slice(2);
-  return d;
+// Retorna dígitos puros (ex: "5548988227750"), sem '+', sem espaços, sem máscara.
+// Volta '' se inválido ou vazio.
+function getWhatsappE164(){
+  if(!_itiWhats) return '';
+  var n = _itiWhats.getNumber() || '';   // E.164 com '+', ex: '+5548988227750'
+  return n.replace(/\D/g, '');
 }
 
 function setVal(id, val) {
@@ -1328,7 +1347,7 @@ function setAvatar(src) {
 
 // ── COMPLETION ────────────────────────────────────────────────
 var REQUIRED_FIELDS = [
-  'f-nome','f-nascimento','f-telefone','f-cidade','f-estado','f-sobre',
+  'f-nome','f-nascimento','f-cidade','f-estado','f-sobre',
   'f-renda','f-patrimonio','f-aporte-mensal','f-experiencia',
   'f-meta','f-objetivo','f-disponibilidade','f-porqueg20',
   'f-profissao'
@@ -1379,7 +1398,7 @@ async function salvarPerfil() {
     // Avisa mas NÃO bloqueia — salva mesmo assim
     showToast('⚠️ Perfil incompleto: ' + vazios.length + ' campo(s) obrigatório(s) faltando.', 'err');
     // Abre seções PRIMEIRO para que os campos estejam visíveis
-    if (['f-nome','f-nascimento','f-telefone','f-cidade','f-estado','f-sobre'].some(function(f){return vazios.includes(f);})) {
+    if (['f-nome','f-nascimento','f-cidade','f-estado','f-sobre'].some(function(f){return vazios.includes(f);})) {
       document.getElementById('sec-pessoal').classList.add('open');
     }
     if (['f-renda','f-patrimonio','f-aporte-mensal','f-experiencia','f-meta','f-objetivo','f-disponibilidade','f-porqueg20'].some(function(f){return vazios.includes(f);})) {
@@ -1449,7 +1468,7 @@ async function salvarPerfil() {
       sobre:           getVal('f-sobre'),
       nome:            getVal('f-nome'),
       nascimento:      getVal('f-nascimento'),
-      telefone:        getVal('f-telefone'),
+      whatsapp:        getWhatsappE164(),
       genero:          getVal('f-genero'),
       cidade:          getVal('f-cidade'),
       estado:          getVal('f-estado'),
@@ -1471,7 +1490,6 @@ async function salvarPerfil() {
       escolaridade:    getVal('f-escolaridade'),
       origem:          getVal('f-origem'),
       instagram:       getVal('f-instagram'),
-      whatsapp:        normWhats(getVal('f-whatsapp')),
       linkedin:        getVal('f-linkedin'),
       twitter:         getVal('f-twitter'),
       youtube:         getVal('f-youtube'),
@@ -1592,7 +1610,7 @@ function csm() { if (window.innerWidth <= 768) closeSidebar(); }
 
 // ── SISTEMA DE ABAS DESKTOP ──────────────────────────────────
 var TAB_FIELDS = {
-  pessoal:    ['f-sobre','f-nome','f-nascimento','f-telefone','f-cidade','f-estado'],
+  pessoal:    ['f-sobre','f-nome','f-nascimento','f-cidade','f-estado'],
   financeiro: ['f-renda','f-patrimonio','f-aporte-mensal','f-experiencia','f-meta','f-objetivo','f-disponibilidade','f-porqueg20'],
   profissao:  ['f-profissao','f-area','f-empresa','f-escolaridade'],
   redes:      ['f-instagram','f-linkedin','f-twitter','f-youtube'],
