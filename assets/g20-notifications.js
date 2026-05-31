@@ -459,6 +459,50 @@
     }catch(e){}
   };
 
+  // Busca respostas na Arena endereçadas a este aluno (collection arena_notificacoes/{uid}/items)
+  window._fetchArenaNotifs = function(){
+    try{
+      if(!window.firebase || !window.firebase.firestore) return;
+      var user = window.firebase.auth && window.firebase.auth().currentUser;
+      if(!user) return;
+      var db = window.firebase.firestore();
+      db.collection('arena_notificacoes').doc(user.uid).collection('items')
+        .where('lido','==',false)
+        .orderBy('criadoEm','desc')
+        .limit(20)
+        .get()
+        .then(function(snap){
+          if(snap.empty) return;
+          var injected = [];
+          snap.forEach(function(doc){
+            var n = doc.data() || {};
+            // Escopo: apenas tipo 'resposta' (resposta no post). Sub-respostas ('reply') ficam fora.
+            if(n.tipo && n.tipo !== 'resposta') return;
+            if(!n.postId) return;
+            var ts = (n.criadoEm && n.criadoEm.toMillis) ? n.criadoEm.toMillis() : (n.ts || Date.now());
+            var titulo = n.postTitulo ? 'Resposta em "'+n.postTitulo+'"' : 'Resposta no seu post';
+            var desc = (n.de ? n.de+': ' : '') + (n.preview || n.mensagem || '');
+            injected.push({
+              id:     'arena-' + doc.id,
+              ico:    '💬',
+              bg:     'rgba(230,57,70,.20)',
+              titulo: titulo,
+              desc:   desc,
+              ts:     ts,
+              link:   'arena.html#post-' + n.postId
+            });
+          });
+          if(!injected.length) return;
+          if(typeof window.saveNotif==='function'){
+            injected.forEach(function(n){ window.saveNotif(n); });
+          }
+          if(typeof renderNotifBadge==='function') renderNotifBadge();
+          if(typeof renderNotifList==='function'){ try{ renderNotifList(); }catch(e){} }
+        })
+        .catch(function(){});
+    }catch(e){}
+  };
+
   // Fallback quando nada dinâmico dispara
   window.NOTIFS_FALLBACK = [{id:'fb-calm-'+_todayISO(), ico:'✨', bg:'rgba(139,92,246,.12)', titulo:'Tudo tranquilo por aqui', desc:'Nenhum evento relevante hoje. Continue sua jornada.', ts: Date.now(), link:'dashboard.html'}];
 
@@ -774,6 +818,8 @@
       setTimeout(function(){ if(typeof window._fetchAdminNotifs==='function') window._fetchAdminNotifs(); }, 4000);
       // Busca respostas de feedback endereçadas a este aluno
       setTimeout(function(){ if(typeof window._fetchFeedbackRespostas==='function') window._fetchFeedbackRespostas(); }, 4500);
+      // Busca respostas na Arena endereçadas a este aluno
+      setTimeout(function(){ if(typeof window._fetchArenaNotifs==='function') window._fetchArenaNotifs(); }, 5000);
       // Refresh automático do badge a cada 5 min — funciona em qualquer página
       setInterval(function(){
         if(typeof renderNotifBadge==='function') try{ renderNotifBadge(); }catch(e){}
