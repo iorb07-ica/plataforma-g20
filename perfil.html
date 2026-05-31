@@ -796,19 +796,38 @@ if(localStorage.getItem('g20_uid')){
           </div>
           <div class="field">
             <label>Área de atuação</label>
-            <select id="f-area">
+            <select id="f-area" onchange="onAreaChange(this.value); onFieldChange();">
               <option value="">Selecione...</option>
-              <option>Saúde</option>
-              <option>Tecnologia / TI</option>
-              <option>Finanças / Contabilidade</option>
-              <option>Jurídico / Direito</option>
-              <option>Educação</option>
-              <option>Engenharia</option>
-              <option>Comércio / Varejo</option>
-              <option>Indústria</option>
-              <option>Empreendedorismo</option>
-              <option>Setor Público</option>
-              <option>Outros</option>
+              <optgroup label="Setores">
+                <option>Administração / Gestão</option>
+                <option>Agronegócio</option>
+                <option>Arte / Cultura / Entretenimento</option>
+                <option>Comércio / Varejo</option>
+                <option>Construção / Imobiliário</option>
+                <option>Educação</option>
+                <option>Engenharia</option>
+                <option>Esporte / Fitness / Bem-estar</option>
+                <option>Finanças / Contabilidade</option>
+                <option>Indústria</option>
+                <option>Jurídico / Direito</option>
+                <option>Marketing / Comunicação</option>
+                <option>Saúde</option>
+                <option>Setor Público</option>
+                <option>Tecnologia / TI</option>
+                <option>Transporte / Logística</option>
+              </optgroup>
+              <optgroup label="Outras situações">
+                <option>Aposentado / Vive de renda</option>
+                <option>Estudante</option>
+                <option>Em transição de carreira</option>
+                <option>Outros</option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="field" id="field-subarea" style="display:none">
+            <label>Subárea / Especialização</label>
+            <select id="f-subarea" onchange="onFieldChange()">
+              <option value="">Selecione...</option>
             </select>
           </div>
           <div class="field">
@@ -1214,6 +1233,7 @@ function preencherFormulario(data, user) {
   setVal('f-porqueg20',     p.porqueG20 || '');
   setVal('f-profissao',     p.profissao || '');
   setVal('f-area',          p.area || '');
+  carregarSubarea(p.area || '', p.subarea || '');
   setVal('f-empresa',       p.empresa || '');
   setVal('f-escolaridade',  p.escolaridade || '');
   setVal('f-origem',        p.origem || '');
@@ -1283,6 +1303,53 @@ function setVal(id, val) {
   var el = document.getElementById(id);
   if (el) el.value = val;
 }
+
+// ─── ÁREA DE ATUAÇÃO — categoria → subcategorias (mapa estático) ───
+var AREAS_SUB = {
+  "Administração / Gestão": ["Gestão de Empresas","Recursos Humanos","Projetos / PMO","Consultoria Empresarial","Administração Pública","Outros"],
+  "Agronegócio": ["Agricultura / Grãos","Pecuária","Agroindústria","Insumos / Máquinas Agrícolas","Cooperativas","Outros"],
+  "Arte / Cultura / Entretenimento": ["Música","Audiovisual / Cinema","Artes Visuais / Design","Eventos","Literatura / Edição","Outros"],
+  "Comércio / Varejo": ["Varejo Físico","E-commerce","Atacado / Distribuição","Franquias","Representação Comercial","Outros"],
+  "Construção / Imobiliário": ["Construção Civil","Incorporação","Corretagem / Imobiliária","Arquitetura","Engenharia Civil","Outros"],
+  "Educação": ["Ensino Básico","Ensino Superior","Cursos / Treinamentos","EdTech","Pesquisa Acadêmica","Outros"],
+  "Engenharia": ["Civil","Mecânica","Elétrica / Eletrônica","Produção","Química","Outros"],
+  "Esporte / Fitness / Bem-estar": ["Personal Trainer","Educação Física","Nutrição Esportiva","Crossfit / Box","Pilates / Yoga","Artes Marciais","Gestão de Academia","Esporte Profissional","Outros"],
+  "Finanças / Contabilidade": ["Contabilidade","Mercado Financeiro","Bancos","Seguros","Assessoria de Investimentos","Outros"],
+  "Indústria": ["Alimentícia / Bebidas","Farmacêutica","Química / Petroquímica","Metalurgia / Siderurgia","Automotiva","Têxtil / Vestuário","Eletroeletrônica","Outros"],
+  "Jurídico / Direito": ["Advocacia","Magistratura / Ministério Público","Jurídico Corporativo","Cartório / Notarial","Outros"],
+  "Marketing / Comunicação": ["Marketing Digital","Publicidade / Propaganda","Jornalismo / Conteúdo","Relações Públicas","Social Media","Outros"],
+  "Saúde": ["Medicina","Enfermagem","Odontologia","Fisioterapia","Nutrição","Psicologia","Farmácia","Veterinária","Outros"],
+  "Setor Público": ["Servidor Federal","Servidor Estadual","Servidor Municipal","Militar / Segurança","Outros"],
+  "Tecnologia / TI": ["Desenvolvimento / Software","Infraestrutura / Redes","Dados / IA","Segurança da Informação","Produto / UX","Suporte / TI","Outros"],
+  "Transporte / Logística": ["Logística / Supply Chain","Transporte de Cargas","Transporte de Passageiros","Comércio Exterior","Outros"]
+};
+
+// Popula (ou esconde) o dropdown de subárea conforme a categoria escolhida.
+// selectedSub: valor opcional a pré-selecionar (usado no carregamento do perfil).
+function carregarSubarea(area, selectedSub) {
+  var wrap = document.getElementById('field-subarea');
+  var sel  = document.getElementById('f-subarea');
+  if (!wrap || !sel) return;
+  var subs = AREAS_SUB[area];
+  if (!subs) {
+    // Categoria sem subcategorias (Aposentado, Estudante, etc.) — esconde e limpa
+    sel.innerHTML = '<option value="">Selecione...</option>';
+    sel.value = '';
+    wrap.style.display = 'none';
+    return;
+  }
+  var html = '<option value="">Selecione...</option>';
+  subs.forEach(function(s){ html += '<option>' + s + '</option>'; });
+  sel.innerHTML = html;
+  sel.value = selectedSub || '';
+  wrap.style.display = '';
+}
+
+// Disparado pelo onchange da categoria (interação do usuário): reseta a subárea
+function onAreaChange(area) {
+  carregarSubarea(area, '');
+}
+
 
 function onFieldChange() {
   _dirty = true;
@@ -1354,7 +1421,7 @@ var REQUIRED_FIELDS = [
 ];
 var ALL_FIELDS = REQUIRED_FIELDS.concat([
   'f-genero','f-pais','f-corretora','f-dividas','f-medo',
-  'f-area','f-empresa','f-escolaridade','f-origem',
+  'f-area','f-subarea','f-empresa','f-escolaridade','f-origem',
   'f-instagram','f-linkedin','f-twitter','f-youtube',
   'f-hobbies','f-favoritos'
 ]);
@@ -1486,6 +1553,7 @@ async function salvarPerfil() {
       porqueG20:       getVal('f-porqueg20'),
       profissao:       getVal('f-profissao'),
       area:            getVal('f-area'),
+      subarea:         getVal('f-subarea'),
       empresa:         getVal('f-empresa'),
       escolaridade:    getVal('f-escolaridade'),
       origem:          getVal('f-origem'),
@@ -1612,7 +1680,7 @@ function csm() { if (window.innerWidth <= 768) closeSidebar(); }
 var TAB_FIELDS = {
   pessoal:    ['f-sobre','f-nome','f-nascimento','f-cidade','f-estado'],
   financeiro: ['f-renda','f-patrimonio','f-aporte-mensal','f-experiencia','f-meta','f-objetivo','f-disponibilidade','f-porqueg20'],
-  profissao:  ['f-profissao','f-area','f-empresa','f-escolaridade'],
+  profissao:  ['f-profissao','f-area','f-subarea','f-empresa','f-escolaridade'],
   redes:      ['f-instagram','f-linkedin','f-twitter','f-youtube'],
   hobbies:    ['f-hobbies','f-favoritos'],
   conquistas: []
