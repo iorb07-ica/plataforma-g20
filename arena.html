@@ -901,6 +901,7 @@ function initArena(){
   carregarArenaStats();
   carregarUnreadBadges();
   monitorarNotificacoes();
+  _checkHashDeepLink();
   lucide.createIcons();
 
   document.getElementById('postTitulo').addEventListener('input',function(){
@@ -1428,6 +1429,24 @@ function irParaPost(postId,notifId){
   if(notifId) db.collection('arena_notificacoes').doc(_user.uid).collection('items').doc(notifId).update({lido:true}).catch(function(){});
   fecharNotificacoes();abrirPost(postId);
 }
+
+// Deep-link: abre post automaticamente quando a URL tem #post-{id} (vindo do sininho global da topbar)
+function _checkHashDeepLink(){
+  var m = (location.hash||'').match(/^#post-(.+)$/);
+  if(!m || !m[1]) return;
+  var postId = m[1];
+  abrirPost(postId);
+  // Marca notificações desse post como lidas no Firestore (sincroniza com o sininho global)
+  if(_user){
+    db.collection('arena_notificacoes').doc(_user.uid).collection('items')
+      .where('postId','==',postId)
+      .where('lido','==',false)
+      .get().then(function(snap){
+        snap.forEach(function(doc){ doc.ref.update({lido:true}).catch(function(){}); });
+      }).catch(function(){});
+  }
+}
+window.addEventListener('hashchange', _checkHashDeepLink);
 
 // ─── TRENDING & ONLINE ───
 var TREND_COLORS={'acoes-br':'linear-gradient(90deg,#a08543,#e8c766)','fiis':'#3dac58','stocks':'#378add','cripto':'#7f77dd','renda-fixa':'#e05a5a','mentalidade':'#c9a961','leituras':'#85b7eb','geral':'rgba(255,255,255,.3)'};
