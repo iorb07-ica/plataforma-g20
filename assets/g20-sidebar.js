@@ -122,6 +122,66 @@
     };
   }
 
+  // ─── DRAWER MOBILE — abrir/fechar a sidebar como gaveta no celular ───
+  // Definidas como fallback: páginas que já têm a sua própria versão continuam
+  // usando a delas; páginas sem (ex: aporte-g20-live) ganham um drawer funcional.
+  // Breakpoint canônico do drawer: 768px.
+  var DRAWER_BP = 768;
+
+  if (!window.toggleSidebar) {
+    window.toggleSidebar = function(){
+      var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
+      var ov = document.getElementById('overlay');
+      if (!sb) return;
+      var willOpen = !sb.classList.contains('open');
+      sb.classList.toggle('open', willOpen);
+      if (ov) ov.classList.toggle('show', willOpen);
+      // Trava o scroll do conteúdo enquanto o menu está aberto
+      document.body.style.overflow = willOpen ? 'hidden' : '';
+    };
+  }
+
+  if (!window.closeSidebar) {
+    window.closeSidebar = function(){
+      var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
+      var ov = document.getElementById('overlay');
+      if (sb) sb.classList.remove('open');
+      if (ov) ov.classList.remove('show');
+      document.body.style.overflow = '';
+    };
+  }
+
+  // csm = "close sidebar mobile": fecha ao navegar, só em telas pequenas.
+  // O g20-sidebar.js chama csm() no clique de cada item do menu.
+  if (!window.csm) {
+    window.csm = function(){
+      if (window.innerWidth <= DRAWER_BP) window.closeSidebar();
+    };
+  }
+
+  // Robustez universal (não depende de cada página configurar):
+  // 1) ESC fecha o drawer aberto.
+  // 2) Se voltar pra largura desktop com o drawer aberto, limpa o estado.
+  if (!window._g20DrawerGlobalBound) {
+    window._g20DrawerGlobalBound = true;
+    document.addEventListener('keydown', function(e){
+      if (e.key === 'Escape' || e.keyCode === 27) {
+        var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
+        if (sb && sb.classList.contains('open') && typeof window.closeSidebar === 'function') {
+          window.closeSidebar();
+        }
+      }
+    });
+    window.addEventListener('resize', function(){
+      if (window.innerWidth > DRAWER_BP) {
+        var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
+        if (sb && sb.classList.contains('open') && typeof window.closeSidebar === 'function') {
+          window.closeSidebar();
+        }
+      }
+    });
+  }
+
   function injectCollapseBtn(){
     var sidebar = document.querySelector('.sidebar');
     if (!sidebar || sidebar.querySelector('.sidebar-collapse-btn')) return;
