@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="assets/g20-topbar-v21.css?v=12">
 <script src="assets/g20-sidebar.js?v=11"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<script src="assets/tradingview-logos.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
@@ -316,6 +317,21 @@ body{background:var(--bg);color:var(--text);font-family:"DM Sans",sans-serif;min
         </div>
       </div>
       <div class="field"><label>Descrição</label><textarea id="fDesc" placeholder="Resumo do vídeo..."></textarea></div>
+
+      <!-- ── APORTES DA LIVE (opcional) ── -->
+      <div class="img-editor-section">
+        <div class="img-editor-section-title">💰 Aportes desta live <span style="background:rgba(232,184,75,.16);color:var(--gold,#e8b84b);font-size:9px;font-weight:800;letter-spacing:1px;padding:2px 8px;border-radius:6px;margin-left:6px">OPCIONAL</span></div>
+        <div class="url-hint" style="margin-bottom:12px">Adicione os ativos comprados nesta live. O logo vem automático pelo ticker. A tese é opcional.</div>
+        <div style="display:grid;grid-template-columns:1fr .7fr .9fr auto;gap:8px;align-items:end;margin-bottom:8px">
+          <div class="field" style="margin:0"><label>Ticker</label><input type="text" id="apTicker" placeholder="Ex: BRK.B" onkeydown="if(event.key==='Enter'){event.preventDefault();addAporte();}"></div>
+          <div class="field" style="margin:0"><label>Qtd</label><input type="text" id="apQtd" placeholder="Ex: 3" onkeydown="if(event.key==='Enter'){event.preventDefault();addAporte();}"></div>
+          <div class="field" style="margin:0"><label>Preço pago</label><input type="text" id="apPreco" placeholder="US$ 461" onkeydown="if(event.key==='Enter'){event.preventDefault();addAporte();}"></div>
+          <button type="button" class="btn-save" style="height:39px;padding:0 16px;white-space:nowrap" onclick="addAporte()">+ Adicionar</button>
+        </div>
+        <div class="field" style="margin-bottom:10px"><label>Tese (opcional)</label><input type="text" id="apTese" placeholder="Por que compramos? (pode deixar em branco)" onkeydown="if(event.key==='Enter'){event.preventDefault();addAporte();}"></div>
+        <div id="apLista"></div>
+      </div>
+
       <div class="toggle-row">
         <span class="toggle-lbl">⭐ Marcar como destaque (aparece em primeiro no G20Flix)</span>
         <button class="toggle" id="toggleDestaque" onclick="this.classList.toggle('on')"></button>
@@ -583,6 +599,7 @@ function abrirModal(){
   // Resetar mocks
   var ci=document.getElementById('cardMockImg');if(ci){ci.style.opacity='0.15';ci.src='';}
   var hi=document.getElementById('heroMockImg');if(hi){hi.style.opacity='0.15';hi.src='';}
+  _aportes=[];renderAportes();
   document.getElementById('modalOverlay').classList.add('open');
   setTimeout(_bindImgSliders, 50);
   _resetImgSliders({});
@@ -599,6 +616,7 @@ function abrirEditar(docId){
   document.getElementById('fDate').value=v.date||'';
   document.getElementById('fEp').value=v.ep||'';
   document.getElementById('fDesc').value=v.desc||'';
+  _aportes=(v.aportes||[]).slice();renderAportes();
   // Imagens
   var ciEl=document.getElementById('fCardImg');if(ciEl)ciEl.value=v.cardImg||'';
   var hiEl=document.getElementById('fHeroImg');if(hiEl)hiEl.value=v.heroImg||'';
@@ -655,6 +673,45 @@ function onUrlInput(url){
   }
 }
 
+var _aportes=[];
+function logoAporteAdmin(tk){
+  var url=(window.TV_LOGOS&&TV_LOGOS.getUrl)?TV_LOGOS.getUrl(tk):null;
+  var ini=String(tk||'?').charAt(0).toUpperCase();
+  if(url) return '<div style="width:30px;height:30px;border-radius:7px;overflow:hidden;background:#fff;flex:0 0 auto"><img src="'+url+'" style="width:100%;height:100%;object-fit:contain" onerror="this.parentNode.style.background=\'#3a3f4a\';this.parentNode.innerHTML=\'<span style=&quot;color:#fff;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;height:100%&quot;>'+ini+'</span>\'"></div>';
+  return '<div style="width:30px;height:30px;border-radius:7px;background:#3a3f4a;color:#fff;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;flex:0 0 auto">'+ini+'</div>';
+}
+function renderAportes(){
+  var el=document.getElementById('apLista');if(!el)return;
+  if(!_aportes.length){el.innerHTML='<div style="color:var(--text3);font-size:13px;text-align:center;padding:16px;border:1px dashed var(--border,rgba(255,255,255,.08));border-radius:10px">Nenhum ativo adicionado ainda</div>';return;}
+  el.innerHTML=_aportes.map(function(a,i){
+    var meta=[a.qtd,a.preco].filter(Boolean).join(' · ');
+    var tese=a.tese?('&ldquo;'+a.tese+'&rdquo;'):'<span style="opacity:.5">sem tese</span>';
+    return '<div style="display:flex;align-items:center;gap:11px;background:var(--surface,#1c2030);border:1px solid var(--border,rgba(255,255,255,.08));border-radius:10px;padding:10px 12px;margin-bottom:8px">'+
+      logoAporteAdmin(a.ticker)+
+      '<b style="font-size:14px;width:70px">'+a.ticker+'</b>'+
+      '<span style="color:var(--text2,#b0bac8);font-size:12px;min-width:90px">'+(meta||'—')+'</span>'+
+      '<span style="color:var(--text3,#6b7a94);font-size:12px;font-style:italic;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+tese+'</span>'+
+      '<button type="button" onclick="rmAporte('+i+')" title="Remover" style="margin-left:auto;background:none;border:none;color:var(--text3,#6b7a94);font-size:18px;cursor:pointer;flex:0 0 auto">&times;</button></div>';
+  }).join('');
+}
+function addAporte(){
+  var tk=(document.getElementById('apTicker').value||'').trim();
+  if(!tk){toast('❌ Informe o ticker');return;}
+  _aportes.push({
+    ticker:tk.toUpperCase(),
+    qtd:(document.getElementById('apQtd').value||'').trim(),
+    preco:(document.getElementById('apPreco').value||'').trim(),
+    tese:(document.getElementById('apTese').value||'').trim()
+  });
+  document.getElementById('apTicker').value='';
+  document.getElementById('apQtd').value='';
+  document.getElementById('apPreco').value='';
+  document.getElementById('apTese').value='';
+  document.getElementById('apTicker').focus();
+  renderAportes();
+}
+function rmAporte(i){_aportes.splice(i,1);renderAportes();}
+
 function salvarVideo(){
   var url=document.getElementById('fUrl').value.trim(),id=extrairYouTubeId(url);
   if(!id){toast('❌ URL do YouTube inválida');return;}
@@ -681,6 +738,7 @@ function salvarVideo(){
   if(hSlX) video.heroImgX=parseInt(hSlX.value);
   if(hSlY) video.heroImgY=parseInt(hSlY.value);
   if(hSlZ) video.heroImgZ=parseFloat(hSlZ.value)/100;
+  video.aportes=_aportes.slice();
   salvarNoFirestore(video,_editingId)
     .then(function(ref){
       if(_editingId){var idx=_videos.findIndex(function(v){return v.docId===_editingId;});if(idx>=0){video.docId=_editingId;_videos[idx]=video;}}
