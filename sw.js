@@ -1,4 +1,4 @@
-const CACHE = 'g20-v15';
+const CACHE = 'g20-v16';
 const STATIC = [
   'manifest.json',
   'icon-192.png',
@@ -16,22 +16,14 @@ self.addEventListener('install', function(e) {
 });
 self.addEventListener('activate', function(e) {
   e.waitUntil(
-    // 1) Apaga TODOS os caches antigos (inclusive de SWs muito velhos presos no device)
+    // Apaga todos os caches antigos (inclusive de SWs velhos presos no device)
     caches.keys().then(function(keys) {
       return Promise.all(
         keys.filter(function(k) { return k !== CACHE; })
             .map(function(k) { return caches.delete(k); })
       );
-    })
-    // 2) Assume o controle imediato de todas as abas
-    .then(function() { return self.clients.claim(); })
-    // 3) Recarrega cada aba aberta para sair de qualquer HTML velho servido pelo SW anterior
-    .then(function() { return self.clients.matchAll({ type: 'window' }); })
-    .then(function(clients) {
-      clients.forEach(function(c) {
-        try { c.navigate(c.url); } catch (err) {}
-      });
-    })
+    }).then(function() { return self.clients.claim(); })
+    // SEM reload automático aqui — evita loop de recarregamento.
   );
 });
 self.addEventListener('fetch', function(e) {
