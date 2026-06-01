@@ -322,10 +322,11 @@ body{background:var(--bg);color:var(--text);font-family:"DM Sans",sans-serif;min
       <div class="img-editor-section">
         <div class="img-editor-section-title">💰 Aportes desta live <span style="background:rgba(232,184,75,.16);color:var(--gold,#e8b84b);font-size:9px;font-weight:800;letter-spacing:1px;padding:2px 8px;border-radius:6px;margin-left:6px">OPCIONAL</span></div>
         <div class="url-hint" style="margin-bottom:12px">Adicione os ativos comprados nesta live. O logo vem automático pelo ticker. A tese é opcional.</div>
-        <div style="display:grid;grid-template-columns:1fr .7fr .9fr auto;gap:8px;align-items:end;margin-bottom:8px">
+        <div style="display:grid;grid-template-columns:1fr .6fr .85fr .6fr auto;gap:8px;align-items:end;margin-bottom:8px">
           <div class="field" style="margin:0"><label>Ticker</label><input type="text" id="apTicker" placeholder="Ex: BRK.B" onkeydown="if(event.key==='Enter'){event.preventDefault();addAporte();}"></div>
           <div class="field" style="margin:0"><label>Qtd</label><input type="text" id="apQtd" placeholder="Ex: 3" onkeydown="if(event.key==='Enter'){event.preventDefault();addAporte();}"></div>
-          <div class="field" style="margin:0"><label>Preço pago</label><input type="text" id="apPreco" placeholder="US$ 461" onkeydown="if(event.key==='Enter'){event.preventDefault();addAporte();}"></div>
+          <div class="field" style="margin:0"><label>Preço pago</label><input type="text" id="apPreco" placeholder="Ex: 8,10" onkeydown="if(event.key==='Enter'){event.preventDefault();addAporte();}"></div>
+          <div class="field" style="margin:0"><label>Moeda</label><select id="apMoeda" style="height:39px"><option value="auto">Auto</option><option value="R$">R$</option><option value="US$">US$</option></select></div>
           <button type="button" class="btn-save" style="height:39px;padding:0 16px;white-space:nowrap" onclick="addAporte()">+ Adicionar</button>
         </div>
         <div class="field" style="margin-bottom:10px"><label>Tese (opcional)</label><input type="text" id="apTese" placeholder="Por que compramos? (pode deixar em branco)" onkeydown="if(event.key==='Enter'){event.preventDefault();addAporte();}"></div>
@@ -674,6 +675,24 @@ function onUrlInput(url){
 }
 
 var _aportes=[];
+var BR_TICKERS={'ITUB4':1,'BBDC4':1,'BBAS3':1,'ABEV3':1,'B3SA3':1,'GGBR4':1,'BBSE3':1,'EQTL3':1,'SBSP3':1,'KLBN11':1,'VIVT3':1,'MULT3':1,'HAPV3':1,'TOTS3':1,'EMBR3':1,'PETR3':1,'PRIO3':1,'VALE3':1,'PETR4':1,'BPAC11':1,'SBFG3':1,'RENT3':1,'VIVA3':1,'INTB3':1,'BMOB3':1,'LREN3':1,'WEGE3':1,'SAPR11':1,'RADL3':1,'VULC3':1,'AZZA3':1,'MGLU3':1,'CVCB3':1,'ENEV3':1,'WIZC3':1,'BRAV3':1,'AUAU3':1,'QUAL3':1,'BRKM5':1,'EGIE3':1,'GMAT3':1,'SUZB3':1,'CMIG4':1,'TRIS3':1,'NATU3':1,'VRTA11':1,'BCRI11':1,'TVRI11':1,'BTHF11':1,'HGLG11':1,'VISC11':1,'KNRI11':1,'XPLG11':1,'RBRR11':1,'HCTR11':1,'KNCA11':1,'CPTR11':1,'SNAG11':1,'XPCA11':1};
+function moedaTicker(tk){
+  tk=String(tk||'').toUpperCase().trim().replace(/\.SA$/,'');
+  // 1. Cripto (via TradingView) -> sempre US$ (ativos internacionais)
+  if(window.TV_LOGOS&&window.TV_LOGOS.map&&/^crypto\//.test(window.TV_LOGOS.map[tk]||'')) return 'US$';
+  // 2. Lista explicita BR (curadoria do tickers-source) -> R$
+  if(BR_TICKERS[tk]) return 'R$';
+  // 3. Rede de seguranca: padrao B3 (4 letras + 1-2 digitos) -> R$
+  if(/^[A-Z]{4}\d{1,2}$/.test(tk)) return 'R$';
+  // 4. Resto (stocks US, BR listadas la fora como INTR/NU) -> US$
+  return 'US$';
+}
+function fmtPreco(valor,ticker){
+  valor=String(valor||'').trim();
+  if(!valor) return '';
+  if(/r\$|us\$|\$|€|£/i.test(valor)) return valor;
+  return moedaTicker(ticker)+' '+valor;
+}
 function logoAporteAdmin(tk){
   var url=(window.TV_LOGOS&&TV_LOGOS.getUrl)?TV_LOGOS.getUrl(tk):null;
   var ini=String(tk||'?').charAt(0).toUpperCase();
@@ -684,7 +703,7 @@ function renderAportes(){
   var el=document.getElementById('apLista');if(!el)return;
   if(!_aportes.length){el.innerHTML='<div style="color:var(--text3);font-size:13px;text-align:center;padding:16px;border:1px dashed var(--border,rgba(255,255,255,.08));border-radius:10px">Nenhum ativo adicionado ainda</div>';return;}
   el.innerHTML=_aportes.map(function(a,i){
-    var meta=[a.qtd,a.preco].filter(Boolean).join(' · ');
+    var meta=[a.qtd,fmtPreco(a.preco,a.ticker)].filter(Boolean).join(' · ');
     var tese=a.tese?('&ldquo;'+a.tese+'&rdquo;'):'<span style="opacity:.5">sem tese</span>';
     return '<div style="display:flex;align-items:center;gap:11px;background:var(--surface,#1c2030);border:1px solid var(--border,rgba(255,255,255,.08));border-radius:10px;padding:10px 12px;margin-bottom:8px">'+
       logoAporteAdmin(a.ticker)+
@@ -700,13 +719,21 @@ function addAporte(){
   _aportes.push({
     ticker:tk.toUpperCase(),
     qtd:(document.getElementById('apQtd').value||'').trim(),
-    preco:(document.getElementById('apPreco').value||'').trim(),
+    preco:(function(){
+      var raw=(document.getElementById('apPreco').value||'').trim();
+      if(!raw) return '';
+      var moeda=(document.getElementById('apMoeda')||{}).value||'auto';
+      if(moeda==='auto') return fmtPreco(raw, tk);
+      if(/r\$|us\$|\$|€|£/i.test(raw)) return raw;
+      return moeda+' '+raw;
+    })(),
     tese:(document.getElementById('apTese').value||'').trim()
   });
   document.getElementById('apTicker').value='';
   document.getElementById('apQtd').value='';
   document.getElementById('apPreco').value='';
   document.getElementById('apTese').value='';
+  var _am=document.getElementById('apMoeda');if(_am)_am.value='auto';
   document.getElementById('apTicker').focus();
   renderAportes();
 }
