@@ -906,6 +906,15 @@ function fmtPreco(valor,ticker){
   if(/r\$|us\$|\$|€|£/i.test(valor)) return valor;
   return moedaTicker(ticker)+' '+valor;
 }
+var _alHover = !!(window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches);
+var _alTimer = null;
+function alCancelClose(){ if(_alTimer){clearTimeout(_alTimer); _alTimer=null;} }
+function alScheduleClose(){ alCancelClose(); _alTimer=setTimeout(alClosePop, 220); }
+function alClosePop(){
+  alCancelClose();
+  var ov=document.getElementById('alPopOv'); if(ov) ov.classList.remove('open');
+  document.querySelectorAll('.al-chip').forEach(function(c){c.classList.remove('active');});
+}
 function alLogo(tk){
   var url=(window.TV_LOGOS&&TV_LOGOS.getUrl)?TV_LOGOS.getUrl(tk):null;
   var ini=String(tk||'?').charAt(0).toUpperCase();
@@ -925,7 +934,18 @@ function renderAportesLive(v){
   }).join('');
   wrap.classList.remove('g20-hidden');
   Array.prototype.forEach.call(chips.querySelectorAll('.al-chip'),function(c){
-    c.addEventListener('click',function(e){ e.stopPropagation(); alOpenPop(ap[parseInt(c.dataset.i)], c); });
+    var idx=parseInt(c.dataset.i);
+    if(_alHover){
+      // Desktop: abre ao passar o mouse, troca entre chips, fecha ao sair
+      c.addEventListener('mouseenter',function(){ alCancelClose(); alOpenPop(ap[idx], c); });
+      c.addEventListener('mouseleave',function(){ alScheduleClose(); });
+    } else {
+      // Mobile/touch: toque abre; tocar de novo no mesmo fecha
+      c.addEventListener('click',function(e){ e.stopPropagation();
+        if(c.classList.contains('active')){ alClosePop(); }
+        else { alOpenPop(ap[idx], c); }
+      });
+    }
   });
 }
 function alOpenPop(a, chipEl){
@@ -944,7 +964,7 @@ function alOpenPop(a, chipEl){
   ov.classList.add('open');
   var r=chipEl.getBoundingClientRect(); var pw=288;
   var left=Math.max(12, Math.min(r.left+r.width/2-pw/2, window.innerWidth-pw-12));
-  pop.style.left=left+'px'; pop.style.top=(r.bottom+12)+'px';
+  pop.style.left=left+'px'; pop.style.top=(r.bottom+8)+'px';
   var arrow=document.getElementById('alArrow');
   if(arrow) arrow.style.left=Math.max(14, Math.min(r.left+r.width/2-left-7, pw-28))+'px';
 }
@@ -1317,9 +1337,17 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
 <script>
 (function(){
   var ov=document.getElementById('alPopOv');
-  if(ov){
-    ov.addEventListener('click',function(){ ov.classList.remove('open'); document.querySelectorAll('.al-chip').forEach(function(c){c.classList.remove('active');}); });
-    var pop=document.getElementById('alPop'); if(pop) pop.addEventListener('click',function(e){e.stopPropagation();});
+  var pop=document.getElementById('alPop');
+  if(!ov||!pop) return;
+  if(_alHover){
+    // Overlay nao captura mouse (deixa hover nos chips funcionar); popover sim
+    ov.style.pointerEvents='none';
+    pop.style.pointerEvents='auto';
+    pop.addEventListener('mouseenter', alCancelClose);
+    pop.addEventListener('mouseleave', alScheduleClose);
+  } else {
+    ov.addEventListener('click', alClosePop);
+    pop.addEventListener('click', function(e){ e.stopPropagation(); });
   }
 })();
 </script>
