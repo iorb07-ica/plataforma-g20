@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Diagnóstico do Topo G20</title>
+<style>
+  body{margin:0;background:#1a191e;color:#eef0f4;font-family:-apple-system,system-ui,sans-serif;padding:16px;font-size:14px;line-height:1.5}
+  h1{font-size:16px;color:#c9a961;margin:0 0 4px}
+  .sub{color:#8a95a8;font-size:12px;margin-bottom:16px}
+  button{background:#c9a961;color:#1a191e;border:none;border-radius:10px;padding:14px 20px;font-size:15px;font-weight:700;width:100%;margin-bottom:16px}
+  pre{background:#27252c;border:1px solid rgba(201,169,97,.25);border-radius:10px;padding:14px;white-space:pre-wrap;word-break:break-word;font-size:12px;font-family:ui-monospace,Menlo,monospace}
+</style>
+</head>
+<body>
+  <h1>Diagnóstico do Topo — Dashboard</h1>
+  <div class="sub">Mede o espaço acima da topbar (notch / safe-area) e onde a topbar realmente começa.</div>
+  <button onclick="run()">▶ Rodar diagnóstico do topo</button>
+  <pre id="out">Aguardando…</pre>
+
+<script>
+function run(){
+  var out = document.getElementById('out');
+  out.textContent = 'Carregando o dashboard… aguarde ~5 segundos.';
+  var iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position:absolute;left:-9999px;top:0;width:'+window.innerWidth+'px;height:700px;border:0';
+  iframe.src = 'dashboard.html?diagtop=' + Date.now();
+  document.body.appendChild(iframe);
+  iframe.onload = function(){ setTimeout(function(){ inspect(iframe); }, 3000); };
+}
+function inspect(iframe){
+  var out = document.getElementById('out');
+  try{
+    var doc = iframe.contentDocument || iframe.contentWindow.document;
+    var win = iframe.contentWindow;
+    var lines = [];
+
+    // safe-area-inset-top (notch) — lê via uma sonda
+    var probe = doc.createElement('div');
+    probe.style.cssText = 'position:fixed;top:0;height:env(safe-area-inset-top,0px);width:1px';
+    doc.body.appendChild(probe);
+    var safeTop = Math.round(probe.getBoundingClientRect().height);
+
+    var topbar = doc.querySelector('.topbar');
+    var tbCS = win.getComputedStyle(topbar);
+    var tbRect = topbar.getBoundingClientRect();
+
+    // primeiro elemento "real" abaixo da topbar (ticker ou main)
+    var main = doc.querySelector('.main');
+    var mainCS = main ? win.getComputedStyle(main) : null;
+
+    lines.push('=== TOPO ===');
+    lines.push('safe-area-inset-top (notch): ' + safeTop + 'px');
+    lines.push('');
+    lines.push('--- .topbar ---');
+    lines.push('position: ' + tbCS.position);
+    lines.push('top: ' + tbCS.top);
+    lines.push('rect.top (onde começa): ' + Math.round(tbRect.top) + 'px');
+    lines.push('rect.height: ' + Math.round(tbRect.height) + 'px');
+    lines.push('padding-top: ' + tbCS.paddingTop);
+    lines.push('background: ' + tbCS.backgroundColor);
+    if(mainCS){
+      lines.push('');
+      lines.push('--- .main ---');
+      lines.push('padding-top: ' + mainCS.paddingTop);
+    }
+    lines.push('');
+    lines.push('=== LEITURA ===');
+    if(Math.round(tbRect.top) > 1){
+      lines.push('⚠ A topbar começa ' + Math.round(tbRect.top) + 'px abaixo do topo.');
+      lines.push('Esse é o GAP. Algo está empurrando ela pra baixo.');
+    } else {
+      lines.push('✓ A topbar começa no topo (rect.top ~0).');
+      lines.push('Se há faixa escura, é a safe-area pintada pelo fundo.');
+    }
+    out.textContent = lines.join('\n');
+  }catch(err){
+    out.textContent = 'ERRO: ' + err.message;
+  }
+}
+</script>
+</body>
+</html>
