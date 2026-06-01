@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Diagnóstico Topbar G20</title>
+<style>
+  body{margin:0;background:#1a191e;color:#eef0f4;font-family:-apple-system,system-ui,sans-serif;padding:16px;font-size:14px;line-height:1.5}
+  h1{font-size:16px;color:#c9a961;margin:0 0 4px}
+  .sub{color:#8a95a8;font-size:12px;margin-bottom:16px}
+  button{background:#c9a961;color:#1a191e;border:none;border-radius:10px;padding:14px 20px;font-size:15px;font-weight:700;width:100%;margin-bottom:16px}
+  pre{background:#27252c;border:1px solid rgba(201,169,97,.25);border-radius:10px;padding:14px;white-space:pre-wrap;word-break:break-word;font-size:12px;font-family:ui-monospace,Menlo,monospace}
+  .ok{color:#5ad17a}.bad{color:#e63946}.warn{color:#e8c766}
+</style>
+</head>
+<body>
+  <h1>Diagnóstico da Topbar — Dashboard</h1>
+  <div class="sub">Carrega o dashboard num quadro invisível e inspeciona a topbar no SEU iPhone. Toque no botão.</div>
+  <button onclick="run()">▶ Rodar diagnóstico</button>
+  <pre id="out">Aguardando…</pre>
+
+<script>
+function run(){
+  var out = document.getElementById('out');
+  out.textContent = 'Carregando o dashboard… aguarde ~5 segundos.';
+  var iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position:absolute;left:-9999px;top:0;width:'+window.innerWidth+'px;height:700px;border:0';
+  iframe.src = 'dashboard.html?diag=' + Date.now();
+  document.body.appendChild(iframe);
+  iframe.onload = function(){
+    setTimeout(function(){ inspect(iframe); }, 3500); // espera o JS injetar os botões
+  };
+}
+function inspect(iframe){
+  var out = document.getElementById('out');
+  try{
+    var doc = iframe.contentDocument || iframe.contentWindow.document;
+    var win = iframe.contentWindow;
+    var tr = doc.querySelector('.topbar-right');
+    if(!tr){ out.textContent = 'ERRO: não achei .topbar-right no dashboard.'; return; }
+    var vw = win.innerWidth;
+    var lines = ['Largura do iframe: ' + vw + 'px', ''];
+    var kids = tr.children;
+    lines.push('topbar-right tem ' + kids.length + ' elementos:');
+    lines.push('');
+    for(var i=0;i<kids.length;i++){
+      var e = kids[i];
+      var cs = win.getComputedStyle(e);
+      var rect = e.getBoundingClientRect();
+      var id = e.id || e.getAttribute('title') || e.className || e.tagName;
+      var visivel = (cs.display !== 'none' && cs.visibility !== 'hidden' && rect.width > 0);
+      var dentro = (rect.right <= vw + 1 && rect.left >= -1);
+      var tag = '';
+      if(cs.display === 'none') tag = ' [ESCONDIDO]';
+      else if(!dentro) tag = ' [FORA DA TELA →]';
+      else if(visivel) tag = ' [OK]';
+      lines.push((i+1)+'. '+id+tag);
+      lines.push('    display:'+cs.display+'  w:'+Math.round(rect.width)+'px  x:'+Math.round(rect.left)+'→'+Math.round(rect.right));
+    }
+    out.textContent = lines.join('\n');
+  }catch(err){
+    out.textContent = 'ERRO ao inspecionar: ' + err.message + '\n\n(Pode ser bloqueio de segurança do iframe. Me avise.)';
+  }
+}
+</script>
+</body>
+</html>
