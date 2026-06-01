@@ -22,6 +22,7 @@
 <script src="assets/g20-sidebar.js?v=11"></script>
 <script src="assets/g20-search.js?v=10"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<script src="assets/tradingview-logos.js"></script>
 <style>
 :root{
   --bg:#1a191e;--bg2:#1f1e22;--bg3:#15141a;--bg-deep:#15141a;
@@ -295,6 +296,34 @@ body.is-admin .card:active{cursor:grabbing}
 .badge-infinity{display:none;border:1px solid #c9a961;color:#c9a961;font-size:9px;font-weight:700;padding:1px 7px;border-radius:20px;background:rgba(201,169,97,.1);letter-spacing:.5px;white-space:nowrap;flex-shrink:0}
 .user-turma{font-size:10px;color:var(--gold);font-weight:600;display:flex;align-items:center;gap:4px;margin-top:2px}
 .user-online{width:6px;height:6px;min-width:6px;min-height:6px;border-radius:50%;background:#2ecc71;flex-shrink:0;display:inline-block}
+
+/* ── APORTES DA LIVE (chips + popover) ── */
+.aportes-live{margin:18px 0 4px;padding:18px 20px;background:var(--bg2);border:1px solid var(--border);border-radius:16px}
+.al-head{font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gold);margin-bottom:14px;display:flex;align-items:center;gap:9px}
+.al-bar{display:block;width:3px;height:13px;border-radius:2px;background:var(--gold)}
+.al-chips{display:flex;gap:10px;flex-wrap:wrap}
+.al-chip{display:flex;align-items:center;gap:9px;background:var(--surface);border:1px solid var(--border);border-radius:30px;padding:7px 15px 7px 7px;cursor:pointer;transition:transform .15s,border-color .15s;user-select:none}
+.al-chip:hover{transform:translateY(-2px);border-color:var(--gold)}
+.al-chip.active{border-color:var(--gold);box-shadow:0 0 0 2px rgba(201,169,97,.3)}
+.al-logo{width:26px;height:26px;border-radius:6px;overflow:hidden;background:#fff;flex:0 0 auto;display:flex;align-items:center;justify-content:center}
+.al-logo img{width:100%;height:100%;object-fit:contain}
+.al-logo .ini{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#3a3f4a;color:#fff;font-weight:800;font-size:11px}
+.al-chip b{font-size:14px;color:var(--text)}
+.al-chip .pct{color:var(--gold);font-weight:700;font-size:13px}
+.al-pop-ov{position:fixed;inset:0;z-index:9000;display:none}
+.al-pop-ov.open{display:block}
+.al-pop{position:absolute;width:288px;background:var(--surface);border:1px solid var(--gold);border-radius:14px;padding:17px;box-shadow:0 24px 60px rgba(0,0,0,.7);z-index:9001}
+.al-pop .ph{display:flex;align-items:center;gap:11px;margin-bottom:13px}
+.al-pop .ph .al-logo{width:40px;height:40px;border-radius:10px}
+.al-pop .ph .t{font-weight:800;font-size:16px;color:var(--text)}
+.al-pop .ph .n{color:var(--text2);font-size:12px}
+.al-pop .grid{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-bottom:12px}
+.al-pop .f .l{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text3)}
+.al-pop .f .v{font-weight:700;font-size:14px;margin-top:2px;color:var(--text)}
+.al-pop .tese{border-top:1px solid var(--border);padding-top:11px}
+.al-pop .tese .l{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--gold);margin-bottom:4px}
+.al-pop .tese .txt{font-size:13px;color:var(--text);line-height:1.5}
+.al-pop .arrow{position:absolute;width:13px;height:13px;background:var(--surface);border-left:1px solid var(--gold);border-top:1px solid var(--gold);transform:rotate(45deg);top:-7px}
 </style>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -449,6 +478,10 @@ if(localStorage.getItem('g20_uid')){
           <button class="btn-play-hero" id="btnPlayHero">&#9654; Assistir Agora</button>
         </div>
       </div>
+    </div>
+    <div class="aportes-live g20-hidden" id="aportesLive">
+      <div class="al-head"><span class="al-bar"></span> Aportes desta live</div>
+      <div class="al-chips" id="alChips"></div>
     </div>
     <div class="filters">
       <div class="sec-title">Episódios&nbsp;<span class="cnt" id="cnt">0</span></div>
@@ -711,6 +744,7 @@ function setHero(idx) {
   document.getElementById("heroDate").textContent = v.date || '';
   document.getElementById("heroDesc").textContent = v.desc || "";
   document.getElementById("heroTag").style.display = idx === 0 ? "inline-flex" : "none";
+  renderAportesLive(v);
   renderGrid();
 }
 
@@ -852,6 +886,67 @@ function loadVideosFromFirestore(db, uid) {
       document.getElementById('heroWrap').classList.remove('g20-hidden');
       document.getElementById('grid').classList.remove('g20-hidden');
     });
+}
+
+var BR_TICKERS={'ITUB4':1,'BBDC4':1,'BBAS3':1,'ABEV3':1,'B3SA3':1,'GGBR4':1,'BBSE3':1,'EQTL3':1,'SBSP3':1,'KLBN11':1,'VIVT3':1,'MULT3':1,'HAPV3':1,'TOTS3':1,'EMBR3':1,'PETR3':1,'PRIO3':1,'VALE3':1,'PETR4':1,'BPAC11':1,'SBFG3':1,'RENT3':1,'VIVA3':1,'INTB3':1,'BMOB3':1,'LREN3':1,'WEGE3':1,'SAPR11':1,'RADL3':1,'VULC3':1,'AZZA3':1,'MGLU3':1,'CVCB3':1,'ENEV3':1,'WIZC3':1,'BRAV3':1,'AUAU3':1,'QUAL3':1,'BRKM5':1,'EGIE3':1,'GMAT3':1,'SUZB3':1,'CMIG4':1,'TRIS3':1,'NATU3':1,'VRTA11':1,'BCRI11':1,'TVRI11':1,'BTHF11':1,'HGLG11':1,'VISC11':1,'KNRI11':1,'XPLG11':1,'RBRR11':1,'HCTR11':1,'KNCA11':1,'CPTR11':1,'SNAG11':1,'XPCA11':1};
+function moedaTicker(tk){
+  tk=String(tk||'').toUpperCase().trim().replace(/\.SA$/,'');
+  // 1. Cripto (via TradingView) -> sempre US$ (ativos internacionais)
+  if(window.TV_LOGOS&&window.TV_LOGOS.map&&/^crypto\//.test(window.TV_LOGOS.map[tk]||'')) return 'US$';
+  // 2. Lista explicita BR (curadoria do tickers-source) -> R$
+  if(BR_TICKERS[tk]) return 'R$';
+  // 3. Rede de seguranca: padrao B3 (4 letras + 1-2 digitos) -> R$
+  if(/^[A-Z]{4}\d{1,2}$/.test(tk)) return 'R$';
+  // 4. Resto (stocks US, BR listadas la fora como INTR/NU) -> US$
+  return 'US$';
+}
+function fmtPreco(valor,ticker){
+  valor=String(valor||'').trim();
+  if(!valor) return '';
+  if(/r\$|us\$|\$|€|£/i.test(valor)) return valor;
+  return moedaTicker(ticker)+' '+valor;
+}
+function alLogo(tk){
+  var url=(window.TV_LOGOS&&TV_LOGOS.getUrl)?TV_LOGOS.getUrl(tk):null;
+  var ini=String(tk||'?').charAt(0).toUpperCase();
+  if(url) return '<span class="al-logo"><img src="'+url+'" onerror="this.parentNode.innerHTML=\'<span class=&quot;ini&quot;>'+ini+'</span>\'"></span>';
+  return '<span class="al-logo"><span class="ini">'+ini+'</span></span>';
+}
+function renderAportesLive(v){
+  var wrap=document.getElementById('aportesLive');
+  var chips=document.getElementById('alChips');
+  if(!wrap||!chips) return;
+  var ap=(v&&v.aportes)?v.aportes:[];
+  if(!ap.length){ wrap.classList.add('g20-hidden'); chips.innerHTML=''; return; }
+  // calcula pesos se houver valores; senao omite %
+  var nums=ap.map(function(a){return parseFloat(String(a.preco||'').replace(/[^0-9.,]/g,'').replace('.','').replace(',','.'))||0;});
+  chips.innerHTML=ap.map(function(a,i){
+    return '<div class="al-chip" data-i="'+i+'">'+alLogo(a.ticker)+'<b>'+a.ticker+'</b></div>';
+  }).join('');
+  wrap.classList.remove('g20-hidden');
+  Array.prototype.forEach.call(chips.querySelectorAll('.al-chip'),function(c){
+    c.addEventListener('click',function(e){ e.stopPropagation(); alOpenPop(ap[parseInt(c.dataset.i)], c); });
+  });
+}
+function alOpenPop(a, chipEl){
+  var ov=document.getElementById('alPopOv'); var pop=document.getElementById('alPop');
+  if(!ov||!pop) return;
+  document.querySelectorAll('.al-chip').forEach(function(c){c.classList.remove('active');});
+  chipEl.classList.add('active');
+  var rows='';
+  if(a.qtd) rows+='<div class="f"><div class="l">Quantidade</div><div class="v">'+a.qtd+'</div></div>';
+  if(a.preco) rows+='<div class="f"><div class="l">Preço pago</div><div class="v">'+fmtPreco(a.preco,a.ticker)+'</div></div>';
+  var grid = rows?('<div class="grid">'+rows+'</div>'):'';
+  var tese = a.tese?('<div class="tese"><div class="l">Por que compramos</div><div class="txt">'+a.tese+'</div></div>'):'';
+  pop.innerHTML='<div class="arrow" id="alArrow"></div>'+
+    '<div class="ph">'+alLogo(a.ticker)+'<div><div class="t">'+a.ticker+'</div><div class="n">'+(a.nome||'')+'</div></div></div>'+
+    grid+tese+(!grid&&!tese?'<div class="n" style="color:var(--text2);font-size:13px">Sem detalhes adicionais.</div>':'');
+  ov.classList.add('open');
+  var r=chipEl.getBoundingClientRect(); var pw=288;
+  var left=Math.max(12, Math.min(r.left+r.width/2-pw/2, window.innerWidth-pw-12));
+  pop.style.left=left+'px'; pop.style.top=(r.bottom+12)+'px';
+  var arrow=document.getElementById('alArrow');
+  if(arrow) arrow.style.left=Math.max(14, Math.min(r.left+r.width/2-left-7, pw-28))+'px';
 }
 
 function renderGrid() {
@@ -1218,5 +1313,15 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
       syncSwitchToBody();
     })();
   </script>
+<div class="al-pop-ov" id="alPopOv"><div class="al-pop" id="alPop"></div></div>
+<script>
+(function(){
+  var ov=document.getElementById('alPopOv');
+  if(ov){
+    ov.addEventListener('click',function(){ ov.classList.remove('open'); document.querySelectorAll('.al-chip').forEach(function(c){c.classList.remove('active');}); });
+    var pop=document.getElementById('alPop'); if(pop) pop.addEventListener('click',function(e){e.stopPropagation();});
+  }
+})();
+</script>
 </body>
 </html>
