@@ -12,6 +12,7 @@
 <script src="assets/g20-sidebar.js?v=11"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 <script src="assets/tradingview-logos.js"></script>
+<script src="assets/ativos-info.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
@@ -166,6 +167,9 @@ body{background:var(--bg);color:var(--text);font-family:"DM Sans",sans-serif;min
 .ap-edit.qt{width:64px;text-align:center}
 .ap-edit.pc{width:108px}
 .ap-edit.te{flex:1;font-style:italic;color:var(--text2,#b0bac8)}
+.ap-edit.nm{font-size:13px;color:var(--text,#f4f6fa)}
+select.ap-edit{background:var(--surface,#1c2030);cursor:pointer;font-size:12px}
+select.ap-edit option{background:#1c2030;color:#f4f6fa}
 .ap-rm{margin-left:auto;background:none;border:none;color:var(--text3,#6b7a94);font-size:18px;cursor:pointer;flex:0 0 auto;padding:0 4px}
 .ap-rm:hover{color:#e63946}
 </style>
@@ -335,11 +339,15 @@ body{background:var(--bg);color:var(--text);font-family:"DM Sans",sans-serif;min
         <div class="img-editor-section-title">💰 Aportes desta live <span style="background:rgba(232,184,75,.16);color:var(--gold,#e8b84b);font-size:9px;font-weight:800;letter-spacing:1px;padding:2px 8px;border-radius:6px;margin-left:6px">OPCIONAL</span></div>
         <div class="url-hint" style="margin-bottom:12px">Adicione os ativos comprados nesta live. O logo vem automático pelo ticker. A tese é opcional.</div>
         <div style="display:grid;grid-template-columns:1fr .6fr .85fr .6fr auto;gap:8px;align-items:end;margin-bottom:8px">
-          <div class="field" style="margin:0"><label>Ticker</label><input type="text" id="apTicker" placeholder="Ex: BRK.B" onkeydown="if(event.key==='Enter'){event.preventDefault();addAporte();}"></div>
+          <div class="field" style="margin:0"><label>Ticker</label><input type="text" id="apTicker" placeholder="Ex: BRK.B" oninput="_apAutoInfo()" onkeydown="if(event.key==='Enter'){event.preventDefault();addAporte();}"></div>
           <div class="field" style="margin:0"><label>Qtd</label><input type="text" id="apQtd" placeholder="Ex: 3" onkeydown="if(event.key==='Enter'){event.preventDefault();addAporte();}"></div>
           <div class="field" style="margin:0"><label>Preço pago</label><input type="text" id="apPreco" placeholder="Ex: 8,10" onkeydown="if(event.key==='Enter'){event.preventDefault();addAporte();}"></div>
           <div class="field" style="margin:0"><label>Moeda</label><select id="apMoeda" style="height:39px"><option value="auto">Auto</option><option value="R$">R$</option><option value="US$">US$</option></select></div>
           <button type="button" class="btn-save" style="height:39px;padding:0 16px;white-space:nowrap" onclick="addAporte()">+ Adicionar</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:8px;margin-bottom:10px">
+          <div class="field" style="margin:0"><label>Nome da empresa <span style="color:var(--text3);font-weight:400">(auto pelo ticker)</span></label><input type="text" id="apNome" placeholder="Ex: Inter & Co"></div>
+          <div class="field" style="margin:0"><label>Classe</label><select id="apClasse" style="height:39px"></select></div>
         </div>
         <div class="field" style="margin-bottom:10px"><label>Tese (opcional)</label><input type="text" id="apTese" placeholder="Por que compramos? (pode deixar em branco)" onkeydown="if(event.key==='Enter'){event.preventDefault();addAporte();}"></div>
         <div id="apLista"></div>
@@ -612,7 +620,7 @@ function abrirModal(){
   // Resetar mocks
   var ci=document.getElementById('cardMockImg');if(ci){ci.style.opacity='0.15';ci.src='';}
   var hi=document.getElementById('heroMockImg');if(hi){hi.style.opacity='0.15';hi.src='';}
-  _aportes=[];renderAportes();
+  _aportes=[];renderAportes();_apPreencherClasses(document.getElementById('apClasse'),'');
   document.getElementById('modalOverlay').classList.add('open');
   setTimeout(_bindImgSliders, 50);
   _resetImgSliders({});
@@ -705,6 +713,20 @@ function fmtPreco(valor,ticker){
   if(/r\$|us\$|\$|€|£/i.test(valor)) return valor;
   return moedaTicker(ticker)+' '+valor;
 }
+function _apPreencherClasses(sel, val){
+  if(!sel)return;
+  var classes=(window.G20_ATIVOS&&G20_ATIVOS.classes)||['Ação BR','Fundo Imobiliário','Fiagro','ETF BR','Stock','REIT','ETF Internacional','Cripto','BDR','Outro'];
+  sel.innerHTML='<option value="">—</option>'+classes.map(function(c){return '<option value="'+c+'"'+(c===val?' selected':'')+'>'+c+'</option>';}).join('');
+}
+function _apAutoInfo(){
+  var tk=(document.getElementById('apTicker').value||'').trim();
+  var nomeEl=document.getElementById('apNome'), clsEl=document.getElementById('apClasse');
+  if(!tk||!window.G20_ATIVOS){ return; }
+  var info=G20_ATIVOS.getInfo(tk);
+  // só preenche se o campo estiver vazio (não sobrescreve o que o usuário digitou)
+  if(nomeEl && !nomeEl.value.trim() && info.nome) nomeEl.value=info.nome;
+  if(clsEl){ var palpite=info.classe||G20_ATIVOS.palpiteClasse(tk); _apPreencherClasses(clsEl, clsEl.value||palpite); }
+}
 function logoAporteAdmin(tk){
   var url=(window.TV_LOGOS&&TV_LOGOS.getUrl)?TV_LOGOS.getUrl(tk):null;
   var ini=String(tk||'?').charAt(0).toUpperCase();
@@ -715,19 +737,28 @@ function _apEsc(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/"/
 function renderAportes(){
   var el=document.getElementById('apLista');if(!el)return;
   if(!_aportes.length){el.innerHTML='<div style="color:var(--text3);font-size:13px;text-align:center;padding:16px;border:1px dashed var(--border,rgba(255,255,255,.08));border-radius:10px">Nenhum ativo adicionado ainda</div>';return;}
+  var classes=(window.G20_ATIVOS&&G20_ATIVOS.classes)||['Ação BR','Fundo Imobiliário','Fiagro','ETF BR','Stock','REIT','ETF Internacional','Cripto','BDR','Outro'];
+  function _opts(val){return '<option value="">classe…</option>'+classes.map(function(c){return '<option value="'+c+'"'+(c===val?' selected':'')+'>'+c+'</option>';}).join('');}
   el.innerHTML=_aportes.map(function(a,i){
-    return '<div class="ap-row">'+
-      '<span id="apLogo'+i+'">'+logoAporteAdmin(a.ticker)+'</span>'+
-      '<input class="ap-edit tk" data-i="'+i+'" data-k="ticker" value="'+_apEsc(a.ticker)+'" title="Ticker" placeholder="TICKER">'+
-      '<input class="ap-edit qt" data-i="'+i+'" data-k="qtd" value="'+_apEsc(a.qtd)+'" title="Quantidade" placeholder="qtd">'+
-      '<input class="ap-edit pc" data-i="'+i+'" data-k="preco" value="'+_apEsc(a.preco)+'" title="Preço pago" placeholder="preço">'+
-      '<input class="ap-edit te" data-i="'+i+'" data-k="tese" value="'+_apEsc(a.tese)+'" title="Tese (opcional)" placeholder="tese (opcional)">'+
-      '<button type="button" class="ap-rm" onclick="rmAporte('+i+')" title="Remover">&times;</button>'+
+    return '<div class="ap-row" style="flex-direction:column;align-items:stretch;gap:7px">'+
+      '<div style="display:flex;align-items:center;gap:9px">'+
+        '<span id="apLogo'+i+'">'+logoAporteAdmin(a.ticker)+'</span>'+
+        '<input class="ap-edit tk" data-i="'+i+'" data-k="ticker" value="'+_apEsc(a.ticker)+'" title="Ticker" placeholder="TICKER">'+
+        '<input class="ap-edit nm" data-i="'+i+'" data-k="nome" value="'+_apEsc(a.nome)+'" title="Nome da empresa" placeholder="nome da empresa" style="flex:1">'+
+        '<select class="ap-edit cl" data-i="'+i+'" data-k="classe" title="Classe" style="width:150px">'+_opts(a.classe||'')+'</select>'+
+        '<button type="button" class="ap-rm" onclick="rmAporte('+i+')" title="Remover">&times;</button>'+
+      '</div>'+
+      '<div style="display:flex;align-items:center;gap:9px;padding-left:39px">'+
+        '<input class="ap-edit qt" data-i="'+i+'" data-k="qtd" value="'+_apEsc(a.qtd)+'" title="Quantidade" placeholder="qtd">'+
+        '<input class="ap-edit pc" data-i="'+i+'" data-k="preco" value="'+_apEsc(a.preco)+'" title="Preço pago" placeholder="preço">'+
+        '<input class="ap-edit te" data-i="'+i+'" data-k="tese" value="'+_apEsc(a.tese)+'" title="Tese (opcional)" placeholder="tese (opcional)" style="flex:1">'+
+      '</div>'+
     '</div>';
   }).join('');
-  // liga a edição inline: digitar atualiza o array; mudar ticker atualiza o logo
+  // liga a edição inline: digitar/selecionar atualiza o array; mudar ticker atualiza o logo
   Array.prototype.forEach.call(el.querySelectorAll('.ap-edit'),function(inp){
-    inp.addEventListener('input',function(){
+    var ev=(inp.tagName==='SELECT')?'change':'input';
+    inp.addEventListener(ev,function(){
       var i=parseInt(inp.dataset.i), k=inp.dataset.k;
       if(!_aportes[i])return;
       _aportes[i][k]= (k==='ticker') ? inp.value.toUpperCase() : inp.value;
@@ -744,8 +775,13 @@ function renderAportes(){
 function addAporte(){
   var tk=(document.getElementById('apTicker').value||'').trim();
   if(!tk){toast('❌ Informe o ticker');return;}
+  var _nome=(document.getElementById('apNome').value||'').trim();
+  var _classe=(document.getElementById('apClasse').value||'').trim();
+  if(window.G20_ATIVOS){ var _i=G20_ATIVOS.getInfo(tk); if(!_nome)_nome=_i.nome; if(!_classe)_classe=_i.classe||G20_ATIVOS.palpiteClasse(tk); }
   _aportes.push({
     ticker:tk.toUpperCase(),
+    nome:_nome,
+    classe:_classe,
     qtd:(document.getElementById('apQtd').value||'').trim(),
     preco:(function(){
       var raw=(document.getElementById('apPreco').value||'').trim();
@@ -761,6 +797,8 @@ function addAporte(){
   document.getElementById('apQtd').value='';
   document.getElementById('apPreco').value='';
   document.getElementById('apTese').value='';
+  document.getElementById('apNome').value='';
+  _apPreencherClasses(document.getElementById('apClasse'),'');
   var _am=document.getElementById('apMoeda');if(_am)_am.value='auto';
   document.getElementById('apTicker').focus();
   renderAportes();
