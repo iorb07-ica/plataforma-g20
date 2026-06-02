@@ -1563,6 +1563,22 @@
 
   /* — Rodapé / total aportado — */
   .footer-total-value { font-size: 72px; }
+
+  /* ============================================================ */
+  /*  MODO UMA TELA — encaixa tudo na viewport (sem rolagem)      */
+  /* ============================================================ */
+  body.fit-mode { overflow: hidden; height: 100vh; }
+  body.fit-mode .container {
+    transform-origin: top center;
+    will-change: transform;
+    padding: 16px 28px;
+  }
+  body.fit-mode .watermark { display: none; }
+  /* compacta espaçamentos verticais pra sobrar mais pro conteúdo */
+  body.fit-mode .live-header   { margin-bottom: 16px; padding-bottom: 14px; }
+  body.fit-mode .top-grid      { margin-bottom: 16px; }
+  body.fit-mode .status-banner { margin-bottom: 16px; }
+  body.fit-mode .insights-section { margin-bottom: 0; }
 </style>
 <script src="assets/tradingview-logos.js"></script>
 </head>
@@ -1715,6 +1731,7 @@
       </div>
       <div class="aportes-actions">
         <button class="btn" id="btn-presentation" title="Tecla F"><span class="btn-icon-text">▶ Apresentação</span></button>
+        <button class="btn" id="btn-fit" title="Tecla T · encaixa tudo na tela">🖥 Uma Tela</button>
         <button class="btn" id="btn-resumao" title="Copia resumão pronto pro WhatsApp">📋 Resumão</button>
         <button class="btn" id="btn-add">+ Linha</button>
         <button class="btn btn-danger" id="btn-clear">Limpar</button>
@@ -2450,6 +2467,8 @@ function updateTotals() {
 
   // Banner de status: quanto falta aplicar
   renderStatusBanner(totalCapital, totalAplicado);
+
+  scheduleFit(); // se estiver no modo Uma Tela, reencaixa
 }
 
 function renderStatusBanner(totalCapital, totalAplicado) {
@@ -2907,6 +2926,43 @@ function renderRanking() {
   `).join('');
 }
 
+// ==================== MODO UMA TELA (fit) ====================
+// Escala o painel inteiro pra caber na altura da viewport — tudo visível, sem rolagem.
+function applyFit() {
+  const c = document.querySelector('.container');
+  if (!c) return;
+  if (!document.body.classList.contains('fit-mode')) { c.style.transform = ''; return; }
+  c.style.transform = 'none';            // reseta pra medir o tamanho real
+  const H = c.scrollHeight;
+  const W = c.scrollWidth;
+  const vh = window.innerHeight;
+  const vw = window.innerWidth;
+  let s = Math.min(vh / H, vw / W, 1);   // nunca aumenta além de 1
+  c.style.transform = `scale(${s})`;
+}
+
+let _fitRAF;
+function scheduleFit() {
+  if (!document.body.classList.contains('fit-mode')) return;
+  cancelAnimationFrame(_fitRAF);
+  _fitRAF = requestAnimationFrame(applyFit);
+}
+
+function toggleFitMode() {
+  document.body.classList.toggle('fit-mode');
+  const on = document.body.classList.contains('fit-mode');
+  if (on) {
+    showToast('🖥 Modo Uma Tela ativado · tecla T sai');
+    // espera o layout assentar e então escala
+    requestAnimationFrame(() => requestAnimationFrame(applyFit));
+  } else {
+    document.querySelector('.container').style.transform = '';
+    showToast('Modo Uma Tela desativado');
+  }
+}
+
+window.addEventListener('resize', scheduleFit);
+
 // ==================== MODO APRESENTAÇÃO ====================
 function togglePresentationMode() {
   document.body.classList.toggle('presentation-mode');
@@ -2920,11 +2976,16 @@ function togglePresentationMode() {
 }
 
 document.addEventListener('keydown', (e) => {
-  const emInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName);
+  const emInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable;
   // F (mas não em inputs)
   if ((e.key === 'f' || e.key === 'F') && !emInput) {
     e.preventDefault();
     togglePresentationMode();
+  }
+  // T = modo Uma Tela (mas não em inputs)
+  if ((e.key === 't' || e.key === 'T') && !emInput) {
+    e.preventDefault();
+    toggleFitMode();
   }
   // R = reapresentar a coreografia (mas não em inputs)
   if ((e.key === 'r' || e.key === 'R') && !emInput) {
@@ -3015,6 +3076,7 @@ async function copyResumao() {
 
 // Bind dos novos botões
 document.getElementById('btn-presentation').addEventListener('click', togglePresentationMode);
+document.getElementById('btn-fit').addEventListener('click', toggleFitMode);
 document.getElementById('btn-resumao').addEventListener('click', copyResumao);
 
 // ==================== INIT ====================
@@ -3097,7 +3159,7 @@ function kinReveal() {
 kinReveal();
 
 // Marcador de versão — confira no console (F12) qual build carregou
-console.log('%c[Aporte G20] build 2026-06-02i · categoria com ícone (design 4)','color:#e8c766;font-weight:bold;font-size:13px');
+console.log('%c[Aporte G20] build 2026-06-02j · modo Uma Tela (tecla T)','color:#e8c766;font-weight:bold;font-size:13px');
 
 </script>
 
