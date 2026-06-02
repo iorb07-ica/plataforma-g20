@@ -2193,6 +2193,23 @@ const parseBR = (s) => {
   return parseFloat(String(s).replace(/\./g, '').replace(',', '.')) || 0;
 };
 
+// Data de hoje no formato dd/mm/aaaa
+function hojeBR() {
+  const d = new Date();
+  return String(d.getDate()).padStart(2, '0') + '/' +
+         String(d.getMonth() + 1).padStart(2, '0') + '/' +
+         d.getFullYear();
+}
+
+// Máscara de data: pega só os dígitos e insere as barras → 05082026 vira 05/08/2026
+function formatDateDigits(raw, sep) {
+  const d = String(raw).replace(/\D/g, '').slice(0, 8);
+  let out = d.slice(0, 2);
+  if (d.length > 2) out += sep + d.slice(2, 4);
+  if (d.length > 4) out += sep + d.slice(4, 8);
+  return out;
+}
+
 // ==================== RENDER APORTES ====================
 // Atualiza SÓ os totais de uma linha, com os números girando (sem reconstruir a tabela = sem piscar)
 function atualizarTotaisLinha(idx, tr) {
@@ -2328,10 +2345,16 @@ function renderAportes() {
     });
   });
 
+  // Máscara de data nas linhas: digita 05082026 → vira 05/08/2026
+  tbody.querySelectorAll('input[data-field="data"]').forEach(inp => {
+    inp.addEventListener('input', (e) => {
+      const masked = formatDateDigits(e.target.value, '/');
+      if (masked !== e.target.value) e.target.value = masked;
+    });
+  });
+
   updateStats();
 }
-
-// ==================== TOTAIS ====================
 function calcTotalAplicadoPorCategoria() {
   const totals = { acoes: 0, fiis: 0, stocks: 0, cripto: 0, reits: 0 };
   aportes.forEach(ap => {
@@ -2577,14 +2600,25 @@ function updateHeaderDate() {
   }
 }
 
-// Data editável: Enter confirma (sem quebrar linha)
+// Data editável (cabeçalho): Enter confirma, foco seleciona tudo, máscara das barras ao digitar
 (function () {
   const dateEl = document.getElementById('aporte-date');
-  if (dateEl) {
-    dateEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); dateEl.blur(); }
-    });
-  }
+  if (!dateEl) return;
+  dateEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); dateEl.blur(); }
+  });
+  dateEl.addEventListener('focus', () => {
+    const r = document.createRange(); r.selectNodeContents(dateEl);
+    const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+  });
+  dateEl.addEventListener('input', () => {
+    const masked = formatDateDigits(dateEl.textContent, ' / ');
+    if (masked !== dateEl.textContent) {
+      dateEl.textContent = masked;
+      const r = document.createRange(); r.selectNodeContents(dateEl); r.collapse(false);
+      const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    }
+  });
 })();
 
 // ==================== TOAST ====================
@@ -2932,6 +2966,9 @@ document.getElementById('btn-presentation').addEventListener('click', togglePres
 document.getElementById('btn-resumao').addEventListener('click', copyResumao);
 
 // ==================== INIT ====================
+// Aporte do dia: ao abrir, carrega a data de HOJE em todas as linhas
+// (o cabeçalho também, via updateHeaderDate que lê a 1ª linha)
+(function () { const h = hojeBR(); aportes.forEach(a => { a.data = h; }); })();
 renderAportes();
 updateTotals();
 updateHeaderDate();
@@ -3008,7 +3045,7 @@ function kinReveal() {
 kinReveal();
 
 // Marcador de versão — confira no console (F12) qual build carregou
-console.log('%c[Aporte G20] build 2026-06-02g · logos + fontes maiores na tabela','color:#e8c766;font-weight:bold;font-size:13px');
+console.log('%c[Aporte G20] build 2026-06-02h · data de hoje automática + máscara dd/mm/aaaa','color:#e8c766;font-weight:bold;font-size:13px');
 
 </script>
 
