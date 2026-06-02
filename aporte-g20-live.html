@@ -2180,6 +2180,31 @@ const parseBR = (s) => {
 };
 
 // ==================== RENDER APORTES ====================
+// Atualiza SÓ os totais de uma linha, com os números girando (sem reconstruir a tabela = sem piscar)
+function atualizarTotaisLinha(idx, tr) {
+  const ap = aportes[idx];
+  if (!ap || !tr) return;
+  const totalRS = ap.precoUsd && ap.txCnv
+    ? Number(ap.qtd) * Number(ap.precoUsd) * Number(ap.txCnv)
+    : Number(ap.qtd) * (Number(ap.preco) || 0);
+  const totalUSD = ap.precoUsd ? Number(ap.qtd) * Number(ap.precoUsd) : 0;
+
+  const cRS = tr.querySelector('.m-totalrs');
+  if (cRS) {
+    const from = parseFloat(cRS.dataset.val) || 0;
+    if (totalRS > 0) animateNumber(cRS, from, totalRS, 450, fmtBRL);
+    else cRS.textContent = '—';
+    cRS.dataset.val = totalRS || 0;
+  }
+  const cUSD = tr.querySelector('.m-totalusd');
+  if (cUSD) {
+    const from = parseFloat(cUSD.dataset.val) || 0;
+    if (totalUSD > 0) animateNumber(cUSD, from, totalUSD, 450, fmtUSD);
+    else cUSD.textContent = '—';
+    cUSD.dataset.val = totalUSD || 0;
+  }
+}
+
 function renderAportes() {
   const tbody = document.getElementById('aportes-body');
   tbody.innerHTML = '';
@@ -2221,8 +2246,8 @@ function renderAportes() {
       <td class="m-preco" data-label="Pç R$"><input class="cell-input right" data-field="preco" data-idx="${idx}" value="${ap.preco ? fmtNum(ap.preco) : ''}"></td>
       <td class="m-txcnv" data-label="Tx Cnv"><input class="cell-input right" data-field="txCnv" data-idx="${idx}" value="${ap.txCnv ? fmtNum(ap.txCnv) : ''}"></td>
       <td class="m-precousd" data-label="Pç US$"><input class="cell-input right" data-field="precoUsd" data-idx="${idx}" value="${ap.precoUsd ? fmtNum(ap.precoUsd) : ''}"></td>
-      <td class="m-totalrs total-cell" data-label="Total R$">${totalRS > 0 ? fmtBRL(totalRS) : '—'}</td>
-      <td class="m-totalusd total-cell" data-label="Total US$">${totalUSD > 0 ? fmtUSD(totalUSD) : '—'}</td>
+      <td class="m-totalrs total-cell" data-label="Total R$" data-val="${totalRS || 0}">${totalRS > 0 ? fmtBRL(totalRS) : '—'}</td>
+      <td class="m-totalusd total-cell" data-label="Total US$" data-val="${totalUSD || 0}">${totalUSD > 0 ? fmtUSD(totalUSD) : '—'}</td>
       <td class="m-actions"><div class="row-actions"><button class="icon-btn" data-remove="${idx}" title="Remover">×</button></div></td>
     `;
 
@@ -2251,10 +2276,16 @@ function renderAportes() {
         }
       }
 
-      // Re-renderiza as linhas (recalcula o Total da própria linha)
-      // e atualiza os cards de cima (capital, donut, distribuição, status)
-      renderAportes();
-      updateTotals();
+      // ticker/categoria precisam re-render (logo, cor, cálculo de moeda)
+      if (field === 'cat' || field === 'ticker') {
+        renderAportes();
+        updateTotals();
+      } else {
+        // valor (qtd/preço/txCnv/precoUsd): atualiza só os totais da linha — sem reconstruir a tabela (sem piscar)
+        const tr = e.target.closest('tr');
+        if (tr) atualizarTotaisLinha(idx, tr);
+        updateTotals();
+      }
     });
   });
 
