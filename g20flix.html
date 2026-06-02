@@ -23,6 +23,7 @@
 <script src="assets/g20-search.js?v=10"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 <script src="assets/tradingview-logos.js"></script>
+<script src="assets/ativos-info.js"></script>
 <style>
 :root{
   --bg:#1a191e;--bg2:#1f1e22;--bg3:#15141a;--bg-deep:#15141a;
@@ -315,14 +316,18 @@ body.is-admin .card:active{cursor:grabbing}
 .al-pop{position:absolute;width:360px;background:#16151a;border:1px solid var(--gold);border-radius:14px;padding:16px 18px;box-shadow:0 24px 60px rgba(0,0,0,.7),inset 0 0 30px rgba(201,169,97,.05);z-index:9001}
 .al-pop .ph{display:flex;align-items:center;gap:12px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)}
 .al-pop .ph .al-logo{width:42px;height:42px;border-radius:10px}
-.al-pop .ph .t{font-family:'JetBrains Mono',monospace;font-weight:800;font-size:21px;color:var(--gold);letter-spacing:1px}
+.al-pop .ph .info{flex:1;min-width:0}
+.al-pop .ph .toprow{display:flex;align-items:baseline;gap:9px;min-width:0}
+.al-pop .ph .t{font-family:'JetBrains Mono',monospace;font-weight:800;font-size:21px;color:var(--gold);letter-spacing:1px;flex:0 0 auto}
+.al-pop .ph .nome{font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.al-pop .ph .classe{font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:1.3px;text-transform:uppercase;color:var(--gold2,#e8c766);margin-top:3px;font-weight:600}
 .al-pop .ph .dot{width:8px;height:8px;border-radius:50%;background:#2ecc71;box-shadow:0 0 8px #2ecc71;margin-left:auto;flex:0 0 auto}
 .al-pop .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:0}
-.al-pop .f{background:rgba(201,169,97,.06);border:1px solid var(--border);border-radius:9px;padding:12px;min-width:0;text-align:center}
-.al-pop .f .l{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:#e6e0d4;margin-bottom:5px;font-weight:600}
+.al-pop .f{background:rgba(201,169,97,.06);border:1px solid var(--border);border-radius:9px;padding:9px 12px;min-width:0;text-align:center}
+.al-pop .f .l{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:#e6e0d4;margin-bottom:4px;font-weight:600}
 .al-pop .f .v{font-family:'JetBrains Mono',monospace;font-weight:800;font-size:19px;color:#fff;line-height:1.05;white-space:nowrap;letter-spacing:-.5px}
 .al-pop .f.price .v{color:var(--gold2,#e8c766)}
-.al-pop .tese{margin-top:10px;background:rgba(0,0,0,.3);border-radius:9px;padding:10px 13px}
+.al-pop .tese{margin-top:7px;background:rgba(0,0,0,.3);border-radius:9px;padding:9px 13px}
 .al-pop .tese .l{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--gold);margin-bottom:5px;font-weight:600}
 .al-pop .tese .txt{font-size:13.5px;color:var(--text);line-height:1.5}
 .al-pop .empty{color:var(--text2);font-size:13px;margin-top:4px}
@@ -892,6 +897,9 @@ function loadVideosFromFirestore(db, uid) {
 }
 
 var BR_TICKERS={'ITUB4':1,'BBDC4':1,'BBAS3':1,'ABEV3':1,'B3SA3':1,'GGBR4':1,'BBSE3':1,'EQTL3':1,'SBSP3':1,'KLBN11':1,'VIVT3':1,'MULT3':1,'HAPV3':1,'TOTS3':1,'EMBR3':1,'PETR3':1,'PRIO3':1,'VALE3':1,'PETR4':1,'BPAC11':1,'SBFG3':1,'RENT3':1,'VIVA3':1,'INTB3':1,'BMOB3':1,'LREN3':1,'WEGE3':1,'SAPR11':1,'RADL3':1,'VULC3':1,'AZZA3':1,'MGLU3':1,'CVCB3':1,'ENEV3':1,'WIZC3':1,'BRAV3':1,'AUAU3':1,'QUAL3':1,'BRKM5':1,'EGIE3':1,'GMAT3':1,'SUZB3':1,'CMIG4':1,'TRIS3':1,'NATU3':1,'VRTA11':1,'BCRI11':1,'TVRI11':1,'BTHF11':1,'HGLG11':1,'VISC11':1,'KNRI11':1,'XPLG11':1,'RBRR11':1,'HCTR11':1,'KNCA11':1,'CPTR11':1,'SNAG11':1,'XPCA11':1};
+function getAtivoInfo(tk){
+  return (window.G20_ATIVOS && G20_ATIVOS.getInfo) ? G20_ATIVOS.getInfo(tk) : {nome:'',classe:''};
+}
 function moedaTicker(tk){
   tk=String(tk||'').toUpperCase().trim().replace(/\.SA$/,'');
   // 1. Cripto (via TradingView) -> sempre US$ (ativos internacionais)
@@ -961,8 +969,15 @@ function alOpenPop(a, chipEl){
   if(a.preco) rows+='<div class="f price"><div class="l">Preço</div><div class="v">'+fmtPreco(a.preco,a.ticker)+'</div></div>';
   var grid = rows?('<div class="grid">'+rows+'</div>'):'';
   var tese = a.tese?('<div class="tese"><div class="l">// Por que compramos</div><div class="txt">'+a.tese+'</div></div>'):'';
+  var info=getAtivoInfo(a.ticker);
+  var nome=(a.nome||'').trim()||info.nome;     // salvo no aporte tem prioridade
+  var classe=(a.classe||'').trim()||info.classe;
+  var nomeHtml=nome?('<span class="nome">'+nome+'</span>'):'';
+  var classeHtml=classe?('<div class="classe">'+classe+'</div>'):'';
   pop.innerHTML='<div class="arrow" id="alArrow"></div>'+
-    '<div class="ph">'+alLogo(a.ticker)+'<div class="t">'+a.ticker+'</div><span class="dot"></span></div>'+
+    '<div class="ph">'+alLogo(a.ticker)+
+      '<div class="info"><div class="toprow"><span class="t">'+a.ticker+'</span>'+nomeHtml+'</div>'+classeHtml+'</div>'+
+      '<span class="dot"></span></div>'+
     grid+tese+(!grid&&!tese?'<div class="empty">Sem detalhes adicionais.</div>':'');
   ov.classList.add('open');
   var r=chipEl.getBoundingClientRect(); var pw=360;
