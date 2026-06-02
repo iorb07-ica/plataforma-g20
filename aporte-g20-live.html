@@ -2659,6 +2659,7 @@ document.getElementById('btn-clear').addEventListener('click', () => {
 });
 
 document.getElementById('btn-recalc').addEventListener('click', () => {
+  commitAportesFromDOM();
   renderAportes();
   updateTotals();
 });
@@ -3076,7 +3077,29 @@ function generateResumao() {
   return text;
 }
 
+// Garante que o que está NA TELA entre no array antes de gerar resumão/recalcular.
+// (em alguns navegadores, clicar num botão não tira o foco do input, então o
+//  evento "change" do último campo editado não dispara — isso resolve.)
+function commitAportesFromDOM() {
+  if (document.activeElement && typeof document.activeElement.blur === 'function') {
+    document.activeElement.blur();
+  }
+  const tbody = document.getElementById('aportes-body');
+  if (!tbody) return;
+  tbody.querySelectorAll('[data-field]').forEach(el => {
+    const idx = parseInt(el.dataset.idx);
+    const field = el.dataset.field;
+    if (isNaN(idx) || !aportes[idx]) return;
+    let val = el.value;
+    if (['qtd', 'preco', 'txCnv', 'precoUsd'].includes(field)) val = parseBR(val);
+    else if (field === 'ticker') val = String(val).toUpperCase().trim();
+    aportes[idx][field] = val;
+  });
+}
+
 async function copyResumao() {
+  commitAportesFromDOM();   // sincroniza com o que está na tela
+  updateTotals();           // atualiza painel pra bater com o resumão
   const txt = generateResumao();
   try {
     await navigator.clipboard.writeText(txt);
@@ -3178,7 +3201,7 @@ function kinReveal() {
 kinReveal();
 
 // Marcador de versão — confira no console (F12) qual build carregou
-console.log('%c[Aporte G20] build 2026-06-02l · Destaques do Dia repaginados','color:#e8c766;font-weight:bold;font-size:13px');
+console.log('%c[Aporte G20] build 2026-06-02m · resumão lê o estado atual da tela','color:#e8c766;font-weight:bold;font-size:13px');
 
 </script>
 
