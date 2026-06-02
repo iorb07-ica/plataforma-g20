@@ -567,7 +567,8 @@
   .aportes-scroll {
     flex: 1 1 auto;
     min-height: 0;
-    overflow: auto;
+    overflow-x: hidden;          /* horizontal NUNCA aparece */
+    overflow-y: auto;            /* vertical só quando max-height é aplicado (>9 linhas) */
     scrollbar-width: thin;                       /* Firefox */
     scrollbar-color: var(--gold) #0d0c10;        /* thumb · track */
   }
@@ -2068,7 +2069,7 @@
 
 </div>
 
-<div class="watermark">VALORIZE · G20 MASTERCLASS · build 2026-06-02t</div>
+<div class="watermark">VALORIZE · G20 MASTERCLASS · build 2026-06-02u</div>
 
 <script>
 // ==================== FIREBASE (g20-masterclass) ====================
@@ -3381,16 +3382,27 @@ function setRootScroll(lock) {
   document.body.style.overflow = lock ? 'hidden' : '';
 }
 
-// Casa a altura da tabela (Ordens do Dia) com a coluna dos 3 cards à esquerda.
-// Só no layout de 2 colunas (tela larga) e fora da aba Histórico.
+// Altura da lista de ordens: mostra até 9 linhas sem scroll.
+// Só passa a ter scroll VERTICAL quando há MAIS de 9 linhas (cap na altura de 9).
+// Scroll horizontal nunca aparece (overflow-x: hidden no CSS).
 function matchTableHeight() {
-  const cards = document.querySelector('.top-grid');
+  const scroll = document.querySelector('.aportes-scroll');
+  const tbody = document.getElementById('aportes-body');
   const sec = document.querySelector('.aportes-section');
-  if (!cards || !sec) return;
+  if (!scroll || !tbody) return;
+  if (sec) sec.style.height = '';                // limpa altura fixa antiga
+  const rows = tbody.querySelectorAll('tr');
   const layout2col = window.innerWidth >= 1900 && !document.body.classList.contains('tab-historico');
-  if (!layout2col) { sec.style.height = ''; return; }
-  const h = cards.getBoundingClientRect().height;
-  if (h > 0) sec.style.height = h + 'px';
+  // ≤ 9 linhas (ou layout empilhado): mostra tudo, sem cap, sem scroll
+  if (!layout2col || rows.length <= 9) { scroll.style.maxHeight = ''; return; }
+  // > 9 linhas: limita à altura exata de 9 linhas (+ cabeçalho) → vertical scroll
+  scroll.scrollTop = 0;
+  scroll.style.maxHeight = '';                   // mede no natural
+  void scroll.offsetHeight;                      // força reflow
+  const top = scroll.getBoundingClientRect().top;
+  const r10top = rows[9].getBoundingClientRect().top; // topo da 10ª linha
+  const h = Math.ceil(r10top - top) + 4;         // cabeçalho + 9 linhas + respiro
+  if (h > 0) scroll.style.maxHeight = h + 'px';
 }
 
 function applyFit() {
@@ -3666,7 +3678,7 @@ function kinReveal() {
 kinReveal();
 
 // Marcador de versão — confira no console (F12) qual build carregou
-console.log('%c[Aporte G20] build 2026-06-02t · sem hover cards esq · scrollbar tema','color:#e8c766;font-weight:bold;font-size:13px');
+console.log('%c[Aporte G20] build 2026-06-02u · scroll: horizontal off · vertical só com >9 linhas','color:#e8c766;font-weight:bold;font-size:13px');
 
 </script>
 
