@@ -977,6 +977,118 @@
     letter-spacing: 1px;
   }
 
+  /* ==================== ABAS + HISTÓRICO ==================== */
+  .tabs-bar {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 26px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .tab-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    color: var(--text-tertiary);
+    padding: 12px 20px;
+    margin-bottom: -1px;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .tab-btn:hover { color: var(--text-secondary); }
+  .tab-btn.active { color: var(--gold-bright); border-bottom-color: var(--gold); }
+
+  .hist-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    background: rgba(201, 169, 97, 0.10);
+    border: 1px solid var(--gold-dim);
+    border-radius: 8px;
+    padding: 14px 20px;
+    margin-bottom: 22px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--gold-bright);
+    letter-spacing: 0.5px;
+  }
+  .hist-banner .btn { padding: 9px 16px; font-size: 12px; }
+
+  .historico-section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    padding: 32px;
+    position: relative;
+  }
+  .historico-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+    margin-top: 8px;
+  }
+  .hist-card {
+    text-align: left;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-left: 4px solid var(--gold);
+    border-radius: 6px;
+    padding: 22px;
+    cursor: pointer;
+    transition: transform 0.2s, background 0.2s, box-shadow 0.2s;
+    font-family: inherit;
+    color: var(--text-primary);
+  }
+  .hist-card:hover {
+    background: var(--bg-card-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 14px 32px rgba(0,0,0,0.5);
+  }
+  .hist-mes {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 12px;
+  }
+  .hist-total {
+    font-family: 'Playfair Display', serif;
+    font-size: 34px;
+    font-weight: 900;
+    color: var(--gold-bright);
+    line-height: 1;
+  }
+  .hist-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--text-tertiary);
+    margin-top: 12px;
+  }
+  .hist-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 44px 20px;
+    color: var(--text-tertiary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    letter-spacing: 0.5px;
+  }
+
+  /* troca de abas: esconde o dashboard quando está no histórico */
+  #view-historico { display: none; }
+  body.tab-historico .top-grid,
+  body.tab-historico .status-banner,
+  body.tab-historico .aportes-section,
+  body.tab-historico .insights-section,
+  body.tab-historico #hist-banner { display: none !important; }
+  body.tab-historico #view-historico { display: block; }
+
   /* Watermark */
   .watermark {
     position: fixed;
@@ -1639,24 +1751,31 @@
 
   /* telas largas (live/telão): tabela e insights lado a lado → mais largura, menos altura */
   @media (min-width: 1950px) {
-    body.fit-mode .container {
+    body.fit-mode:not(.tab-historico) .container {
       display: grid;
       grid-template-columns: 2fr 1fr;
       grid-template-areas:
         "header header"
+        "tabs   tabs"
+        "banner banner"
         "cards  cards"
         "status status"
         "table  insights";
       gap: 14px;
       align-content: start;
     }
-    body.fit-mode .live-header     { grid-area: header; }
-    body.fit-mode .top-grid        { grid-area: cards; }
-    body.fit-mode .status-banner   { grid-area: status; }
-    body.fit-mode .aportes-section { grid-area: table; }
-    body.fit-mode .insights-section{ grid-area: insights; }
+    body.fit-mode:not(.tab-historico) .live-header     { grid-area: header; }
+    body.fit-mode:not(.tab-historico) .tabs-bar        { grid-area: tabs; margin-bottom: 0; }
+    body.fit-mode:not(.tab-historico) #hist-banner     { grid-area: banner; margin-bottom: 0; }
+    body.fit-mode:not(.tab-historico) .top-grid        { grid-area: cards; }
+    body.fit-mode:not(.tab-historico) .status-banner   { grid-area: status; }
+    body.fit-mode:not(.tab-historico) .aportes-section { grid-area: table; }
+    body.fit-mode:not(.tab-historico) .insights-section{ grid-area: insights; }
   }
 </style>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="assets/tradingview-logos.js"></script>
 </head>
 <body>
@@ -1677,6 +1796,18 @@
 
   <!-- Badge modo apresentação -->
   <div class="presentation-badge">● MODO APRESENTAÇÃO · TECLA F PARA SAIR</div>
+
+  <!-- ABAS -->
+  <div class="tabs-bar">
+    <button class="tab-btn active" data-tab="aporte">📈 Aporte do Dia</button>
+    <button class="tab-btn" data-tab="historico">🗂 Histórico</button>
+  </div>
+
+  <!-- Banner ao visualizar um aporte salvo -->
+  <div class="hist-banner" id="hist-banner" style="display:none;">
+    <span id="hist-banner-text"></span>
+    <button class="btn" id="btn-voltar-hoje">← Voltar ao aporte de hoje</button>
+  </div>
 
   <!-- TOP CARDS -->
   <div class="top-grid">
@@ -1810,6 +1941,7 @@
         <button class="btn" id="btn-presentation" title="Tecla F"><span class="btn-icon-text">▶ Apresentação</span></button>
         <button class="btn" id="btn-fit" title="Tecla T · encaixa tudo na tela">🖥 Uma Tela</button>
         <button class="btn" id="btn-resumao" title="Copia resumão pronto pro WhatsApp">📋 Resumão</button>
+        <button class="btn btn-gold" id="btn-salvar" title="Salva este aporte no histórico (Firebase)">💾 Salvar</button>
         <button class="btn" id="btn-add">+ Linha</button>
         <button class="btn btn-danger" id="btn-clear">Limpar</button>
         <button class="btn btn-gold" id="btn-recalc">↻ Recalcular</button>
@@ -1879,14 +2011,49 @@
     </div>
   </section>
 
+  <!-- VIEW: HISTÓRICO -->
+  <section class="historico-section" id="view-historico">
+    <div class="aportes-header">
+      <div class="aportes-title-group">
+        <h2 class="aportes-title">Histórico de Aportes</h2>
+        <span class="aportes-count" id="hist-count"></span>
+      </div>
+    </div>
+    <div class="historico-list" id="historico-list"></div>
+  </section>
+
   <!-- Toast notificação -->
   <div class="toast" id="toast"></div>
 
 </div>
 
-<div class="watermark">VALORIZE · G20 MASTERCLASS · build 2026-06-02o</div>
+<div class="watermark">VALORIZE · G20 MASTERCLASS · build 2026-06-02q</div>
 
 <script>
+// ==================== FIREBASE (g20-masterclass) ====================
+const _G20_FB = {
+  apiKey: "AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",
+  authDomain: "g20-masterclass.firebaseapp.com",
+  projectId: "g20-masterclass",
+  storageBucket: "g20-masterclass.firebasestorage.app",
+  messagingSenderId: "1052719482127",
+  appId: "1:1052719482127:web:537c1d67c96532be8a2a7a"
+};
+const ADMIN_UID = '8xrwHHEKAmd0Us5MCyBJhtkJVBM2';
+let _db = null, _auth = null, _currentUser = null, _isAdmin = false;
+try {
+  if (window.firebase && firebase.initializeApp) {
+    if (!firebase.apps.length) firebase.initializeApp(_G20_FB);
+    _auth = firebase.auth();
+    _db = firebase.firestore();
+    _auth.onAuthStateChanged(function (u) {
+      _currentUser = u;
+      _isAdmin = !!(u && u.uid === ADMIN_UID);
+      if (typeof atualizarBotaoSalvar === 'function') atualizarBotaoSalvar();
+    });
+  }
+} catch (e) { console.warn('Firebase indisponível:', e); }
+
 // ==================== DADOS INICIAIS ====================
 // Mapa expandido de logos TradingView CDN
 // Cobre principais FIIs, Ações BR, Stocks US, REITs e Criptos
@@ -3015,6 +3182,157 @@ function renderRanking() {
   `).join('');
 }
 
+// ==================== ABAS · SALVAR · HISTÓRICO ====================
+const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+let _viewingHist = false;
+let _workingSnapshot = null;
+
+// Deriva mês/ano a partir da data (dd/mm/aaaa). Usado como id do documento (1 por mês).
+function mesAnoFromData(dataStr) {
+  const digits = String(dataStr || '').replace(/\D/g, '');
+  let mm, yyyy;
+  if (digits.length >= 8) { mm = parseInt(digits.slice(2, 4), 10); yyyy = digits.slice(4, 8); }
+  if (!(mm >= 1 && mm <= 12) || !yyyy) { const d = new Date(); mm = d.getMonth() + 1; yyyy = String(d.getFullYear()); }
+  const id = yyyy + '-' + String(mm).padStart(2, '0');
+  return { id: id, label: MESES[mm - 1] + ' ' + yyyy, ordem: id };
+}
+
+// Reflete o objeto capital nos inputs do card Capital Disponível
+function setCapitalInputs() {
+  const map = { 'rs-capital': 'rsCapital', 'rs-proventos': 'rsProventos', 'us-capital': 'usCapital', 'us-proventos': 'usProventos', 'tx-cnv': 'txCnv' };
+  document.querySelectorAll('.cap-input').forEach(inp => {
+    const k = map[inp.dataset.cap];
+    if (k) inp.value = fmtNum(capital[k] || 0);
+  });
+}
+
+function atualizarBotaoSalvar() {
+  const btn = document.getElementById('btn-salvar');
+  if (!btn) return;
+  if (!_db) btn.title = 'Firebase não carregou';
+  else if (!_isAdmin) btn.title = 'Faça login como admin na plataforma para salvar';
+  else btn.title = 'Salva este aporte no histórico';
+}
+
+function switchTab(which) {
+  document.body.classList.toggle('tab-historico', which === 'historico');
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === which));
+  if (which === 'historico') carregarHistorico();
+  scheduleFit();
+}
+
+async function salvarAporte() {
+  if (!_db) { showToast('⚠ Firebase não carregou'); return; }
+  if (!_isAdmin) { showToast('⚠ Só o admin salva — abra pela plataforma logado'); return; }
+  commitAportesFromDOM();
+  const dataStr = (document.getElementById('aporte-date').textContent || '').trim();
+  const ma = mesAnoFromData(dataStr);
+  const ref = _db.collection('aportes_g20').doc(ma.id);
+  try {
+    const snap = await ref.get();
+    if (snap.exists && !confirm('Já existe um aporte salvo de ' + ma.label + '. Deseja sobrescrever?')) return;
+    const aplicadoMap = calcTotalAplicadoPorCategoria();
+    const totalAplicado = Object.values(aplicadoMap).reduce((a, b) => a + b, 0);
+    const totalDisponivel = capital.rsCapital + capital.rsProventos + (capital.usCapital + capital.usProventos) * capital.txCnv;
+    await ref.set({
+      id: ma.id, mesAno: ma.label, ordem: ma.ordem, data: dataStr,
+      capital: {
+        rsCapital: capital.rsCapital, rsProventos: capital.rsProventos,
+        usCapital: capital.usCapital, usProventos: capital.usProventos, txCnv: capital.txCnv
+      },
+      aportes: aportes.map(a => ({
+        data: a.data, cat: a.cat, ticker: a.ticker,
+        qtd: Number(a.qtd) || 0, preco: Number(a.preco) || 0,
+        txCnv: Number(a.txCnv) || 0, precoUsd: Number(a.precoUsd) || 0
+      })),
+      totalAplicado: totalAplicado, totalDisponivel: totalDisponivel,
+      criadoPor: _currentUser ? _currentUser.uid : null,
+      atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    showToast('💾 Aporte de ' + ma.label + ' salvo no histórico!');
+  } catch (e) {
+    console.warn('Erro ao salvar aporte:', e);
+    showToast('⚠ Erro ao salvar — verifique as regras do Firestore');
+  }
+}
+
+async function carregarHistorico() {
+  const cont = document.getElementById('historico-list');
+  const count = document.getElementById('hist-count');
+  if (!cont) return;
+  if (!_db) { cont.innerHTML = '<div class="hist-empty">Firebase não carregou — abra pela plataforma</div>'; return; }
+  cont.innerHTML = '<div class="hist-empty">Carregando…</div>';
+  try {
+    const snap = await _db.collection('aportes_g20').orderBy('ordem', 'desc').get();
+    if (snap.empty) {
+      cont.innerHTML = '<div class="hist-empty">Nenhum aporte salvo ainda · monte um aporte e clique em 💾 Salvar</div>';
+      if (count) count.textContent = '';
+      return;
+    }
+    const cards = [];
+    snap.forEach(doc => {
+      const d = doc.data();
+      const n = (d.aportes || []).length;
+      cards.push(
+        '<button class="hist-card" data-id="' + doc.id + '">' +
+          '<div class="hist-mes">' + (d.mesAno || doc.id) + '</div>' +
+          '<div class="hist-total">' + fmtBRL(d.totalAplicado || 0) + '</div>' +
+          '<div class="hist-meta">' + n + ' ativo' + (n !== 1 ? 's' : '') + ' · ' + (d.data || '') + '</div>' +
+        '</button>'
+      );
+    });
+    cont.innerHTML = cards.join('');
+    if (count) count.textContent = snap.size + ' SALVO' + (snap.size !== 1 ? 'S' : '');
+    cont.querySelectorAll('.hist-card').forEach(b => b.addEventListener('click', () => abrirHistorico(b.dataset.id)));
+  } catch (e) {
+    console.warn('Erro ao carregar histórico:', e);
+    cont.innerHTML = '<div class="hist-empty">Erro ao carregar — verifique as regras do Firestore</div>';
+  }
+}
+
+async function abrirHistorico(id) {
+  if (!_db) return;
+  try {
+    const doc = await _db.collection('aportes_g20').doc(id).get();
+    if (!doc.exists) return;
+    const d = doc.data();
+    // guarda o aporte de hoje (em progresso) só na primeira vez que entra no histórico
+    if (!_viewingHist) {
+      _workingSnapshot = {
+        aportes: aportes.map(a => ({ ...a })),
+        capital: { ...capital },
+        data: (document.getElementById('aporte-date').textContent || '')
+      };
+    }
+    _viewingHist = true;
+    aportes = (d.aportes || []).map(a => ({ ...a }));
+    capital = Object.assign({ rsCapital: 0, rsProventos: 0, usCapital: 0, usProventos: 0, txCnv: 0 }, d.capital || {});
+    setCapitalInputs();
+    document.getElementById('aporte-date').textContent = d.data || '';
+    renderAportes();
+    updateTotals();
+    switchTab('aporte');
+    const t = document.getElementById('hist-banner-text');
+    if (t) t.textContent = '🗂 Vendo aporte salvo: ' + (d.mesAno || id);
+    const b = document.getElementById('hist-banner');
+    if (b) b.style.display = 'flex';
+  } catch (e) { console.warn('Erro ao abrir aporte:', e); }
+}
+
+function voltarAporteAtual() {
+  if (_workingSnapshot) {
+    aportes = _workingSnapshot.aportes.map(a => ({ ...a }));
+    capital = { ..._workingSnapshot.capital };
+    setCapitalInputs();
+    document.getElementById('aporte-date').textContent = _workingSnapshot.data;
+  }
+  _viewingHist = false;
+  const b = document.getElementById('hist-banner');
+  if (b) b.style.display = 'none';
+  renderAportes();
+  updateTotals();
+}
+
 // ==================== MODO UMA TELA (fit) ====================
 // Escala o painel inteiro pra caber na altura da viewport — tudo visível, sem rolagem.
 function setRootScroll(lock) {
@@ -3046,9 +3364,11 @@ function toggleFitMode() {
   const on = !document.body.classList.contains('fit-mode');
   document.body.classList.toggle('fit-mode', on);
   setRootScroll(on);
+  const btn = document.getElementById('btn-fit');
+  if (btn) btn.innerHTML = on ? '✕ Sair (Uma Tela)' : '🖥 Uma Tela';
   if (on) {
     window.scrollTo(0, 0);
-    showToast('🖥 Modo Uma Tela ativado · tecla T sai');
+    showToast('🖥 Modo Uma Tela ativado · ESC, T ou o botão saem');
     requestAnimationFrame(() => requestAnimationFrame(applyFit));
     setTimeout(applyFit, 120);                 // após reflow
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(applyFit); // após fontes
@@ -3199,6 +3519,14 @@ document.getElementById('btn-presentation').addEventListener('click', togglePres
 document.getElementById('btn-fit').addEventListener('click', toggleFitMode);
 document.getElementById('btn-resumao').addEventListener('click', copyResumao);
 
+// Abas, salvar e histórico
+document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+const _btnSalvar = document.getElementById('btn-salvar');
+if (_btnSalvar) _btnSalvar.addEventListener('click', salvarAporte);
+const _btnVoltarHoje = document.getElementById('btn-voltar-hoje');
+if (_btnVoltarHoje) _btnVoltarHoje.addEventListener('click', voltarAporteAtual);
+atualizarBotaoSalvar();
+
 // ==================== INIT ====================
 // Aporte do dia: ao abrir, carrega a data de HOJE em todas as linhas
 // (o cabeçalho também, via updateHeaderDate que lê a 1ª linha)
@@ -3279,7 +3607,7 @@ function kinReveal() {
 kinReveal();
 
 // Marcador de versão — confira no console (F12) qual build carregou
-console.log('%c[Aporte G20] build 2026-06-02o · Uma Tela mais compacto + ESC sai','color:#e8c766;font-weight:bold;font-size:13px');
+console.log('%c[Aporte G20] build 2026-06-02q · abas + salvar + histórico (Firebase)','color:#e8c766;font-weight:bold;font-size:13px');
 
 </script>
 
