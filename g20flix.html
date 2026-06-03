@@ -115,6 +115,8 @@ a{text-decoration:none;color:inherit}
 .watch-layout{max-width:2200px;margin:0 auto;padding:16px 30px 40px}
 .watch-main{min-width:0}
 .watch-rail{min-width:0}
+.rail-wrap{min-width:0}
+.rail-fade{display:none}
 @media(min-width:1180px){
   /* player FIXO à esquerda; episódios rolam à direita; abas/topbar fixos acima */
   /* altura DETERMINÍSTICA (flex-basis:0 + height:100%) — não recalcula com o conteúdo */
@@ -122,8 +124,11 @@ a{text-decoration:none;color:inherit}
   .watch-layout{display:grid;grid-template-columns:minmax(0,1fr) clamp(360px,28%,540px);gap:24px;align-items:stretch;height:100%;box-sizing:border-box;padding:16px 30px 0}
   .watch-main{min-width:0;height:100%;overflow-y:auto;overflow-x:hidden;padding-bottom:24px;scrollbar-width:none}
   .watch-main::-webkit-scrollbar{width:0;height:0}
-  .watch-rail{min-width:0;height:100%;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;scrollbar-color:transparent transparent;transition:scrollbar-color .3s ease}
-  .watch-rail.scrolling,.watch-rail:hover{scrollbar-width:thin;scrollbar-color:var(--gold) transparent}
+  .rail-wrap{position:relative;height:100%;min-width:0}
+  .rail-fade{display:block;position:absolute;left:0;right:0;bottom:0;height:54px;pointer-events:none;background:linear-gradient(to top,var(--bg) 12%,rgba(26,25,30,0));opacity:1;transition:opacity .25s ease;z-index:6}
+  .rail-wrap.at-bottom .rail-fade{opacity:0}
+  .watch-rail{min-width:0;height:100%;overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:transparent transparent;transition:scrollbar-color .3s ease}
+  .watch-rail.scrolling,.watch-rail:hover{scrollbar-color:var(--gold) transparent}
   .watch-rail::-webkit-scrollbar{width:8px}
   .watch-rail::-webkit-scrollbar-track{background:transparent}
   .watch-rail::-webkit-scrollbar-thumb{background:transparent;border-radius:4px;transition:background .3s ease}
@@ -205,7 +210,7 @@ a{text-decoration:none;color:inherit}
 .thumb img{width:100%;height:100%;object-fit:cover;object-position:center;transition:transform .4s ease;display:block;pointer-events:none;position:relative}
 .card:hover .thumb img{transform:scale(1.07)}
 .thumb-ov{position:absolute;inset:0;background:rgba(26,25,30,.45);display:flex;align-items:center;justify-content:center;opacity:0;transition:.22s var(--ease);pointer-events:none}
-.card:hover .thumb-ov,.card.playing .thumb-ov{opacity:1}
+.card.playing .thumb-ov{opacity:1}
 .play-circle{display:none}
 .ep-badge{position:absolute;top:7px;right:7px;background:rgba(26,25,30,.92);border:1px solid var(--gold);border-radius:7px;padding:3px 9px;font-size:13px;font-weight:900;color:var(--gold);pointer-events:none;letter-spacing:.5px;text-shadow:0 1px 6px rgba(0,0,0,.8);box-shadow:0 2px 8px rgba(0,0,0,.5)}
 .card-cat-pill{display:inline-block;font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;background:rgba(201,169,97,.12);color:var(--gold);border:.5px solid rgba(201,169,97,.3);letter-spacing:.3px;text-transform:uppercase}
@@ -535,6 +540,7 @@ if(localStorage.getItem('g20_uid')){
       <div class="vd-body" id="vdBody"></div>
     </div>
     </div><!-- /watch-main -->
+    <div class="rail-wrap">
     <div class="watch-rail">
     <div class="filters">
       <div class="sec-title">Episódios&nbsp;<span class="cnt" id="cnt">0</span></div>
@@ -542,6 +548,8 @@ if(localStorage.getItem('g20_uid')){
     </div>
     <div class="grid" id="grid"></div>
     </div><!-- /watch-rail -->
+    <div class="rail-fade" id="railFade"></div>
+    </div><!-- /rail-wrap -->
     </div><!-- /watch-layout -->
   </div>
 
@@ -1109,7 +1117,7 @@ function renderGrid() {
   });
   document.getElementById("cnt").textContent = list.length;
   var g = document.getElementById("grid");
-  if (!list.length) { g.innerHTML = '<div class="empty"><p>Nenhum episódio nesta categoria ainda.</p></div>'; return; }
+  if (!list.length) { g.innerHTML = '<div class="empty"><p>Nenhum episódio nesta categoria ainda.</p></div>'; if (window._g20RailFade) window._g20RailFade(); return; }
   var _selId = (selectedIdx>=0 && videos[selectedIdx]) ? videos[selectedIdx].id : null;
   g.innerHTML = list.map(function(v, i) {
     var isSel = v.id === _selId && !playingId;
@@ -1133,6 +1141,7 @@ function renderGrid() {
     return r;
   }).join("");
   if (_isAdmin) initCardDragDrop();
+  if (window._g20RailFade) { window._g20RailFade(); setTimeout(window._g20RailFade, 120); }
 }
 
 /* ─── DRAG & DROP CARDS (admin) ─── */
@@ -1251,16 +1260,27 @@ document.getElementById("catTabs").addEventListener("click", function(e) {
   switchCat(tab.dataset.cat);
 });
 
-/* ─── SCROLLBAR AUTO-HIDE NO RAIL (some ao parar de rolar) ─── */
+/* ─── SCROLLBAR AUTO-HIDE + FADE NO RODAPÉ DO RAIL ─── */
 (function(){
   var rail = document.querySelector('.watch-rail');
+  var wrap = document.querySelector('.rail-wrap');
   if(!rail) return;
   var t;
+  function updateFade(){
+    if(!wrap) return;
+    var atBottom = (rail.scrollTop + rail.clientHeight) >= (rail.scrollHeight - 4);
+    var noOverflow = rail.scrollHeight <= rail.clientHeight + 4;
+    wrap.classList.toggle('at-bottom', atBottom || noOverflow);
+  }
   rail.addEventListener('scroll', function(){
     rail.classList.add('scrolling');
     clearTimeout(t);
     t = setTimeout(function(){ rail.classList.remove('scrolling'); }, 700);
+    updateFade();
   }, {passive:true});
+  window.addEventListener('resize', updateFade);
+  window._g20RailFade = updateFade;
+  updateFade();
 })();
 
 /* ─── OUTRAS ABAS: RENDERIZAR ─── */
