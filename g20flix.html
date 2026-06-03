@@ -468,15 +468,8 @@ if(localStorage.getItem('g20_uid')){
     </div>
   </header>
 
-  <!-- ══ ABAS DE CATEGORIA ══ -->
-  <div class="cat-tabs" id="catTabs">
-    <div class="cat-tab active" data-cat="aportes">Carteira G20<span class="tab-badge">LIVE</span></div>
-    <div class="cat-tab" data-cat="cursos">Cursos</div>
-    <div class="cat-tab" data-cat="fundamentos">Fundamentos</div>
-    <div class="cat-tab" data-cat="analise">An&#225;lise</div>
-    <div class="cat-tab" data-cat="internacional">Internacional</div>
-    <div class="cat-tab" data-cat="estrategia">Estrat&#233;gia</div>
-  </div>
+  <!-- ══ ABAS DE CATEGORIA (geradas via JS a partir de g20flix/config) ══ -->
+  <div class="cat-tabs" id="catTabs"></div>
 
   <!-- ══ ABA: APORTES ══ -->
   <div class="cat-pane active" id="pane-aportes">
@@ -517,55 +510,6 @@ if(localStorage.getItem('g20_uid')){
     </div><!-- /watch-layout -->
   </div>
 
-  <!-- ══ ABA: CURSOS ══ -->
-  <div class="cat-pane" id="pane-cursos">
-    <div class="other-hero">
-      <div class="other-hero-eyebrow">&#128218; Cursos G20 Masterclass</div>
-      <div class="other-hero-title">Do zero ao <em>avan&#231;ado.</em></div>
-      <div class="other-hero-desc">Aprenda an&#225;lise fundamentalista, FIIs, a&#231;&#245;es internacionais e gest&#227;o de carteira com quem investe de verdade.</div>
-    </div>
-    <div class="other-content"><div class="oth-grid" id="grid-cursos"></div></div>
-  </div>
-
-  <!-- ══ ABA: FUNDAMENTOS ══ -->
-  <div class="cat-pane" id="pane-fundamentos">
-    <div class="other-hero">
-      <div class="other-hero-eyebrow">&#128214; M&#243;dulo 1</div>
-      <div class="other-hero-title">Fundamentos do <em>Mercado</em></div>
-      <div class="other-hero-desc">Como funciona a bolsa, tipos de ativos, m&#250;ltiplos de valuation e como come&#231;ar a investir com seguran&#231;a.</div>
-    </div>
-    <div class="other-content"><div class="oth-grid" id="grid-fundamentos"></div></div>
-  </div>
-
-  <!-- ══ ABA: ANÁLISE ══ -->
-  <div class="cat-pane" id="pane-analise">
-    <div class="other-hero">
-      <div class="other-hero-eyebrow">&#128202; M&#243;dulo 2</div>
-      <div class="other-hero-title">An&#225;lise T&#233;cnica <em>&amp;</em> Fundamentalista</div>
-      <div class="other-hero-desc">Leitura de gr&#225;ficos, candlesticks, indicadores e como identificar empresas de qualidade pelo balan&#231;o.</div>
-    </div>
-    <div class="other-content"><div class="oth-grid" id="grid-analise"></div></div>
-  </div>
-
-  <!-- ══ ABA: INTERNACIONAL ══ -->
-  <div class="cat-pane" id="pane-internacional">
-    <div class="other-hero">
-      <div class="other-hero-eyebrow">&#127758; M&#243;dulo 3</div>
-      <div class="other-hero-title">Investimentos <em>Internacionais</em></div>
-      <div class="other-hero-desc">Stocks americanos, REITs, ETFs globais e UCITs irlandeses. Diversifica&#231;&#227;o global com estrat&#233;gia.</div>
-    </div>
-    <div class="other-content"><div class="oth-grid" id="grid-internacional"></div></div>
-  </div>
-
-  <!-- ══ ABA: ESTRATÉGIA ══ -->
-  <div class="cat-pane" id="pane-estrategia">
-    <div class="other-hero">
-      <div class="other-hero-eyebrow">&#127919; M&#243;dulo 4</div>
-      <div class="other-hero-title">Estrat&#233;gia de <em>Carteira</em></div>
-      <div class="other-hero-desc">Rebalanceamento, aportes mensais, prote&#231;&#227;o do patrim&#244;nio e como montar uma carteira vencedora.</div>
-    </div>
-    <div class="other-content"><div class="oth-grid" id="grid-estrategia"></div></div>
-  </div>
 </div>
 
 <!-- BOTTOM NAV MOBILE -->
@@ -712,13 +656,81 @@ var VIDEOS_CAT = {
 };
 
 /* ─── ESTADO ─── */
-var activeSeason = "2026", searchTerm = "", selectedIdx = 0, playingId = null;
+/* ─── CATEGORIAS (fonte única: Firestore g20flix/config; fallback abaixo) ─── */
+var CATEGORIAS_DEFAULT = [
+  {id:'carteira',      nome:'Carteira G20',                 icone:'💼', ordem:1},
+  {id:'mentalidade',   nome:'Mentalidade',                  icone:'💡', ordem:2},
+  {id:'lives',         nome:'LIVEs Especiais',              icone:'✨', ordem:3},
+  {id:'ia',            nome:'Inteligência Artificial',      icone:'🤖', ordem:4},
+  {id:'internacional', nome:'Investimentos Internacionais', icone:'🌐', ordem:5},
+  {id:'recomendacoes', nome:'Recomendações',                icone:'🎬', ordem:6},
+  {id:'tutoriais',     nome:'Tutoriais',                    icone:'❓', ordem:7}
+];
+var CATEGORIAS = CATEGORIAS_DEFAULT.slice();
+function catSort(a,b){ return (a.ordem||99)-(b.ordem||99); }
+function catById(id){ for(var i=0;i<CATEGORIAS.length;i++){ if(CATEGORIAS[i].id===id) return CATEGORIAS[i]; } return null; }
+// normaliza a categoria de um vídeo (aceita id novo ou nome legado) → id
+function normCat(v){
+  var val = (v && typeof v==='object') ? (v.cat||'') : (v||'');
+  if(!val) return 'carteira';
+  if(catById(val)) return val;
+  for(var i=0;i<CATEGORIAS.length;i++){ if((CATEGORIAS[i].nome||'').toLowerCase()===String(val).toLowerCase()) return CATEGORIAS[i].id; }
+  if(String(val).toLowerCase()==='live') return 'lives';
+  return 'carteira';
+}
+function escFlix(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+
+function renderCatTabs(){
+  var el=document.getElementById('catTabs'); if(!el) return;
+  el.innerHTML = CATEGORIAS.slice().sort(catSort).map(function(c){
+    var live = c.id==='carteira' ? '<span class="tab-badge">LIVE</span>' : '';
+    var ic = c.icone ? (c.icone+' ') : '';
+    return '<div class="cat-tab'+(c.id===activeCat?' active':'')+'" data-cat="'+escFlix(c.id)+'">'+ic+escFlix(c.nome)+live+'</div>';
+  }).join('');
+}
+
+function loadCategorias(db){
+  return db.collection('g20flix').doc('config').get().then(function(doc){
+    if(doc.exists){ var d=doc.data(); if(d && Array.isArray(d.categorias) && d.categorias.length){ CATEGORIAS=d.categorias.slice().sort(catSort); } }
+    renderCatTabs();
+  }).catch(function(){ renderCatTabs(); });
+}
+
+// troca a categoria ativa: refiltra catálogo, temporadas e player
+function switchCat(catId){
+  activeCat = catId;
+  renderCatTabs();
+  if(playingId) closeHero();
+  var idx = videos.findIndex(function(v){ return normCat(v)===catId; });
+  if(idx<0){ activeSeason='Todos'; setHeroEmpty(catId); initTabs(); renderGrid(); return; }
+  var s = videos[idx].season;
+  activeSeason = (s && /^\d{4}$/.test(s)) ? s : 'Todos';
+  setHero(idx);
+  initTabs();
+}
+
+function setHeroEmpty(catId){
+  var c = catById(catId) || {nome:'Categoria'};
+  selectedIdx = -1;
+  var heroBg=document.getElementById('heroBg'); heroBg.className='hero-bg'; heroBg.style.cssText=''; heroBg.removeAttribute('src');
+  document.getElementById('heroEpLabel').textContent='';
+  document.getElementById('heroTitle').innerHTML='<em>'+escFlix(c.nome)+'</em>';
+  document.getElementById('heroSeason').textContent='';
+  document.getElementById('heroDate').textContent='';
+  document.getElementById('heroDesc').textContent='Conteúdo em breve nesta categoria.';
+  document.getElementById('heroTag').style.display='none';
+  var pb=document.getElementById('btnPlayHero'); if(pb) pb.style.display='none';
+  var al=document.getElementById('aportesLive'); if(al) al.classList.add('g20-hidden');
+}
+
+var activeSeason = "2026", searchTerm = "", selectedIdx = 0, playingId = null, activeCat = "carteira";
 var videos = VIDEOS_FALLBACK.slice(); // começa com fallback, Firestore substitui depois
 
 /* ─── HERO ─── */
 function setHero(idx) {
   selectedIdx = idx;
   var v = videos[idx];
+  var _pb=document.getElementById('btnPlayHero'); if(_pb) _pb.style.display='';
   var heroBg = document.getElementById("heroBg");
   var heroSrc = v.heroImg || ('https://img.youtube.com/vi/' + v.id + '/maxresdefault.jpg');
   // Reset completo
@@ -776,6 +788,7 @@ function setHero(idx) {
 }
 
 function playHero() {
+  if (selectedIdx < 0 || !videos[selectedIdx]) return;
   var v = videos[selectedIdx];
   playingId = v.id;
   document.getElementById("heroIframe").src = "https://www.youtube.com/embed/" + v.id + "?autoplay=1&rel=0&modestbranding=1&playsinline=1";
@@ -797,7 +810,7 @@ function closeHero() {
 /* ─── ABAS DE TEMPORADA ─── */
 function initTabs() {
   var seen = {}, seasons = [];
-  videos.forEach(function(v) { if (v.season && !seen[v.season]) { seen[v.season] = 1; seasons.push(v.season); } });
+  videos.forEach(function(v) { if (normCat(v)===activeCat && v.season && !seen[v.season]) { seen[v.season] = 1; seasons.push(v.season); } });
   // Ordenar anos decrescente, Todos no final
   seasons.sort(function(a,b){ return parseInt(b)-parseInt(a); });
   seasons.push("Todos");
@@ -902,14 +915,12 @@ function loadVideosFromFirestore(db, uid) {
         });
         if (loaded.length) videos = loaded;
       }
-      setHero(0);
-      renderGrid();
+      switchCat(activeCat);
       document.getElementById('heroWrap').classList.remove('g20-hidden');
       document.getElementById('grid').classList.remove('g20-hidden');
     })
     .catch(function() {
-      setHero(0);
-      renderGrid();
+      switchCat(activeCat);
       document.getElementById('heroWrap').classList.remove('g20-hidden');
       document.getElementById('grid').classList.remove('g20-hidden');
     });
@@ -1028,14 +1039,16 @@ function alOpenPop(a, chipEl){
 function renderGrid() {
   var list = videos.filter(function(v) {
     var q = searchTerm.toLowerCase();
-    return (activeSeason === "Todos" || v.season === activeSeason)
-      && (v.title.toLowerCase().indexOf(q) >= 0 || String(v.ep).indexOf(searchTerm) >= 0 || v.date.toLowerCase().indexOf(q) >= 0);
+    return normCat(v)===activeCat
+      && (activeSeason === "Todos" || v.season === activeSeason)
+      && (v.title.toLowerCase().indexOf(q) >= 0 || String(v.ep).indexOf(searchTerm) >= 0 || (v.date||'').toLowerCase().indexOf(q) >= 0);
   });
   document.getElementById("cnt").textContent = list.length;
   var g = document.getElementById("grid");
-  if (!list.length) { g.innerHTML = '<div class="empty"><p>Nenhum episódio encontrado.</p></div>'; return; }
+  if (!list.length) { g.innerHTML = '<div class="empty"><p>Nenhum episódio nesta categoria ainda.</p></div>'; return; }
+  var _selId = (selectedIdx>=0 && videos[selectedIdx]) ? videos[selectedIdx].id : null;
   g.innerHTML = list.map(function(v, i) {
-    var isSel = v.id === videos[selectedIdx].id && !playingId;
+    var isSel = v.id === _selId && !playingId;
     var isPlay = v.id === playingId;
     var cls = "card" + (isPlay ? " playing" : isSel ? " selected" : "");
     var r = '<div class="' + cls + '" style="animation-delay:' + (i * 0.03) + 's" data-id="' + v.id + '">';
@@ -1169,11 +1182,7 @@ document.getElementById("btnPlayHero").addEventListener("click", function(e) {
 document.getElementById("catTabs").addEventListener("click", function(e) {
   var tab = e.target.closest("[data-cat]");
   if (!tab) return;
-  var id = tab.dataset.cat;
-  document.querySelectorAll(".cat-tab").forEach(function(t) { t.classList.toggle("active", t.dataset.cat === id); });
-  document.querySelectorAll(".cat-pane").forEach(function(p) { p.classList.remove("active"); });
-  document.getElementById("pane-" + id).classList.add("active");
-  if (id !== "aportes") closeHero();
+  switchCat(tab.dataset.cat);
 });
 
 /* ─── OUTRAS ABAS: RENDERIZAR ─── */
@@ -1252,8 +1261,8 @@ document.addEventListener("keydown", function(e) {
       if (tb) tb.innerHTML = "&#9728;&#65039;";
     }
   } catch(e) {}
+  renderCatTabs();
   initTabs();
-  renderOtherTabs();
   document.getElementById('heroWrap').classList.add('g20-hidden');
   document.getElementById('grid').classList.add('g20-hidden');
 })();
@@ -1333,6 +1342,7 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
       _isAdmin = (role === 'admin');
       if (_isAdmin) document.body.classList.add('is-admin');
       renderAdminBtn();
+      loadCategorias(db);
       loadVideosFromFirestore(db, user.uid);
       var photo    = (data.perfil && data.perfil.foto) || profile.photo || user.photoURL || '';
       var initials = name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase()||'IO';
