@@ -546,7 +546,7 @@ if(localStorage.getItem('g20_uid')){
 </div>
 
 <!-- marcador de versão (confirma qual build está no ar) -->
-<div id="g20flixBuild" style="position:fixed;bottom:4px;right:9px;font-size:10px;color:rgba(201,169,97,.4);z-index:2;font-family:monospace;pointer-events:none;letter-spacing:.5px">g20flix · build 2026-06-02-cat11</div>
+<div id="g20flixBuild" style="position:fixed;bottom:4px;right:9px;font-size:10px;color:rgba(201,169,97,.4);z-index:2;font-family:monospace;pointer-events:none;letter-spacing:.5px">g20flix · build 2026-06-02-cat12</div>
 
 <!-- BOTTOM NAV MOBILE -->
 <nav class="bottom-nav">
@@ -849,6 +849,9 @@ var _isAdmin = false;
 
 // ─── ADMIN UI ───
 var _adminViewMode = 'admin'; // 'admin' ou 'aluno'
+// Só conta como "admin" se for admin de verdade E estiver no modo de visão admin.
+// Na prévia "Aluno", retorna false → mostra exatamente o que o aluno vê.
+function isAdminView(){ return _isAdmin && _adminViewMode === 'admin'; }
 
 function renderAdminBtn() {
   if (!_isAdmin) return;
@@ -873,13 +876,20 @@ function renderAdminBtn() {
       toggle.style.background = 'rgba(255,255,255,.08)';
       toggle.style.borderColor = 'rgba(255,255,255,.18)';
       toggle.style.color = '#e8e6e3';
+      if (link) link.style.display = '';
     } else {
       document.body.classList.remove('is-admin');
-      toggle.innerHTML = '\U0001F393 Aluno';
+      toggle.innerHTML = '\u{1F393} Aluno';
       toggle.style.background = 'rgba(201,169,97,.15)';
       toggle.style.borderColor = 'rgba(201,169,97,.4)';
       toggle.style.color = '#c9a961';
+      if (link) link.style.display = 'none';
     }
+    // Re-renderiza para mostrar EXATAMENTE a visão do perfil selecionado
+    if (typeof selectedIdx === 'number' && selectedIdx >= 0 && videos[selectedIdx]) {
+      renderBelowPlayer(videos[selectedIdx]);
+    }
+    document.querySelectorAll('.card').forEach(function(c){ c.draggable = isAdminView(); });
   };
 
   var link = document.createElement('a');
@@ -995,7 +1005,7 @@ function renderVideoDesc(v){
   if(!dw||!body) return;
   dw.classList.remove('g20-hidden');
   var desc=(v&&v.desc)?v.desc:'';
-  if(_isAdmin){
+  if(isAdminView()){
     body.innerHTML='<textarea id="vdInput" placeholder="Escreva uma descrição para este vídeo...">'+escFlix(desc)+'</textarea>'+
       '<button class="vd-save" id="vdSaveBtn">💾 Salvar descrição</button>';
     var btn=document.getElementById('vdSaveBtn');
@@ -1132,6 +1142,7 @@ function initCardDragDrop() {
     card.draggable = true;
 
     card.addEventListener('dragstart', function(e) {
+      if (!isAdminView()) { e.preventDefault(); return; }
       _dragSrcId = card.dataset.id;
       card.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';
