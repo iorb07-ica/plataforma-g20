@@ -917,7 +917,6 @@ function renderAdminBtn() {
 
 function loadVideosFromFirestore(db, uid) {
   db.collection('g20flix').doc('videos').collection('items')
-    .orderBy('ordem', 'asc')
     .get()
     .then(function(snap) {
       if (!snap.empty) {
@@ -945,6 +944,14 @@ function loadVideosFromFirestore(db, uid) {
             if (seedRef) { v.season = seedRef.season; if (!v.date) v.date = seedRef.date; }
           }
           loaded.push(v);
+        });
+        // Ordena no cliente por 'ordem' (sem campo vai pro fim) — NÃO usar orderBy do
+        // Firestore aqui, pois ele descarta documentos sem o campo 'ordem'.
+        loaded.sort(function(a, b){
+          var oa = (typeof a.ordem === 'number') ? a.ordem : 1e9;
+          var ob = (typeof b.ordem === 'number') ? b.ordem : 1e9;
+          if (oa !== ob) return oa - ob;
+          return (Number(b.ep) || 0) - (Number(a.ep) || 0);
         });
         if (loaded.length) videos = loaded;
       }
@@ -1141,7 +1148,7 @@ function renderGrid() {
     return r;
   }).join("");
   if (_isAdmin) initCardDragDrop();
-  if (window._g20RailFade) { window._g20RailFade(); setTimeout(window._g20RailFade, 120); }
+  if (window._g20RailFade) { window._g20RailFade(); setTimeout(window._g20RailFade, 150); setTimeout(window._g20RailFade, 600); }
 }
 
 /* ─── DRAG & DROP CARDS (admin) ─── */
@@ -1278,7 +1285,10 @@ document.getElementById("catTabs").addEventListener("click", function(e) {
     t = setTimeout(function(){ rail.classList.remove('scrolling'); }, 700);
     updateFade();
   }, {passive:true});
+  // Recalcula quando cada thumbnail termina de carregar (altura real só existe aí)
+  rail.addEventListener('load', updateFade, true);
   window.addEventListener('resize', updateFade);
+  window.addEventListener('load', updateFade);
   window._g20RailFade = updateFade;
   updateFade();
 })();
