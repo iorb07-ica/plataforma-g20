@@ -318,6 +318,18 @@ body.is-admin .card:active{cursor:grabbing}
 
 /* ── APORTES DA LIVE (chips + popover) ── */
 .aportes-live{margin:18px 0 4px;padding:18px 20px;background:var(--bg2);border:1px solid var(--border);border-radius:16px}
+.aportes-live.g20-hidden{display:none}
+/* Caixa de descrição (categorias que não são Carteira G20) */
+.video-desc{margin:18px 0 4px;padding:18px 20px;background:var(--bg2);border:1px solid var(--border);border-radius:16px}
+.video-desc.g20-hidden{display:none}
+.vd-head{font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gold);margin-bottom:14px;display:flex;align-items:center;gap:9px}
+.vd-body{color:var(--text2);font-size:14px;line-height:1.6;white-space:pre-wrap}
+.vd-body textarea{width:100%;min-height:88px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;color:var(--text);font:14px "DM Sans",sans-serif;resize:vertical;line-height:1.5;outline:none}
+.vd-body textarea:focus{border-color:var(--gold)}
+.vd-save{margin-top:10px;display:inline-flex;align-items:center;gap:7px;background:var(--gold);color:#0d0c10;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;transition:filter .15s,transform .15s;font-family:inherit}
+.vd-save:hover{filter:brightness(1.08);transform:translateY(-1px)}
+.vd-save:disabled{opacity:.6;cursor:default;transform:none}
+.vd-empty{color:var(--text3);font-style:italic}
 .al-head{font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gold);margin-bottom:14px;display:flex;align-items:center;gap:9px}
 .al-bar{display:block;width:3px;height:13px;border-radius:2px;background:var(--gold)}
 .al-live-btn{margin-left:auto;display:inline-flex;align-items:center;gap:7px;background:var(--gold);color:#0d0c10;font-size:12px;font-weight:700;letter-spacing:.3px;text-transform:none;padding:8px 14px;border-radius:8px;text-decoration:none;transition:filter .15s,transform .15s}
@@ -507,6 +519,10 @@ if(localStorage.getItem('g20_uid')){
       <div class="al-head"><span class="al-bar"></span> Aportes desta live<a class="al-live-btn" href="aporte-g20-live.html" target="_blank" rel="noopener" aria-label="Abrir painel de aporte ao vivo em nova aba"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>Abrir aporte ao vivo</a></div>
       <div class="al-chips" id="alChips"></div>
     </div>
+    <div class="video-desc g20-hidden" id="videoDescBox">
+      <div class="vd-head"><span class="al-bar"></span> Sobre este vídeo</div>
+      <div class="vd-body" id="vdBody"></div>
+    </div>
     </div><!-- /watch-main -->
     <div class="watch-rail">
     <div class="filters">
@@ -521,7 +537,7 @@ if(localStorage.getItem('g20_uid')){
 </div>
 
 <!-- marcador de versão (confirma qual build está no ar) -->
-<div id="g20flixBuild" style="position:fixed;bottom:4px;right:9px;font-size:10px;color:rgba(201,169,97,.4);z-index:2;font-family:monospace;pointer-events:none;letter-spacing:.5px">g20flix · build 2026-06-02-cat7</div>
+<div id="g20flixBuild" style="position:fixed;bottom:4px;right:9px;font-size:10px;color:rgba(201,169,97,.4);z-index:2;font-family:monospace;pointer-events:none;letter-spacing:.5px">g20flix · build 2026-06-02-cat8</div>
 
 <!-- BOTTOM NAV MOBILE -->
 <nav class="bottom-nav">
@@ -739,6 +755,7 @@ function setHeroEmpty(catId){
   document.getElementById('heroTag').style.display='none';
   var pb=document.getElementById('btnPlayHero'); if(pb) pb.style.display='none';
   var al=document.getElementById('aportesLive'); if(al) al.classList.add('g20-hidden');
+  var dw=document.getElementById('videoDescBox'); if(dw) dw.classList.add('g20-hidden');
 }
 
 var activeSeason = "2026", searchTerm = "", selectedIdx = 0, playingId = null, activeCat = "carteira";
@@ -768,7 +785,7 @@ function setHero(idx) {
   document.getElementById("heroDate").textContent = v.date || '';
   document.getElementById("heroDesc").textContent = v.desc || "";
   document.getElementById("heroTag").style.display = idx === 0 ? "inline-flex" : "none";
-  renderAportesLive(v);
+  renderBelowPlayer(v);
   renderGrid();
 }
 
@@ -878,6 +895,7 @@ function loadVideosFromFirestore(db, uid) {
         snap.forEach(function(d) {
           var v = d.data();
           if (!v.id) return;
+          v.docId = d.id;
           if (!v.url) v.url = 'https://www.youtube.com/watch?v=' + v.id;
           if (!v.isNew) v.isNew = v.destaque || false;
           // campo 'cat' no admin → 'season' no g20flix para filtros de temporada
@@ -946,6 +964,45 @@ function alLogo(tk){
   var ini=String(tk||'?').charAt(0).toUpperCase();
   if(url) return '<span class="al-logo"><img src="'+url+'" onerror="this.parentNode.innerHTML=\'<span class=&quot;ini&quot;>'+ini+'</span>\'"></span>';
   return '<span class="al-logo"><span class="ini">'+ini+'</span></span>';
+}
+function renderBelowPlayer(v){
+  var aw=document.getElementById('aportesLive');
+  var dw=document.getElementById('videoDescBox');
+  if(activeCat==='carteira'){
+    // Carteira G20: mostra aportes + botão "Abrir aporte ao vivo"
+    if(dw) dw.classList.add('g20-hidden');
+    renderAportesLive(v);
+  } else {
+    // Outras categorias: esconde aportes, mostra caixa de descrição
+    if(aw) aw.classList.add('g20-hidden');
+    renderVideoDesc(v);
+  }
+}
+function renderVideoDesc(v){
+  var dw=document.getElementById('videoDescBox');
+  var body=document.getElementById('vdBody');
+  if(!dw||!body) return;
+  dw.classList.remove('g20-hidden');
+  var desc=(v&&v.desc)?v.desc:'';
+  if(_isAdmin){
+    body.innerHTML='<textarea id="vdInput" placeholder="Escreva uma descrição para este vídeo...">'+escFlix(desc)+'</textarea>'+
+      '<button class="vd-save" id="vdSaveBtn">💾 Salvar descrição</button>';
+    var btn=document.getElementById('vdSaveBtn');
+    if(btn) btn.onclick=function(){ saveVideoDesc(v, document.getElementById('vdInput').value, btn); };
+  } else {
+    body.innerHTML = desc ? escFlix(desc) : '<span class="vd-empty">Sem descrição.</span>';
+  }
+}
+function saveVideoDesc(v, text, btn){
+  text=(text||'').trim();
+  v.desc=text;
+  var hd=document.getElementById('heroDesc'); if(hd) hd.textContent=text;
+  if(!v.docId || !window._db){ if(btn){ btn.textContent='✓ Salvo'; setTimeout(function(){btn.textContent='💾 Salvar descrição';},1500);} return; }
+  if(btn){ btn.disabled=true; btn.textContent='Salvando...'; }
+  window._db.collection('g20flix').doc('videos').collection('items').doc(v.docId)
+    .set({desc:text},{merge:true})
+    .then(function(){ if(btn){ btn.textContent='✓ Salvo'; setTimeout(function(){ btn.disabled=false; btn.textContent='💾 Salvar descrição'; },1500);} })
+    .catch(function(){ if(btn){ btn.disabled=false; btn.textContent='Erro — tentar de novo'; } });
 }
 function renderAportesLive(v){
   var wrap=document.getElementById('aportesLive');
