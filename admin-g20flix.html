@@ -241,13 +241,8 @@ select.ap-edit option{background:#1c2030;color:#f4f6fa}
     </div>
     <div class="filters-bar">
       <button class="cat-tab active" data-cat="todos" onclick="filtrarCat('todos')">Todos</button>
-      <button class="cat-tab" data-cat="Carteira G20" onclick="filtrarCat('Carteira G20')">Carteira G20</button>
-      <button class="cat-tab" data-cat="LIVE" onclick="filtrarCat('LIVE')">LIVE</button>
-      <button class="cat-tab" data-cat="Mentalidade" onclick="filtrarCat('Mentalidade')">Mentalidade</button>
-      <button class="cat-tab" data-cat="Análise" onclick="filtrarCat('Análise')">Análise</button>
-      <button class="cat-tab" data-cat="Internacional" onclick="filtrarCat('Internacional')">Internacional</button>
-      <button class="cat-tab" data-cat="IA" onclick="filtrarCat('IA')">IA</button>
-      <button class="cat-tab" data-cat="Estratégia" onclick="filtrarCat('Estratégia')">Estratégia</button>
+      <span id="catTabsSlot"></span>
+      <button class="cat-tab" onclick="abrirCatManager()" title="Gerenciar categorias" style="border-style:dashed">⚙️ Categorias</button>
       <span class="count-lbl" id="countLbl">0 vídeos</span>
       <div class="search-wrap">
         <span class="s-ico">🔍</span>
@@ -274,7 +269,7 @@ select.ap-edit option{background:#1c2030;color:#f4f6fa}
         <div class="field" style="margin:0"><label>Thumbnail (YouTube)</label><div class="thumb-preview" id="thumbPreview"><div class="thumb-placeholder">Cole a URL acima<br>para gerar</div></div></div>
       </div>
       <div class="field-row" style="margin-top:1rem">
-        <div class="field" style="margin:0"><label>Categoria</label><select id="fCat"><option>Carteira G20</option><option>LIVE</option><option>Mentalidade</option><option>Análise</option><option>Internacional</option><option>IA</option><option>Estratégia</option></select></div>
+        <div class="field" style="margin:0"><label>Categoria</label><select id="fCat"></select></div>
         <div class="field" style="margin:0"><label>Episódio #</label><input type="number" id="fEp" placeholder="Ex: 82" min="1"></div>
       </div>
       <div class="field-row" style="margin-top:1rem">
@@ -370,6 +365,116 @@ var _cfg={apiKey:"AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",authDomain:"g20-maste
 if(!firebase.apps.length)firebase.initializeApp(_cfg);
 var auth=firebase.auth(),db=firebase.firestore();
 var _videos=[],_catAtual='todos',_buscaAtual='',_editingId=null;
+
+/* ═══ CATEGORIAS (fonte única: Firestore g20flix/config) ═══ */
+var CATEGORIAS_DEFAULT=[
+  {id:'carteira',      nome:'Carteira G20',                 icone:'💼', ordem:1},
+  {id:'mentalidade',   nome:'Mentalidade',                  icone:'💡', ordem:2},
+  {id:'lives',         nome:'LIVEs Especiais',              icone:'✨', ordem:3},
+  {id:'ia',            nome:'Inteligência Artificial',      icone:'🤖', ordem:4},
+  {id:'internacional', nome:'Investimentos Internacionais', icone:'🌐', ordem:5},
+  {id:'recomendacoes', nome:'Recomendações',                icone:'🎬', ordem:6},
+  {id:'tutoriais',     nome:'Tutoriais',                    icone:'❓', ordem:7}
+];
+var CATEGORIAS=CATEGORIAS_DEFAULT.slice(), _catEdit=[];
+function catSort(a,b){return (a.ordem||99)-(b.ordem||99);}
+function catById(id){for(var i=0;i<CATEGORIAS.length;i++){if(CATEGORIAS[i].id===id)return CATEGORIAS[i];}return null;}
+function normCat(v){
+  var val=(v&&typeof v==='object')?(v.cat||''):(v||'');
+  if(!val)return 'carteira';
+  if(catById(val))return val;
+  for(var i=0;i<CATEGORIAS.length;i++){if((CATEGORIAS[i].nome||'').toLowerCase()===String(val).toLowerCase())return CATEGORIAS[i].id;}
+  if(String(val).toLowerCase()==='live')return 'lives';
+  return 'carteira';
+}
+function catNome(x){var c=catById(normCat(x));return c?c.nome:'Carteira G20';}
+function catClass(x){var map={carteira:'carteira',lives:'live',mentalidade:'mentalidade',ia:'ia',internacional:'internacional',recomendacoes:'analise',tutoriais:'estrategia'};return map[normCat(x)]||'carteira';}
+function slugCat(s){return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'').slice(0,24)||('cat'+Date.now());}
+
+function renderCatFilterTabs(){
+  var slot=document.getElementById('catTabsSlot'); if(!slot)return;
+  slot.innerHTML=CATEGORIAS.slice().sort(catSort).map(function(c){
+    return '<button class="cat-tab" data-cat="'+escHtml(c.id)+'" onclick="filtrarCat(\''+escHtml(c.id)+'\')">'+(c.icone?c.icone+' ':'')+escHtml(c.nome)+'</button>';
+  }).join('');
+  document.querySelectorAll('.cat-tab').forEach(function(t){t.classList.toggle('active',t.dataset.cat===_catAtual);});
+}
+function renderCatSelect(){
+  var sel=document.getElementById('fCat'); if(!sel)return;
+  var cur=sel.value;
+  sel.innerHTML=CATEGORIAS.slice().sort(catSort).map(function(c){return '<option value="'+escHtml(c.id)+'">'+escHtml(c.nome)+'</option>';}).join('');
+  if(cur)sel.value=cur;
+}
+function loadCategoriasAdmin(){
+  return db.collection('g20flix').doc('config').get().then(function(doc){
+    if(doc.exists&&doc.data()&&Array.isArray(doc.data().categorias)&&doc.data().categorias.length){
+      CATEGORIAS=doc.data().categorias.slice().sort(catSort);
+    }else{
+      db.collection('g20flix').doc('config').set({categorias:CATEGORIAS_DEFAULT},{merge:true}).catch(function(){});
+    }
+    renderCatFilterTabs();renderCatSelect();renderStats();
+  }).catch(function(){renderCatFilterTabs();renderCatSelect();});
+}
+function salvarCategorias(){return db.collection('g20flix').doc('config').set({categorias:CATEGORIAS},{merge:true});}
+
+/* ── GERENCIADOR DE CATEGORIAS ── */
+function _catMgrHTML(){
+  return '<div class="modal-overlay" id="catMgrOverlay">'+
+    '<div class="modal" style="max-width:560px">'+
+      '<div class="modal-hdr"><span class="modal-hdr-title">Gerenciar categorias</span><button class="modal-close" onclick="fecharCatManager()">✕</button></div>'+
+      '<div class="modal-body">'+
+        '<div style="color:var(--txt2,#9a958c);font-size:13px;margin-bottom:14px">Ícone (emoji) + nome. Arraste a ordem com ↑ ↓. Essas categorias aparecem no menu do G20Flix e aqui no cadastro de vídeos.</div>'+
+        '<div id="catMgrList"></div>'+
+        '<button onclick="catMgrAdd()" style="margin-top:6px;background:transparent;border:1px dashed var(--gold,#c9a961);color:var(--gold,#c9a961);border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:600">+ Adicionar categoria</button>'+
+      '</div>'+
+      '<div class="modal-footer" style="display:flex;gap:10px;justify-content:flex-end;padding:16px 20px;border-top:1px solid var(--border,#2a2830)">'+
+        '<button onclick="fecharCatManager()" style="background:transparent;border:1px solid var(--border,#3a3742);color:#b8b3a8;border-radius:8px;padding:10px 18px;cursor:pointer">Cancelar</button>'+
+        '<button id="catMgrSaveBtn" onclick="catMgrSave()" style="background:var(--gold,#c9a961);border:none;color:#0d0c10;border-radius:8px;padding:10px 18px;cursor:pointer;font-weight:700">Salvar categorias</button>'+
+      '</div>'+
+    '</div></div>';
+}
+function abrirCatManager(){
+  if(!document.getElementById('catMgrOverlay'))document.body.insertAdjacentHTML('beforeend',_catMgrHTML());
+  _catEdit=CATEGORIAS.slice().sort(catSort).map(function(c){return {id:c.id,nome:c.nome,icone:c.icone||''};});
+  renderCatMgr();
+  document.getElementById('catMgrOverlay').classList.add('open');
+}
+function fecharCatManager(){var o=document.getElementById('catMgrOverlay');if(o)o.classList.remove('open');}
+function renderCatMgr(){
+  var box=document.getElementById('catMgrList'); if(!box)return;
+  box.innerHTML=_catEdit.map(function(c,i){
+    var lock=(c.id==='carteira');
+    return '<div class="catmgr-row" data-id="'+escHtml(c.id||'')+'" style="display:flex;gap:8px;align-items:center;margin-bottom:8px">'+
+      '<input class="cm-icone" value="'+escHtml(c.icone||'')+'" maxlength="2" style="width:48px;text-align:center;font-size:18px;background:var(--bg3,#15141a);border:1px solid var(--border,#3a3742);border-radius:8px;padding:8px;color:#fff">'+
+      '<input class="cm-nome" value="'+escHtml(c.nome||'')+'" placeholder="Nome da categoria" style="flex:1;background:var(--bg3,#15141a);border:1px solid var(--border,#3a3742);border-radius:8px;padding:9px 12px;color:#fff">'+
+      '<button onclick="catMgrMove('+i+',-1)" title="Subir" style="background:var(--bg3,#15141a);border:1px solid var(--border,#3a3742);color:#b8b3a8;border-radius:6px;width:34px;height:34px;cursor:pointer">↑</button>'+
+      '<button onclick="catMgrMove('+i+',1)" title="Descer" style="background:var(--bg3,#15141a);border:1px solid var(--border,#3a3742);color:#b8b3a8;border-radius:6px;width:34px;height:34px;cursor:pointer">↓</button>'+
+      (lock?'<span title="Categoria fixa" style="width:34px;text-align:center;color:#5a5650">🔒</span>':'<button onclick="catMgrDel('+i+')" title="Remover" style="background:transparent;border:1px solid #5a2a2a;color:#e07a7a;border-radius:6px;width:34px;height:34px;cursor:pointer">🗑</button>')+
+    '</div>';
+  }).join('');
+}
+function _catReadDOM(){
+  var rows=document.querySelectorAll('#catMgrList .catmgr-row'); _catEdit=[];
+  rows.forEach(function(r){_catEdit.push({id:r.getAttribute('data-id')||'',nome:(r.querySelector('.cm-nome').value||''),icone:(r.querySelector('.cm-icone').value||'')});});
+}
+function catMgrMove(i,dir){_catReadDOM();var j=i+dir;if(j<0||j>=_catEdit.length)return;var t=_catEdit[i];_catEdit[i]=_catEdit[j];_catEdit[j]=t;renderCatMgr();}
+function catMgrDel(i){_catReadDOM();if(_catEdit[i]&&_catEdit[i].id==='carteira'){toast('Carteira G20 é fixa');return;}_catEdit.splice(i,1);renderCatMgr();}
+function catMgrAdd(){_catReadDOM();_catEdit.push({id:'',nome:'',icone:'⭐'});renderCatMgr();}
+function catMgrSave(){
+  _catReadDOM();
+  var nova=[],seen={};
+  _catEdit.forEach(function(c){
+    var nome=(c.nome||'').trim(); if(!nome)return;
+    var id=c.id||slugCat(nome); while(seen[id])id=id+'-2'; seen[id]=1;
+    nova.push({id:id,nome:nome,icone:(c.icone||'').trim()});
+  });
+  if(!nova.some(function(c){return c.id==='carteira';}))nova.unshift({id:'carteira',nome:'Carteira G20',icone:'💼'});
+  nova.forEach(function(c,i){c.ordem=i+1;});
+  CATEGORIAS=nova;
+  var btn=document.getElementById('catMgrSaveBtn'); if(btn){btn.disabled=true;btn.textContent='Salvando...';}
+  salvarCategorias().then(function(){
+    renderCatFilterTabs();renderCatSelect();renderLista();renderStats();fecharCatManager();toast('✅ Categorias salvas');
+  }).catch(function(e){toast('❌ Erro: '+e.message);}).then(function(){if(btn){btn.disabled=false;btn.textContent='Salvar categorias';}});
+}
 var SEED_VIDEOS=[
   {id:"kVa0WH2OAWA",ep:82,title:"#82 - Aporte Carteira G20",cat:"Carteira G20",season:"2026",date:"Maio 2026",desc:"",destaque:true,ordem:1},
   {id:"8A8dDgSCpcs",ep:81,title:"#81 - Aporte Carteira G20",cat:"Carteira G20",season:"2026",date:"Abril 2026",desc:"",destaque:false,ordem:2},
@@ -460,6 +565,7 @@ var SEED_VIDEOS=[
 // AUTH — sem verificação de role, carrega direto
 auth.onAuthStateChanged(function(user){
   if(!user){location.href='login.html';return;}
+  loadCategoriasAdmin();
   carregarVideos();
   db.collection('users').doc(user.uid).get().then(function(doc){
     if(!doc.exists)return;
@@ -545,12 +651,12 @@ function salvarNoFirestore(video,docId){
 }
 function deletarNoFirestore(docId){return db.collection('g20flix').doc('videos').collection('items').doc(docId).delete();}
 
-function catClass(cat){var map={'Carteira G20':'carteira','LIVE':'live','Análise':'analise','Mentalidade':'mentalidade','Internacional':'internacional','IA':'ia','Estratégia':'estrategia'};return map[cat]||'carteira';}
+/* catClass agora é definido no bloco de categorias (por id) */
 
 function renderLista(){
   var list=document.getElementById('videoList');
   var filtered=_videos.filter(function(v){
-    var catOk=_catAtual==='todos'||v.cat===_catAtual;
+    var catOk=_catAtual==='todos'||normCat(v)===_catAtual;
     var buscaOk=!_buscaAtual||(v.title||'').toLowerCase().includes(_buscaAtual.toLowerCase())||(v.desc||'').toLowerCase().includes(_buscaAtual.toLowerCase());
     return catOk&&buscaOk;
   });
@@ -564,7 +670,7 @@ function renderLista(){
       '<div class="video-thumb"><img src="https://img.youtube.com/vi/'+v.id+'/mqdefault.jpg" loading="lazy" onerror="this.style.display=\'none\'"><div class="play-ov"><span>▶</span></div>'+(v.ep?'<span class="ep-badge">#'+v.ep+'</span>':'')+
       '</div>'+
       '<div class="video-info"><div class="video-title">'+escHtml(v.title||'Sem título')+'</div>'+
-      '<div class="video-meta"><span class="cat-pill '+cc+'">'+escHtml(v.cat||'')+'</span>'+(v.season?'<span class="video-date">'+escHtml(v.season)+'</span>':'')+(v.date?'<span class="video-date">'+escHtml(v.date)+'</span>':'')+'</div></div>'+
+      '<div class="video-meta"><span class="cat-pill '+cc+'">'+escHtml(catNome(v.cat))+'</span>'+(v.season?'<span class="video-date">'+escHtml(v.season)+'</span>':'')+(v.date?'<span class="video-date">'+escHtml(v.date)+'</span>':'')+'</div></div>'+
       '<button class="star-btn" title="'+(v.destaque?'Remover destaque':'Marcar destaque')+'" onclick="toggleDestaque(\''+v.docId+'\')">'+(v.destaque?'⭐':'☆')+'</button>'+
       '<div class="row-actions"><button class="btn-edit" onclick="abrirEditar(\''+v.docId+'\')">Editar</button><button class="btn-del" onclick="confirmarDeletar(\''+v.docId+'\')">Excluir</button></div>'+
     '</div>';
@@ -573,7 +679,7 @@ function renderLista(){
 }
 
 function renderStats(){
-  var total=_videos.length,cats=new Set(_videos.map(function(v){return v.cat;})).size,dest=_videos.filter(function(v){return v.destaque;}).length,live=_videos.filter(function(v){return v.cat==='LIVE';}).length;
+  var total=_videos.length,cats=CATEGORIAS.length,dest=_videos.filter(function(v){return v.destaque;}).length,live=_videos.filter(function(v){return normCat(v)==='lives';}).length;
   document.getElementById('statTotal').textContent=total;
   document.getElementById('statCats').textContent=cats;
   document.getElementById('statDestaque').textContent=dest;
@@ -614,7 +720,8 @@ function abrirModal(){
   ['fUrl','fTitle','fSeason','fDate','fEp','fDesc','fCardImg','fHeroImg'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.value='';
   });
-  document.getElementById('fCat').value='Carteira G20';
+  renderCatSelect();
+  document.getElementById('fCat').value='carteira';
   document.getElementById('toggleDestaque').classList.remove('on');
   document.getElementById('thumbPreview').innerHTML='<div class="thumb-placeholder">Cole a URL acima<br>para gerar</div>';
   // Resetar mocks
@@ -632,7 +739,8 @@ function abrirEditar(docId){
   document.getElementById('modalTitle').textContent='Editar vídeo';
   document.getElementById('fUrl').value='https://www.youtube.com/watch?v='+v.id;
   document.getElementById('fTitle').value=v.title||'';
-  document.getElementById('fCat').value=v.cat||'Carteira G20';
+  renderCatSelect();
+  document.getElementById('fCat').value=normCat(v);
   document.getElementById('fSeason').value=v.season||'';
   document.getElementById('fDate').value=v.date||'';
   document.getElementById('fEp').value=v.ep||'';
