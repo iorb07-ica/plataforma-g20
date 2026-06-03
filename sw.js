@@ -1,4 +1,4 @@
-const CACHE = 'g20-v35';
+const CACHE = 'g20-v36';
 const STATIC = [
   'manifest.json',
   'icon-192.png',
@@ -38,7 +38,9 @@ self.addEventListener('fetch', function(e) {
       url.includes('cdnjs.cloudflare.com')) return;
   if (url.endsWith('.html') || url.endsWith('/')) {
     e.respondWith(
-      fetch(e.request).catch(function() {
+      // HTML SEMPRE fresco do servidor (ignora cache HTTP do navegador).
+      // Assim um F5 normal já mostra a versão nova após o deploy — sem Ctrl+Shift+R.
+      fetch(e.request, { cache: 'no-store' }).catch(function() {
         return caches.match(e.request);
       })
     );
