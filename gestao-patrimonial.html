@@ -3685,13 +3685,21 @@ function patSetHeat(h){
 }
 
 function renderPatPaineis(seriePatrimonioFn){
+  _vgSeriePatFn = seriePatrimonioFn;
   var el=document.getElementById('patPaineis');
   if(!el) return;
 
   // ── PAINEL 1: Evolução patrimonial ──
   function buildEvolucao(){
+    var mesLabels=_evoMesLabels(12);
+    // dispara a busca do histórico real; re-renderiza o painel quando os dados chegarem
+    try{ ensureHistEvoVG(mesLabels, function(){ if(typeof renderPatPaineis==='function') renderPatPaineis(_vgSeriePatFn); }); }catch(e){}
     var serie=null;
-    try{ serie=(typeof seriePatrimonioFn==='function'?seriePatrimonioFn:function(){return null;})(12); }catch(e){}
+    // usa a série REAL se já houver histórico em cache; senão, mostra a simulação como placeholder
+    if(_vgTemHistReal()){ try{ serie=patSerieRealVG(mesLabels); }catch(e){} }
+    if(!serie || serie.length<2 || !serie.some(function(v){return v>0;})){
+      try{ serie=(typeof seriePatrimonioFn==='function'?seriePatrimonioFn:function(){return null;})(12); }catch(e){}
+    }
     var svgGraf='';
     var varPct=0;
     if(serie&&serie.length>1){
@@ -4079,6 +4087,100 @@ _EVO_CLASSES.forEach(function(c){ _evoClassesVisiveis[c.key] = true; });
 
 // Cache de histórico mensal
 var _histEvoCache = {};
+
+// ── Painel Visão Geral: série patrimonial REAL mês a mês (histórico via _histEvoCache) ──
+var _vgSeriePatFn = null; // ref da seriePatrimonio (simulação) usada como fallback no refresh assíncrono
+
+function _evoMesLabels(meses){
+  var hoje=new Date(), labels=[];
+  for(var i=meses;i>=0;i--){ var d=new Date(hoje.getFullYear(),hoje.getMonth()-i,1); labels.push(d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)); }
+  return labels;
+}
+
+// Mesma lógica comprovada do gráfico de evolução (renderBenchmarkChart): RF juros compostos + Bens + RV por preço histórico real
+function patSerieRealVG(mesLabels){
+  var rfLista=loadRF(), bensList=loadPat(), rvAportes=loadRVAportes();
+  return mesLabels.map(function(mes){
+    var dataRef = mes+'-15';
+    var rfVal = rfLista.reduce(function(s,r){
+      if(!r.dataInicio||r.dataInicio>dataRef) return s;
+      if(r.encerrado){
+        var dataEnc='';
+        if(r.resgates&&r.resgates.length){
+          var datas=r.resgates.map(function(rg){return rg.data||'';}).filter(Boolean);
+          if(datas.length) dataEnc=datas.sort().pop();
+        }
+        if(dataEnc&&dataEnc.substring(0,7)<mes) return s;
+      }
+      var dc=Math.max(0,Math.floor((new Date(dataRef)-new Date(r.dataInicio))/86400000));
+      var taxa=parseFloat(r.taxa)/100, rend=0;
+      if(r.indexador==='CDI') rend=(getCDI()/100)*taxa;
+      else if(r.indexador==='Selic') rend=(getSelic()/100)+taxa;
+      else if(r.indexador==='IPCA')  rend=(getIPCA()/100)+taxa;
+      else if(r.indexador==='IGPM')  rend=(getIGPM()/100)+taxa;
+      else if(r.indexador==='Prefixado') rend=taxa;
+      var fator=(['CDI','Selic'].indexOf(r.indexador)>=0)?Math.pow(1+rend,diasUteisEstimados(dc)/252):Math.pow(1+rend,dc/365);
+      return s+(r._invOriginal||r.valorInv||0)*fator;
+    },0);
+    var bensVal = bensList.reduce(function(s,b){
+      if(b.dataAq&&b.dataAq>dataRef) return s;
+      return s+calcBemValorAtual(b)-(b.divida||0);
+    },0);
+    var rvPos = {};
+    rvAportes.forEach(function(a){
+      if(!a||!a.data||a.data.substring(0,7)>mes) return;
+      if(!rvPos[a.ticker]) rvPos[a.ticker]={ticker:a.ticker,tipo:a.tipo||'Acao',qtd:0,totalInv:0};
+      var p=rvPos[a.ticker];
+      var preco=a.moeda==='USD'?a.preco*(a.fxRate||rvUsdBRL):a.preco;
+      if(a.op==='C'){p.qtd+=a.qtd;p.totalInv+=a.qtd*preco;}
+      else{var pm=p.qtd>0?p.totalInv/p.qtd:0;p.totalInv-=a.qtd*pm;p.qtd-=a.qtd;}
+    });
+    var rvVal = Object.values(rvPos).reduce(function(s,p){
+      if(p.qtd<=0.001) return s;
+      var sym=_evoTickerSymbol(p.ticker,p.tipo);
+      var isMesAtual=(mes===mesLabels[mesLabels.length-1]);
+      var val;
+      if(isMesAtual){ var cot=rvCotacoes[p.ticker]; val=cot?p.qtd*(rvIsBR(p.ticker,p.tipo)?cot.preco:cot.preco*rvUsdBRL):p.totalInv; }
+      else{ var hist=_histEvoCache[sym]||{}; var px=hist[mes]; val=(px&&px>0)?p.qtd*px*(rvIsBR(p.ticker,p.tipo)?1:rvUsdBRL):p.totalInv; }
+      return s+(val||0);
+    },0);
+    return rfVal+bensVal+rvVal;
+  });
+}
+
+// Há histórico real (objeto não-vazio) em cache para algum ativo da carteira?
+function _vgTemHistReal(){
+  try{
+    var seen={}, tem=false;
+    loadRVAportes().forEach(function(a){
+      if(!a||!a.ticker||seen[a.ticker]) return; seen[a.ticker]=1;
+      var sym=_evoTickerSymbol(a.ticker,a.tipo||'Acao');
+      var h=_histEvoCache[sym];
+      if(h && typeof h==='object' && Object.keys(h).length) tem=true;
+    });
+    return tem;
+  }catch(e){ return false; }
+}
+
+// Dispara busca do histórico mensal real e chama cb quando popular (só busca o que nunca foi buscado → sem loop)
+function ensureHistEvoVG(mesLabels, cb){
+  try{
+    var posMap={};
+    loadRVAportes().forEach(function(a){ if(a&&a.ticker&&!posMap[a.ticker]) posMap[a.ticker]={ticker:a.ticker,tipo:a.tipo||'Acao'}; });
+    var syms=Object.values(posMap).map(function(p){return _evoTickerSymbol(p.ticker,p.tipo);});
+    var uniq=syms.filter(function(s,i){return s&&syms.indexOf(s)===i;});
+    if(!uniq.length) return;
+    var fromMes=mesLabels[0];
+    var toBuscar=uniq.filter(function(s){ return _histEvoCache[s]===undefined; });
+    if(!toBuscar.length) return;
+    Promise.all(toBuscar.map(function(sym){
+      return fetch(PROXY_URL_RV+'/api/history?_src=monthly&symbol='+encodeURIComponent(sym)+'&from='+fromMes)
+        .then(function(r){ return r.ok?r.json():null; })
+        .then(function(d){ if(d&&d.prices&&Object.keys(d.prices).length){ _histEvoCache[sym]=d.prices; } else if(_histEvoCache[sym]===undefined){ _histEvoCache[sym]=null; } })
+        .catch(function(){ if(_histEvoCache[sym]===undefined) _histEvoCache[sym]=null; });
+    })).then(function(){ if(typeof cb==='function') cb(); });
+  }catch(e){}
+}
 
 function _evoTickerSymbol(ticker, tipo){
   if(tipo==='Cripto'){ var cs=ticker.toUpperCase(); return cs.includes('-')?cs:cs+'-USD'; }
