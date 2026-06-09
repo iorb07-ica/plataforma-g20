@@ -248,12 +248,64 @@ function _gsearchTickersUser(){
   }catch(e){ return []; }
 }
 
-function _gsearchFullIndex(){ return GSEARCH_INDEX.concat(_gsearchTickersUser()).concat(_gsearchNetworkingItems()); }
+// G20Flix — episódios lidos do Firestore (sempre atualizado), cache de sessão.
+// Substitui o seed estático quando carregado; cai no seed se Firestore indisponível.
+var _gsFlix = [];
+var _gsFlixLoaded = false;
+var _gsFlixLoading = false;
+
+function _gsearchLoadFlix(){
+  if(_gsFlixLoaded || _gsFlixLoading) return;
+  try {
+    var cached = sessionStorage.getItem('g20_search_flix');
+    if(cached){ _gsFlix = JSON.parse(cached) || []; _gsFlixLoaded = true; return; }
+  } catch(e){}
+  if(!window.firebase || !firebase.apps || !firebase.apps.length) return;
+  var db;
+  try { db = firebase.firestore(); } catch(e){ return; }
+  _gsFlixLoading = true;
+  db.collection('g20flix').doc('videos').collection('items').get().then(function(snap){
+    var lista = [];
+    snap.forEach(function(doc){
+      var d = doc.data() || {};
+      if(!d.title && !d.id) return;
+      lista.push({ ep:d.ep, title:d.title||'', cat:d.cat||'', season:d.season||'', date:d.date||'' });
+    });
+    // mais recentes primeiro (por episódio) para boas sugestões
+    lista.sort(function(a,b){ return (Number(b.ep)||0) - (Number(a.ep)||0); });
+    _gsFlix = lista;
+    _gsFlixLoaded = true;
+    _gsFlixLoading = false;
+    try { sessionStorage.setItem('g20_search_flix', JSON.stringify(lista)); } catch(e){}
+    var ov = document.getElementById('gsearchOverlay');
+    if(ov && ov.classList.contains('show')){
+      var inp = document.getElementById('gsearchInput');
+      if(inp) gsearchRender(inp.value);
+    }
+  }).catch(function(){ _gsFlixLoading = false; });
+}
+
+function _gsearchFlixItems(){
+  return _gsFlix.map(function(v){
+    var hasEp = (v.ep !== undefined && v.ep !== null && String(v.ep) !== '' && Number(v.ep) > 0);
+    var t = (hasEp ? ('#' + v.ep + ' - ') : '') + (v.title || 'Episódio G20Flix');
+    var s = (v.date || v.season || '') ? (String(v.date || v.season)) : 'G20Flix';
+    return { g:'G20Flix', ico:'🎬', t:t, s:s, link:'g20flix.html' };
+  });
+}
+
+function _gsearchFullIndex(){
+  var base = (_gsFlixLoaded && _gsFlix.length)
+    ? GSEARCH_INDEX.filter(function(it){ return it.g !== 'G20Flix'; }).concat(_gsearchFlixItems())
+    : GSEARCH_INDEX;
+  return base.concat(_gsearchTickersUser()).concat(_gsearchNetworkingItems());
+}
 
 var _gsActive=0, _gsResults=[];
 
 function gsearchAbrir(){
   _gsearchLoadAlunos(); // garante alunos carregados (lazy, 1× por sessão)
+  _gsearchLoadFlix();   // garante episódios G20Flix do Firestore (lazy, 1× por sessão)
   var ov=document.getElementById('gsearchOverlay');
   if(!ov) return;
   ov.classList.add('show');
