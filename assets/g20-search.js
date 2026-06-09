@@ -257,7 +257,7 @@ var _gsFlixLoading = false;
 function _gsearchLoadFlix(){
   if(_gsFlixLoaded || _gsFlixLoading) return;
   try {
-    var cached = sessionStorage.getItem('g20_search_flix');
+    var cached = sessionStorage.getItem('g20_search_flix_v2');
     if(cached){ _gsFlix = JSON.parse(cached) || []; _gsFlixLoaded = true; return; }
   } catch(e){}
   if(!window.firebase || !firebase.apps || !firebase.apps.length) return;
@@ -276,7 +276,7 @@ function _gsearchLoadFlix(){
     _gsFlix = lista;
     _gsFlixLoaded = true;
     _gsFlixLoading = false;
-    try { sessionStorage.setItem('g20_search_flix', JSON.stringify(lista)); } catch(e){}
+    try { sessionStorage.setItem('g20_search_flix_v2', JSON.stringify(lista)); } catch(e){}
     var ov = document.getElementById('gsearchOverlay');
     if(ov && ov.classList.contains('show')){
       var inp = document.getElementById('gsearchInput');
