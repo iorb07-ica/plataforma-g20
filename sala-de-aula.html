@@ -1658,6 +1658,25 @@ function getAula(moduloId, aulaId) {
   return mod.aulas_list.find(function(a){ return a.id === aulaId; });
 }
 function isConcluida(aulaId) { return !!(concluidas[aulaId]); }
+
+// Deep-link da busca: sala-de-aula.html#aula=<moduloId>~<aulaId> ou #modulo=<moduloId>
+function _saOpenFromHash(){
+  var h = location.hash || '';
+  var ma = h.match(/[#&]aula=([^&]+)/);
+  if(ma){
+    var raw = ma[1]; try { raw = decodeURIComponent(raw); } catch(e){}
+    var parts = raw.split('~');
+    if(parts.length === 2 && getAula(parts[0], parts[1])){ showAula(parts[0], parts[1]); return true; }
+  }
+  var mm = h.match(/[#&]modulo=([^&]+)/);
+  if(mm){
+    var mid = mm[1]; try { mid = decodeURIComponent(mid); } catch(e){}
+    if(getModulo(mid)){ showModulo(mid); return true; }
+  }
+  return false;
+}
+// se já estiver na Sala de Aula e clicar num resultado da busca, o hash muda sem recarregar
+window.addEventListener('hashchange', function(){ _saOpenFromHash(); });
 // saveConcluidas: ver versão Firestore acima
 
 
@@ -2254,12 +2273,12 @@ function saInit(uid, db, role) {
   if (cached && cached.length > 0) {
     SA_MODULOS = cached;
     if (overlay) overlay.style.display = 'none';
-    showHome();
+    if(!_saOpenFromHash()) showHome();
     // Atualizar concluídas e módulos em background silenciosamente
     loadConcluidas(uid, db).catch(function(){});
     loadModulosFromFirestore(db).then(function() {
-      // Atualizar grid em background sem piscar (só se estiver na home)
-      if (typeof showHome === 'function' && document.getElementById('moduleGrid')) {
+      // Atualizar grid em background sem piscar (só se estiver na home, não em aula/módulo)
+      if (currentModuloId == null && currentAulaId == null && typeof showHome === 'function' && document.getElementById('moduleGrid')) {
         showHome();
       }
     }).catch(function(){});
@@ -2272,14 +2291,14 @@ function saInit(uid, db, role) {
     loadModulosFromFirestore(db)
   ]).then(function() {
     if (overlay) overlay.style.display = 'none';
-    showHome();
+    if(!_saOpenFromHash()) showHome();
   }).catch(function(err) {
     console.warn('[SA] Firestore erro, usando fallback:', err);
     if (window.SA_MODULOS_FALLBACK && SA_MODULOS.length === 0) {
       SA_MODULOS = window.SA_MODULOS_FALLBACK;
     }
     if (overlay) overlay.style.display = 'none';
-    showHome();
+    if(!_saOpenFromHash()) showHome();
   });
 }
 
