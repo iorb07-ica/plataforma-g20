@@ -1,4 +1,4 @@
-const CACHE = 'g20-v41';
+const CACHE = 'g20-v42';
 const STATIC = [
   'manifest.json',
   'icon-192.png',
@@ -47,7 +47,10 @@ self.addEventListener('fetch', function(e) {
     return;
   }
   e.respondWith(
-    fetch(e.request).then(function(response) {
+    // JS/CSS/etc.: revalida SEMPRE com o servidor (no-cache) para nunca servir
+    // versão velha do cache HTTP do navegador. Quando não mudou, servidor responde
+    // 304 (rápido). Cache da API só é usado como fallback offline.
+    fetch(e.request, { cache: 'no-cache' }).then(function(response) {
       if (response && response.status === 200) {
         var clone = response.clone();
         caches.open(CACHE).then(function(cache) { cache.put(e.request, clone); });
