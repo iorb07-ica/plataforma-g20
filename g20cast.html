@@ -573,18 +573,25 @@ function _scrollToPlayer(){
   if(wrap) wrap.scrollIntoView({behavior:'smooth', block:'start'});
 }
 
-// Deep-link da busca: g20cast.html#ep=<numero> → toca o episódio no player do Spotify
+// Deep-link da busca: g20cast.html#ep=<numero> → rola até o episódio na lista e o destaca
 function _castOpenFromHash(){
   var h=location.hash||''; var m=h.match(/[#&]ep=([^&]+)/); if(!m) return false;
   var num=m[1]; try{ num=decodeURIComponent(num); }catch(e){}
-  var ep=_allEps.find(function(e){ return String(e.num)===String(num); });
-  if(!ep) return false;
-  var iframe=document.getElementById('spotifyPlayer');
-  if(iframe && ep.url){
-    var am=ep.url.match(/-([a-z0-9]{5,10})$/i);
-    if(am){ iframe.src='https://open.spotify.com/embed/episode/'+am[1]+'?utm_source=generator&theme=0'; }
-  }
-  if(typeof _scrollToPlayer==='function') _scrollToPlayer();
+  var idx=-1;
+  for(var i=0;i<_allEps.length;i++){ if(String(_allEps[i].num)===String(num)){ idx=i; break; } }
+  if(idx<0) return false;
+  if(idx >= _visibleCnt){ _visibleCnt = idx+1; }   // expande a lista pra incluir o episódio
+  renderEps();
+  setTimeout(function(){
+    var items=document.querySelectorAll('#epList .ep-item');
+    var el=items[idx];
+    if(el){
+      el.scrollIntoView({behavior:'smooth', block:'center'});
+      el.style.outline='2px solid var(--gold,#c9a961)';
+      el.style.borderRadius='10px';
+      setTimeout(function(){ el.style.outline=''; }, 2800);
+    }
+  }, 120);
   return true;
 }
 window.addEventListener('hashchange', function(){ _castOpenFromHash(); });
