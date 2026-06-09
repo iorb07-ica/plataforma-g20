@@ -763,6 +763,33 @@ function switchCat(catId){
   initTabs();
 }
 
+// Abre um vídeo específico pelo id — usado pelo deep-link da busca (g20flix.html#v=<id>)
+function openVideoById(id){
+  if(!id) return false;
+  var ti = videos.findIndex(function(v){ return v.id === id; });
+  if(ti < 0) return false;
+  var v = videos[ti];
+  if(playingId) closeHero();
+  activeCat = normCat(v);
+  renderCatTabs();
+  var s = v.season;
+  activeSeason = (s && /^\d{4}$/.test(s)) ? s : 'Todos';
+  initTabs();
+  setHero(ti);
+  try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e){ try { window.scrollTo(0,0); } catch(_){} }
+  return true;
+}
+function _flixOpenFromHash(){
+  var h = location.hash || '';
+  var m = h.match(/[#&]v=([^&]+)/);
+  if(!m) return false;
+  var id = '';
+  try { id = decodeURIComponent(m[1]); } catch(e){ id = m[1]; }
+  return openVideoById(id);
+}
+// se já estiver no g20flix e clicar num resultado da busca, o hash muda sem recarregar
+window.addEventListener('hashchange', _flixOpenFromHash);
+
 function setHeroEmpty(catId){
   var c = catById(catId) || {nome:'Categoria'};
   selectedIdx = -1;
@@ -957,12 +984,12 @@ function loadVideosFromFirestore(db, uid) {
         });
         if (loaded.length) videos = loaded;
       }
-      switchCat(activeCat);
+      if(!_flixOpenFromHash()) switchCat(activeCat);
       document.getElementById('heroWrap').classList.remove('g20-hidden');
       document.getElementById('grid').classList.remove('g20-hidden');
     })
     .catch(function() {
-      switchCat(activeCat);
+      if(!_flixOpenFromHash()) switchCat(activeCat);
       document.getElementById('heroWrap').classList.remove('g20-hidden');
       document.getElementById('grid').classList.remove('g20-hidden');
     });
