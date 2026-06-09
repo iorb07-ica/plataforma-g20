@@ -269,7 +269,7 @@ function _gsearchLoadFlix(){
     snap.forEach(function(doc){
       var d = doc.data() || {};
       if(!d.title && !d.id) return;
-      lista.push({ ep:d.ep, title:d.title||'', cat:d.cat||'', season:d.season||'', date:d.date||'' });
+      lista.push({ id:d.id||d.docId||'', ep:d.ep, title:d.title||'', cat:d.cat||'', season:d.season||'', date:d.date||'' });
     });
     // mais recentes primeiro (por episódio) para boas sugestões
     lista.sort(function(a,b){ return (Number(b.ep)||0) - (Number(a.ep)||0); });
@@ -290,7 +290,8 @@ function _gsearchFlixItems(){
     var hasEp = (v.ep !== undefined && v.ep !== null && String(v.ep) !== '' && Number(v.ep) > 0);
     var t = (hasEp ? ('#' + v.ep + ' - ') : '') + (v.title || 'Episódio G20Flix');
     var s = (v.date || v.season || '') ? (String(v.date || v.season)) : 'G20Flix';
-    return { g:'G20Flix', ico:'🎬', t:t, s:s, link:'g20flix.html' };
+    var link = v.id ? ('g20flix.html#v=' + encodeURIComponent(v.id)) : 'g20flix.html';
+    return { g:'G20Flix', ico:'🎬', t:t, s:s, link:link };
   });
 }
 
@@ -320,21 +321,27 @@ function gsearchFechar(){
   document.body.style.overflow='';
 }
 function _gsEscape(s){ return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+// minúsculas + remove acentos (ex.: "Quântica" → "quantica"), pra busca ignorar acentuação
+function _gsNorm(s){ return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
 function _gsScore(q, it){
+  q = _gsNorm(q);
   if(!q) return 0;
-  var hay=(it.t+' '+(it.s||'')+' '+(it.g||'')).toLowerCase();
-  var pts=0, ql=q.length;
-  if(hay.indexOf(q)>=0) pts += 10;
-  // bonus se come a com
-  if(it.t.toLowerCase().indexOf(q)===0) pts += 20;
-  // fuzzy basic
-  var last=-1, all=true;
-  for(var i=0;i<ql;i++){
-    var idx=hay.indexOf(q[i], last+1);
-    if(idx<0){ all=false; break; }
-    last=idx;
+  var hayT=_gsNorm(it.t);
+  var hay=_gsNorm((it.t||'')+' '+(it.s||'')+' '+(it.g||''));
+  // cada termo (separado por espaço) precisa aparecer como BLOCO no texto
+  var terms=q.split(/\s+/).filter(Boolean);
+  var pts=0;
+  for(var i=0;i<terms.length;i++){
+    var term=terms[i];
+    var inTitle=hayT.indexOf(term);
+    var inHay=hay.indexOf(term);
+    if(inHay<0) return 0;            // termo não aparece em lugar nenhum → descarta
+    pts += 5;                        // base por termo encontrado
+    if(inTitle>=0) pts += 5;         // bônus se está no título (mais relevante que subtítulo)
+    if(hayT.indexOf(term)===0) pts += 10; // bônus extra se o título começa com o termo
   }
-  if(all) pts += 3;
+  if(hayT.indexOf(q)===0) pts += 20; // título começa exatamente com a busca inteira
+  else if(hayT.indexOf(q)>=0) pts += 8; // busca inteira aparece junta no título
   return pts;
 }
 function gsearchRender(q){
