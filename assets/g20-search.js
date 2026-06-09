@@ -349,6 +349,79 @@ function _gsearchLoadAulas(){
 }
 function _gsearchAulasItems(){ return _gsAulas; }
 
+// G20Cast (RSS anchor.fm) — reaproveita o cache da página (localStorage 'g20cast_eps')
+// ou lê o RSS pelos mesmos proxies CORS. Deep-link por número do episódio.
+var _gsCast = [], _gsCastLoaded = false, _gsCastLoading = false;
+var _GS_RSS = 'https://anchor.fm/s/af896e6c/podcast/rss';
+var _GS_CORS = ['https://api.allorigins.win/get?url=','https://corsproxy.io/?','https://api.codetabs.com/v1/proxy?quest='];
+function _gsCastDate(d){ try{ var dt=new Date(d); if(isNaN(dt)) return ''; return dt.getDate()+'/'+(dt.getMonth()+1)+'/'+dt.getFullYear(); }catch(e){ return ''; } }
+function _gsCastNum(t){ var m=t.match(/#(\d{3,4})/); if(m) return m[1]; m=t.match(/(\d{3,4})/); if(m) return m[1]; return ''; }
+function _gsCastBuild(eps){
+  _gsCast = (eps||[]).map(function(e){
+    var pre = (e.num && e.num !== '•') ? ('#'+e.num+' - ') : '';
+    return { g:'G20Cast', ico:'🎧', t:(pre + (e.titulo||'Episódio')),
+      s:(e.data ? _gsCastDate(e.data) : 'G20Cast'),
+      link:(e.num && e.num !== '•') ? ('g20cast.html#ep='+encodeURIComponent(e.num)) : 'g20cast.html' };
+  });
+}
+function _gsCastParse(xml){
+  try{ var doc=new DOMParser().parseFromString(xml,'text/xml'), items=doc.querySelectorAll('item'), eps=[];
+    items.forEach(function(it){
+      var title=((it.querySelector('title')||{}).textContent||'').trim();
+      var pub=(it.querySelector('pubDate')||{}).textContent||'';
+      eps.push({ titulo:title, num:_gsCastNum(title), data:pub?new Date(pub).toISOString():'' });
+    });
+    return eps;
+  }catch(e){ return []; }
+}
+function _gsCastFetch(idx){
+  idx = idx || 0;
+  if(idx >= _GS_CORS.length) return Promise.reject();
+  return fetch(_GS_CORS[idx]+encodeURIComponent(_GS_RSS))
+    .then(function(r){ if(!r.ok) throw 0; return r.text(); })
+    .then(function(t){ try{ var j=JSON.parse(t); if(j.contents) return j.contents; }catch(e){} return t; })
+    .catch(function(){ return _gsCastFetch(idx+1); });
+}
+function _gsearchLoadCast(){
+  if(_gsCastLoaded || _gsCastLoading) return;
+  try {
+    var raw = localStorage.getItem('g20cast_eps');
+    if(raw){ var obj = JSON.parse(raw); if(obj && obj.eps && obj.eps.length){ _gsCastBuild(obj.eps); _gsCastLoaded = true; return; } }
+  } catch(e){}
+  _gsCastLoading = true;
+  _gsCastFetch(0).then(function(xml){
+    var eps = _gsCastParse(xml);
+    if(eps.length){ _gsCastBuild(eps); try { localStorage.setItem('g20cast_eps', JSON.stringify({ts:Date.now(), eps:eps})); } catch(e){} }
+    _gsCastLoaded = true; _gsCastLoading = false;
+    var ov = document.getElementById('gsearchOverlay');
+    if(ov && ov.classList.contains('show')){ var inp = document.getElementById('gsearchInput'); if(inp) gsearchRender(inp.value); }
+  }).catch(function(){ _gsCastLoading = false; });
+}
+function _gsearchCastItems(){ return _gsCast; }
+
+// G20Cast Premium — Firestore 'g20cast_premium'. Deep-link por id do documento.
+var _gsPrem = [], _gsPremLoaded = false, _gsPremLoading = false;
+function _gsearchLoadPrem(){
+  if(_gsPremLoaded || _gsPremLoading) return;
+  if(!window.firebase || !firebase.apps || !firebase.apps.length) return;
+  var db; try { db = firebase.firestore(); } catch(e){ return; }
+  _gsPremLoading = true;
+  db.collection('g20cast_premium').orderBy('createdAt','desc').get().then(function(snap){
+    var items = [], cats = {analise:'Análise',carteira:'Carteira',aporte:'Aporte',macro:'Macro',especial:'Especial'};
+    snap.forEach(function(doc){
+      var d = doc.data()||{};
+      var cat = cats[d.categoria] || d.categoria || 'Premium';
+      items.push({ g:'G20Cast Premium', ico:'⭐', t:(d.titulo||'Episódio Premium'),
+        s:(cat + (d.ativo ? (' · $'+d.ativo) : '')),
+        link:'g20cast-premium.html#ep='+encodeURIComponent(doc.id) });
+    });
+    _gsPrem = items; _gsPremLoaded = true; _gsPremLoading = false;
+    var ov = document.getElementById('gsearchOverlay');
+    if(ov && ov.classList.contains('show')){ var inp = document.getElementById('gsearchInput'); if(inp) gsearchRender(inp.value); }
+  }).catch(function(){ _gsPremLoading = false; });
+}
+function _gsearchPremItems(){ return _gsPrem; }
+
 function _gsearchFullIndex(){
   var base = (_gsFlixLoaded && _gsFlix.length)
     ? GSEARCH_INDEX.filter(function(it){ return it.g !== 'G20Flix'; }).concat(_gsearchFlixItems())
@@ -356,7 +429,8 @@ function _gsearchFullIndex(){
   if(_gsAulasLoaded && _gsAulas.length){
     base = base.filter(function(it){ return it.g !== 'Aulas' && it.g !== 'Cursos'; }).concat(_gsearchAulasItems());
   }
-  return base.concat(_gsearchTickersUser()).concat(_gsearchNetworkingItems());
+  return base.concat(_gsearchCastItems()).concat(_gsearchPremItems())
+             .concat(_gsearchTickersUser()).concat(_gsearchNetworkingItems());
 }
 
 var _gsActive=0, _gsResults=[];
@@ -365,6 +439,8 @@ function gsearchAbrir(){
   _gsearchLoadAlunos(); // garante alunos carregados (lazy, 1× por sessão)
   _gsearchLoadFlix();   // garante episódios G20Flix do Firestore (lazy, 1× por sessão)
   _gsearchLoadAulas();  // garante módulos+aulas da Sala de Aula (cache local ou Firestore)
+  _gsearchLoadCast();   // garante episódios do G20Cast (RSS / cache)
+  _gsearchLoadPrem();   // garante episódios do G20Cast Premium (Firestore)
   var ov=document.getElementById('gsearchOverlay');
   if(!ov) return;
   ov.classList.add('show');
