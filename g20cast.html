@@ -461,14 +461,15 @@ function fetchViaProxy(url,idx){
 function carregarEpisodios(){
   setStatus('⏳ carregando...','loading');
   try{var cached=localStorage.getItem('g20cast_eps');
-    if(cached){var obj=JSON.parse(cached);if(Date.now()-obj.ts<2*60*60*1000&&obj.eps&&obj.eps.length){_allEps=obj.eps;renderEps();setStatus('✓ '+_allEps.length+' episódios','ok');return;}}
+    if(cached){var obj=JSON.parse(cached);if(Date.now()-obj.ts<2*60*60*1000&&obj.eps&&obj.eps.length){_allEps=obj.eps;renderEps();setStatus('✓ '+_allEps.length+' episódios','ok');_castOpenFromHash();return;}}
   }catch(e){}
   fetchViaProxy(RSS_URL)
     .then(function(xml){var eps=parseRSS(xml);if(!eps.length)throw new Error('vazio');return eps;})
     .then(function(eps){
-      _allEps=eps.slice(0,5);renderEps();setStatus('✓ '+eps.length+' episódios','ok');
+      _allEps=eps;renderEps();setStatus('✓ '+eps.length+' episódios','ok');
       atualizarStats(eps);
       try{localStorage.setItem('g20cast_eps',JSON.stringify({ts:Date.now(),eps:eps}));}catch(e){}
+      _castOpenFromHash();
     })
     .catch(function(){
       document.getElementById('epList').innerHTML=
@@ -546,6 +547,22 @@ function _scrollToPlayer(){
   var wrap = document.querySelector('.embed-wrap');
   if(wrap) wrap.scrollIntoView({behavior:'smooth', block:'start'});
 }
+
+// Deep-link da busca: g20cast.html#ep=<numero> → toca o episódio no player do Spotify
+function _castOpenFromHash(){
+  var h=location.hash||''; var m=h.match(/[#&]ep=([^&]+)/); if(!m) return false;
+  var num=m[1]; try{ num=decodeURIComponent(num); }catch(e){}
+  var ep=_allEps.find(function(e){ return String(e.num)===String(num); });
+  if(!ep) return false;
+  var iframe=document.getElementById('spotifyPlayer');
+  if(iframe && ep.url){
+    var am=ep.url.match(/-([a-z0-9]{5,10})$/i);
+    if(am){ iframe.src='https://open.spotify.com/embed/episode/'+am[1]+'?utm_source=generator&theme=0'; }
+  }
+  if(typeof _scrollToPlayer==='function') _scrollToPlayer();
+  return true;
+}
+window.addEventListener('hashchange', function(){ _castOpenFromHash(); });
 
 function toggleSidebar(){var sb=document.getElementById('sidebar'),ov=document.getElementById('overlay');sb.classList.toggle('open');ov.classList.toggle('show');document.body.style.overflow=sb.classList.contains('open')?'hidden':'';}
 function closeSidebar(){document.getElementById('sidebar').classList.remove('open');document.getElementById('overlay').classList.remove('show');document.body.style.overflow='';}
