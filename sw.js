@@ -1,4 +1,4 @@
-const CACHE = 'g20-v37';
+const CACHE = 'g20-v38';
 const STATIC = [
   'manifest.json',
   'icon-192.png',
