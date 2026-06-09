@@ -295,10 +295,67 @@ function _gsearchFlixItems(){
   });
 }
 
+// Sala de Aula — módulos + aulas. Reaproveita o cache que a própria página cria
+// (localStorage 'g20_sa_modulos_v2'); se não houver, lê do Firestore. Deep-link por aula.
+var _gsAulas = [];
+var _gsAulasLoaded = false;
+var _gsAulasLoading = false;
+function _gsBuildAulas(mods){
+  var items = [];
+  (mods||[]).forEach(function(m){
+    var nAulas = (typeof m.aulas === 'number') ? m.aulas : ((m.aulas_list||[]).length);
+    items.push({ g:'Cursos', ico:'🎓', t:(m.titulo||'Módulo'),
+      s:(nAulas+' aulas'+(m.duracao?(' · '+m.duracao):'')),
+      link:'sala-de-aula.html#modulo='+encodeURIComponent(m.id) });
+    (m.aulas_list||[]).forEach(function(a){
+      items.push({ g:'Aulas', ico:'📹', t:(a.titulo||'Aula'),
+        s:((m.titulo||'')+(a.duracao?(' · '+a.duracao):'')),
+        link:'sala-de-aula.html#aula='+encodeURIComponent(m.id)+'~'+encodeURIComponent(a.id) });
+    });
+  });
+  _gsAulas = items;
+}
+function _gsearchLoadAulas(){
+  if(_gsAulasLoaded || _gsAulasLoading) return;
+  try {
+    var raw = localStorage.getItem('g20_sa_modulos_v2');
+    if(raw){
+      var mods = JSON.parse(raw);
+      if(Array.isArray(mods) && mods.length){ _gsBuildAulas(mods); _gsAulasLoaded = true; return; }
+    }
+  } catch(e){}
+  if(!window.firebase || !firebase.apps || !firebase.apps.length) return;
+  var db;
+  try { db = firebase.firestore(); } catch(e){ return; }
+  _gsAulasLoading = true;
+  db.collection('cursos').doc('g20-masterclass').collection('modulos').orderBy('ordem').get().then(function(modsSnap){
+    var mods = [], promises = [];
+    modsSnap.forEach(function(modDoc){
+      var mod = modDoc.data(); mod.id = modDoc.id; mod.aulas_list = [];
+      var p = db.collection('cursos').doc('g20-masterclass').collection('modulos').doc(modDoc.id)
+        .collection('aulas').orderBy('ordem').get().then(function(aSnap){
+          aSnap.forEach(function(aDoc){ var a = aDoc.data(); a.id = aDoc.id; if(a.publicada !== false) mod.aulas_list.push(a); });
+          mod.aulas = mod.aulas_list.length;
+        });
+      promises.push(p); mods.push(mod);
+    });
+    Promise.all(promises).then(function(){
+      _gsBuildAulas(mods);
+      _gsAulasLoaded = true; _gsAulasLoading = false;
+      var ov = document.getElementById('gsearchOverlay');
+      if(ov && ov.classList.contains('show')){ var inp = document.getElementById('gsearchInput'); if(inp) gsearchRender(inp.value); }
+    });
+  }).catch(function(){ _gsAulasLoading = false; });
+}
+function _gsearchAulasItems(){ return _gsAulas; }
+
 function _gsearchFullIndex(){
   var base = (_gsFlixLoaded && _gsFlix.length)
     ? GSEARCH_INDEX.filter(function(it){ return it.g !== 'G20Flix'; }).concat(_gsearchFlixItems())
     : GSEARCH_INDEX;
+  if(_gsAulasLoaded && _gsAulas.length){
+    base = base.filter(function(it){ return it.g !== 'Aulas' && it.g !== 'Cursos'; }).concat(_gsearchAulasItems());
+  }
   return base.concat(_gsearchTickersUser()).concat(_gsearchNetworkingItems());
 }
 
@@ -307,6 +364,7 @@ var _gsActive=0, _gsResults=[];
 function gsearchAbrir(){
   _gsearchLoadAlunos(); // garante alunos carregados (lazy, 1× por sessão)
   _gsearchLoadFlix();   // garante episódios G20Flix do Firestore (lazy, 1× por sessão)
+  _gsearchLoadAulas();  // garante módulos+aulas da Sala de Aula (cache local ou Firestore)
   var ov=document.getElementById('gsearchOverlay');
   if(!ov) return;
   ov.classList.add('show');
