@@ -353,7 +353,7 @@ function _gsearchAulasItems(){ return _gsAulas; }
 // ou lê o RSS pelos mesmos proxies CORS. Deep-link por número do episódio.
 var _gsCast = [], _gsCastLoaded = false, _gsCastLoading = false;
 var _GS_RSS = 'https://anchor.fm/s/af896e6c/podcast/rss';
-var _GS_CORS = ['https://api.allorigins.win/get?url=','https://corsproxy.io/?','https://api.codetabs.com/v1/proxy?quest='];
+var _GS_CORS = ['https://api.codetabs.com/v1/proxy?quest=','https://api.allorigins.win/raw?url=','https://corsproxy.io/?url='];
 function _gsCastDate(d){ try{ var dt=new Date(d); if(isNaN(dt)) return ''; return dt.getDate()+'/'+(dt.getMonth()+1)+'/'+dt.getFullYear(); }catch(e){ return ''; } }
 function _gsCastNum(t){ var m=t.match(/#(\d{3,4})/); if(m) return m[1]; m=t.match(/(\d{3,4})/); if(m) return m[1]; return ''; }
 function _gsCastBuild(eps){
