@@ -382,6 +382,17 @@ function _gsCastFetch(idx){
     .then(function(t){ try{ var j=JSON.parse(t); if(j.contents) return j.contents; }catch(e){} return t; })
     .catch(function(){ return _gsCastFetch(idx+1); });
 }
+function _gsCastRss2Json(){
+  return fetch('https://api.rss2json.com/v1/api.json?count=1000&rss_url='+encodeURIComponent(_GS_RSS))
+    .then(function(r){ if(!r.ok) throw 0; return r.json(); })
+    .then(function(j){
+      if(!j || j.status!=='ok' || !j.items || !j.items.length) throw 0;
+      return j.items.map(function(it){
+        var pub = it.pubDate ? new Date(String(it.pubDate).replace(' ','T')) : null;
+        return { titulo:(it.title||'').trim(), num:_gsCastNum(it.title||''), data:(pub&&!isNaN(pub))?pub.toISOString():'' };
+      });
+    });
+}
 function _gsearchLoadCast(){
   if(_gsCastLoaded || _gsCastLoading) return;
   // 1) cache próprio da busca
@@ -394,15 +405,16 @@ function _gsearchLoadCast(){
     var raw2 = localStorage.getItem('g20cast_eps');
     if(raw2){ var o2 = JSON.parse(raw2); if(o2 && o2.eps && o2.eps.length){ _gsCastBuild(o2.eps); _gsCastLoaded = true; return; } }
   } catch(e){}
-  // 3) lê o RSS via proxies e grava no cache PRÓPRIO
+  // 3) rss2json (CORS nativo) → fallback proxies; grava no cache PRÓPRIO
   _gsCastLoading = true;
-  _gsCastFetch(0).then(function(xml){
-    var eps = _gsCastParse(xml);
-    if(eps.length){ _gsCastBuild(eps); try { localStorage.setItem('g20_search_cast', JSON.stringify({ts:Date.now(), eps:eps})); } catch(e){} }
-    _gsCastLoaded = true; _gsCastLoading = false;
-    var ov = document.getElementById('gsearchOverlay');
-    if(ov && ov.classList.contains('show')){ var inp = document.getElementById('gsearchInput'); if(inp) gsearchRender(inp.value); }
-  }).catch(function(){ _gsCastLoading = false; });
+  _gsCastRss2Json()
+    .catch(function(){ return _gsCastFetch(0).then(function(xml){ return _gsCastParse(xml); }); })
+    .then(function(eps){
+      if(eps && eps.length){ _gsCastBuild(eps); try { localStorage.setItem('g20_search_cast', JSON.stringify({ts:Date.now(), eps:eps})); } catch(e){} }
+      _gsCastLoaded = true; _gsCastLoading = false;
+      var ov = document.getElementById('gsearchOverlay');
+      if(ov && ov.classList.contains('show')){ var inp = document.getElementById('gsearchInput'); if(inp) gsearchRender(inp.value); }
+    }).catch(function(){ _gsCastLoading = false; });
 }
 function _gsearchCastItems(){ return _gsCast; }
 
