@@ -284,7 +284,6 @@
 
   // ═══ TABS — lista central, injetada em todas as páginas ═══
   var TABS = [
-    { href: 'dashboard.html',        lucide: 'layout-dashboard', label: 'Visão Geral' },
     { href: 'command-center.html',   lucide: 'grid-3x3',         label: 'Command Center' },
     { href: 'minha-jornada.html',    lucide: 'book-open',        label: 'Minha Jornada' },
     { href: 'noticias.html',         lucide: 'newspaper',        label: 'Notícias & Calendário' }
