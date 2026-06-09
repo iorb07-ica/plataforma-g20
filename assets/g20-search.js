@@ -384,14 +384,21 @@ function _gsCastFetch(idx){
 }
 function _gsearchLoadCast(){
   if(_gsCastLoaded || _gsCastLoading) return;
+  // 1) cache próprio da busca
   try {
-    var raw = localStorage.getItem('g20cast_eps');
-    if(raw){ var obj = JSON.parse(raw); if(obj && obj.eps && obj.eps.length){ _gsCastBuild(obj.eps); _gsCastLoaded = true; return; } }
+    var raw = localStorage.getItem('g20_search_cast');
+    if(raw){ var o = JSON.parse(raw); if(o && o.eps && o.eps.length){ _gsCastBuild(o.eps); _gsCastLoaded = true; return; } }
   } catch(e){}
+  // 2) cache rico da página do G20Cast (SOMENTE LEITURA — nunca sobrescrever)
+  try {
+    var raw2 = localStorage.getItem('g20cast_eps');
+    if(raw2){ var o2 = JSON.parse(raw2); if(o2 && o2.eps && o2.eps.length){ _gsCastBuild(o2.eps); _gsCastLoaded = true; return; } }
+  } catch(e){}
+  // 3) lê o RSS via proxies e grava no cache PRÓPRIO
   _gsCastLoading = true;
   _gsCastFetch(0).then(function(xml){
     var eps = _gsCastParse(xml);
-    if(eps.length){ _gsCastBuild(eps); try { localStorage.setItem('g20cast_eps', JSON.stringify({ts:Date.now(), eps:eps})); } catch(e){} }
+    if(eps.length){ _gsCastBuild(eps); try { localStorage.setItem('g20_search_cast', JSON.stringify({ts:Date.now(), eps:eps})); } catch(e){} }
     _gsCastLoaded = true; _gsCastLoading = false;
     var ov = document.getElementById('gsearchOverlay');
     if(ov && ov.classList.contains('show')){ var inp = document.getElementById('gsearchInput'); if(inp) gsearchRender(inp.value); }
