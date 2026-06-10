@@ -114,7 +114,11 @@ a{text-decoration:none;color:inherit}
 .epc-top{display:flex;align-items:center;gap:9px;margin-bottom:7px}
 .epc-num{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--gold);letter-spacing:.5px;line-height:1}
 .epc-mic{color:#5a565f;display:flex;align-items:center}
-.epc-title{font-size:17px;font-weight:600;color:var(--text);line-height:1.38;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.epc-title{font-size:15px;font-weight:600;color:var(--text);line-height:1.38;white-space:nowrap;overflow:hidden;position:relative}
+.epc-title-inner{display:inline-block;white-space:nowrap}
+.epc-title.marquee .epc-title-inner{animation:marquee-scroll 14s linear infinite}
+@keyframes marquee-scroll{0%{transform:translateX(0)}40%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+.epc:hover .epc-title.marquee .epc-title-inner{animation-play-state:running}
 .epc-foot{display:flex;align-items:center;justify-content:space-between;margin-top:auto;padding-top:11px}
 .epc-meta{display:flex;align-items:center;gap:12px;font-size:11.5px;color:var(--text)}
 .epc-meta span{display:inline-flex;align-items:center;gap:4px}
@@ -390,12 +394,7 @@ if(localStorage.getItem('g20_uid')){
     <div class="embed-wrap" style="margin-top:0;">
       <img src="assets/g20cast-banner.jpg" alt="G20Cast" style="width:100%;height:232px;object-fit:cover;object-position:center;display:block;">
     </div>
-    <div class="embed-wrap" style="margin-top:12px;">
-      <iframe id="spotifyPlayer" src="https://open.spotify.com/embed/show/6D3NYNYewNBjkiPCcW1yKA?utm_source=generator&theme=0"
-        frameborder="0" allowfullscreen=""
-        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-        loading="lazy"></iframe>
-    </div>
+    <div id="heroEpCard" style="margin-top:12px;display:none;"></div>
 
     <div class="info-row">
       <div class="info-card"><div class="info-card-label">Episódios</div><div class="info-card-val" id="statEps">749+</div><div class="info-card-sub">Publicados</div></div>
@@ -567,14 +566,29 @@ function renderEps(){
       '<div class="epc-cover">'+capa+'<span class="epc-cover-fb">G20</span></div>'+
       '<div class="epc-main">'+
         '<div class="epc-top"><span class="epc-num">#'+ep.num+'</span>'+topRight+'</div>'+
-        '<div class="epc-title">'+ep.titulo+'</div>'+
+        '<div class="epc-title" id="etitle-'+ep.num+'"><span class="epc-title-inner">'+ep.titulo+'</span></div>'+
         '<div class="epc-foot"><span class="ep-play">'+IC_PLAY+'</span>'+
         '<span class="epc-meta"><span>'+IC_CAL+fmtDate(ep.data)+'</span>'+dur+'</span></div>'+
       '</div></div>';
   }).join('');
   if(btn) btn.style.display=(filtered.length>_visibleCnt)?'block':'none';
+  setTimeout(_applyMarquee,100);
 }
 function verMais(){_visibleCnt=Math.min(_visibleCnt+12,_allEps.length);renderEps();}
+function _applyMarquee(){
+  document.querySelectorAll('.epc-title').forEach(function(el){
+    var inner=el.querySelector('.epc-title-inner');
+    if(!inner)return;
+    if(inner.scrollWidth>el.offsetWidth+4){
+      if(!el.classList.contains('marquee')){
+        inner.innerHTML=inner.textContent+'   •   '+inner.textContent;
+        el.classList.add('marquee');
+      }
+    } else {
+      el.classList.remove('marquee');
+    }
+  });
+}
 function _attr(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');}
 // fallback da capa: local → imagem do feed → selo "G20"
 function _coverErr(img){
@@ -645,6 +659,40 @@ function _castPlay(el){
 
   var p=au.play(); if(p&&p.catch) p.catch(function(){ playBtn.innerHTML=PIC_PLAY; });
 }
+function _buildHeroCard(eps){
+  var hero=document.getElementById('heroEpCard');
+  if(!hero||!eps||!eps.length)return;
+  var ep=eps[0];
+  var dur=ep.duracao?('<span style="display:inline-flex;align-items:center;gap:4px;opacity:.75">'+IC_CLOCK+ep.duracao+'</span>'):'';
+  var titleId='hero-etitle';
+  hero.innerHTML=
+    '<div class="epc" role="button" tabindex="0" style="cursor:pointer;border-color:rgba(201,169,97,.4)" '+
+    'data-audio="'+_attr(ep.audioUrl)+'" data-url="'+_attr(ep.url)+'" data-num="'+_attr(ep.num)+'" data-titulo="'+_attr(ep.titulo)+'" '+
+    'onclick="_castPlay(this)" onkeydown="if(event.key===\'Enter\'){_castPlay(this);}">' +
+      '<div class="epc-cover"><span class="epc-cover-fb">G20</span></div>'+
+      '<div class="epc-main">'+
+        '<div class="epc-top">'+
+          '<span class="epc-num">#'+ep.num+'</span>'+
+          '<span class="ep-new">NOVO</span>'+
+        '</div>'+
+        '<div class="epc-title" id="'+titleId+'"><span class="epc-title-inner">'+ep.titulo+'</span></div>'+
+        '<div class="epc-foot">'+
+          '<span class="ep-play">'+IC_PLAY+'</span>'+
+          '<span class="epc-meta"><span>'+IC_CAL+fmtDate(ep.data)+'</span>'+dur+'</span>'+
+        '</div>'+
+      '</div>'+
+    '</div>';
+  hero.style.display='block';
+  setTimeout(function(){
+    var el=document.getElementById(titleId);
+    if(!el)return;
+    var inner=el.querySelector('.epc-title-inner');
+    if(inner&&inner.scrollWidth>el.offsetWidth+4){
+      inner.innerHTML=inner.textContent+'   •   '+inner.textContent;
+      el.classList.add('marquee');
+    }
+  },150);
+}
 function setStatus(msg,tipo){var el=document.getElementById('epStatus');if(!el)return;el.textContent=msg;el.className='ep-status '+(tipo||'');}
 function parseRSS(xmlStr){
   try{var parser=new DOMParser(),doc=parser.parseFromString(xmlStr,'text/xml'),items=doc.querySelectorAll('item'),eps=[];
@@ -690,6 +738,7 @@ function carregarEpisodios(){
     setStatus('✓ '+eps.length+' episódios','ok');
     if(salvar){ try{localStorage.setItem('g20cast_eps',JSON.stringify({ts:Date.now(),eps:eps}));}catch(e){} }
     _castOpenFromHash();
+    _buildHeroCard(eps);
   }
   // 1) mostra o cache NA HORA (mesmo que velho) → sensação instantânea
   var temCache=false, cacheFresco=false;
