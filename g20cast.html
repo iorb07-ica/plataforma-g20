@@ -107,7 +107,7 @@ a{text-decoration:none;color:inherit}
 .g20player{display:flex;align-items:center;gap:9px}
 .g20p-icon{background:none;border:none;color:var(--text2);cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center;transition:color .15s;flex-shrink:0}
 .g20p-icon:hover{color:var(--gold)}
-.g20p-play{width:38px;height:38px;border-radius:50%;background:var(--gold);color:#1a1920;border:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .12s}
+.g20p-play{width:34px;height:34px;border-radius:50%;background:var(--gold);color:#1a1920;border:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .12s}
 .g20p-play:hover{transform:scale(1.06)}
 .g20p-bar{flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,.13);position:relative;cursor:pointer;touch-action:none}
 .g20p-fill{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--gold);border-radius:3px}
@@ -509,12 +509,12 @@ function _castPlay(el){
   wrap.className='epc-playerwrap';
   wrap.addEventListener('click',function(e){e.stopPropagation();});
   wrap.innerHTML='<div class="g20player">'
-    +'<button class="g20p-icon g20p-back" aria-label="Voltar 15 segundos">'+PIC_BACK+'</button>'
-    +'<button class="g20p-play" aria-label="Tocar ou pausar">'+PIC_PAUSE+'</button>'
-    +'<button class="g20p-icon g20p-fwd" aria-label="Avançar 15 segundos">'+PIC_FWD+'</button>'
     +'<div class="g20p-bar"><div class="g20p-fill"></div><div class="g20p-knob"></div></div>'
     +'<span class="g20p-time">0:00 / --:--</span>'
+    +'<button class="g20p-icon g20p-back" aria-label="Voltar 15 segundos">'+PIC_BACK+'</button>'
+    +'<button class="g20p-icon g20p-fwd" aria-label="Avançar 15 segundos">'+PIC_FWD+'</button>'
     +'<button class="g20p-speed" aria-label="Velocidade">1x</button>'
+    +'<button class="g20p-play" aria-label="Tocar ou pausar">'+PIC_PAUSE+'</button>'
     +'</div>';
   var au=document.createElement('audio');
   au.preload='metadata'; au.src=audioUrl;
@@ -584,29 +584,42 @@ function fetchViaProxy(url,idx){
 }
 function carregarEpisodios(){
   setStatus('⏳ carregando...','loading');
-  function _onEps(eps){
+  function _onEps(eps,salvar){
     _allEps=eps;renderEps();_castBuildThemes();atualizarStats(eps);
     setStatus('✓ '+eps.length+' episódios','ok');
-    try{localStorage.setItem('g20cast_eps',JSON.stringify({ts:Date.now(),eps:eps}));}catch(e){}
+    if(salvar){ try{localStorage.setItem('g20cast_eps',JSON.stringify({ts:Date.now(),eps:eps}));}catch(e){} }
     _castOpenFromHash();
   }
+  // 1) mostra o cache NA HORA (mesmo que velho) → sensação instantânea
+  var temCache=false, cacheFresco=false;
   try{var cached=localStorage.getItem('g20cast_eps');
-    if(cached){var obj=JSON.parse(cached);if(Date.now()-obj.ts<30*60*1000&&obj.eps&&obj.eps.length&&obj.eps[0].url){_onEps(obj.eps);return;}}
+    if(cached){var obj=JSON.parse(cached);
+      if(obj&&obj.eps&&obj.eps.length&&obj.eps[0].url){
+        _onEps(obj.eps,false); temCache=true;
+        cacheFresco=(Date.now()-obj.ts)<30*60*1000;
+      }
+    }
   }catch(e){}
-  // proxies primeiro (trazem a DURAÇÃO, que os cards usam) → rss2json de reserva → cache antigo → Spotify
-  fetchViaProxy(RSS_URL)
+  if(cacheFresco) return; // cache recente já basta — nem vai à rede
+
+  // 2) busca em PARALELO: rss2json (rápido, CORS nativo) pinta primeiro; proxies trazem a duração e viram a versão final
+  var temFull=false, mostrou=temCache;
+  var pj=fetchRss2Json().then(function(eps){
+    if(eps&&eps.length){ if(!temFull){_onEps(eps,false);mostrou=true;} return true; } return false;
+  }).catch(function(){return false;});
+  var pp=fetchViaProxy(RSS_URL)
     .then(function(xml){var eps=parseRSS(xml);if(!eps.length)throw 0;return eps;})
-    .catch(function(){return fetchRss2Json();})
-    .then(function(eps){if(!eps||!eps.length)throw 0;_onEps(eps);})
-    .catch(function(){
-      try{var c=JSON.parse(localStorage.getItem('g20cast_eps')||'null');if(c&&c.eps&&c.eps.length&&c.eps[0].url){_onEps(c.eps);return;}}catch(e){}
-      document.getElementById('epList').innerHTML=
-        '<div style="grid-column:1/-1;text-align:center;padding:24px 16px;background:var(--surface);border:1px solid var(--border);border-radius:10px">'+
-        '<div style="font-size:28px;margin-bottom:10px">🎧</div>'+
-        '<div style="font-size:13px;font-weight:700;margin-bottom:14px">Episódios disponíveis no Spotify</div>'+
-        '<a href="'+SPOTIFY_URL+'" target="_blank" style="display:inline-flex;align-items:center;gap:8px;background:#1DB954;color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">▶ Ouvir no Spotify</a></div>';
-      setStatus('ⓘ Abre no Spotify','err');
-    });
+    .then(function(eps){ temFull=true;mostrou=true;_onEps(eps,true); return true; })
+    .catch(function(){return false;});
+  Promise.all([pj,pp]).then(function(){
+    if(mostrou) return;
+    document.getElementById('epList').innerHTML=
+      '<div style="grid-column:1/-1;text-align:center;padding:24px 16px;background:var(--surface);border:1px solid var(--border);border-radius:10px">'+
+      '<div style="font-size:28px;margin-bottom:10px">🎧</div>'+
+      '<div style="font-size:13px;font-weight:700;margin-bottom:14px">Episódios disponíveis no Spotify</div>'+
+      '<a href="'+SPOTIFY_URL+'" target="_blank" style="display:inline-flex;align-items:center;gap:8px;background:#1DB954;color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">▶ Ouvir no Spotify</a></div>';
+    setStatus('ⓘ Abre no Spotify','err');
+  });
 }
 // rss2json: serviço com CORS nativo (reserva quando os proxies falham). Não traz duração.
 function fetchRss2Json(){
