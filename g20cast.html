@@ -483,9 +483,9 @@ function renderEps(){
     var isNovo=(hoje-new Date(ep.data))<(3*24*60*60*1000);
     var dur=ep.duracao?('<span>'+IC_CLOCK+ep.duracao+'</span>'):'';
     var topRight=isNovo?'<span class="ep-new">NOVO</span>':'';
-    var capa=ep.img?('<img src="'+_attr(ep.img)+'" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display=\'none\';this.parentNode.classList.add(\'noimg\')">'):'';
+    var capa='<img src="assets/g20cast-cover.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" data-fb="'+_attr(ep.img||'')+'" onerror="_coverErr(this)">';
     return '<div class="epc" role="button" tabindex="0" style="cursor:pointer" data-audio="'+_attr(ep.audioUrl)+'" data-url="'+_attr(ep.url)+'" data-num="'+_attr(ep.num)+'" data-titulo="'+_attr(ep.titulo)+'" onclick="_castPlay(this)" onkeydown="if(event.key===\'Enter\'){_castPlay(this);}">'+
-      '<div class="epc-cover'+(ep.img?'':' noimg')+'">'+capa+'<span class="epc-cover-fb">G20</span></div>'+
+      '<div class="epc-cover">'+capa+'<span class="epc-cover-fb">G20</span></div>'+
       '<div class="epc-main">'+
         '<div class="epc-top"><span class="epc-num">#'+ep.num+'</span>'+topRight+'</div>'+
         '<div class="epc-title">'+ep.titulo+'</div>'+
@@ -497,6 +497,13 @@ function renderEps(){
 }
 function verMais(){_visibleCnt=Math.min(_visibleCnt+12,_allEps.length);renderEps();}
 function _attr(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');}
+// fallback da capa: local → imagem do feed → selo "G20"
+function _coverErr(img){
+  var fb=img.getAttribute('data-fb')||'';
+  if(fb && img.src.indexOf(fb)<0){ img.removeAttribute('data-fb'); img.src=fb; return; }
+  img.style.display='none';
+  if(img.parentNode) img.parentNode.classList.add('noimg');
+}
 // ícones do player (SVG inline, sem dependência de fonte)
 var PIC_PAUSE='<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
 var PIC_PLAY='<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>';
@@ -670,17 +677,9 @@ function atualizarStats(eps){
     if(durEl) durEl.textContent='~'+Math.round(avg)+'m';
   }
 
-  // Frequência: contar episódios nas últimas 4 semanas
-  var agora=Date.now();
-  var quatro_semanas=28*24*60*60*1000;
-  var recentes=eps.filter(function(ep){
-    if(!ep.data) return false;
-    return (agora-new Date(ep.data).getTime())<quatro_semanas;
-  }).length;
-  if(recentes>0){
-    var freqEl=document.getElementById('statFreq');
-    if(freqEl) freqEl.textContent=Math.max(1,Math.round(recentes/4))+'✕';
-  }
+  // Frequência: fixa em 5✕ por semana (mensagem de marca)
+  var freqEl=document.getElementById('statFreq');
+  if(freqEl) freqEl.textContent='5✕';
 }
 
 function tocarEpisodio(el){
