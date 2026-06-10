@@ -190,15 +190,16 @@ function _gsearchLoadAlunos(){
   var db;
   try { db = firebase.firestore(); } catch(e){ return; }
   _gsAlunosLoading = true;
-  db.collection('users').where('aprovado','==',true).get().then(function(snap){
+  // Lê a VITRINE PÚBLICA (networking_public) — legível por qualquer aluno logado.
+  // Antes lia de 'users', que só admin consegue ler (quebrava a busca pra alunos comuns).
+  // Cada doc já contém só campos públicos, então não precisa filtrar perfilPublico aqui.
+  db.collection('networking_public').get().then(function(snap){
     var lista = [];
     snap.forEach(function(doc){
-      var d = doc.data() || {};
-      var p = d.perfil || {};
-      if(p.perfilPublico !== true) return; // só alunos com perfil público
+      var p = doc.data() || {};
       lista.push({
         uid: doc.id,
-        nome: p.nome || d.name || 'Aluno G20',
+        nome: p.nome || 'Aluno G20',
         profissao: p.profissao || '',
         empresa: p.empresa || '',
         negocio: p.negocio || '',
