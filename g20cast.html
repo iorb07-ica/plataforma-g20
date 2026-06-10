@@ -386,6 +386,13 @@ if(localStorage.getItem('g20_uid')){
           <input id="castBusca" type="text" placeholder="Buscar entre os episódios…" oninput="_castSearch(this.value)" autocomplete="off">
         </div>
         <div class="cast-themebar" id="castThemes"></div>
+        <div id="castPlayer" style="display:none;background:var(--surface);border:1px solid var(--gold-border);border-radius:12px;padding:13px 15px;margin-bottom:16px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">
+            <span id="castPlayerNum" style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:var(--gold)"></span>
+            <span id="castPlayerTitle" style="font-size:12.5px;color:var(--text);font-weight:600;line-height:1.35"></span>
+          </div>
+          <audio id="castAudio" controls preload="none" style="width:100%;height:38px"></audio>
+        </div>
         <div class="ep-list" id="epList">
           <div class="ep-skeleton"><div class="skel skel-num"></div><div class="skel-text"><div class="skel skel-t1"></div><div class="skel skel-t2"></div></div><div class="skel skel-btn"></div></div>
           <div class="ep-skeleton"><div class="skel skel-num"></div><div class="skel-text"><div class="skel skel-t1"></div><div class="skel skel-t2"></div></div><div class="skel skel-btn"></div></div>
@@ -465,31 +472,39 @@ function renderEps(){
     var isNovo=(hoje-new Date(ep.data))<(3*24*60*60*1000);
     var dur=ep.duracao?('<span>'+IC_CLOCK+ep.duracao+'</span>'):'';
     var topRight=isNovo?'<span class="ep-new">NOVO</span>':('<span class="epc-mic">'+IC_MIC+'</span>');
-    return '<a class="epc" href="'+ep.url+'" target="_blank" data-url="'+ep.url+'" onclick="return _castPlay(this,event)">'+
+    return '<div class="epc" role="button" tabindex="0" style="cursor:pointer" data-audio="'+_attr(ep.audioUrl)+'" data-url="'+_attr(ep.url)+'" data-num="'+_attr(ep.num)+'" data-titulo="'+_attr(ep.titulo)+'" onclick="_castPlay(this)" onkeydown="if(event.key===\'Enter\'){_castPlay(this);}">'+
       '<div class="epc-top"><span class="epc-num">#'+ep.num+'</span>'+topRight+'</div>'+
       '<div class="epc-title">'+ep.titulo+'</div>'+
       '<div class="epc-foot"><span class="epc-meta"><span>'+IC_CAL+fmtDate(ep.data)+'</span>'+dur+'</span>'+
-      '<span class="ep-play">'+IC_PLAY+'</span></div></a>';
+      '<span class="ep-play">'+IC_PLAY+'</span></div></div>';
   }).join('');
   if(btn) btn.style.display=(filtered.length>_visibleCnt)?'block':'none';
 }
 function verMais(){_visibleCnt=Math.min(_visibleCnt+12,_allEps.length);renderEps();}
-// clique no card: se a URL for de um episódio do Spotify, toca no player do topo (sem nova aba);
-// senão, deixa abrir no Spotify (fallback). Evita "Page not available" só embedando id válido.
-function _castPlay(elA, e){
-  var url = (elA && elA.getAttribute('data-url')) || '';
-  var m = url.match(/open\.spotify\.com\/episode\/([A-Za-z0-9]+)/);
-  if(m){
-    var iframe = document.getElementById('spotifyPlayer');
-    if(iframe){
-      iframe.src = 'https://open.spotify.com/embed/episode/'+m[1]+'?utm_source=generator&theme=0';
-      var wrap = iframe.closest('.embed-wrap') || iframe;
-      wrap.scrollIntoView({behavior:'smooth', block:'start'});
-      if(e){ e.preventDefault(); }
-      return false;
+function _attr(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');}
+// clique no card → toca o MP3 do episódio no player próprio (dentro da página)
+function _castPlay(el){
+  var audio=(el&&el.getAttribute('data-audio'))||'';
+  var url=(el&&el.getAttribute('data-url'))||'';
+  var num=(el&&el.getAttribute('data-num'))||'';
+  var titulo=(el&&el.getAttribute('data-titulo'))||'';
+  if(audio){
+    var box=document.getElementById('castPlayer');
+    var au=document.getElementById('castAudio');
+    var tt=document.getElementById('castPlayerTitle');
+    var nn=document.getElementById('castPlayerNum');
+    if(box&&au){
+      if(nn) nn.textContent=(num&&num!=='•')?('#'+num):'';
+      if(tt) tt.textContent=titulo;
+      au.src=audio;
+      box.style.display='block';
+      box.scrollIntoView({behavior:'smooth',block:'center'});
+      var p=au.play(); if(p&&p.catch) p.catch(function(){});
+      return;
     }
   }
-  return true; // fallback: abre no Spotify
+  // sem MP3 disponível → abre no Spotify (reserva)
+  if(url) window.open(url,'_blank');
 }
 function setStatus(msg,tipo){var el=document.getElementById('epStatus');if(!el)return;el.textContent=msg;el.className='ep-status '+(tipo||'');}
 function parseRSS(xmlStr){
