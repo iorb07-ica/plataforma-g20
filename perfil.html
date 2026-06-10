@@ -1611,6 +1611,41 @@ async function salvarPerfil() {
 
     await db.collection('users').doc(_uid).update(updateData);
 
+    // === VITRINE PÚBLICA (networking_public) ===
+    // Espelha SÓ os campos que o aluno escolheu expor. Nunca renda/patrimônio/dívidas.
+    // Se o perfil é público → cria/atualiza o cartão. Se não é → apaga o cartão.
+    try {
+      var _pubRef = db.collection('networking_public').doc(_uid);
+      if (perfil.perfilPublico === true) {
+        var _vis = perfil.visib || {};
+        var _card = {
+          uid: _uid,
+          nome: perfil.nome || updateData.name || 'Aluno G20',
+          foto: perfil.foto || '',
+          cidade: perfil.cidade || '',
+          estado: perfil.estado || '',
+          profissao: perfil.profissao || '',
+          empresa: perfil.empresa || '',
+          negocio: perfil.negocio || '',
+          negocioCategoria: perfil.negocioCategoria || '',
+          sobre: perfil.sobre || '',
+          turma: (_userData && _userData.turma) || '',
+          infinite: !!(_userData && _userData.infinite === true),
+          // contatos só entram se o aluno marcou visível para aquela rede
+          instagram: _vis.instagram ? (perfil.instagram || '') : '',
+          whatsapp:  _vis.whatsapp  ? (perfil.whatsapp  || '') : '',
+          linkedin:  _vis.linkedin  ? (perfil.linkedin  || '') : '',
+          youtube:   _vis.site      ? (perfil.youtube   || '') : '',
+          site:      _vis.site      ? (perfil.site      || '') : '',
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        await _pubRef.set(_card);
+      } else {
+        // perfil deixou de ser público → remove o cartão da vitrine
+        await _pubRef.delete().catch(function(){});
+      }
+    } catch(e){ /* não bloqueia o save principal se a vitrine falhar */ }
+
     // Invalida o cache da busca global — força próxima busca a recarregar do Firestore
     // (senão a busca mostra dados velhos até o aluno fechar a aba)
     try { sessionStorage.removeItem('g20_search_networking'); } catch(e){}
