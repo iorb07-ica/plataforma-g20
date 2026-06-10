@@ -83,10 +83,16 @@ a{text-decoration:none;color:inherit}
 .cast-search input{flex:1;background:transparent;border:none;outline:none;color:var(--text);font-size:13px;font-family:inherit}
 .cast-search input::placeholder{color:var(--text3)}
 .cast-search svg{color:var(--gold);flex-shrink:0}
-.cast-themebar{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:18px}
-.cast-chip{font-size:11px;color:var(--gold);border:1px solid var(--gold-border);border-radius:20px;padding:4px 12px;cursor:pointer;transition:all .18s;white-space:nowrap;-webkit-tap-highlight-color:transparent}
+.cast-themebar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px}
+@media(max-width:768px){
+  .cast-themebar{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;gap:6px;margin-bottom:14px;padding-bottom:6px;-webkit-overflow-scrolling:touch;scrollbar-width:none;scroll-snap-type:x mandatory}
+  .cast-themebar::-webkit-scrollbar{display:none}
+}
+.cast-chip{font-size:11.5px;color:var(--gold);border:1px solid var(--gold-border);border-radius:20px;padding:5px 13px;cursor:pointer;transition:background .15s,border-color .15s,color .15s;white-space:nowrap;-webkit-tap-highlight-color:transparent;line-height:1.2;min-height:30px;display:inline-flex;align-items:center;gap:4px;touch-action:manipulation;flex-shrink:0}
+@media(max-width:768px){.cast-chip{font-size:12px;padding:7px 14px;min-height:36px;scroll-snap-align:start}}
 .cast-chip:hover{background:var(--gold-soft)}
-.cast-chip.on{background:var(--gold);color:#1a1920;border-color:var(--gold)}
+.cast-chip.on{background:var(--gold);color:#1a1920;border-color:var(--gold);font-weight:600}
+.cast-chip.on .chip-count{opacity:.65}
 /* card de episódio (estilo A) */
 .epc{position:relative;display:flex;flex-direction:row;gap:14px;align-items:stretch;background:var(--sur2,#232026);border:1px solid rgba(201,169,97,.14);border-radius:14px;padding:14px 15px 13px;text-decoration:none;color:inherit;overflow:hidden;transition:all .22s ease}
 .epc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--gold),transparent)}
@@ -441,76 +447,82 @@ var IC_PLAY='<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"
 
 // busca + temas
 var _castQuery='', _castThemes=[], _chipsExpanded=false;
-var CURATED_KW=['Bitcoin','BTC','Ethereum','ETH','Cripto','Crypto','Fed','FED','Selic','IPCA','Inflação','Dólar','Câmbio','Ibovespa','Petróleo','Ouro','Juros','China','Dividendos','FIIs','REITs','ETF','Ações','Nasdaq','S&P','Tesla','Nvidia','Apple','Microsoft','Google','Amazon','Meta','Nubank','Petrobras','Vale','Itaú','XP','Inter','MELI','Ambev','Embraer','Payroll','Earnings','CPI','PIB','Recessão','IA','Inteligência Artificial','Halving','Carteira','Aporte','Macro','Resultado'];
-var STOPWORDS=new Set(['de','do','da','dos','das','e','o','a','os','as','um','uma','em','no','na','nos','nas','por','para','com','sem','mas','ou','se','que','como','mais','pelo','pela','pelos','pelas','ao','aos','até','após','sobre','entre','desde','mesmo','ainda','qual','quando','onde','quem','é','este','esta','esse','essa','foi','são','ser','ter','tem','não','só','já','vai','por','foi','ser','bem','sua','seu','seus','suas','the','of','an','and','or','in','on','to','for','with','is','are','was','were','be','been','have','has','had','do','does','did','will','would','could','should','may','might','shall','can','not','no','this','that','it','its','at','from','by','up','out','if','about','into','after','before','each','all','both','few','more','most','other','some','too','very','just','now','then','there','when','where','why','how','you','he','she','we','they','what','which','who']);
+// Chips curados por categoria — só aparecem se tiverem >=1 ep no feed
+var CHIPS_CURADOS = [
+  'Bitcoin','Nvidia','Ouro','Petróleo','IPCA','Ethereum',
+  'Fed','China','IA','Europa',
+  'Apple','Tesla','Microsoft','Amazon','Meta','ASML',
+  'Petrobras','Nubank','Vale','Itaú'
+];
+
 function _castNorm(s){return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');}
-function _castExtractWords(){
-  var freq={};
-  _allEps.forEach(function(ep){
-    CURATED_KW.forEach(function(kw){
-      if(_castNorm(ep.titulo).indexOf(_castNorm(kw))>=0) freq[kw]=(freq[kw]||0)+1;
-    });
-    var words=ep.titulo.split(/[\s\-\u2013\u2014\/,.:;!?()\[\]{}'"]+/);
-    words.forEach(function(w){
-      w=w.replace(/[^\w\u00C0-\u024F&]/g,'').trim();
-      if(w.length<3||/^\d+$/.test(w)) return;
-      var wn=_castNorm(w);
-      if(STOPWORDS.has(wn)) return;
-      if(CURATED_KW.some(function(c){return _castNorm(c)===wn;})) return;
-      freq[w]=(freq[w]||0)+1;
-    });
+
+// Filtra a lista curada: só mantém os que aparecem em pelo menos 1 ep
+// Retorna [{k, n}] ordenado por frequência descendente
+function _castBuildChipList(){
+  var result = [];
+  var seen = new Set();
+  CHIPS_CURADOS.forEach(function(kw){
+    var kn = _castNorm(kw);
+    if(seen.has(kn)) return; // deduplica (ex: Petróleo aparece 2x na lista)
+    seen.add(kn);
+    var n = _allEps.filter(function(e){ return _castNorm(e.titulo).indexOf(kn) >= 0; }).length;
+    if(n >= 1) result.push({k:kw, n:n});
   });
-  var arr=[];
-  Object.keys(freq).forEach(function(k){if(freq[k]>=3)arr.push({k:k,n:freq[k]});});
-  arr.sort(function(a,b){return b.n-a.n;});
-  return arr;
+  // ordena por frequência, mas mantém os "grandes" primeiro e garante variedade
+  result.sort(function(a,b){ return b.n - a.n; });
+  return result;
 }
-var _allChips=[], _chipsExpanded=false;
-var CHIPS_COLLAPSED=14;
+
+var _allChips = [];
+var CHIPS_COLLAPSED = 20;
+
 function _castFilteredEps(){
-  var q=_castNorm(_castQuery).trim();
-  var ths=_castThemes.map(_castNorm);
+  var q = _castNorm(_castQuery).trim();
+  var ths = _castThemes.map(_castNorm);
   return _allEps.filter(function(ep){
-    var t=_castNorm(ep.titulo);
+    var t = _castNorm(ep.titulo);
     if(q && t.indexOf(q)<0 && String(ep.num).indexOf(q)<0) return false;
-    if(ths.length && !ths.some(function(th){return t.indexOf(th)>=0;})) return false;
+    if(ths.length && !ths.some(function(th){ return t.indexOf(th)>=0; })) return false;
     return true;
   });
 }
+
 function _castBuildThemes(){
-  var box=document.getElementById('castThemes'); if(!box) return;
-  _allChips=_castExtractWords();
+  var box = document.getElementById('castThemes'); if(!box) return;
+  _allChips = _castBuildChipList();
   _renderThemeBar();
 }
+
 function _renderThemeBar(){
-  var box=document.getElementById('castThemes'); if(!box) return;
-  var chips=_chipsExpanded?_allChips:_allChips.slice(0,CHIPS_COLLAPSED);
-  var total=_castFilteredEps().length;
-  var html='<span class="cast-chip'+(_castThemes.length===0?' on':'')+'" onclick="_castClearThemes()" title="Limpar filtros">Todos <span style="opacity:.6;font-size:10px">('+total+')</span></span>';
+  var box = document.getElementById('castThemes'); if(!box) return;
+  var chips = _chipsExpanded ? _allChips : _allChips.slice(0, CHIPS_COLLAPSED);
+  var total = _castFilteredEps().length;
+  var html = '<span class="cast-chip' + (_castThemes.length===0 ? ' on' : '') + '" onclick="_castClearThemes()" title="Limpar filtros">Todos <span class="chip-count" style="font-size:10px;opacity:.6;font-family:monospace">(' + total + ')</span></span>';
   chips.forEach(function(c){
-    var on=_castThemes.indexOf(c.k)>=0;
-    var cnt=_allEps.filter(function(e){return _castNorm(e.titulo).indexOf(_castNorm(c.k))>=0;}).length;
-    html+='<span class="cast-chip'+(on?' on':'')+'" onclick="_castToggleTheme('+JSON.stringify(c.k)+')" title="'+c.k+' ('+cnt+' eps)">'+c.k+' <span style="opacity:.55;font-size:10px">'+cnt+'</span></span>';
+    var on = _castThemes.indexOf(c.k) >= 0;
+    html += '<span class="cast-chip' + (on ? ' on' : '') + '" onclick="_castToggleTheme(' + JSON.stringify(c.k) + ')" title="' + c.k + ' (' + c.n + ' eps)">' + c.k + ' <span class="chip-count" style="font-size:10px;opacity:.55;font-family:monospace">' + c.n + '</span></span>';
   });
-  if(_allChips.length>CHIPS_COLLAPSED){
-    var resto=_allChips.length-CHIPS_COLLAPSED;
+  if(_allChips.length > CHIPS_COLLAPSED){
+    var resto = _allChips.length - CHIPS_COLLAPSED;
     if(!_chipsExpanded){
-      html+='<span class="cast-chip" onclick="_castExpandChips()" style="border-style:dashed;opacity:.7">+'+resto+' mais</span>';
+      html += '<span class="cast-chip" onclick="_castExpandChips()" style="border-style:dashed;opacity:.7">+' + resto + ' mais</span>';
     } else {
-      html+='<span class="cast-chip" onclick="_castCollapseChips()" style="border-style:dashed;opacity:.7">&#9650; menos</span>';
+      html += '<span class="cast-chip" onclick="_castCollapseChips()" style="border-style:dashed;opacity:.7">&#9650; menos</span>';
     }
   }
-  box.innerHTML=html;
+  box.innerHTML = html;
 }
+
 function _castToggleTheme(t){
-  var idx=_castThemes.indexOf(t);
+  var idx = _castThemes.indexOf(t);
   if(idx>=0) _castThemes.splice(idx,1); else _castThemes.push(t);
   _visibleCnt=12; _renderThemeBar(); renderEps();
 }
-function _castClearThemes(){_castThemes=[];_visibleCnt=12;_renderThemeBar();renderEps();}
-function _castExpandChips(){_chipsExpanded=true;_renderThemeBar();}
-function _castCollapseChips(){_chipsExpanded=false;_renderThemeBar();}
-function _castSearch(v){_castQuery=v;_visibleCnt=12;renderEps();}
+function _castClearThemes(){ _castThemes=[]; _visibleCnt=12; _renderThemeBar(); renderEps(); }
+function _castExpandChips(){ _chipsExpanded=true; _renderThemeBar(); }
+function _castCollapseChips(){ _chipsExpanded=false; _renderThemeBar(); }
+function _castSearch(v){ _castQuery=v; _visibleCnt=12; renderEps(); }
 
 function renderEps(){
   var el=document.getElementById('epList');
