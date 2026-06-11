@@ -615,13 +615,18 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
         <div class="mc-left">
           <!-- Ciclo -->
           <div class="mc-card">
-            <div class="mc-card-header"><h3>Ciclo Ativo</h3><span id="cicloStatusLabel" style="font-size:10px;color:var(--text2)"></span></div>
+            <div class="mc-card-header"><h3>Ciclo Ativo</h3></div>
             <div class="ciclo-selector">
               <button class="ciclo-btn active" onclick="selectCiclo('mensal')" id="btnMensal">Mensal</button>
               <button class="ciclo-btn" onclick="selectCiclo('trimestral')" id="btnTrimestral">Trimestral</button>
               <button class="ciclo-btn" onclick="selectCiclo('anual')" id="btnAnual">Anual</button>
             </div>
-            <div class="deadline-info"><i data-lucide="clock" style="width:13px;height:13px"></i><span>Fecha em <strong id="deadlineText">—</strong></span></div>
+            <div style="background:rgba(201,169,97,.08);border:1px solid rgba(201,169,97,.2);border-radius:8px;padding:10px 12px;margin-top:8px">
+              <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Você está montando a carteira de</div>
+              <div style="font-size:15px;font-weight:700;color:var(--gold-2)" id="targetCicloLabel"></div>
+              <div style="font-size:11px;color:var(--text2);margin-top:4px">Competindo agora: <span style="color:var(--text1)" id="liveCicloLabel"></span></div>
+            </div>
+            <div class="deadline-info" style="margin-top:8px"><i data-lucide="clock" style="width:13px;height:13px"></i><span>Prazo: <strong id="deadlineText">—</strong> &nbsp;<span id="countdownText" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--gold-1)"></span></span></div>
           </div>
           <!-- Regras -->
           <div class="mc-card">
@@ -1236,6 +1241,15 @@ function switchTab(tab){
 
 // ── CICLO ──────────────────────────────────────────────
 var cicloAtual='mensal';
+(function(){setTimeout(function(){
+  var target=getTargetCiclo('mensal');
+  var live=getLiveCiclo('mensal');
+  var tLbl=document.getElementById('targetCicloLabel');
+  var lLbl=document.getElementById('liveCicloLabel');
+  if(tLbl)tLbl.textContent=target.label;
+  if(lLbl)lLbl.textContent=live.label;
+  updateDeadline();
+},0);})();
 var filtroAtual='todos';
 var selecionados=[];
 var rankingData={};
@@ -1243,11 +1257,12 @@ var currentUid=null;
 var cotacoesCache={};
 var carteirasCache={};
 
-function getCiclo(tipo){
+// getLiveCiclo: ciclo EM COMPETIÇÃO AGORA (usado pelo ranking)
+// Ex: em junho → mostra as carteiras salvas em maio competindo em junho
+function getLiveCiclo(tipo){
   var now=new Date();
   var y=now.getFullYear();
   var m=now.getMonth()+1;
-  var d=now.getDate();
   if(tipo==='mensal'){
     var key=y+'-'+String(m).padStart(2,'0');
     var label=now.toLocaleString('pt-BR',{month:'long',year:'numeric'});
@@ -1260,10 +1275,52 @@ function getCiclo(tipo){
     var mEnd=q*3; var fechamento2=new Date(y,mEnd,0,23,59,59);
     return {key:key2,label:'T'+q+' ('+['','Jan-Mar','Abr-Jun','Jul-Set','Out-Dez'][q]+') '+y,fechamento:fechamento2,fechado:now>fechamento2};
   }
-  // anual
   var fechamento3=new Date(y,11,31,23,59,59);
   return {key:String(y),label:'Anual '+y,fechamento:fechamento3,fechado:now>fechamento3};
 }
+
+// getTargetCiclo: ciclo ALVO do palpite — PRÓXIMO período (usado pelo save e Minha Carteira)
+// Ex: em junho → salva como 2026-07 (para competir em julho)
+// O prazo para salvar é o ÚLTIMO SEGUNDO DO MÊS/TRIMESTRE/ANO ATUAL (horário Brasília)
+function getTargetCiclo(tipo){
+  var now=new Date();
+  var y=now.getFullYear();
+  var m=now.getMonth()+1; // 1-12
+  if(tipo==='mensal'){
+    // próximo mês
+    var nm=m===12?1:m+1;
+    var ny=m===12?y+1:y;
+    var key=ny+'-'+String(nm).padStart(2,'0');
+    var mNomes=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+    var label=mNomes[nm-1]+' '+ny;
+    // prazo: último segundo do mês atual (horário Brasília = UTC-3)
+    var prazo=new Date(y,m,0,23,59,59); // último dia do mês atual
+    var fechado=now>prazo;
+    return {key:key,label:label,prazo:prazo,fechado:fechado,liveKey:getLiveCiclo(tipo).key};
+  }
+  if(tipo==='trimestral'){
+    var q=Math.ceil(m/3);
+    // próximo trimestre
+    var nq=q===4?1:q+1;
+    var qy=q===4?y+1:y;
+    var key2=qy+'-T'+nq;
+    var qNomes=['','Jan-Mar','Abr-Jun','Jul-Set','Out-Dez'];
+    var label2='T'+nq+' ('+qNomes[nq]+') '+qy;
+    var qmEnd=q*3;
+    var prazo2=new Date(y,qmEnd,0,23,59,59); // último dia do trimestre atual
+    var fechado2=now>prazo2;
+    return {key:key2,label:label2,prazo:prazo2,fechado:fechado2,liveKey:getLiveCiclo(tipo).key};
+  }
+  // anual — próximo ano
+  var key3=String(y+1);
+  var prazo3=new Date(y,11,31,23,59,59); // 31/12 do ano atual
+  var fechado3=now>prazo3;
+  return {key:key3,label:'Anual '+(y+1),prazo:prazo3,fechado:fechado3,liveKey:getLiveCiclo(tipo).key};
+}
+
+// Compatibilidade: getCiclo agora retorna o TARGET (palpite) por padrão
+// para não quebrar chamadas existentes que usavam getCiclo no save
+function getCiclo(tipo){ return getTargetCiclo(tipo); }
 
 function selectCiclo(tipo){
   cicloAtual=tipo;
@@ -1271,21 +1328,38 @@ function selectCiclo(tipo){
     var btn=document.getElementById('btn'+t.charAt(0).toUpperCase()+t.slice(1));
     if(btn)btn.classList.toggle('active',t===tipo);
   });
-  var c=getCiclo(tipo);
-  var lbl=document.getElementById('cicloStatusLabel');
-  if(lbl)lbl.textContent=c.label;
+  var target=getTargetCiclo(tipo);
+  var live=getLiveCiclo(tipo);
+  var tLbl=document.getElementById('targetCicloLabel');
+  var lLbl=document.getElementById('liveCicloLabel');
+  if(tLbl)tLbl.textContent=target.label;
+  if(lLbl)lLbl.textContent=live.label;
   updateDeadline();
   carregarCarteiras();
 }
 
 function updateDeadline(){
-  var c=getCiclo(cicloAtual);
+  var target=getTargetCiclo(cicloAtual);
   var el=document.getElementById('deadlineText');
+  var cd=document.getElementById('countdownText');
   if(!el)return;
-  var f=c.fechamento;
+  var f=target.prazo;
   var dd=String(f.getDate()).padStart(2,'0');
   var mm=String(f.getMonth()+1).padStart(2,'0');
-  el.innerHTML=dd+'/'+mm+' às 23h59';
+  el.innerHTML=dd+'/'+mm+' 23h59';
+  function tick(){
+    var agora=new Date();
+    var diff=f-agora;
+    if(diff<=0){if(cd)cd.textContent='ENCERRADO';return;}
+    var dias=Math.floor(diff/86400000);
+    var hrs=Math.floor((diff%86400000)/3600000);
+    var min=Math.floor((diff%3600000)/60000);
+    var seg=Math.floor((diff%60000)/1000);
+    if(cd)cd.textContent='('+dias+'d '+String(hrs).padStart(2,'0')+'h'+String(min).padStart(2,'0')+'m'+String(seg).padStart(2,'0')+'s)';
+  }
+  tick();
+  if(window._countdownTimer)clearInterval(window._countdownTimer);
+  window._countdownTimer=setInterval(tick,1000);
 }
 
 function setFiltro(f){
@@ -1498,7 +1572,7 @@ function updateSaveBtn(){
 function carregarCarteiras(){
   ['mensal','trimestral','anual'].forEach(function(tipo){
     var c=getCiclo(tipo);
-    db.collection('game-g20').doc(currentUid).collection('carteiras').doc(c.key).get().then(function(doc){
+    db.collection('game-g20').doc(currentUid).collection('carteiras').doc(getTargetCiclo(tipo).key).get().then(function(doc){
       if(doc.exists){
         carteirasCache[tipo]=doc.data().ativos||[];
         if(tipo===cicloAtual){
@@ -1513,7 +1587,7 @@ function carregarCarteiras(){
 // ── SALVAR ────────────────────────────────────────────
 function salvarCarteira(){
   if(!validarRegras()){showToast('Verifique as regras antes de salvar','error');return;}
-  var c=getCiclo(cicloAtual);if(c.fechado){showToast('Ciclo encerrado','error');return;}
+  var c=getTargetCiclo(cicloAtual);if(c.fechado){showToast('Prazo encerrado para este ciclo','error');return;}
   var btn=document.getElementById('saveBtn');btn.disabled=true;btn.textContent='Salvando...';
   var ativos=selecionados.map(function(tk){
     var a=CG20.find(function(x){return x.ticker===tk;})||{nome:tk,classe:'acao-br'};
@@ -1543,7 +1617,7 @@ function carregarRanking(){
 }
 
 function carregarRankingTipo(tipo){
-  var c=getCiclo(tipo);
+  var c=getLiveCiclo(tipo);
   db.collectionGroup('carteiras').where('cicloKey','==',c.key).get().then(function(snap){
     var jogadores=[], promessas=[];
     snap.forEach(function(doc){
