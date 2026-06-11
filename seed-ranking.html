@@ -2,31 +2,43 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Seed Ranking — 10 alunos fictícios</title>
+<title>Seed Ranking</title>
 <style>
 body{background:#1a191e;color:#e8e6e3;font-family:Arial,sans-serif;padding:24px}
-h1{color:#c9a961}
+h1{color:#c9a961;font-size:20px}
 .item{background:#27252c;border-radius:8px;padding:10px 14px;margin:6px 0;font-size:14px}
 .ok{color:#5dbb63}.bad{color:#e05d5d}.info{color:#c9a961}
-button{background:#c9a961;color:#1a191e;border:none;padding:10px 24px;border-radius:8px;font-size:15px;font-weight:bold;cursor:pointer;margin:12px 0}
+button{background:#c9a961;color:#1a191e;border:none;padding:10px 24px;border-radius:8px;font-size:15px;font-weight:bold;cursor:pointer;margin:4px}
 button:disabled{opacity:.5;cursor:not-allowed}
-#log{margin-top:12px}
+#status{margin-bottom:12px;font-size:14px;color:#9a958e}
 </style>
 </head>
 <body>
-<h1>🌱 Seed — 10 alunos fictícios para testar ranking de junho</h1>
-<p style="color:#9a958e">Insere 10 carteiras com <b>cicloKey: 2026-06</b> no Firestore.<br>Rode como <b>admin</b>. Após testar o ranking, use o botão Limpar para remover tudo.</p>
-<button id="btnSeed" onclick="seed()">▶ Inserir 10 alunos fictícios</button>
-<button id="btnClean" onclick="limpar()" style="background:#3a2326;color:#e05d5d;margin-left:12px">🗑 Limpar dados de teste</button>
+<h1>🌱 Seed — 10 alunos fictícios (ranking junho)</h1>
+<div id="status">⏳ Aguardando autenticação…</div>
+<button id="btnSeed" onclick="seed()" disabled>▶ Inserir 10 alunos</button>
+<button id="btnClean" onclick="limpar()" disabled style="background:#3a2326;color:#e05d5d">🗑 Limpar</button>
 <div id="log"></div>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script>
-var cfg={apiKey:"AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",authDomain:"g20-masterclass.firebaseapp.com",projectId:"g20-masterclass",storageBucket:"g20-masterclass.firebasestorage.app",messagingSenderId:"1052719482127",appId:"1:1052719482127:web:537c1d67c96532be8a2a7a"};
-if(!firebase.apps.length)firebase.initializeApp(cfg);
+firebase.initializeApp({apiKey:"AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",authDomain:"g20-masterclass.firebaseapp.com",projectId:"g20-masterclass",storageBucket:"g20-masterclass.firebasestorage.app",messagingSenderId:"1052719482127",appId:"1:1052719482127:web:537c1d67c96532be8a2a7a"});
 var db=firebase.firestore();
+var st=document.getElementById('status');
+
+firebase.auth().onAuthStateChanged(function(u){
+  if(u){
+    st.textContent='✅ Logado como: '+u.email;
+    st.style.color='#5dbb63';
+    document.getElementById('btnSeed').disabled=false;
+    document.getElementById('btnClean').disabled=false;
+  } else {
+    st.innerHTML='⛔ Não logado. <a href="dashboard.html" style="color:#c9a961">Clique aqui para logar</a> e volte.';
+    st.style.color='#e05d5d';
+  }
+});
 
 var ALUNOS=[
   {uid:"fake_uid_001",nome:"Ana Beatriz Silva"},
@@ -40,7 +52,6 @@ var ALUNOS=[
   {uid:"fake_uid_009",nome:"Natália Lima"},
   {uid:"fake_uid_010",nome:"Rafael Carvalho"},
 ];
-
 var POOL=[
   {ticker:"BPAC11",nome:"Banco BTG Pactual",classe:"acao-br"},
   {ticker:"AAPL",nome:"Apple Inc.",classe:"stock"},
@@ -58,44 +69,33 @@ var POOL=[
   {ticker:"VALE3",nome:"Vale S.A.",classe:"acao-br"},
   {ticker:"ETH",nome:"Ethereum",classe:"cripto"},
 ];
-
-function shuffle(arr){return arr.slice().sort(function(){return Math.random()-.5;});}
-function rnd(min,max){return+(Math.random()*(max-min)+min).toFixed(2);}
-
-function log(msg,cls){
-  var d=document.createElement('div');d.className='item '+(cls||'info');
-  d.innerHTML=msg;document.getElementById('log').appendChild(d);
-}
+function shuffle(a){return a.slice().sort(function(){return Math.random()-.5;});}
+function rnd(a,b){return+(Math.random()*(b-a)+a).toFixed(2);}
+function log(m,c){var d=document.createElement('div');d.className='item '+(c||'info');d.innerHTML=m;document.getElementById('log').appendChild(d);}
 
 async function seed(){
   document.getElementById('btnSeed').disabled=true;
   document.getElementById('log').innerHTML='';
-  log('Iniciando inserção...');
-  var user=firebase.auth().currentUser;
-  if(!user){log('⛔ Faça login primeiro (abra o dashboard e volte aqui)','bad');document.getElementById('btnSeed').disabled=false;return;}
-  
   for(var i=0;i<ALUNOS.length;i++){
     var a=ALUNOS[i];
     var ativos=shuffle(POOL).slice(0,10).map(function(at){
       return Object.assign({},at,{precoBase:rnd(10,500),savedAt:'2026-05-28T22:00:00.000Z'});
     });
-    var doc={uid:a.uid,ciclo:'mensal',cicloKey:'2026-06',cicloLabel:'Junho 2026',ativos:ativos,savedAt:firebase.firestore.FieldValue.serverTimestamp()};
     try{
-      await db.collection('game-g20').doc(a.uid).collection('carteiras').doc('2026-06').set(doc);
+      await db.collection('game-g20').doc(a.uid).collection('carteiras').doc('2026-06').set(
+        {uid:a.uid,ciclo:'mensal',cicloKey:'2026-06',cicloLabel:'Junho 2026',ativos:ativos,savedAt:firebase.firestore.FieldValue.serverTimestamp()}
+      );
       await db.collection('networking_public').doc(a.uid).set({nome:a.nome,foto:'',turma:'Turma 21 (TESTE)'});
-      log('✅ '+a.nome+' ('+a.uid+')','ok');
-    }catch(e){
-      log('⛔ '+a.nome+': '+e.message,'bad');
-    }
+      log('✅ '+a.nome,'ok');
+    }catch(e){log('⛔ '+a.nome+': '+e.message,'bad');}
   }
-  log('🏁 Pronto! Agora abra o Game → aba Ranking e veja se os 10 aparecem.','info');
+  log('🏁 Pronto! Abra o Game → Ranking como aluno-teste.','info');
   document.getElementById('btnSeed').disabled=false;
 }
 
 async function limpar(){
-  if(!confirm('Remover os 10 alunos fictícios do banco?'))return;
+  if(!confirm('Remover os 10 alunos fictícios?'))return;
   document.getElementById('btnClean').disabled=true;
-  log('Removendo...');
   for(var i=0;i<ALUNOS.length;i++){
     var a=ALUNOS[i];
     try{
@@ -103,9 +103,7 @@ async function limpar(){
       await db.collection('game-g20').doc(a.uid).delete();
       await db.collection('networking_public').doc(a.uid).delete();
       log('🗑 '+a.nome+' removido','ok');
-    }catch(e){
-      log('⛔ '+a.nome+': '+e.message,'bad');
-    }
+    }catch(e){log('⛔ '+a.nome+': '+e.message,'bad');}
   }
   log('✅ Limpeza concluída.','ok');
   document.getElementById('btnClean').disabled=false;
