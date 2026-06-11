@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Seed Ranking — 10 alunos fictícios</title>
+<style>
+body{background:#1a191e;color:#e8e6e3;font-family:Arial,sans-serif;padding:24px}
+h1{color:#c9a961}
+.item{background:#27252c;border-radius:8px;padding:10px 14px;margin:6px 0;font-size:14px}
+.ok{color:#5dbb63}.bad{color:#e05d5d}.info{color:#c9a961}
+button{background:#c9a961;color:#1a191e;border:none;padding:10px 24px;border-radius:8px;font-size:15px;font-weight:bold;cursor:pointer;margin:12px 0}
+button:disabled{opacity:.5;cursor:not-allowed}
+#log{margin-top:12px}
+</style>
+</head>
+<body>
+<h1>🌱 Seed — 10 alunos fictícios para testar ranking de junho</h1>
+<p style="color:#9a958e">Insere 10 carteiras com <b>cicloKey: 2026-06</b> no Firestore.<br>Rode como <b>admin</b>. Após testar o ranking, use o botão Limpar para remover tudo.</p>
+<button id="btnSeed" onclick="seed()">▶ Inserir 10 alunos fictícios</button>
+<button id="btnClean" onclick="limpar()" style="background:#3a2326;color:#e05d5d;margin-left:12px">🗑 Limpar dados de teste</button>
+<div id="log"></div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script>
+var cfg={apiKey:"AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",authDomain:"g20-masterclass.firebaseapp.com",projectId:"g20-masterclass",storageBucket:"g20-masterclass.firebasestorage.app",messagingSenderId:"1052719482127",appId:"1:1052719482127:web:537c1d67c96532be8a2a7a"};
+if(!firebase.apps.length)firebase.initializeApp(cfg);
+var db=firebase.firestore();
+
+var ALUNOS=[
+  {uid:"fake_uid_001",nome:"Ana Beatriz Silva"},
+  {uid:"fake_uid_002",nome:"Carlos Eduardo Mendes"},
+  {uid:"fake_uid_003",nome:"Fernanda Costa"},
+  {uid:"fake_uid_004",nome:"Gabriel Oliveira"},
+  {uid:"fake_uid_005",nome:"Isabella Martins"},
+  {uid:"fake_uid_006",nome:"João Pedro Souza"},
+  {uid:"fake_uid_007",nome:"Larissa Ferreira"},
+  {uid:"fake_uid_008",nome:"Marcos Rodrigues"},
+  {uid:"fake_uid_009",nome:"Natália Lima"},
+  {uid:"fake_uid_010",nome:"Rafael Carvalho"},
+];
+
+var POOL=[
+  {ticker:"BPAC11",nome:"Banco BTG Pactual",classe:"acao-br"},
+  {ticker:"AAPL",nome:"Apple Inc.",classe:"stock"},
+  {ticker:"MGLU3",nome:"Magazine Luiza",classe:"acao-br"},
+  {ticker:"HGLG11",nome:"CSHG Logística FII",classe:"fii"},
+  {ticker:"BTC",nome:"Bitcoin",classe:"cripto"},
+  {ticker:"INTR",nome:"Inter & Co. Inc.",classe:"stock"},
+  {ticker:"RBRR11",nome:"RBR Rendimento High Grade",classe:"fii"},
+  {ticker:"DIS",nome:"The Walt Disney Co.",classe:"stock"},
+  {ticker:"PLD",nome:"Prologis Inc.",classe:"reit"},
+  {ticker:"SCHA",nome:"Schwab U.S. Small-Cap ETF",classe:"etf"},
+  {ticker:"XPCA11",nome:"XP Crédito Agro FII",classe:"fii"},
+  {ticker:"ROL",nome:"Rollins Inc.",classe:"stock"},
+  {ticker:"O",nome:"Realty Income Corp.",classe:"reit"},
+  {ticker:"VALE3",nome:"Vale S.A.",classe:"acao-br"},
+  {ticker:"ETH",nome:"Ethereum",classe:"cripto"},
+];
+
+function shuffle(arr){return arr.slice().sort(function(){return Math.random()-.5;});}
+function rnd(min,max){return+(Math.random()*(max-min)+min).toFixed(2);}
+
+function log(msg,cls){
+  var d=document.createElement('div');d.className='item '+(cls||'info');
+  d.innerHTML=msg;document.getElementById('log').appendChild(d);
+}
+
+async function seed(){
+  document.getElementById('btnSeed').disabled=true;
+  document.getElementById('log').innerHTML='';
+  log('Iniciando inserção...');
+  var user=firebase.auth().currentUser;
+  if(!user){log('⛔ Faça login primeiro (abra o dashboard e volte aqui)','bad');document.getElementById('btnSeed').disabled=false;return;}
+  
+  for(var i=0;i<ALUNOS.length;i++){
+    var a=ALUNOS[i];
+    var ativos=shuffle(POOL).slice(0,10).map(function(at){
+      return Object.assign({},at,{precoBase:rnd(10,500),savedAt:'2026-05-28T22:00:00.000Z'});
+    });
+    var doc={uid:a.uid,ciclo:'mensal',cicloKey:'2026-06',cicloLabel:'Junho 2026',ativos:ativos,savedAt:firebase.firestore.FieldValue.serverTimestamp()};
+    try{
+      await db.collection('game-g20').doc(a.uid).collection('carteiras').doc('2026-06').set(doc);
+      await db.collection('networking_public').doc(a.uid).set({nome:a.nome,foto:'',turma:'Turma 21 (TESTE)'});
+      log('✅ '+a.nome+' ('+a.uid+')','ok');
+    }catch(e){
+      log('⛔ '+a.nome+': '+e.message,'bad');
+    }
+  }
+  log('🏁 Pronto! Agora abra o Game → aba Ranking e veja se os 10 aparecem.','info');
+  document.getElementById('btnSeed').disabled=false;
+}
+
+async function limpar(){
+  if(!confirm('Remover os 10 alunos fictícios do banco?'))return;
+  document.getElementById('btnClean').disabled=true;
+  log('Removendo...');
+  for(var i=0;i<ALUNOS.length;i++){
+    var a=ALUNOS[i];
+    try{
+      await db.collection('game-g20').doc(a.uid).collection('carteiras').doc('2026-06').delete();
+      await db.collection('game-g20').doc(a.uid).delete();
+      await db.collection('networking_public').doc(a.uid).delete();
+      log('🗑 '+a.nome+' removido','ok');
+    }catch(e){
+      log('⛔ '+a.nome+': '+e.message,'bad');
+    }
+  }
+  log('✅ Limpeza concluída.','ok');
+  document.getElementById('btnClean').disabled=false;
+}
+</script>
+</body>
+</html>
