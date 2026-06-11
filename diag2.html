@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diagnóstico 2 — Consultas G20</title>
+<style>
+  body{background:#1a191e;color:#e8e6e3;font-family:Arial,sans-serif;margin:0;padding:24px;font-size:16px}
+  h1{color:#c9a961;font-size:22px;margin:0 0 6px}
+  .sub{color:#9a958e;font-size:13px;margin-bottom:20px}
+  .item{background:#27252c;border:1px solid #3a3741;border-radius:10px;padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;gap:14px}
+  .st{font-size:22px;width:34px;text-align:center;flex:none}
+  .nm{flex:1}
+  .nm b{display:block;font-size:15px}
+  .nm span{color:#9a958e;font-size:12px}
+  .tm{font-family:monospace;color:#c9a961;font-size:13px;flex:none}
+  .ok{color:#5dbb63}.bad{color:#e05d5d}.wait{color:#c9a961}
+  #who{background:#2d2a33;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:14px}
+  .err{color:#e05d5d;font-size:12px;display:block;margin-top:4px;word-break:break-all}
+</style>
+</head>
+<body>
+<h1>🩺 Diagnóstico 2 — Consultas ao banco</h1>
+<div class="sub">Roda as mesmas consultas do Game, Atlas e Perfil, uma por uma, com limite de 10s cada.</div>
+<div id="who">⏳ Verificando login…</div>
+<div id="lista"></div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script>
+var _cfg={apiKey:"AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",authDomain:"g20-masterclass.firebaseapp.com",projectId:"g20-masterclass",storageBucket:"g20-masterclass.firebasestorage.app",messagingSenderId:"1052719482127",appId:"1:1052719482127:web:537c1d67c96532be8a2a7a"};
+if(!firebase.apps.length)firebase.initializeApp(_cfg);
+var auth=firebase.auth(),db=firebase.firestore();
+var lista=document.getElementById('lista');
+
+function linha(id,titulo,desc){
+  var d=document.createElement('div');d.className='item';d.id='it_'+id;
+  d.innerHTML='<div class="st wait">⏳</div><div class="nm"><b>'+titulo+'</b><span>'+desc+'</span></div><div class="tm">aguardando</div>';
+  lista.appendChild(d);
+}
+function marca(id,ok,ms,extra){
+  var d=document.getElementById('it_'+id);if(!d)return;
+  d.querySelector('.st').textContent=ok?'✅':'⛔';
+  d.querySelector('.st').className='st '+(ok?'ok':'bad');
+  d.querySelector('.tm').textContent=ms+'ms';
+  if(extra){var s=document.createElement('span');s.className=ok?'':'err';s.textContent=extra;d.querySelector('.nm').appendChild(s);}
+}
+function comTimeout(p,ms){
+  return Promise.race([p,new Promise(function(_,rej){setTimeout(function(){rej(new Error('TIMEOUT — a consulta NUNCA respondeu ('+(ms/1000)+'s)'));},ms);})]);
+}
+function roda(id,fn){
+  var t0=Date.now();
+  return comTimeout(fn(),10000).then(function(r){
+    marca(id,true,Date.now()-t0,r||'');
+  }).catch(function(e){
+    marca(id,false,Date.now()-t0,(e&&e.message)||String(e));
+  });
+}
+
+var TESTES=[]; // [id, titulo, desc, fn]
+function prepara(uid){
+  TESTES=[
+    ['users','users/{meu uid}','Perfil do aluno (dashboard e todas as páginas)',function(){
+      return db.collection('users').doc(uid).get().then(function(s){
+        var len=s.exists?JSON.stringify(s.data()).length:0;
+        return s.exists?('documento OK — tamanho '+len+' caracteres'):'documento NÃO existe';
+      });
+    }],
+    ['np_meu','networking_public/{meu uid}','Card público do aluno (perfil e game)',function(){
+      return db.collection('networking_public').doc(uid).get().then(function(s){return s.exists?'existe':'não existe (ok)';});
+    }],
+    ['np_lista','networking_public (lista 5)','Lista de cards (networking e ranking)',function(){
+      return db.collection('networking_public').limit(5).get().then(function(q){return q.size+' documentos';});
+    }],
+    ['cg','collectionGroup carteiras (1)','Ranking do Game (todas as carteiras)',function(){
+      return db.collectionGroup('carteiras').limit(1).get().then(function(q){return q.size+' documento(s)';});
+    }],
+    ['gameminha','game-g20/{uid}/carteiras (lista)','Minhas carteiras do Game',function(){
+      return db.collection('game-g20').doc(uid).collection('carteiras').limit(5).get().then(function(q){return q.size+' carteira(s)';});
+    }],
+    ['atlas','atlas_teses (lista 3)','Teses do Atlas',function(){
+      return db.collection('atlas_teses').limit(3).get().then(function(q){return q.size+' documento(s)';});
+    }],
+  ];
+  TESTES.forEach(function(t){linha(t[0],t[1],t[2]);});
+  // roda em SÉRIE para identificar exatamente qual trava
+  var p=Promise.resolve();
+  TESTES.forEach(function(t){
+    p=p.then(function(){return roda(t[0],t[3]);});
+  });
+  p.then(function(){
+    var d=document.createElement('div');d.className='item';
+    d.innerHTML='<div class="st ok">🏁</div><div class="nm"><b>Fim dos testes</b><span>Tire um print desta tela inteira e envie.</span></div><div class="tm"></div>';
+    lista.appendChild(d);
+  });
+}
+
+var who=document.getElementById('who');
+var authTimer=setTimeout(function(){
+  who.innerHTML='⛔ <b>O login NUNCA respondeu (15s)</b> — o problema está na autenticação, antes mesmo do banco.';
+},15000);
+auth.onAuthStateChanged(function(u){
+  clearTimeout(authTimer);
+  if(!u){who.innerHTML='⚠️ Nenhum usuário logado. Faça login na plataforma (aba do dashboard) e recarregue esta página.';return;}
+  who.innerHTML='👤 Logado: <b>'+(u.email||'?')+'</b><br><span style="color:#9a958e;font-size:12px">uid: '+u.uid+'</span>';
+  prepara(u.uid);
+});
+</script>
+</body>
+</html>
