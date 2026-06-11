@@ -1,4 +1,4 @@
-const CACHE = 'g20-v42';
+const CACHE = 'g20-v43';
 const STATIC = [
   'manifest.json',
   'icon-192.png',
@@ -35,7 +35,13 @@ self.addEventListener('fetch', function(e) {
       url.includes('bcb.gov.br') || url.includes('fonts.googleapis') ||
       url.includes('gstatic.com') || url.includes('vercel.app') ||
       url.includes('awesomeapi.com.br') || url.includes('yahoo') ||
-      url.includes('cdnjs.cloudflare.com')) return;
+      url.includes('cdnjs.cloudflare.com') ||
+      url.includes('unpkg.com') || url.includes('jsdelivr.net') ||
+      url.includes('tradingview.com') || url.includes('statusinvest.com.br') ||
+      url.includes('clearbit.com') || url.includes('brandfetch.io') ||
+      url.includes('eodhd.com') || url.includes('coingecko.com') ||
+      url.includes('raw.githubusercontent.com') ||
+      url.includes('finance.yahoo.com')) return;
   if (url.endsWith('.html') || url.endsWith('/')) {
     e.respondWith(
       // HTML SEMPRE fresco do servidor (ignora cache HTTP do navegador).
