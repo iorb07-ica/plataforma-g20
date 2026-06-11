@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diagnóstico 3 — Scripts da plataforma</title>
+<style>
+  body{background:#1a191e;color:#e8e6e3;font-family:Arial,sans-serif;margin:0;padding:24px;font-size:15px}
+  h1{color:#c9a961;font-size:21px;margin:0 0 4px}
+  .sub{color:#9a958e;font-size:13px;margin-bottom:16px}
+  #log{background:#27252c;border:1px solid #3a3741;border-radius:10px;padding:8px 14px}
+  .l{padding:7px 4px;border-bottom:1px solid #34313a;display:flex;gap:10px;align-items:baseline}
+  .l:last-child{border-bottom:none}
+  .t{font-family:monospace;color:#9a958e;font-size:11px;flex:none;width:72px}
+  .ok{color:#5dbb63}.bad{color:#e05d5d}.info{color:#c9a961}
+  #erros{margin-top:14px;background:#3a2326;border:1px solid #e05d5d55;border-radius:10px;padding:10px 14px;display:none}
+  #erros b{color:#e05d5d}
+  .e{font-family:monospace;font-size:12px;color:#f0b8b8;margin-top:6px;word-break:break-all}
+</style>
+</head>
+<body>
+<h1>🩺 Diagnóstico 3 — Scripts da plataforma</h1>
+<div class="sub">Carrega os scripts do Game um por um. Se a página congelar, o ÚLTIMO item da lista é o culpado. Tire print quando parar de se mexer.</div>
+<div id="log"></div>
+<div id="erros"><b>⛔ Erros capturados:</b><div id="elist"></div></div>
+
+<!-- âncoras mínimas que os scripts da plataforma esperam encontrar -->
+<div class="overlay" id="overlay" style="display:none"></div>
+<nav class="sidebar" id="sidebar" style="display:none"><div id="sidebarName"><span class="user-name-text"></span></div><div id="sidebarTurma"></div><div id="sidebarInitials"></div><div id="sidebarAvatar"></div><div id="badgeInfinity"></div></nav>
+
+<script>
+var t0=Date.now();
+function log(msg,cls){
+  var d=document.createElement('div');d.className='l';
+  d.innerHTML='<span class="t">+'+(Date.now()-t0)+'ms</span><span class="'+(cls||'info')+'">'+msg+'</span>';
+  document.getElementById('log').appendChild(d);
+}
+window.onerror=function(m,src,l,c){
+  document.getElementById('erros').style.display='block';
+  var e=document.createElement('div');e.className='e';
+  e.textContent=m+' @ '+(src||'?').split('/').pop()+':'+l+':'+c;
+  document.getElementById('elist').appendChild(e);
+  log('⛔ ERRO JS: '+m,'bad');
+  return false;
+};
+window.addEventListener('unhandledrejection',function(ev){
+  log('⛔ PROMISE rejeitada: '+((ev.reason&&ev.reason.message)||ev.reason),'bad');
+});
+log('Página viva. Iniciando…');
+
+// Carrega scripts em SEQUÊNCIA com cronômetro e timeout
+var FILA=[
+  ['Firebase app','https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js'],
+  ['Firebase auth','https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js'],
+  ['Firebase firestore','https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js'],
+  ['init firebase + login',null], // marcador especial
+  ['tradingview-logos.js','assets/tradingview-logos.js'],
+  ['lucide (unpkg)','https://unpkg.com/lucide@latest/dist/umd/lucide.min.js'],
+  ['g20-sidebar.js','assets/g20-sidebar.js?v=11'],
+  ['g20-notifications.js','assets/g20-notifications.js?v=10'],
+  ['g20-search.js','assets/g20-search.js?v=10'],
+];
+var i=0;
+function proximo(){
+  if(i>=FILA.length){
+    log('🏁 Todos os scripts carregados. Aguardando 6s para ver se algo trava depois…','info');
+    setTimeout(function(){log('✅ Página continua viva após 6s. FIM — tire o print.','ok');},6000);
+    return;
+  }
+  var item=FILA[i++];
+  if(item[1]===null){
+    // inicializa firebase e registra o login
+    try{
+      var _cfg={apiKey:"AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",authDomain:"g20-masterclass.firebaseapp.com",projectId:"g20-masterclass",storageBucket:"g20-masterclass.firebasestorage.app",messagingSenderId:"1052719482127",appId:"1:1052719482127:web:537c1d67c96532be8a2a7a"};
+      if(!firebase.apps.length)firebase.initializeApp(_cfg);
+      log('✅ firebase inicializado','ok');
+      var respondeu=false;
+      firebase.auth().onAuthStateChanged(function(u){
+        if(respondeu)return; respondeu=true;
+        log(u?('✅ login detectado: '+(u.email||u.uid)):'⚠️ nenhum usuário logado','ok');
+      });
+      setTimeout(function(){if(!respondeu){respondeu=true;log('⛔ login NUNCA respondeu (10s)','bad');}},10000);
+    }catch(e){log('⛔ erro no init firebase: '+e.message,'bad');}
+    proximo();
+    return;
+  }
+  var nome=item[0],src=item[1];
+  log('⏳ carregando '+nome+'…');
+  var s=document.createElement('script');
+  var tIni=Date.now(),feito=false;
+  var timer=setTimeout(function(){
+    if(feito)return;feito=true;
+    log('⛔ '+nome+' PENDUROU — não carregou em 15s. <b>CULPADO PROVÁVEL.</b>','bad');
+    proximo();
+  },15000);
+  s.onload=function(){
+    if(feito)return;feito=true;clearTimeout(timer);
+    log('✅ '+nome+' carregou e executou ('+(Date.now()-tIni)+'ms)','ok');
+    // dá um respiro para o script rodar inicializações síncronas
+    setTimeout(proximo,400);
+  };
+  s.onerror=function(){
+    if(feito)return;feito=true;clearTimeout(timer);
+    log('⛔ '+nome+' FALHOU ao baixar (erro de rede)','bad');
+    proximo();
+  };
+  s.src=src;
+  document.body.appendChild(s);
+}
+proximo();
+</script>
+</body>
+</html>
