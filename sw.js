@@ -1,69 +1,23 @@
-const CACHE = 'g20-v43';
-const STATIC = [
-  'manifest.json',
-  'icon-192.png',
-  'icon-512.png',
-  'apple-touch-icon.png',
-  'G20_Masterclass_-_logo_dashboard.png',
-];
+const CACHE = 'g20-v44';
+
+// v44 — SW TRANSPARENTE (diagnostico/estabilidade)
+// O fetch handler foi removido: o Service Worker NAO intercepta mais nenhuma
+// requisicao. Todas as paginas e recursos vem direto do servidor, sem
+// intermediario. Isso elimina qualquer possibilidade de o SW corromper ou
+// travar a entrega das paginas (Game/Atlas travando no meio do carregamento).
+// O PWA (manifest/instalacao) continua funcionando normalmente.
+
 self.addEventListener('install', function(e) {
   self.skipWaiting();
-  e.waitUntil(
-    caches.open(CACHE).then(function(cache) {
-      return cache.addAll(STATIC).catch(function(){});
-    })
-  );
 });
+
 self.addEventListener('activate', function(e) {
   e.waitUntil(
-    // Apaga todos os caches antigos (inclusive de SWs velhos presos no device)
+    // Apaga TODOS os caches antigos do SW (g20-v42, v43, etc.)
     caches.keys().then(function(keys) {
-      return Promise.all(
-        keys.filter(function(k) { return k !== CACHE; })
-            .map(function(k) { return caches.delete(k); })
-      );
+      return Promise.all(keys.map(function(k) { return caches.delete(k); }));
     }).then(function() { return self.clients.claim(); })
-    // SEM reload automático aqui — evita loop de recarregamento.
   );
 });
-self.addEventListener('fetch', function(e) {
-  if (e.request.method !== 'GET') return;
-  var url = e.request.url;
-  if (url.includes('firebaseapp') || url.includes('googleapis') ||
-      url.includes('firestore') || url.includes('anchor.fm') ||
-      url.includes('brapi.dev') || url.includes('twelvedata') ||
-      url.includes('bcb.gov.br') || url.includes('fonts.googleapis') ||
-      url.includes('gstatic.com') || url.includes('vercel.app') ||
-      url.includes('awesomeapi.com.br') || url.includes('yahoo') ||
-      url.includes('cdnjs.cloudflare.com') ||
-      url.includes('unpkg.com') || url.includes('jsdelivr.net') ||
-      url.includes('tradingview.com') || url.includes('statusinvest.com.br') ||
-      url.includes('clearbit.com') || url.includes('brandfetch.io') ||
-      url.includes('eodhd.com') || url.includes('coingecko.com') ||
-      url.includes('raw.githubusercontent.com') ||
-      url.includes('finance.yahoo.com')) return;
-  if (url.endsWith('.html') || url.endsWith('/')) {
-    e.respondWith(
-      // HTML SEMPRE fresco do servidor (ignora cache HTTP do navegador).
-      // Assim um F5 normal já mostra a versão nova após o deploy — sem Ctrl+Shift+R.
-      fetch(e.request, { cache: 'no-store' }).catch(function() {
-        return caches.match(e.request);
-      })
-    );
-    return;
-  }
-  e.respondWith(
-    // JS/CSS/etc.: revalida SEMPRE com o servidor (no-cache) para nunca servir
-    // versão velha do cache HTTP do navegador. Quando não mudou, servidor responde
-    // 304 (rápido). Cache da API só é usado como fallback offline.
-    fetch(e.request, { cache: 'no-cache' }).then(function(response) {
-      if (response && response.status === 200) {
-        var clone = response.clone();
-        caches.open(CACHE).then(function(cache) { cache.put(e.request, clone); });
-      }
-      return response;
-    }).catch(function() {
-      return caches.match(e.request);
-    })
-  );
-});
+
+// SEM listener de 'fetch' — navegacao 100% direta ao servidor.
