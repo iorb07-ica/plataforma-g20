@@ -462,8 +462,6 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .row-actions{display:flex;gap:6px;justify-content:flex-end;align-items:center}
 .btn-share{background:rgba(201,169,97,.12);border:1px solid rgba(201,169,97,.25);color:var(--gold);border-radius:6px;padding:3px 8px;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s;white-space:nowrap}
 .btn-share:hover{background:rgba(201,169,97,.25)}
-.btn-vs{background:rgba(93,149,224,.12);border:1px solid rgba(93,149,224,.25);color:#7ab3f0;border-radius:6px;padding:3px 8px;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s;white-space:nowrap}
-.btn-vs:hover{background:rgba(93,149,224,.25)}
 
 /* === MODAL COMPARTILHAR === */
 #modalShare{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;align-items:center;justify-content:center}
@@ -479,25 +477,6 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .share-btn.ig{background:linear-gradient(135deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);color:#fff}
 .share-btn.ig:hover{opacity:.9}
 .share-close{position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;line-height:1}
-
-/* === MODAL VS LÍDER === */
-#modalVS{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;align-items:center;justify-content:center}
-#modalVS.open{display:flex}
-.vs-box{background:var(--surface2);border:1px solid var(--border);border-radius:18px;padding:24px;max-width:700px;width:95%;max-height:85vh;overflow-y:auto;position:relative}
-.vs-header{display:flex;align-items:center;gap:12px;margin-bottom:20px}
-.vs-player{flex:1;text-align:center}
-.vs-player-nome{font-size:13px;font-weight:700;color:var(--text1)}
-.vs-player-rent{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;margin-top:4px}
-.vs-separador{font-size:22px;font-weight:900;color:var(--text2)}
-.vs-table{width:100%;border-collapse:collapse;font-size:12px}
-.vs-table th{color:var(--text2);font-size:10px;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid var(--border);text-align:left}
-.vs-table td{padding:8px 8px;border-bottom:1px solid rgba(201,169,97,.05);vertical-align:middle}
-.vs-table tr:last-child td{border-bottom:none}
-.vs-ticker{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:11px;color:var(--gold-2)}
-.vs-rent{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:12px}
-.vs-rent.pos{color:#5dbb63}.vs-rent.neg{color:#e05d5d}.vs-rent.neu{color:var(--text2)}
-.vs-only{font-size:10px;color:var(--text2);font-style:italic}
-.vs-close{position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;line-height:1}
 
 /* === ENCERRAMENTO DE CICLO === */
 #overlayEncerramento{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9998;align-items:center;justify-content:center;flex-direction:column}
@@ -2842,62 +2821,8 @@ function compartilharIg(){
   });
 }
 
-// ============================================================
-// VS LÍDER
-// ============================================================
-function abrirVS(tipo){
-  var jogadores = rankingData[tipo]||[];
-  if(jogadores.length<2) return;
-  var lider = jogadores[0];
-  var eu = jogadores.find(function(j){return j.uid===currentUid;});
-  if(!eu){ showToast('Você não tem carteira neste ciclo','info'); return; }
-  if(eu.uid===lider.uid){ showToast('Você é o líder! 🏆','success'); return; }
+// (VS Líder antigo removido — comparação agora vive no modal Minha Carteira via toggleComparacao/abrirComparacaoIdeal)
 
-  var rEu = eu.rentabilidade;
-  var rLider = lider.rentabilidade;
-  document.getElementById('vsNomeEu').textContent = 'Minha Carteira';
-  document.getElementById('vsRentEu').textContent = (rEu>=0?'+':'')+rEu.toFixed(2)+'%';
-  document.getElementById('vsRentEu').className = 'vs-player-rent '+(rEu>=0?'rentab-positive':'rentab-negative');
-  document.getElementById('vsNomeLider').textContent = lider.nome;
-  document.getElementById('vsRentLider').textContent = (rLider>=0?'+':'')+rLider.toFixed(2)+'%';
-  document.getElementById('vsRentLider').className = 'vs-player-rent '+(rLider>=0?'rentab-positive':'rentab-negative');
-
-  // Tabela comparativa
-  var tickersEu = {}, tickersLider = {};
-  (eu.ativos||[]).forEach(function(a){ tickersEu[a.ticker]=a; });
-  (lider.ativos||[]).forEach(function(a){ tickersLider[a.ticker]=a; });
-  var todos = Array.from(new Set(Object.keys(tickersEu).concat(Object.keys(tickersLider))));
-
-  var html = '<table class="vs-table"><thead><tr>'
-    +'<th>Ativo</th><th>Minha rent.</th><th>Rent. líder</th><th>Dif.</th></tr></thead><tbody>';
-
-  todos.forEach(function(ticker){
-    var meu = tickersEu[ticker];
-    var dele = tickersLider[ticker];
-    var cotAtual = cotacoesCache[ticker]?parseFloat(cotacoesCache[ticker]):null;
-
-    function calcR(a){ if(!a) return null;
-      var base=precoBaseDe(tipo, a.ticker);
-      if(!cotAtual||!base||base<=0) return null;
-      return (cotAtual-base)/base*100; }
-
-    var rMeu = calcR(meu);
-    var rDele = calcR(dele);
-
-    function fmt(r){ if(r===null) return '<span class="vs-only">não tem</span>';
-      return '<span class="vs-rent '+(r>=0?'pos':'neg')+'">'+(r>=0?'+':'')+r.toFixed(2)+'%</span>'; }
-
-    var dif = (rMeu!==null&&rDele!==null)?rMeu-rDele:null;
-    var difStr = dif!==null?'<span class="vs-rent '+(dif>=0?'pos':'neg')+'">'+(dif>=0?'+':'')+dif.toFixed(2)+'%</span>':'—';
-
-    html += '<tr><td class="vs-ticker">'+ticker+'</td><td>'+fmt(rMeu)+'</td><td>'+fmt(rDele)+'</td><td>'+difStr+'</td></tr>';
-  });
-
-  html += '</tbody></table>';
-  document.getElementById('vsTabela').innerHTML = html;
-  document.getElementById('modalVS').classList.add('open');
-}
-function fecharVS(){ document.getElementById('modalVS').classList.remove('open'); }
 
 // ============================================================
 // ENCERRAMENTO DE CICLO
@@ -2962,25 +2887,6 @@ function lancarConfete(){
         Instagram
       </button>
     </div>
-  </div>
-</div>
-
-<!-- MODAL VS LÍDER -->
-<div id="modalVS">
-  <div class="vs-box">
-    <button class="vs-close" onclick="fecharVS()">×</button>
-    <div class="vs-header">
-      <div class="vs-player">
-        <div class="vs-player-nome" id="vsNomeEu">Minha Carteira</div>
-        <div class="vs-player-rent" id="vsRentEu">—</div>
-      </div>
-      <div class="vs-separador">VS</div>
-      <div class="vs-player">
-        <div class="vs-player-nome" id="vsNomeLider">Líder</div>
-        <div class="vs-player-rent" id="vsRentLider">—</div>
-      </div>
-    </div>
-    <div id="vsTabela"></div>
   </div>
 </div>
 
