@@ -340,6 +340,11 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .modal-vs-btn{padding:8px 18px;background:rgba(155,89,182,.12);border:1px solid rgba(155,89,182,.3);border-radius:10px;color:#c39bd3;font-family:"DM Sans",sans-serif;font-size:12px;font-weight:700;cursor:pointer;transition:all .2s;white-space:nowrap}
 .modal-vs-btn:hover{background:rgba(155,89,182,.22)}
 .modal-vs-btn.active{background:rgba(201,169,97,.18);border-color:rgba(201,169,97,.4);color:var(--gold-2)}
+.modal-ideal-btn{padding:8px 18px;background:rgba(201,169,97,.12);border:1px solid rgba(201,169,97,.32);border-radius:10px;color:var(--gold-2);font-family:"DM Sans",sans-serif;font-size:12px;font-weight:700;cursor:pointer;transition:all .2s;white-space:nowrap}
+.modal-ideal-btn:hover{background:rgba(201,169,97,.22)}
+.modal-ideal-btn.active{background:rgba(201,169,97,.22);border-color:rgba(201,169,97,.5)}
+.cmp-head-ideal{background:rgba(201,169,97,.1);border:1px solid rgba(201,169,97,.35);color:var(--gold-2)}
+.cmp-vs-diff.ideal{background:rgba(201,169,97,.15);color:var(--gold-2)}
 /* Comparação ranqueada: linha com seu ativo vs ativo do líder */
 .cmp-head{display:grid;grid-template-columns:1fr 54px 1fr;gap:10px;align-items:center;margin-bottom:12px;padding:0 2px}
 .cmp-head-side{text-align:center;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding:8px;border-radius:10px}
@@ -996,8 +1001,9 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
     </div>
     <div class="modal-footer">
       <div class="modal-cls-row" id="modalClasses"></div>
-      <div style="display:flex;gap:8px;align-items:center">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
         <button class="modal-vs-btn" id="modalVsBtn" onclick="toggleComparacao()" style="display:none">⚔️ Comparar com o líder</button>
+        <button class="modal-ideal-btn" id="modalIdealBtn" onclick="abrirComparacaoIdeal()" style="display:none">🎯 Comparar com a ideal</button>
         <button class="modal-close-btn" onclick="fecharModal()">Fechar</button>
       </div>
     </div>
@@ -1971,11 +1977,11 @@ function atualizarMinha(tipo,jogadores){
 }
 
 // ── MODAL ─────────────────────────────────────────────
-var _modalCtx={uid:null,tipo:null,ativos:null,cmpOn:false};
+var _modalCtx={uid:null,tipo:null,ativos:null,cmpOn:false,cmpMode:null};
 function openModal(uid,tipo,nome){
   var c=getLiveCiclo(tipo); // ciclo EM COMPETIÇÃO (mesmo do ranking), não o target/próximo
   var isMe=uid===currentUid;
-  _modalCtx={uid:uid,tipo:tipo,ativos:null,cmpOn:false};
+  _modalCtx={uid:uid,tipo:tipo,ativos:null,cmpOn:false,cmpMode:null};
   var jData=rankingData[tipo]&&rankingData[tipo].find(function(j){return j.uid===uid;});
   var posIdx=rankingData[tipo]?rankingData[tipo].findIndex(function(j){return j.uid===uid;}):-1;
   var nomeExib=isMe?'Minha Carteira':nome;
@@ -2018,6 +2024,13 @@ function openModal(uid,tipo,nome){
       vsBtn.style.display=mostrarVs?'inline-flex':'none';
       vsBtn.classList.remove('active');
       vsBtn.textContent='⚔️ Comparar com o líder';
+    }
+    // Botão "Comparar com a ideal": pra qualquer carteira própria com ativos (até o líder quer ver o teto)
+    var idealBtn=document.getElementById('modalIdealBtn');
+    if(idealBtn){
+      idealBtn.style.display=(isMe && ativos.length)?'inline-flex':'none';
+      idealBtn.classList.remove('active');
+      idealBtn.textContent='🎯 Comparar com a ideal';
     }
     var tickersM=ativos.map(function(a){return a.ticker;});
     // garante preço base (fechamento) e cotação atual carregados antes de calcular
@@ -2080,16 +2093,80 @@ function calcRentAtivo(tipo, a){
 }
 
 // ── COMPARAÇÃO RANQUEADA COM O LÍDER (dentro do modal Minha Carteira) ──
+// ── CARTEIRA IDEAL ────────────────────────────────────
+// Monta a melhor carteira possível do ciclo a partir de TODO o universo CG20,
+// respeitando as regras: 10 ativos, >=1 de cada classe obrigatória
+// (acao-br, fii, stock, etf, reit), cripto opcional com teto de 3.
+// Pré-requisito: preços base e cotações dos tickers do CG20 já carregados.
+function montarCarteiraIdeal(tipo){
+  var OBRIG=['acao-br','fii','stock','etf','reit'];
+  var MAX_CRIPTO=3, TOTAL=10;
+  // 1) rentabilidade de cada ativo do universo
+  var todos=CG20.map(function(a){ return {a:a, r:calcRentAtivo(tipo,a)}; })
+    .filter(function(x){ return x.r!==null; })
+    .sort(function(x,y){ return y.r-x.r; }); // melhor primeiro
+  var escolhidos=[], usados={}, criptoCount=0;
+  // 2) reserva o melhor de cada classe obrigatória
+  OBRIG.forEach(function(cl){
+    var best=todos.find(function(x){ return x.a.classe===cl && !usados[x.a.ticker]; });
+    if(best){ escolhidos.push(best); usados[best.a.ticker]=true; }
+  });
+  // 3) preenche as vagas restantes com os melhores que sobraram (respeitando teto cripto)
+  for(var i=0;i<todos.length && escolhidos.length<TOTAL;i++){
+    var x=todos[i];
+    if(usados[x.a.ticker]) continue;
+    if(x.a.classe==='cripto'){
+      if(criptoCount>=MAX_CRIPTO) continue;
+      criptoCount++;
+    }
+    escolhidos.push(x); usados[x.a.ticker]=true;
+  }
+  // devolve no formato {ticker,nome,classe} (igual a uma carteira salva)
+  return escolhidos.map(function(x){ return {ticker:x.a.ticker, nome:x.a.nome, classe:x.a.classe}; });
+}
+
+function abrirComparacaoIdeal(){
+  var ctx=_modalCtx;
+  var btnL=document.getElementById('modalVsBtn');
+  var btnI=document.getElementById('modalIdealBtn');
+  var tbody=document.getElementById('modalTbody');
+  if(!ctx.ativos) return;
+  // se já está mostrando a ideal, volta
+  if(ctx.cmpMode==='ideal'){
+    ctx.cmpMode=null; ctx.cmpOn=false;
+    btnI.classList.remove('active'); btnI.textContent='🎯 Comparar com a ideal';
+    if(btnL) btnL.style.display='inline-flex';
+    openModal(ctx.uid, ctx.tipo, 'Minha Carteira');
+    return;
+  }
+  var tipo=ctx.tipo;
+  btnI.classList.add('active'); btnI.textContent='↩ Voltar à carteira';
+  if(btnL) btnL.style.display='none';
+  tbody.innerHTML='<div style="grid-column:1/-1;padding:32px;text-align:center;color:#6b6862;font-size:13px">Calculando a carteira ideal do ciclo...</div>';
+  // carrega preços base + cotações de TODO o universo CG20, depois monta a ideal
+  var universo=CG20.map(function(a){return a.ticker;});
+  Promise.all([carregarPrecosBase(tipo, universo), carregarCotacoesAtuais(universo)]).then(function(){
+    var ideal=montarCarteiraIdeal(tipo);
+    renderComparacao(tipo, ctx.ativos, ideal, 'Carteira Ideal', 'ideal');
+    ctx.cmpMode='ideal'; ctx.cmpOn=true;
+  }).catch(function(e){
+    console.error('[Game G20] erro carteira ideal:', e);
+    tbody.innerHTML='<div style="grid-column:1/-1;padding:24px;text-align:center;color:#6b6862">Erro ao calcular a carteira ideal</div>';
+  });
+}
+
 function toggleComparacao(){
   var ctx=_modalCtx;
   var btn=document.getElementById('modalVsBtn');
+  var btnI=document.getElementById('modalIdealBtn');
   var tbody=document.getElementById('modalTbody');
   if(!ctx.ativos){ return; }
-  // Se já está em modo comparação, volta pra carteira normal
-  if(ctx.cmpOn){
-    ctx.cmpOn=false;
+  // Se já está em modo comparação (líder), volta pra carteira normal
+  if(ctx.cmpMode==='lider'){
+    ctx.cmpMode=null; ctx.cmpOn=false;
     btn.classList.remove('active');
     btn.textContent='⚔️ Comparar com o líder';
+    if(btnI) btnI.style.display='inline-flex';
     openModal(ctx.uid, ctx.tipo, 'Minha Carteira'); // re-render normal
     return;
   }
@@ -2100,6 +2177,7 @@ function toggleComparacao(){
   // carrega a carteira do líder
   btn.classList.add('active');
   btn.textContent='↩ Voltar à carteira';
+  if(btnI) btnI.style.display='none';
   tbody.innerHTML='<div style="grid-column:1/-1;padding:32px;text-align:center;color:#6b6862;font-size:13px">Carregando comparação...</div>';
   var c=getLiveCiclo(tipo);
   db.collection('game-g20').doc(lider.uid).collection('carteiras').doc(c.key).get().then(function(doc){
@@ -2107,24 +2185,26 @@ function toggleComparacao(){
     var ativosLider=doc.data().ativos||[];
     var tk=ativosLider.map(function(a){return a.ticker;});
     Promise.all([carregarPrecosBase(tipo, tk), carregarCotacoesAtuais(tk)]).then(function(){
-      renderComparacao(tipo, ctx.ativos, ativosLider, lider.nome);
+      renderComparacao(tipo, ctx.ativos, ativosLider, lider.nome, 'lider');
+      ctx.cmpMode='lider'; ctx.cmpOn=true;
     }).catch(function(e){
       console.error('[Game G20] erro comparação:', e);
       tbody.innerHTML='<div style="grid-column:1/-1;padding:24px;text-align:center;color:#6b6862">Erro ao carregar comparação</div>';
     });
   }).catch(function(){ tbody.innerHTML='<div style="grid-column:1/-1;padding:24px;text-align:center;color:#6b6862">Erro ao carregar carteira do líder</div>'; });
-  _modalCtx.cmpOn=true;
 }
 
-function renderComparacao(tipo, meusAtivos, ativosLider, nomeLider){
+function renderComparacao(tipo, meusAtivos, ativosOponente, nomeOponente, modo){
+  modo=modo||'lider'; // 'lider' (roxo) ou 'ideal' (dourado)
+  var sideCls=modo==='ideal'?'cmp-head-ideal':'cmp-head-lider';
   // ranqueia cada lado por rentabilidade (desc); null vai pro fim
   function rank(arr){
     return arr.map(function(a){ return {a:a, r:calcRentAtivo(tipo,a)}; })
       .sort(function(x,y){ if(x.r===null&&y.r===null)return 0; if(x.r===null)return 1; if(y.r===null)return -1; return y.r-x.r; });
   }
-  var meu=rank(meusAtivos), dele=rank(ativosLider);
+  var meu=rank(meusAtivos), dele=rank(ativosOponente);
   var n=Math.max(meu.length, dele.length);
-  var vitoriasEu=0, vitoriasLider=0, empates=0;
+  var vitoriasEu=0, vitoriasOp=0, empates=0;
 
   function miniCard(item, side){
     if(!item){ return '<div class="cmp-mini" style="opacity:.35;justify-content:center;color:#6b6862;font-size:11px">—</div>'; }
@@ -2145,13 +2225,12 @@ function renderComparacao(tipo, meusAtivos, ativosLider, nomeLider){
     var diffStr='', diffCls='', posWin='';
     if(re!==null&&rl!==null){
       var d=re-rl;
-      // tolerância de 0,005% pra considerar empate (evita ruído de arredondamento)
       if(Math.abs(d)<0.005){ empates++; diffCls='neu'; diffStr='='; posWin='empate'; }
       else if(d>0){ vitoriasEu++; diffCls='eu'; diffStr='+'+d.toFixed(2); posWin='eu'; }
-      else { vitoriasLider++; diffCls='lider'; diffStr=d.toFixed(2); posWin='lider'; }
+      else { vitoriasOp++; diffCls=modo==='ideal'?'ideal':'lider'; diffStr=d.toFixed(2); posWin='op'; }
     }
-    var eClass=posWin==='eu'?'win':(posWin==='lider'?'lose':'');
-    var lClass=posWin==='lider'?'win':(posWin==='eu'?'lose':'');
+    var eClass=posWin==='eu'?'win':(posWin==='op'?'lose':'');
+    var lClass=posWin==='op'?'win':(posWin==='eu'?'lose':'');
     rows+='<div class="cmp-row">'
       + miniCard(e,'eu').replace('cmp-mini','cmp-mini '+eClass)
       + '<div class="cmp-vs-mid"><span class="cmp-vs-pos">'+(i+1)+'º</span>'
@@ -2161,24 +2240,33 @@ function renderComparacao(tipo, meusAtivos, ativosLider, nomeLider){
       + '</div>';
   }
 
-  var totalDuelos=vitoriasEu+vitoriasLider+empates;
-  var placar = vitoriasEu>vitoriasLider
+  var totalDuelos=vitoriasEu+vitoriasOp+empates;
+  var nomeOp=modo==='ideal'?'A carteira ideal':'O líder';
+  var placar = vitoriasEu>vitoriasOp
     ? 'Você vence em <b>'+vitoriasEu+'</b> de '+totalDuelos+' duelos 🔥'
-    : (vitoriasEu<vitoriasLider
-        ? 'O líder vence em <b>'+vitoriasLider+'</b> de '+totalDuelos+' duelos'
-        : 'Empate técnico: <b>'+vitoriasEu+'</b> a '+vitoriasLider)
+    : (vitoriasEu<vitoriasOp
+        ? nomeOp+' vence em <b>'+vitoriasOp+'</b> de '+totalDuelos+' duelos'
+        : 'Empate técnico: <b>'+vitoriasEu+'</b> a '+vitoriasOp)
     + (empates>0?' · '+empates+' empate'+(empates>1?'s':''):'');
+
+  // Resumo extra pra ideal: distância da rentabilidade média
+  var subResumo='';
+  if(modo==='ideal'){
+    var mediaEu=meu.filter(function(x){return x.r!==null;}).reduce(function(s,x){return s+x.r;},0)/(meu.filter(function(x){return x.r!==null;}).length||1);
+    var mediaId=dele.filter(function(x){return x.r!==null;}).reduce(function(s,x){return s+x.r;},0)/(dele.filter(function(x){return x.r!==null;}).length||1);
+    var gap=mediaId-mediaEu;
+    subResumo='<div class="cmp-summary" style="margin-top:-6px;font-size:11px;color:#6b6862">Ideal do ciclo: <b style="color:var(--gold-2)">'+(mediaId>=0?'+':'')+mediaId.toFixed(2)+'%</b> · você está a <b style="color:var(--gold-2)">'+gap.toFixed(2)+' p.p.</b> do teto</div>';
+  }
 
   var head='<div class="cmp-head">'
     +'<div class="cmp-head-side cmp-head-eu">Você</div>'
     +'<div class="cmp-head-vs">VS</div>'
-    +'<div class="cmp-head-side cmp-head-lider">'+nomeCurto(nomeLider)+'</div>'
+    +'<div class="cmp-head-side '+sideCls+'">'+nomeCurto(nomeOponente)+'</div>'
     +'</div>'
-    +'<div class="cmp-summary">'+placar+'</div>';
+    +'<div class="cmp-summary">'+placar+'</div>'+subResumo;
 
   document.getElementById('modalTbody').innerHTML=head+rows;
-  document.getElementById('modalTbody').style.display='block'; // sai do grid de 5 colunas
-  // carrega logos
+  document.getElementById('modalTbody').style.display='block';
   meu.forEach(function(it){if(it)loadLogo(it.a.ticker);});
   dele.forEach(function(it){if(it)loadLogo(it.a.ticker);});
 }
