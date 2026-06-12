@@ -336,6 +336,33 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .m-cls{font-size:9px;font-weight:700;padding:3px 8px;border-radius:6px;text-transform:uppercase;letter-spacing:.3px}
 .modal-close-btn{padding:8px 20px;background:rgba(201,169,97,.1);border:1px solid rgba(201,169,97,.25);border-radius:10px;color:var(--gold-2);font-family:"DM Sans",sans-serif;font-size:12px;font-weight:700;cursor:pointer;transition:all .2s}
 .modal-close-btn:hover{background:rgba(201,169,97,.2)}
+.modal-vs-btn{padding:8px 18px;background:rgba(155,89,182,.12);border:1px solid rgba(155,89,182,.3);border-radius:10px;color:#c39bd3;font-family:"DM Sans",sans-serif;font-size:12px;font-weight:700;cursor:pointer;transition:all .2s;white-space:nowrap}
+.modal-vs-btn:hover{background:rgba(155,89,182,.22)}
+.modal-vs-btn.active{background:rgba(201,169,97,.18);border-color:rgba(201,169,97,.4);color:var(--gold-2)}
+/* Comparação ranqueada: linha com seu ativo vs ativo do líder */
+.cmp-head{display:grid;grid-template-columns:1fr 54px 1fr;gap:10px;align-items:center;margin-bottom:12px;padding:0 2px}
+.cmp-head-side{text-align:center;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding:8px;border-radius:10px}
+.cmp-head-eu{background:rgba(201,169,97,.1);border:1px solid rgba(201,169,97,.25);color:var(--gold-2)}
+.cmp-head-lider{background:rgba(155,89,182,.1);border:1px solid rgba(155,89,182,.3);color:#c39bd3}
+.cmp-head-vs{text-align:center;font-size:13px;font-weight:900;color:#6b6862}
+.cmp-row{display:grid;grid-template-columns:1fr 54px 1fr;gap:10px;align-items:stretch;margin-bottom:10px}
+.cmp-mini{background:#141318;border-radius:12px;padding:10px;border:1px solid #1f1e22;display:flex;align-items:center;gap:10px}
+.cmp-mini.win{border-color:rgba(93,187,99,.4);box-shadow:inset 0 0 0 1px rgba(93,187,99,.12)}
+.cmp-mini.lose{opacity:.82}
+.cmp-mlogo{width:34px;height:34px;border-radius:9px;background:#1f1e22;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:var(--text2)}
+.cmp-mlogo img{width:100%;height:100%;object-fit:cover;border-radius:9px}
+.cmp-minfo{flex:1;min-width:0}
+.cmp-mtk{font-family:"JetBrains Mono",monospace;font-size:12px;font-weight:700;color:#e8e6e3}
+.cmp-mrt{font-family:"JetBrains Mono",monospace;font-size:14px;font-weight:700;margin-top:1px}
+.cmp-mrt.pos{color:var(--green)}.cmp-mrt.neg{color:var(--red)}
+.cmp-rank{font-family:"JetBrains Mono",monospace;font-size:10px;color:#6b6862;font-weight:700}
+.cmp-vs-mid{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.cmp-vs-pos{font-size:10px;color:#6b6862;font-weight:700}
+.cmp-vs-diff{font-family:"JetBrains Mono",monospace;font-size:11px;font-weight:700;padding:2px 6px;border-radius:6px}
+.cmp-vs-diff.eu{background:rgba(93,187,99,.15);color:#5dbb63}
+.cmp-vs-diff.lider{background:rgba(224,93,93,.15);color:#e05d5d}
+.cmp-summary{text-align:center;font-size:12px;color:#9a958e;margin:4px 0 14px;font-weight:600}
+.cmp-summary b{color:var(--gold-2)}
 
 /* ── BOTÃO AJUDA ── */
 .btn-ajuda{display:flex;align-items:center;gap:8px;padding:10px 20px;background:rgba(201,169,97,.15);border:1.5px solid rgba(201,169,97,.5);border-radius:24px;color:var(--gold-2);font-family:"DM Sans",sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:all .2s;flex-shrink:0;box-shadow:0 0 16px rgba(201,169,97,.1)}
@@ -967,7 +994,10 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
     </div>
     <div class="modal-footer">
       <div class="modal-cls-row" id="modalClasses"></div>
-      <button class="modal-close-btn" onclick="fecharModal()">Fechar</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="modal-vs-btn" id="modalVsBtn" onclick="toggleComparacao()" style="display:none">⚔️ Comparar com o líder</button>
+        <button class="modal-close-btn" onclick="fecharModal()">Fechar</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1933,9 +1963,11 @@ function atualizarMinha(tipo,jogadores){
 }
 
 // ── MODAL ─────────────────────────────────────────────
+var _modalCtx={uid:null,tipo:null,ativos:null,cmpOn:false};
 function openModal(uid,tipo,nome){
   var c=getLiveCiclo(tipo); // ciclo EM COMPETIÇÃO (mesmo do ranking), não o target/próximo
   var isMe=uid===currentUid;
+  _modalCtx={uid:uid,tipo:tipo,ativos:null,cmpOn:false};
   var jData=rankingData[tipo]&&rankingData[tipo].find(function(j){return j.uid===uid;});
   var posIdx=rankingData[tipo]?rankingData[tipo].findIndex(function(j){return j.uid===uid;}):-1;
   var nomeExib=isMe?'Minha Carteira':nome;
@@ -1962,11 +1994,23 @@ function openModal(uid,tipo,nome){
   ['msAtivos','msPos','msNeg','msCov'].forEach(function(id){var el=document.getElementById(id);if(el)el.textContent='—';});
   document.getElementById('modalClasses').innerHTML='';
   var tbody=document.getElementById('modalTbody');
+  tbody.style.display='grid'; // garante grid normal (caso viesse do modo comparação)
   tbody.innerHTML='<div style="grid-column:1/-1;padding:32px;text-align:center;color:#6b6862;font-size:13px">Carregando carteira...</div>';
   document.getElementById('modalOverlay').classList.add('open');
   db.collection('game-g20').doc(uid).collection('carteiras').doc(c.key).get().then(function(doc){
     if(!doc.exists){tbody.innerHTML='<div style="grid-column:1/-1;padding:32px;text-align:center;color:#6b6862">Nenhuma carteira cadastrada para este ciclo</div>';return;}
     var ativos=doc.data().ativos||[];
+    _modalCtx.ativos=ativos;
+    // Botão "Comparar com líder": só pra minha carteira, se eu não for o líder e houver líder com carteira
+    var vsBtn=document.getElementById('modalVsBtn');
+    if(vsBtn){
+      var rk=rankingData[tipo]||[];
+      var souLider=rk.length&&rk[0].uid===currentUid;
+      var mostrarVs=isMe && rk.length>=2 && !souLider;
+      vsBtn.style.display=mostrarVs?'inline-flex':'none';
+      vsBtn.classList.remove('active');
+      vsBtn.textContent='⚔️ Comparar com o líder';
+    }
     var tickersM=ativos.map(function(a){return a.ticker;});
     // garante preço base (fechamento) e cotação atual carregados antes de calcular
     Promise.all([carregarPrecosBase(tipo, tickersM), carregarCotacoesAtuais(tickersM)]).then(function(){
@@ -2022,6 +2066,107 @@ function calcRentAtivo(tipo, a){
   var atual=cotacoesCache[a.ticker]!=null?parseFloat(cotacoesCache[a.ticker]):null;
   return(base&&atual&&base>0)?(atual-base)/base*100:null;
 }
+
+// ── COMPARAÇÃO RANQUEADA COM O LÍDER (dentro do modal Minha Carteira) ──
+function toggleComparacao(){
+  var ctx=_modalCtx;
+  var btn=document.getElementById('modalVsBtn');
+  var tbody=document.getElementById('modalTbody');
+  if(!ctx.ativos){ return; }
+  // Se já está em modo comparação, volta pra carteira normal
+  if(ctx.cmpOn){
+    ctx.cmpOn=false;
+    btn.classList.remove('active');
+    btn.textContent='⚔️ Comparar com o líder';
+    openModal(ctx.uid, ctx.tipo, 'Minha Carteira'); // re-render normal
+    return;
+  }
+  var tipo=ctx.tipo;
+  var rk=rankingData[tipo]||[];
+  var lider=rk[0];
+  if(!lider){ showToast('Sem líder neste ciclo','info'); return; }
+  // carrega a carteira do líder
+  btn.classList.add('active');
+  btn.textContent='↩ Voltar à carteira';
+  tbody.innerHTML='<div style="grid-column:1/-1;padding:32px;text-align:center;color:#6b6862;font-size:13px">Carregando comparação...</div>';
+  var c=getLiveCiclo(tipo);
+  db.collection('game-g20').doc(lider.uid).collection('carteiras').doc(c.key).get().then(function(doc){
+    if(!doc.exists){ tbody.innerHTML='<div style="grid-column:1/-1;padding:24px;text-align:center;color:#6b6862">Líder sem carteira neste ciclo</div>'; return; }
+    var ativosLider=doc.data().ativos||[];
+    var tk=ativosLider.map(function(a){return a.ticker;});
+    Promise.all([carregarPrecosBase(tipo, tk), carregarCotacoesAtuais(tk)]).then(function(){
+      renderComparacao(tipo, ctx.ativos, ativosLider, lider.nome);
+    }).catch(function(e){
+      console.error('[Game G20] erro comparação:', e);
+      tbody.innerHTML='<div style="grid-column:1/-1;padding:24px;text-align:center;color:#6b6862">Erro ao carregar comparação</div>';
+    });
+  }).catch(function(){ tbody.innerHTML='<div style="grid-column:1/-1;padding:24px;text-align:center;color:#6b6862">Erro ao carregar carteira do líder</div>'; });
+  _modalCtx.cmpOn=true;
+}
+
+function renderComparacao(tipo, meusAtivos, ativosLider, nomeLider){
+  // ranqueia cada lado por rentabilidade (desc); null vai pro fim
+  function rank(arr){
+    return arr.map(function(a){ return {a:a, r:calcRentAtivo(tipo,a)}; })
+      .sort(function(x,y){ if(x.r===null&&y.r===null)return 0; if(x.r===null)return 1; if(y.r===null)return -1; return y.r-x.r; });
+  }
+  var meu=rank(meusAtivos), dele=rank(ativosLider);
+  var n=Math.max(meu.length, dele.length);
+  var vitoriasEu=0, vitoriasLider=0;
+
+  function miniCard(item, side){
+    if(!item){ return '<div class="cmp-mini" style="opacity:.35;justify-content:center;color:#6b6862;font-size:11px">—</div>'; }
+    var a=item.a, r=item.r;
+    var rCl=r===null?'':(r>=0?'pos':'neg');
+    var rStr=r!==null?((r>=0?'+':'')+r.toFixed(2)+'%'):'—';
+    var logo=logoFbHtml(a.ticker,'8px');
+    return '<div class="cmp-mini" id="cmp-'+side+'-'+a.ticker+'">'
+      +'<div class="cmp-mlogo" id="cmplogo-'+side+'-'+a.ticker+'">'+logo+'</div>'
+      +'<div class="cmp-minfo"><div class="cmp-mtk">'+a.ticker+'</div>'
+      +'<div class="cmp-mrt '+rCl+'">'+rStr+'</div></div></div>';
+  }
+
+  var rows='';
+  for(var i=0;i<n;i++){
+    var e=meu[i]||null, l=dele[i]||null;
+    var re=e?e.r:null, rl=l?l.r:null;
+    var diffStr='', diffCls='', posWin='';
+    if(re!==null&&rl!==null){
+      var d=re-rl;
+      if(d>=0){ vitoriasEu++; diffCls='eu'; diffStr='+'+d.toFixed(2); posWin='eu'; }
+      else { vitoriasLider++; diffCls='lider'; diffStr=d.toFixed(2); posWin='lider'; }
+    }
+    var eClass=posWin==='eu'?'win':(posWin==='lider'?'lose':'');
+    var lClass=posWin==='lider'?'win':(posWin==='eu'?'lose':'');
+    rows+='<div class="cmp-row">'
+      + miniCard(e,'eu').replace('cmp-mini','cmp-mini '+eClass)
+      + '<div class="cmp-vs-mid"><span class="cmp-vs-pos">'+(i+1)+'º</span>'
+      + (diffStr?'<span class="cmp-vs-diff '+diffCls+'">'+diffStr+'</span>':'<span class="cmp-vs-pos">vs</span>')
+      + '</div>'
+      + miniCard(l,'lider').replace('cmp-mini','cmp-mini '+lClass)
+      + '</div>';
+  }
+
+  var placar = vitoriasEu>vitoriasLider
+    ? 'Você vence em <b>'+vitoriasEu+'</b> de '+(vitoriasEu+vitoriasLider)+' duelos 🔥'
+    : (vitoriasEu<vitoriasLider
+        ? 'O líder vence em <b>'+vitoriasLider+'</b> de '+(vitoriasEu+vitoriasLider)+' duelos'
+        : 'Empate técnico: <b>'+vitoriasEu+'</b> a '+vitoriasLider);
+
+  var head='<div class="cmp-head">'
+    +'<div class="cmp-head-side cmp-head-eu">Você</div>'
+    +'<div class="cmp-head-vs">VS</div>'
+    +'<div class="cmp-head-side cmp-head-lider">'+nomeCurto(nomeLider)+'</div>'
+    +'</div>'
+    +'<div class="cmp-summary">'+placar+'</div>';
+
+  document.getElementById('modalTbody').innerHTML=head+rows;
+  document.getElementById('modalTbody').style.display='block'; // sai do grid de 5 colunas
+  // carrega logos
+  meu.forEach(function(it){if(it)loadLogo(it.a.ticker);});
+  dele.forEach(function(it){if(it)loadLogo(it.a.ticker);});
+}
+
 function fecharModalEv(e){if(e.target===document.getElementById('modalOverlay'))fecharModal();}
 function fecharModal(){document.getElementById('modalOverlay').classList.remove('open');}
 document.addEventListener('keydown',function(e){if(e.key==='Escape')fecharModal();});
