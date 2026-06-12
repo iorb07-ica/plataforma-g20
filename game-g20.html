@@ -134,6 +134,30 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .hall-podio-resto{display:flex;gap:14px;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06)}
 .hall-podio-item{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2)}
 .hall-podio-medal{font-size:13px}
+/* CONQUISTAS / BADGES */
+.conq-secao{margin-top:42px;padding-top:28px;border-top:1px solid rgba(255,255,255,.06)}
+.conq-progresso{font-size:12px;color:var(--text2);margin-bottom:18px}
+.conq-progresso b{color:var(--gold-2);font-family:"JetBrains Mono",monospace}
+.conq-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:18px}
+.conq-card{position:relative;text-align:center;cursor:default}
+.conq-badge-wrap{position:relative;width:100%;aspect-ratio:1;border-radius:18px;overflow:hidden;background:radial-gradient(circle at 50% 40%,rgba(201,169,97,.06),transparent 70%);display:flex;align-items:center;justify-content:center;transition:transform .2s}
+.conq-card.unlocked:hover .conq-badge-wrap{transform:translateY(-4px) scale(1.03)}
+.conq-badge-wrap img{width:100%;height:100%;object-fit:contain}
+/* placeholder dourado para badges sem arte ainda */
+.conq-ph{width:78%;height:78%;border-radius:50%;background:linear-gradient(150deg,rgba(201,169,97,.22),rgba(201,169,97,.05));border:2px solid rgba(201,169,97,.35);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.conq-ph-emoji{font-size:30px;line-height:1}
+.conq-ph-nome{font-size:8.5px;font-weight:700;color:var(--gold-2);text-transform:uppercase;letter-spacing:.4px;padding:0 8px;line-height:1.15}
+/* bloqueada: dessaturada + cadeado */
+.conq-card.locked .conq-badge-wrap{filter:grayscale(1) brightness(.45);opacity:.7}
+.conq-card.locked .conq-lock{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:26px;z-index:2;filter:drop-shadow(0 2px 4px rgba(0,0,0,.7))}
+.conq-tier{position:absolute;top:6px;right:6px;font-size:9px;font-weight:700;padding:2px 8px;border-radius:20px;z-index:3;font-family:"JetBrains Mono",monospace}
+.conq-tier.bronze{background:rgba(176,115,75,.9);color:#fff}
+.conq-tier.prata{background:rgba(176,176,184,.9);color:#1a191e}
+.conq-tier.ouro{background:rgba(201,169,97,.95);color:#1a191e}
+.conq-nome{font-size:11px;font-weight:700;color:var(--text);margin-top:8px;line-height:1.2}
+.conq-card.locked .conq-nome{color:var(--text2)}
+.conq-status{font-size:9.5px;color:var(--text2);margin-top:3px;line-height:1.25;min-height:24px}
+.conq-card.unlocked .conq-status{color:#5dbb63}
 .tab-content{display:none}.tab-content#tabContentRanking.active{overflow-y:auto}
 .tab-content.active{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
 
@@ -818,6 +842,17 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
       </div>
       <div id="hallContent">
         <div class="hall-loading">Carregando campeões...</div>
+      </div>
+
+      <div class="conq-secao">
+        <div class="hall-intro" style="margin-top:8px">
+          <h3 class="hall-title">🎖️ Minhas Conquistas</h3>
+          <p class="hall-sub">Desbloqueie medalhas conforme evolui no Game G20.</p>
+        </div>
+        <div class="conq-progresso" id="conqProgresso"></div>
+        <div id="conqGrid">
+          <div class="hall-loading">Carregando conquistas...</div>
+        </div>
       </div>
     </div>
   </div>
@@ -2455,6 +2490,7 @@ function carregarHallDaFama(){
     console.error('[Hall] erro:',e);
     cont.innerHTML='<div class="hall-empty"><div class="hall-empty-ico">⚠️</div>Não foi possível carregar o Hall da Fama agora.</div>';
   });
+  carregarConquistas();
 }
 
 function renderHallDaFama(registros){
@@ -2497,7 +2533,194 @@ function renderHallDaFama(registros){
   cont.innerHTML=html;
 }
 
-// ── TOAST ─────────────────────────────────────────────
+// ── CONQUISTAS / BADGES ───────────────────────────────
+// Cada conquista: id, nome, emoji (placeholder), img (arte real ou null),
+// dica (como desbloquear) e check(ctx) que retorna {ok, tier?, detalhe?}.
+// ctx reúne os dados já disponíveis: minhas carteiras, ranking atual, hall, ideal.
+var BADGE_IMG='assets/badges/'; // pasta no repositório
+var CONQUISTAS=[
+  {id:'primeiro-aporte', nome:'Primeiro Aporte', emoji:'🎯', img:'badge-primeiro-aporte.webp',
+   dica:'Monte sua primeira carteira no Game',
+   check:function(c){ return {ok:c.minhasCarteiras.length>0}; }},
+
+  {id:'aporte-recorrente', nome:'Aporte Recorrente', emoji:'📈', img:'badge-aporte-recorrente.webp',
+   dica:'Jogue 3 meses seguidos',
+   check:function(c){ return {ok:c.streak>=3, detalhe:c.streak>0?c.streak+' meses seguidos':''}; }},
+
+  {id:'disciplina-investidor', nome:'Disciplina de Investidor', emoji:'💪', img:'badge-disciplina-investidor.webp',
+   dica:'Jogue 6 meses seguidos',
+   check:function(c){ return {ok:c.streak>=6, detalhe:c.streak>0?c.streak+' meses seguidos':''}; }},
+
+  {id:'buy-and-hold', nome:'Buy and Hold', emoji:'🏛️', img:'badge-buy-and-hold.webp',
+   dica:'Jogue 12 meses seguidos',
+   check:function(c){ return {ok:c.streak>=12, detalhe:c.streak>0?c.streak+' meses seguidos':''}; }},
+
+  {id:'bull-market', nome:'Bull Market', emoji:'🥇', img:'badge-bull-market.webp',
+   dica:'Vença um ciclo (seja campeão)',
+   check:function(c){ return {ok:c.vitorias>=1, detalhe:c.vitorias>0?c.vitorias+'x campeão':''}; }},
+
+  {id:'podio', nome:'Pódio', emoji:'🎖️', img:null,
+   dica:'Termine em Top 3 de algum ciclo',
+   check:function(c){ return {ok:c.top3>=1}; }},
+
+  {id:'maos-de-diamante', nome:'Mãos de Diamante', emoji:'💎', img:null,
+   dica:'Vença 3 ciclos (tricampeão)',
+   check:function(c){ return {ok:c.vitorias>=3, detalhe:c.vitorias>0?c.vitorias+'x campeão':''}; }},
+
+  {id:'lenda-wall-street', nome:'Lenda de Wall Street', emoji:'👑', img:null,
+   dica:'Seja campeão anual',
+   check:function(c){ return {ok:c.campeaoAnual}; }},
+
+  {id:'stock-picker', nome:'Stock Picker', emoji:'🔥', img:null,
+   dica:'Tenha um ativo que subiu +20% num ciclo',
+   check:function(c){ return {ok:c.melhorAtivo>=20, detalhe:c.melhorAtivo>0?'melhor: +'+c.melhorAtivo.toFixed(0)+'%':''}; }},
+
+  {id:'to-the-moon', nome:'To The Moon', emoji:'🌙', img:null,
+   dica:'Tenha um ativo que dobrou (+100%) num ciclo',
+   check:function(c){ return {ok:c.melhorAtivo>=100}; }},
+
+  {id:'tiro-certeiro', nome:'Tiro Certeiro', emoji:'🎯', img:null,
+   dica:'Acerte ativos da carteira ideal (3 bronze / 5 prata / 7+ ouro)',
+   check:function(c){
+     var n=c.acertosIdeal;
+     if(n>=7) return {ok:true, tier:'ouro', detalhe:n+' acertos'};
+     if(n>=5) return {ok:true, tier:'prata', detalhe:n+' acertos'};
+     if(n>=3) return {ok:true, tier:'bronze', detalhe:n+' acertos'};
+     return {ok:false, detalhe:n>0?n+'/3 acertos':''};
+   }},
+
+  {id:'olho-de-aguia', nome:'Olho de Águia', emoji:'👁️', img:null,
+   dica:'Acerte o melhor ativo da carteira ideal',
+   check:function(c){ return {ok:c.acertouMelhorIdeal}; }},
+
+  {id:'quase-perfeito', nome:'Quase Perfeito', emoji:'🧠', img:null,
+   dica:'Chegue a menos de 2 p.p. da carteira ideal',
+   check:function(c){ return {ok:c.gapIdeal!=null && c.gapIdeal<2, detalhe:c.gapIdeal!=null?'a '+c.gapIdeal.toFixed(1)+' p.p.':''}; }},
+
+  {id:'bateu-o-touro', nome:'Bateu o Touro', emoji:'🐂', img:null,
+   dica:'Vença o líder em algum duelo de ativo',
+   check:function(c){ return {ok:c.venceuDueloLider}; }}
+];
+
+// Monta o contexto de conquistas a partir dos dados já carregados.
+function montarContextoConquistas(){
+  var c={ minhasCarteiras:[], streak:0, vitorias:0, top3:0, campeaoAnual:false,
+          melhorAtivo:0, acertosIdeal:0, acertouMelhorIdeal:false, gapIdeal:null, venceuDueloLider:false };
+  // 1) minhas carteiras (todos os ciclos que joguei) — para streak e participação
+  return db.collection('game-g20').doc(currentUid).collection('carteiras').get().then(function(snap){
+    var mensais=[];
+    snap.forEach(function(doc){
+      var d=doc.data(); c.minhasCarteiras.push(d);
+      // streak conta ciclos MENSAIS (cicloKey tipo 2026-05)
+      if(d.cicloKey && /^\d{4}-\d{2}$/.test(d.cicloKey)) mensais.push(d.cicloKey);
+    });
+    c.streak=maiorSequenciaMensal(mensais);
+    // 2) Hall da Fama — vitórias, top3, campeão anual
+    return db.collection('game-g20-hall').get();
+  }).then(function(snap){
+    snap.forEach(function(doc){
+      var r=doc.data();
+      var podio=r.podio||[];
+      var minhaPos=podio.findIndex(function(p){return p.uid===currentUid;});
+      if(minhaPos===0){ c.vitorias++; if(r.tipo==='anual') c.campeaoAnual=true; }
+      if(minhaPos>=0 && minhaPos<3) c.top3++;
+    });
+    // 3) contexto do ciclo ATUAL (mensal) — melhor ativo, acertos ideal, gap, duelo
+    return montarContextoCicloAtual(c);
+  }).then(function(){ return c; });
+}
+
+// Maior sequência de meses consecutivos a partir de uma lista de cicloKey 'YYYY-MM'.
+function maiorSequenciaMensal(keys){
+  if(!keys.length) return 0;
+  var nums=keys.map(function(k){var p=k.split('-');return +p[0]*12+(+p[1]);}).sort(function(a,b){return a-b;});
+  var melhor=1, atual=1;
+  for(var i=1;i<nums.length;i++){
+    if(nums[i]===nums[i-1]) continue; // duplicado
+    if(nums[i]===nums[i-1]+1){ atual++; melhor=Math.max(melhor,atual); }
+    else atual=1;
+  }
+  return melhor;
+}
+
+// Enriquecemos o contexto com dados do ciclo mensal atual (usa rankingData já carregado).
+function montarContextoCicloAtual(c){
+  var tipo='mensal';
+  var rk=rankingData[tipo]||[];
+  var eu=rk.find(function(j){return j.uid===currentUid;});
+  if(!eu||!eu.ativos) return Promise.resolve();
+  var meusTk=eu.ativos.map(function(a){return a.ticker;});
+  var universo=CG20.map(function(a){return a.ticker;});
+  // garante preços base + cotações de todo o universo (pra ideal e melhor ativo)
+  return Promise.all([carregarPrecosBase(tipo,universo), carregarCotacoesAtuais(universo)]).then(function(){
+    // melhor ativo da minha carteira
+    eu.ativos.forEach(function(a){ var r=calcRentAtivo(tipo,a); if(r!=null&&r>c.melhorAtivo) c.melhorAtivo=r; });
+    // carteira ideal do ciclo
+    var ideal=montarCarteiraIdeal(tipo);
+    var idealTk=ideal.map(function(a){return a.ticker;});
+    c.acertosIdeal=meusTk.filter(function(t){return idealTk.indexOf(t)>=0;}).length;
+    // melhor ativo da ideal (ordenado por rent desc dentro de montarCarteiraIdeal? não garante; calcula)
+    var idealRanked=ideal.map(function(a){return {t:a.ticker,r:calcRentAtivo(tipo,a)};})
+      .sort(function(x,y){return (y.r==null?-999:y.r)-(x.r==null?-999:x.r);});
+    if(idealRanked.length){ c.acertouMelhorIdeal = meusTk.indexOf(idealRanked[0].t)>=0; }
+    // gap até a ideal (média)
+    var minhaMedia=eu.rentabilidade;
+    var idValidos=idealRanked.filter(function(x){return x.r!=null;});
+    var mediaIdeal=idValidos.reduce(function(s,x){return s+x.r;},0)/(idValidos.length||1);
+    c.gapIdeal=mediaIdeal-minhaMedia;
+    // venceu duelo com líder? (pelo menos 1 ativo meu, por posição, supera o do líder)
+    var lider=rk[0];
+    if(lider && lider.uid!==currentUid && lider.ativos){
+      var meuR=eu.ativos.map(function(a){return calcRentAtivo(tipo,a);}).filter(function(r){return r!=null;}).sort(function(a,b){return b-a;});
+      var liderR=lider.ativos.map(function(a){return calcRentAtivo(tipo,a);}).filter(function(r){return r!=null;}).sort(function(a,b){return b-a;});
+      for(var i=0;i<Math.min(meuR.length,liderR.length);i++){ if(meuR[i]>liderR[i]+0.005){ c.venceuDueloLider=true; break; } }
+    }
+  }).catch(function(){});
+}
+
+function carregarConquistas(){
+  var grid=document.getElementById('conqGrid');
+  if(!currentUid){ grid.innerHTML='<div class="hall-empty">Faça login para ver suas conquistas.</div>'; return; }
+  grid.innerHTML='<div class="hall-loading">Carregando conquistas...</div>';
+  montarContextoConquistas().then(function(ctx){
+    renderConquistas(ctx);
+  }).catch(function(e){
+    console.error('[Conquistas] erro:',e);
+    grid.innerHTML='<div class="hall-empty"><div class="hall-empty-ico">⚠️</div>Não foi possível carregar as conquistas.</div>';
+  });
+}
+
+function renderConquistas(ctx){
+  var grid=document.getElementById('conqGrid');
+  var desbloqueadas=0;
+  var html='<div class="conq-grid">';
+  CONQUISTAS.forEach(function(cq){
+    var res=cq.check(ctx)||{ok:false};
+    var unlocked=res.ok;
+    if(unlocked) desbloqueadas++;
+    var inner;
+    if(cq.img){
+      inner='<img src="'+BADGE_IMG+cq.img+'" alt="'+cq.nome+'" loading="lazy">';
+    } else {
+      inner='<div class="conq-ph"><div class="conq-ph-emoji">'+cq.emoji+'</div><div class="conq-ph-nome">'+cq.nome+'</div></div>';
+    }
+    var tier = (unlocked&&res.tier)?'<span class="conq-tier '+res.tier+'">'+res.tier.toUpperCase()+'</span>':'';
+    var lock = unlocked?'':'<span class="conq-lock">🔒</span>';
+    var status = unlocked
+      ? (res.detalhe?res.detalhe:'Desbloqueada ✓')
+      : cq.dica;
+    html+='<div class="conq-card '+(unlocked?'unlocked':'locked')+'" title="'+cq.dica+'">'
+      +'<div class="conq-badge-wrap">'+inner+lock+tier+'</div>'
+      +'<div class="conq-nome">'+cq.nome+'</div>'
+      +'<div class="conq-status">'+status+'</div>'
+      +'</div>';
+  });
+  html+='</div>';
+  grid.innerHTML=html;
+  var prog=document.getElementById('conqProgresso');
+  if(prog) prog.innerHTML='Você desbloqueou <b>'+desbloqueadas+'</b> de <b>'+CONQUISTAS.length+'</b> conquistas.';
+}
+
 // ── TOUR ──────────────────────────────────────────────
 var tourAtual = 0;
 var tourTotal = 5;
