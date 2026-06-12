@@ -361,6 +361,7 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .cmp-vs-diff{font-family:"JetBrains Mono",monospace;font-size:11px;font-weight:700;padding:2px 6px;border-radius:6px}
 .cmp-vs-diff.eu{background:rgba(93,187,99,.15);color:#5dbb63}
 .cmp-vs-diff.lider{background:rgba(224,93,93,.15);color:#e05d5d}
+.cmp-vs-diff.neu{background:rgba(154,149,142,.15);color:#9a958e}
 .cmp-summary{text-align:center;font-size:12px;color:#9a958e;margin:4px 0 14px;font-weight:600}
 .cmp-summary b{color:var(--gold-2)}
 
@@ -1333,6 +1334,12 @@ function applyLogoFromCache(ticker) {
     if(!url || url==='error') ml.innerHTML = logoFbHtml(ticker,'11px');
     else ml.innerHTML = '<img src="'+url+'" alt="'+ticker+'" style="width:100%;height:100%;object-fit:cover;border-radius:11px" loading="lazy">';
   }
+  // Comparação ranqueada (pode haver o mesmo ticker dos dois lados → varre todos)
+  var cmps = document.querySelectorAll('[data-logo-ticker="'+ticker+'"]');
+  cmps.forEach(function(cel){
+    if(!url || url==='error') cel.innerHTML = logoFbHtml(ticker,'9px');
+    else cel.innerHTML = '<img src="'+url+'" alt="'+ticker+'" style="width:100%;height:100%;object-fit:cover;border-radius:9px" loading="lazy">';
+  });
 }
 
 // ── SIDEBAR ────────────────────────────────────────────
@@ -2112,16 +2119,16 @@ function renderComparacao(tipo, meusAtivos, ativosLider, nomeLider){
   }
   var meu=rank(meusAtivos), dele=rank(ativosLider);
   var n=Math.max(meu.length, dele.length);
-  var vitoriasEu=0, vitoriasLider=0;
+  var vitoriasEu=0, vitoriasLider=0, empates=0;
 
   function miniCard(item, side){
     if(!item){ return '<div class="cmp-mini" style="opacity:.35;justify-content:center;color:#6b6862;font-size:11px">—</div>'; }
     var a=item.a, r=item.r;
     var rCl=r===null?'':(r>=0?'pos':'neg');
     var rStr=r!==null?((r>=0?'+':'')+r.toFixed(2)+'%'):'—';
-    var logo=logoFbHtml(a.ticker,'8px');
+    var logo=logoFbHtml(a.ticker,'9px');
     return '<div class="cmp-mini" id="cmp-'+side+'-'+a.ticker+'">'
-      +'<div class="cmp-mlogo" id="cmplogo-'+side+'-'+a.ticker+'">'+logo+'</div>'
+      +'<div class="cmp-mlogo" data-logo-ticker="'+a.ticker+'">'+logo+'</div>'
       +'<div class="cmp-minfo"><div class="cmp-mtk">'+a.ticker+'</div>'
       +'<div class="cmp-mrt '+rCl+'">'+rStr+'</div></div></div>';
   }
@@ -2133,7 +2140,9 @@ function renderComparacao(tipo, meusAtivos, ativosLider, nomeLider){
     var diffStr='', diffCls='', posWin='';
     if(re!==null&&rl!==null){
       var d=re-rl;
-      if(d>=0){ vitoriasEu++; diffCls='eu'; diffStr='+'+d.toFixed(2); posWin='eu'; }
+      // tolerância de 0,005% pra considerar empate (evita ruído de arredondamento)
+      if(Math.abs(d)<0.005){ empates++; diffCls='neu'; diffStr='='; posWin='empate'; }
+      else if(d>0){ vitoriasEu++; diffCls='eu'; diffStr='+'+d.toFixed(2); posWin='eu'; }
       else { vitoriasLider++; diffCls='lider'; diffStr=d.toFixed(2); posWin='lider'; }
     }
     var eClass=posWin==='eu'?'win':(posWin==='lider'?'lose':'');
@@ -2147,11 +2156,13 @@ function renderComparacao(tipo, meusAtivos, ativosLider, nomeLider){
       + '</div>';
   }
 
+  var totalDuelos=vitoriasEu+vitoriasLider+empates;
   var placar = vitoriasEu>vitoriasLider
-    ? 'Você vence em <b>'+vitoriasEu+'</b> de '+(vitoriasEu+vitoriasLider)+' duelos 🔥'
+    ? 'Você vence em <b>'+vitoriasEu+'</b> de '+totalDuelos+' duelos 🔥'
     : (vitoriasEu<vitoriasLider
-        ? 'O líder vence em <b>'+vitoriasLider+'</b> de '+(vitoriasEu+vitoriasLider)+' duelos'
-        : 'Empate técnico: <b>'+vitoriasEu+'</b> a '+vitoriasLider);
+        ? 'O líder vence em <b>'+vitoriasLider+'</b> de '+totalDuelos+' duelos'
+        : 'Empate técnico: <b>'+vitoriasEu+'</b> a '+vitoriasLider)
+    + (empates>0?' · '+empates+' empate'+(empates>1?'s':''):'');
 
   var head='<div class="cmp-head">'
     +'<div class="cmp-head-side cmp-head-eu">Você</div>'
