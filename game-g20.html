@@ -1354,12 +1354,28 @@ var PROXY='https://g20-proxy.vercel.app';
 // ═══ MOTOR DE PREÇOS ════════════════════════════════════════════════════
 // Normaliza ticker do CG20 para o símbolo que o proxy/Yahoo entende.
 // BR (ação/FII) → sufixo .SA · US (stock/etf/reit) → cru · cripto → cru (proxy mapeia)
-function symbolFor(ticker){
+// Mapa de símbolos que o Yahoo exige (igual ao SYMBOL_MAP do proxy quote.js).
+// IMPORTANTE: /api/quote aplica isso internamente, mas /api/history NÃO —
+// então para o histórico precisamos aplicar aqui no front.
+var YH_MAP={
+  'BTC':'BTC-USD','ETH':'ETH-USD','BNB':'BNB-USD','SOL':'SOL-USD','ADA':'ADA-USD',
+  'DOT':'DOT-USD','HNT':'HNT-USD','SAND':'SAND-USD','MANA':'MANA-USD','LINK':'LINK-USD',
+  'MATIC':'MATIC-USD','AVAX':'AVAX-USD','UNI':'UNI-USD','ATOM':'ATOM-USD','XRP':'XRP-USD',
+  'BRK.B':'BRK-B','BRK.A':'BRK-A'
+};
+function symbolFor(ticker, forHist){
   var a=CG20.find(function(x){return x.ticker===ticker;});
   var cl=a?a.classe:'acao-br';
   var t=String(ticker).trim().toUpperCase();
   if(cl==='acao-br'||cl==='fii') return t+'.SA';
-  return t; // stock/etf/reit/cripto — o proxy aplica SYMBOL_MAP (cripto -USD, BRK.B→BRK-B)
+  // stock/etf/reit/cripto
+  if(forHist){
+    // /api/history não mapeia: precisamos mandar o símbolo Yahoo final
+    if(YH_MAP[t]) return YH_MAP[t];
+    if(cl==='cripto') return t+'-USD'; // qualquer cripto não listada
+    return t;
+  }
+  return t; // /api/quote aplica SYMBOL_MAP internamente
 }
 
 // Carrega COTAÇÃO ATUAL de uma lista de tickers em UM único fetch (proxy aceita CSV).
@@ -1418,14 +1434,14 @@ function carregarPrecosBase(tipo, tickers){
     if(precoBaseCache[ck]!=null) return;
     // tenta localStorage
     try{
-      var ls=localStorage.getItem('g20_pbase_'+ck);
+      var ls=localStorage.getItem('g20_pbase_v2_'+ck);
       if(ls!=null){ precoBaseCache[ck]=parseFloat(ls); return; }
     }catch(e){}
     faltando.push(t);
   });
   if(!faltando.length) return Promise.resolve();
   var proms=faltando.map(function(t){
-    var sym=symbolFor(t);
+    var sym=symbolFor(t, true);
     return fetch(PROXY+'/api/history?_src=date&symbol='+encodeURIComponent(sym)+'&date='+dataStr)
       .then(function(r){return r.json();})
       .then(function(d){
@@ -1433,7 +1449,7 @@ function carregarPrecosBase(tipo, tickers){
         var ck=cicloKey+'|'+t;
         if(px!=null&&px>0){
           precoBaseCache[ck]=px;
-          try{localStorage.setItem('g20_pbase_'+ck,String(px));}catch(e){}
+          try{localStorage.setItem('g20_pbase_v2_'+ck,String(px));}catch(e){}
         }
       }).catch(function(){});
   });
@@ -1917,7 +1933,7 @@ function atualizarMinha(tipo,jogadores){
 
 // ── MODAL ─────────────────────────────────────────────
 function openModal(uid,tipo,nome){
-  var c=getCiclo(tipo);
+  var c=getLiveCiclo(tipo); // ciclo EM COMPETIÇÃO (mesmo do ranking), não o target/próximo
   var isMe=uid===currentUid;
   var jData=rankingData[tipo]&&rankingData[tipo].find(function(j){return j.uid===uid;});
   var posIdx=rankingData[tipo]?rankingData[tipo].findIndex(function(j){return j.uid===uid;}):-1;
@@ -2488,7 +2504,7 @@ function calcDelta24h(tipo, jogadoresHoje){
 
   // Cotações de ONTEM via proxy (mesmo endpoint/contrato do preço base)
   var promises = lista.map(function(ticker){
-    var sym=symbolFor(ticker);
+    var sym=symbolFor(ticker, true);
     return fetch(PROXY+'/api/history?_src=date&symbol='+encodeURIComponent(sym)+'&date='+dataStr)
       .then(function(r){ return r.json(); })
       .then(function(d){ return {ticker:ticker, preco: (d && d.close!=null) ? d.close : null}; })
