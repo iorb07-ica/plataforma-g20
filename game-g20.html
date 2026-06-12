@@ -345,6 +345,15 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .modal-ideal-btn.active{background:rgba(201,169,97,.22);border-color:rgba(201,169,97,.5)}
 .cmp-head-ideal{background:rgba(201,169,97,.1);border:1px solid rgba(201,169,97,.35);color:var(--gold-2)}
 .cmp-vs-diff.ideal{background:rgba(201,169,97,.15);color:var(--gold-2)}
+/* Painel de destaque das médias (comparação com a ideal) */
+.cmp-medias{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;background:linear-gradient(135deg,rgba(201,169,97,.06),rgba(201,169,97,.02));border:1px solid rgba(201,169,97,.18);border-radius:14px;padding:14px 18px;margin-bottom:14px}
+.cmp-media-box{text-align:center}
+.cmp-media-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:#9a958e;margin-bottom:5px;font-weight:700}
+.cmp-media-val{font-family:"JetBrains Mono",monospace;font-size:26px;font-weight:700;line-height:1}
+.cmp-media-val.pos{color:var(--green)}.cmp-media-val.neg{color:var(--red)}.cmp-media-val.gold{color:var(--gold-2)}
+.cmp-media-gap{text-align:center;padding:0 4px}
+.cmp-media-gap-lbl{font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:#6b6862;font-weight:700;margin-bottom:3px}
+.cmp-media-gap-val{font-family:"JetBrains Mono",monospace;font-size:15px;font-weight:700;color:var(--gold-2);background:rgba(201,169,97,.12);border:1px solid rgba(201,169,97,.25);border-radius:8px;padding:3px 10px;white-space:nowrap}
 /* Comparação ranqueada: linha com seu ativo vs ativo do líder */
 .cmp-head{display:grid;grid-template-columns:1fr 54px 1fr;gap:10px;align-items:center;margin-bottom:12px;padding:0 2px}
 .cmp-head-side{text-align:center;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding:8px;border-radius:10px}
@@ -2249,13 +2258,23 @@ function renderComparacao(tipo, meusAtivos, ativosOponente, nomeOponente, modo){
         : 'Empate técnico: <b>'+vitoriasEu+'</b> a '+vitoriasOp)
     + (empates>0?' · '+empates+' empate'+(empates>1?'s':''):'');
 
-  // Resumo extra pra ideal: distância da rentabilidade média
+  // Painel de destaque das médias (só na comparação com a ideal)
   var subResumo='';
   if(modo==='ideal'){
-    var mediaEu=meu.filter(function(x){return x.r!==null;}).reduce(function(s,x){return s+x.r;},0)/(meu.filter(function(x){return x.r!==null;}).length||1);
-    var mediaId=dele.filter(function(x){return x.r!==null;}).reduce(function(s,x){return s+x.r;},0)/(dele.filter(function(x){return x.r!==null;}).length||1);
+    var meuValidos=meu.filter(function(x){return x.r!==null;});
+    var idValidos=dele.filter(function(x){return x.r!==null;});
+    var mediaEu=meuValidos.reduce(function(s,x){return s+x.r;},0)/(meuValidos.length||1);
+    var mediaId=idValidos.reduce(function(s,x){return s+x.r;},0)/(idValidos.length||1);
     var gap=mediaId-mediaEu;
-    subResumo='<div class="cmp-summary" style="margin-top:-6px;font-size:11px;color:#6b6862">Ideal do ciclo: <b style="color:var(--gold-2)">'+(mediaId>=0?'+':'')+mediaId.toFixed(2)+'%</b> · você está a <b style="color:var(--gold-2)">'+gap.toFixed(2)+' p.p.</b> do teto</div>';
+    var euCls=mediaEu>=0?'pos':'neg';
+    subResumo='<div class="cmp-medias">'
+      +'<div class="cmp-media-box"><div class="cmp-media-lbl">Sua média</div>'
+      +'<div class="cmp-media-val '+euCls+'">'+(mediaEu>=0?'+':'')+mediaEu.toFixed(2)+'%</div></div>'
+      +'<div class="cmp-media-gap"><div class="cmp-media-gap-lbl">distância</div>'
+      +'<div class="cmp-media-gap-val">'+gap.toFixed(2)+' p.p.</div></div>'
+      +'<div class="cmp-media-box"><div class="cmp-media-lbl">Carteira ideal</div>'
+      +'<div class="cmp-media-val gold">'+(mediaId>=0?'+':'')+mediaId.toFixed(2)+'%</div></div>'
+      +'</div>';
   }
 
   var head='<div class="cmp-head">'
@@ -2263,7 +2282,8 @@ function renderComparacao(tipo, meusAtivos, ativosOponente, nomeOponente, modo){
     +'<div class="cmp-head-vs">VS</div>'
     +'<div class="cmp-head-side '+sideCls+'">'+nomeCurto(nomeOponente)+'</div>'
     +'</div>'
-    +'<div class="cmp-summary">'+placar+'</div>'+subResumo;
+    +subResumo
+    +'<div class="cmp-summary">'+placar+'</div>';
 
   document.getElementById('modalTbody').innerHTML=head+rows;
   document.getElementById('modalTbody').style.display='block';
