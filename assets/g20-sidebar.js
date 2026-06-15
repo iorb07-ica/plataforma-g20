@@ -258,6 +258,24 @@
     document.getElementById('g20LogoutCancel').addEventListener('click', closeConfirm);
     document.getElementById('g20LogoutOk').addEventListener('click', function(){
       closeConfirm();
+      // ── Privacidade em computador compartilhado ──
+      // Apaga TODO dado pessoal/financeiro do cache local ao sair, para que
+      // o próximo usuário (outro aluno) jamais veja resíduo do anterior.
+      try {
+        var _wipe = ['aportes','dividendos','rvAportes','rvDividendos','rendaFixa','splits',
+          'patrimonioBens','patrimonioSnaps','carteiraMeta','metaIF','metaIF_anual','lastRVTotal',
+          'cotacoesCache','splits_cache','bonificacoes_cache',
+          'tokenBrapi','tokenFmp','tokenLogoDev','tokenTwelve',
+          'prov_last_import','prov_last_status','prov_last_start',
+          'rv_prov_last_import','rv_prov_last_status','rv_prov_last_start',
+          'dados_owner','uid','user_profile'];
+        _wipe.forEach(function(k){ try{ localStorage.removeItem('g20_'+k); }catch(e){} });
+        // backups dinâmicos (g20_backup_*)
+        for(var i = localStorage.length - 1; i >= 0; i--){
+          var key = localStorage.key(i);
+          if(key && key.indexOf('g20_backup') === 0){ try{ localStorage.removeItem(key); }catch(e){} }
+        }
+      } catch(e){}
       if(action){
         try { eval(action); } catch(err){ window.location.href='login.html'; }
       } else {
