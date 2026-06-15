@@ -1679,6 +1679,33 @@ body.pat-hidden .g-kpi-sub::after{justify-content:flex-start;padding-right:0;pad
 <style id="g20-main-scroll">
   .main { height: 100svh !important; overflow-y: auto !important; }
   </style>
+<!-- Carteira G20 somente-leitura (aluno/preview): esconde controles de escrita ANTES de renderizar -->
+<style id="cg20RoStyle">
+  .cg20-ro .btn-add-inline,
+  .cg20-ro .dtx-add-btn,
+  .cg20-ro [data-action="aporte"],
+  .cg20-ro [data-action="edit"],
+  .cg20-ro [data-action="del"],
+  .cg20-ro [data-action="editDrawer"],
+  .cg20-ro [data-action="delDrawer"],
+  .cg20-ro .fab-wrap,
+  .cg20-ro .fab-main,
+  .cg20-ro .fab-overlay { display: none !important; }
+</style>
+<script>
+  // Decide modo leitura JÁ (síncrono, antes do <body> renderar) para não piscar o "+".
+  // Admin efetivo = é o Israel E não está pré-visualizando. Qualquer outro caso = leitura.
+  (function(){
+    try{
+      var ADMIN = '8xrwHHEKAmd0Us5MCyBJhtkJVBM2';
+      var uid = null, prev = false;
+      try { uid = localStorage.getItem('g20_uid'); } catch(e){}
+      try { prev = sessionStorage.getItem('cg20_preview') === '1'; } catch(e){}
+      var adminEfetivo = (uid === ADMIN) && !prev;
+      if(!adminEfetivo){ document.documentElement.classList.add('cg20-ro'); }
+    }catch(e){}
+  })();
+</script>
 </head>
 <body>
 
@@ -9786,7 +9813,11 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
   // ── Carteira G20 somente-leitura: neutraliza TODAS as ações de edição p/ não-admin ──
   // Cobre todos os caminhos de escrita (modais, imports, exclusões) num único ponto.
   function _cg20LockEdits(){
-    if(_cg20IsAdmin) return;
+    if(_cg20IsAdmin){
+      // Admin efetivo: garante que NÃO fique em modo leitura (corrige o palpite do script inicial).
+      try{ document.documentElement.classList.remove('cg20-ro'); if(document.body) document.body.classList.remove('cg20-ro'); }catch(e){}
+      return;
+    }
     var bloquear = ['abrirModalAporte','aplSalvar','salvarAporte','editarAporte','editarAporteDrawer',
       'excluirAporte','excluirAporteDrawer','excluirRF','abrirModalDividendo','salvarDividendoManual',
       'buscarDividendos','importarTodosProventos','importarHistoricoCompleto','importarProventosBR',
@@ -9799,27 +9830,8 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
         window[fn] = function(){ try{ showToast('🔒 Carteira G20 é educativa (somente leitura).'); }catch(e){} };
       }
     });
-    // CSS que esconde TODOS os controles de escrita — inclusive os que são
-    // renderizados depois (botões "+" por linha, editar/excluir, FAB).
-    try{
-      if(!document.getElementById('cg20RoStyle')){
-        var st = document.createElement('style');
-        st.id = 'cg20RoStyle';
-        st.textContent =
-          'body.cg20-ro .btn-add-inline,'
-        + 'body.cg20-ro .dtx-add-btn,'
-        + 'body.cg20-ro [data-action="aporte"],'
-        + 'body.cg20-ro [data-action="edit"],'
-        + 'body.cg20-ro [data-action="del"],'
-        + 'body.cg20-ro [data-action="editDrawer"],'
-        + 'body.cg20-ro [data-action="delDrawer"],'
-        + 'body.cg20-ro .fab-wrap,'
-        + 'body.cg20-ro .fab-main,'
-        + 'body.cg20-ro .fab-overlay{display:none !important;}';
-        document.head.appendChild(st);
-      }
-      document.body.classList.add('cg20-ro');
-    }catch(e){}
+    // Reforça a classe de leitura (o CSS estático no <head> já esconde os controles).
+    try{ document.documentElement.classList.add('cg20-ro'); }catch(e){}
     // Esconde também os botões de edição/importação ESTÁTICOS com onclick inline
     try{
       document.querySelectorAll('[onclick]').forEach(function(el){
