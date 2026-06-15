@@ -48,6 +48,52 @@
     }
   })();
 
+  // ═══════════════ LOGOUT AUTOMÁTICO POR INATIVIDADE (30 min) ═══════════════
+  // Protege quem esquece a aba aberta em PC compartilhado. A "última atividade"
+  // é compartilhada entre abas (localStorage), então estar ativo em uma aba
+  // mantém todas logadas — só desconecta após 30 min SEM atividade em nenhuma.
+  (function(){
+    var IDLE_MS = 30 * 60 * 1000;          // 30 minutos
+    var ACT_KEY = 'g20_last_activity';
+    var lastMark = 0;
+
+    function autoLogout(){
+      try{
+        g20WipeFinance();
+        ['dados_owner','uid','user_profile'].forEach(function(k){ try{ localStorage.removeItem('g20_'+k); }catch(e){} });
+      }catch(e){}
+      try{ localStorage.removeItem(ACT_KEY); }catch(e){}
+      var dest = 'login.html?timeout=1';
+      try{
+        if(typeof firebase !== 'undefined' && firebase.auth){
+          firebase.auth().signOut().then(function(){ location.href = dest; }).catch(function(){ location.href = dest; });
+          return;
+        }
+      }catch(e){}
+      location.href = dest;
+    }
+
+    function markActivity(){ try{ localStorage.setItem(ACT_KEY, String(Date.now())); }catch(e){} }
+    function onActivity(){
+      var now = Date.now();
+      if(now - lastMark < 5000) return;     // throttle: no máximo 1 marca/5s
+      lastMark = now;
+      markActivity();
+    }
+    function checkIdle(){
+      try{
+        var last = parseInt(localStorage.getItem(ACT_KEY) || '0', 10);
+        if(last && (Date.now() - last) >= IDLE_MS){ autoLogout(); }
+      }catch(e){}
+    }
+
+    ['mousemove','mousedown','keydown','scroll','touchstart','click'].forEach(function(ev){
+      window.addEventListener(ev, onActivity, { passive: true });
+    });
+    markActivity();                          // marca atividade ao abrir a página
+    setInterval(checkIdle, 60 * 1000);       // verifica a cada 1 min
+  })();
+
   // 1) Aplicar estado collapsed o MAIS CEDO POSSÍVEL pra evitar flash.
   //    - Adiciona classe no <html> (já existe quando o script roda)
   //    - <body> ainda não existe nesse ponto, então usamos MutationObserver pra adicionar
