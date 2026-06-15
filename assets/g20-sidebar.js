@@ -5,6 +5,49 @@
   var COLLAPSED_KEY = 'g20_sidebar_collapsed';
   var isDesktop = window.innerWidth > 768;
 
+  // ═══════════════ PRIVACIDADE — PC COMPARTILHADO ═══════════════
+  // Chaves financeiras/pessoais que NUNCA podem sobrar para o próximo usuário.
+  var G20_PRIVATE_KEYS = ['aportes','dividendos','rvAportes','rvDividendos','rendaFixa','splits',
+    'patrimonioBens','patrimonioSnaps','carteiraMeta','metaIF','metaIF_anual','lastRVTotal',
+    'cotacoesCache','splits_cache','bonificacoes_cache',
+    'tokenBrapi','tokenFmp','tokenLogoDev','tokenTwelve',
+    'prov_last_import','prov_last_status','prov_last_start',
+    'rv_prov_last_import','rv_prov_last_status','rv_prov_last_start'];
+  function g20WipeFinance(){
+    try{
+      G20_PRIVATE_KEYS.forEach(function(k){ try{ localStorage.removeItem('g20_'+k); }catch(e){} });
+      // backups dinâmicos (g20_backup_*)
+      for(var i = localStorage.length - 1; i >= 0; i--){
+        var key = localStorage.key(i);
+        if(key && key.indexOf('g20_backup') === 0){ try{ localStorage.removeItem(key); }catch(e){} }
+      }
+    }catch(e){}
+  }
+  window._g20WipeFinance = g20WipeFinance;
+
+  // Guarda de TROCA DE USUÁRIO (vale em TODAS as páginas — a sidebar carrega em todas):
+  // se logar alguém diferente do dono do cache, apaga os dados do anterior antes de
+  // qualquer tela exibir resíduo. Firebase carrega depois da sidebar, então aguardamos.
+  (function(){
+    function attach(){
+      try{
+        if(typeof firebase === 'undefined' || !firebase.apps || !firebase.apps.length || !firebase.auth) return false;
+        firebase.auth().onAuthStateChanged(function(user){
+          if(!user) return;
+          try{
+            var owner = localStorage.getItem('g20_dados_owner');
+            if(owner && owner !== user.uid){ g20WipeFinance(); }
+            localStorage.setItem('g20_dados_owner', user.uid);
+          }catch(e){}
+        });
+        return true;
+      }catch(e){ return false; }
+    }
+    if(!attach()){
+      var n = 0, t = setInterval(function(){ if(attach() || ++n > 60) clearInterval(t); }, 50);
+    }
+  })();
+
   // 1) Aplicar estado collapsed o MAIS CEDO POSSÍVEL pra evitar flash.
   //    - Adiciona classe no <html> (já existe quando o script roda)
   //    - <body> ainda não existe nesse ponto, então usamos MutationObserver pra adicionar
@@ -259,22 +302,11 @@
     document.getElementById('g20LogoutOk').addEventListener('click', function(){
       closeConfirm();
       // ── Privacidade em computador compartilhado ──
-      // Apaga TODO dado pessoal/financeiro do cache local ao sair, para que
-      // o próximo usuário (outro aluno) jamais veja resíduo do anterior.
+      // Apaga TODO dado pessoal/financeiro + sessão ao sair, para que o próximo
+      // usuário (outro aluno) jamais veja resíduo do anterior.
       try {
-        var _wipe = ['aportes','dividendos','rvAportes','rvDividendos','rendaFixa','splits',
-          'patrimonioBens','patrimonioSnaps','carteiraMeta','metaIF','metaIF_anual','lastRVTotal',
-          'cotacoesCache','splits_cache','bonificacoes_cache',
-          'tokenBrapi','tokenFmp','tokenLogoDev','tokenTwelve',
-          'prov_last_import','prov_last_status','prov_last_start',
-          'rv_prov_last_import','rv_prov_last_status','rv_prov_last_start',
-          'dados_owner','uid','user_profile'];
-        _wipe.forEach(function(k){ try{ localStorage.removeItem('g20_'+k); }catch(e){} });
-        // backups dinâmicos (g20_backup_*)
-        for(var i = localStorage.length - 1; i >= 0; i--){
-          var key = localStorage.key(i);
-          if(key && key.indexOf('g20_backup') === 0){ try{ localStorage.removeItem(key); }catch(e){} }
-        }
+        g20WipeFinance();
+        ['dados_owner','uid','user_profile'].forEach(function(k){ try{ localStorage.removeItem('g20_'+k); }catch(e){} });
       } catch(e){}
       if(action){
         try { eval(action); } catch(err){ window.location.href='login.html'; }
