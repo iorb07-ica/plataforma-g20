@@ -2674,6 +2674,12 @@ var AUTO_REFRESH_MIN = 15;
 var _db_uid = null;
 var _db_ref = null;
 var _db_cache = {};
+// ── Carteira G20 = portfólio EDUCATIVO curado pelo admin (Israel) ──
+// Todos os alunos LEEM deste UID (fonte única). Só o admin EDITA.
+var CG20_ADMIN_UID = '8xrwHHEKAmd0Us5MCyBJhtkJVBM2';
+var _cg20IsAdmin = false;        // admin EFETIVO (false durante pré-visualização)
+var _cg20RealAdmin = false;      // é realmente o Israel (independe da pré-visualização)
+var _cg20PreviewStudent = false; // admin pré-visualizando como aluno
 var _db_pending_saves = {};
 var _db_ready = false;
 var _db_ready_cbs = [];
@@ -2691,14 +2697,45 @@ function _dbIsUserKey(k){
 }
 
 // Chamado pelo Firebase Auth após login
+// Docs da carteira curada que o ALUNO pode ler. NUNCA inclui rvAportes,
+// rvDividendos, rendaFixa, patrimonioBens, patrimonioSnaps ou token* (dados pessoais/segredos).
+var CG20_PUBLIC_DOCS = ['aportes','dividendos','splits','carteiraMeta'];
 function _dbInit(uid, callback){
   _db_uid = uid;
+  _cg20RealAdmin = (uid === CG20_ADMIN_UID); // é o Israel?
+  try { _cg20PreviewStudent = _cg20RealAdmin && sessionStorage.getItem('cg20_preview') === '1'; }
+  catch(e){ _cg20PreviewStudent = false; }
+  _cg20IsAdmin = _cg20RealAdmin && !_cg20PreviewStudent; // admin efetivo (preview = age como aluno)
   _db_ready = false;
   if(!window.firebase || !firebase.apps || !firebase.apps.length){
     _db_ready = true; callback && callback(); return;
   }
-  _db_ref = firebase.firestore().collection('users').doc(uid).collection('dados');
-  // Busca do servidor — Firestore sobrescreve localStorage com dados da nuvem
+  // TODOS leem do doc do admin (carteira curada). Admin lê/escreve o próprio.
+  _db_ref = firebase.firestore().collection('users').doc(CG20_ADMIN_UID).collection('dados');
+
+  function _afterLoad(){
+    _db_ready = true;
+    callback && callback();
+    _db_ready_cbs.forEach(function(cb){ cb(); });
+    _db_ready_cbs = [];
+  }
+
+  if(!_cg20IsAdmin){
+    // ── ALUNO: lê SOMENTE os docs públicos da carteira curada, um a um. ──
+    // Garante que nenhum dado pessoal do admin (Minha Carteira, Patrimônio, tokens) chegue ao aluno.
+    Promise.all(CG20_PUBLIC_DOCS.map(function(id){
+      return _db_ref.doc(id).get({ source:'server' }).then(function(doc){
+        if(doc.exists){
+          var val = doc.data().value;
+          _db_cache[id] = val;
+          try{ localStorage.setItem('g20_'+id, JSON.stringify(val)); }catch(e){}
+        }
+      }).catch(function(){});
+    })).then(_afterLoad).catch(_afterLoad);
+    return;
+  }
+
+  // ── ADMIN (Israel): lê a coleção inteira (próprios dados) e sincroniza ──
   _db_ref.get({ source: 'server' }).then(function(snap){
     snap.forEach(function(doc){
       var val = doc.data().value;
@@ -2721,13 +2758,10 @@ function _dbInit(uid, callback){
         }
       }catch(e){}
     });
-    _db_ready = true;
-    callback && callback();
-    _db_ready_cbs.forEach(function(cb){ cb(); });
-    _db_ready_cbs = [];
+    _afterLoad();
   }).catch(function(e){
     console.warn('G20 DB init error:', e);
-    _db_ready = true; callback && callback();
+    _afterLoad();
   });
 }
 
@@ -2787,7 +2821,14 @@ function restaurarBackup(k, indice){
 
 function saveData(k, v, opts){
   opts = opts || {};
-  // Proteção: nunca salvar array vazio em chaves críticas sem confirmação explícita
+  // ── Carteira G20 é SOMENTE LEITURA para não-admin ──
+  // Aluno pode ajustar só a visualização das colunas (local). Nenhum dado é gravado.
+  if(!_cg20IsAdmin){
+    if(k === 'colsVisiveis' || k === 'colOrdem'){
+      try{ localStorage.setItem('g20_'+k, JSON.stringify(v)); }catch(e){}
+    }
+    return;
+  }
   if(_CHAVES_CRITICAS.indexOf(k) >= 0 && Array.isArray(v) && v.length === 0 && !opts.forcarVazio){
     var atual = loadData(k, []);
     if(Array.isArray(atual) && atual.length > 10){
@@ -9742,7 +9783,66 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
         .catch(function(){ window.location.href = 'login.html'; });
   };
 
-  // Se não tem uid salvo, redireciona imediatamente
+  // ── Carteira G20 somente-leitura: neutraliza TODAS as ações de edição p/ não-admin ──
+  // Cobre todos os caminhos de escrita (modais, imports, exclusões) num único ponto.
+  function _cg20LockEdits(){
+    if(_cg20IsAdmin) return;
+    var bloquear = ['abrirModalAporte','aplSalvar','salvarAporte','editarAporte','editarAporteDrawer',
+      'excluirAporte','excluirAporteDrawer','excluirRF','abrirModalDividendo','salvarDividendoManual',
+      'buscarDividendos','importarTodosProventos','importarHistoricoCompleto','importarProventosBR',
+      'importarProventosUS','importarProventosUSHistorico','importarTodosSplits','importarSplitsUS',
+      'importarSplitsBR','importarTodasBonificacoes','importarBonificacoesBR','importarCSV',
+      'salvarTokenBrapi','salvarTokenFmp','salvarTokenLogoDev','salvarTokenTwelve','limparTokens',
+      'recarregarProventosDoFirestore'];
+    bloquear.forEach(function(fn){
+      if(typeof window[fn] === 'function'){
+        window[fn] = function(){ try{ showToast('🔒 Carteira G20 é educativa (somente leitura).'); }catch(e){} };
+      }
+    });
+    // Esconde os botões de edição/importação visíveis (estáticos)
+    try{
+      document.querySelectorAll('[onclick]').forEach(function(el){
+        var oc = el.getAttribute('onclick') || '';
+        if(/abrirModalAporte|abrirModalDividendo|importar|excluir|salvarToken|limparTokens|buscarDividendos|recarregarProventos/.test(oc)){
+          el.style.display = 'none';
+        }
+      });
+    }catch(e){}
+  }
+
+  // ── Pré-visualização "Ver como aluno" (só admin real enxerga estes controles) ──
+  function _cg20EnterPreview(){ try{ sessionStorage.setItem('cg20_preview','1'); }catch(e){} location.reload(); }
+  function _cg20ExitPreview(){ try{ sessionStorage.removeItem('cg20_preview'); }catch(e){} location.reload(); }
+  window._cg20EnterPreview = _cg20EnterPreview;
+  window._cg20ExitPreview  = _cg20ExitPreview;
+  function _cg20PreviewUI(){
+    if(!_cg20RealAdmin) return; // aluno de verdade nunca vê controle de preview
+    var old = document.getElementById('cg20PreviewCtl'); if(old) old.remove();
+    var el = document.createElement('div');
+    el.id = 'cg20PreviewCtl';
+    if(_cg20PreviewStudent){
+      // Barra: está pré-visualizando como aluno
+      el.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99999;'
+        + 'background:linear-gradient(90deg,#c9a961,#e8c766);color:#1a191e;'
+        + 'font-family:\'DM Sans\',sans-serif;font-weight:700;font-size:13px;'
+        + 'padding:10px 16px;display:flex;align-items:center;justify-content:center;gap:14px;'
+        + 'box-shadow:0 -6px 22px rgba(0,0,0,.45)';
+      el.innerHTML = '👁️ Pré-visualizando como ALUNO (somente leitura)'
+        + '<button onclick="_cg20ExitPreview()" style="background:#1a191e;color:#e8c766;border:none;'
+        + 'border-radius:8px;padding:6px 16px;font-weight:700;cursor:pointer;font-family:inherit">'
+        + '↩ Voltar ao admin</button>';
+    } else {
+      // Botão flutuante: ver como aluno
+      el.style.cssText = 'position:fixed;bottom:22px;right:22px;z-index:99999';
+      el.innerHTML = '<button onclick="_cg20EnterPreview()" title="Ver a página como um aluno vê" '
+        + 'style="background:#27252c;color:#e8c766;border:1px solid rgba(201,169,97,.4);'
+        + 'border-radius:30px;padding:11px 18px;font-family:\'DM Sans\',sans-serif;font-weight:700;'
+        + 'font-size:13px;cursor:pointer;box-shadow:0 8px 26px rgba(0,0,0,.5);display:flex;'
+        + 'align-items:center;gap:8px">👁️ Ver como aluno</button>';
+    }
+    document.body.appendChild(el);
+  }
+  window._cg20PreviewUI = _cg20PreviewUI;
   var savedUid = localStorage.getItem('g20_uid');
   if (!savedUid) { window.location.href = 'login.html'; return; }
 
@@ -9768,6 +9868,8 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
       var photo    = (data.perfil && data.perfil.foto) || profile.photo || user.photoURL || '';
       var initials = name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase()||'IO';
       var turmaLabel = (role === 'admin') ? 'Admin' : turma;
+      _cg20LockEdits(); // trava edição se não for admin (ou em pré-visualização)
+      _cg20PreviewUI(); // botão "Ver como aluno" / barra de voltar (só admin real)
       var ids = {sidebarName:name, sidebarTurma:turmaLabel, sidebarInitials:initials};
       Object.keys(ids).forEach(function(id){ var el=document.getElementById(id); if(el) el.textContent=ids[id]; });
       var av = document.getElementById('sidebarAvatar');
@@ -10392,6 +10494,7 @@ function closeFab(){
 // Útil quando localStorage foi corrompido ou perdido
 // ═══════════════════════════════════════════════════════════
 function recarregarProventosDoFirestore(){
+  if(!_cg20IsAdmin) return; // privacidade: aluno nunca varre a coleção do admin
   var btn = document.getElementById('btnRecarregarNuvem');
   var originalText = btn ? btn.textContent : '';
 
