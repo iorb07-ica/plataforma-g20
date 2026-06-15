@@ -175,6 +175,10 @@ body{
 .msg.error{background:rgba(230,57,70,.12);border:1px solid rgba(230,57,70,.3);color:var(--red)}
 .msg.success{background:rgba(46,204,113,.12);border:1px solid rgba(46,204,113,.3);color:var(--green)}
 .msg.show{display:block}
+.msg.info{background:rgba(201,169,97,.12);border:1px solid rgba(201,169,97,.3);color:#e8c766}
+.remember-row{display:flex;align-items:center;gap:8px;margin:2px 0 4px;cursor:pointer;font-size:13px;color:var(--text2,#9aa5b8);user-select:none}
+.remember-row input{width:16px;height:16px;accent-color:#c9a961;cursor:pointer;flex-shrink:0}
+.remember-hint{font-size:11px;color:var(--text3,#6b6862);margin:0 0 14px 24px;line-height:1.3}
 
 /* Tab email/senha */
 .tabs-auth{
@@ -263,34 +267,41 @@ body{
 
     <!-- Form email/senha -->
     <div id="formLogin">
+      <form id="loginForm" autocomplete="on" onsubmit="loginEmail();return false;">
       <div class="form-group">
         <label class="form-label">E-mail</label>
-        <input class="form-control" type="email" id="inputEmail" placeholder="seu@email.com"
-               onkeydown="if(event.key==='Enter')loginEmail()">
+        <input class="form-control" type="email" id="inputEmail" name="email"
+               autocomplete="username" inputmode="email" placeholder="seu@email.com">
       </div>
       <div class="form-group">
         <label class="form-label">Senha</label>
-        <input class="form-control" type="password" id="inputSenha" placeholder="••••••••"
-               onkeydown="if(event.key==='Enter')loginEmail()">
+        <input class="form-control" type="password" id="inputSenha" name="password"
+               autocomplete="current-password" placeholder="••••••••">
       </div>
-      <button class="btn-submit" id="btnSubmit" onclick="loginEmail()">
+      <label class="remember-row">
+        <input type="checkbox" id="chkRemember">
+        <span>Manter conectado neste dispositivo</span>
+      </label>
+      <div class="remember-hint">Não marque em computador compartilhado.</div>
+      <button class="btn-submit" id="btnSubmit" type="submit">
         Entrar na plataforma
       </button>
+      </form>
     </div>
 
     <!-- Form cadastro -->
     <div id="formCadastro" style="display:none">
       <div class="form-group">
         <label class="form-label">Nome completo</label>
-        <input class="form-control" type="text" id="inputNome" placeholder="Seu nome">
+        <input class="form-control" type="text" id="inputNome" name="name" autocomplete="name" placeholder="Seu nome">
       </div>
       <div class="form-group">
         <label class="form-label">E-mail</label>
-        <input class="form-control" type="email" id="inputEmailCad" placeholder="seu@email.com">
+        <input class="form-control" type="email" id="inputEmailCad" name="email" autocomplete="email" placeholder="seu@email.com">
       </div>
       <div class="form-group">
         <label class="form-label">Senha</label>
-        <input class="form-control" type="password" id="inputSenhaCad" placeholder="Mínimo 6 caracteres">
+        <input class="form-control" type="password" id="inputSenhaCad" name="new-password" autocomplete="new-password" placeholder="Mínimo 6 caracteres">
       </div>
       <button class="btn-submit" onclick="cadastrarEmail()">
         Solicitar acesso
@@ -413,11 +424,25 @@ auth.onAuthStateChanged(function(user) {
   }
 });
 
+// ── Persistência da sessão (checkbox "Manter conectado") ─────
+// Marcado = LOCAL (continua logado ao fechar o navegador).
+// Desmarcado = SESSION (fechar o navegador desconecta — seguro p/ PC compartilhado).
+async function _aplicarPersistencia() {
+  try {
+    var manter = document.getElementById('chkRemember');
+    var modo = (manter && manter.checked)
+      ? firebase.auth.Auth.Persistence.LOCAL
+      : firebase.auth.Auth.Persistence.SESSION;
+    await auth.setPersistence(modo);
+  } catch (e) { console.warn('persistencia:', e); }
+}
+
 // ── Login Google ─────────────────────────────────────────────
 async function loginGoogle() {
   hideMsg();
   setLoading(true, 'Abrindo login Google...');
   try {
+    await _aplicarPersistencia();
     var provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
     await auth.signInWithPopup(provider);
@@ -438,6 +463,7 @@ async function loginEmail() {
   hideMsg();
   setLoading(true, 'Entrando...');
   try {
+    await _aplicarPersistencia();
     await auth.signInWithEmailAndPassword(email, senha);
     // onAuthStateChanged cuida do redirect
   } catch (e) {
@@ -476,6 +502,15 @@ async function cadastrarEmail() {
     showMsg(msgs[e.code] || 'Erro: ' + e.message, 'error');
   }
 }
+
+// ── Aviso de logout automático por inatividade ───────────────
+(function(){
+  try{
+    if(new URLSearchParams(location.search).get('timeout') === '1'){
+      showMsg('🔒 Você foi desconectado por inatividade. Faça login novamente.', 'info');
+    }
+  }catch(e){}
+})();
 </script>
 
   <script>
