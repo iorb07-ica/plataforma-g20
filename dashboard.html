@@ -10380,14 +10380,22 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     };
   }
 
+  // Wrapper com debounce: v21LoadBench era chamado ~10x no carregamento
+  // (timeouts, callbacks, init). O debounce agrupa chamadas próximas numa só,
+  // evitando reprocessar o benchmark várias vezes seguidas.
+  var _v21BenchTimer = null;
   function v21LoadBench() {
+    if (_v21BenchTimer) clearTimeout(_v21BenchTimer);
+    _v21BenchTimer = setTimeout(function(){
+      _v21BenchTimer = null;
+      _v21LoadBenchReal();
+    }, 120);
+  }
+
+  function _v21LoadBenchReal() {
     try {
       var snap = [];
       try { snap = JSON.parse(localStorage.getItem('g20_patSnapshots') || '[]'); } catch(e){}
-
-      // === LOG SUPER VISÍVEL: estado atual completo ===
-      console.log('%c╔═══════ v21LoadBench CHAMADO ═══════', 'color:#e8c766;font-weight:bold;font-size:14px');      console.log('  histCache.ibov:', window.V21C && V21C.histCache.ibov ? (V21C.histCache.ibov.pontos ? V21C.histCache.ibov.pontos.length + ' pontos' : 'sem pontos') : 'VAZIO');
-      console.log('  histCache.sp500:', window.V21C && V21C.histCache.sp500 ? (V21C.histCache.sp500.pontos ? V21C.histCache.sp500.pontos.length + ' pontos' : 'sem pontos') : 'VAZIO');
 
       // Helper declarado cedo pra ser usado antes do early return
       function calcBenchFromHist(series) {
@@ -12609,10 +12617,14 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     var yahooUrl = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + encodeURIComponent(symbols);
 
     // Cascata de estratégias — a que funcionar primeiro retorna os dados:
-    // 1. allOrigins (CORS público — chamada única com todos os 85 tickers)
-    // 2. corsproxy.io (CORS público — chamada única)
-    // 3. Proxy G20 /api/quote em batch paralelo (85 chamadas — fallback mais lento mas confiável)
+    // 1. Proxy G20 em LOTE (1 única chamada com todos os tickers) — rápido e confiável
+    // 2. allOrigins / corsproxy (CORS público — fallback, frequentemente fora do ar)
+    // 3. Proxy G20 batch (85 chamadas individuais — último recurso)
     var estrategias = [
+      {
+        nome: 'g20-proxy lote (1 chamada)',
+        tipo: 'g20lote'
+      },
       {
         nome: 'allOrigins',
         url: 'https://api.allorigins.win/raw?url=' + encodeURIComponent(yahooUrl),
@@ -12688,6 +12700,51 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       }
       var est = estrategias[idx];
       console.log('%c[v21 ibov] → Tentando estratégia ' + (idx+1) + '/' + estrategias.length + ': ' + est.nome, 'color:#c9a961');
+
+      // Estratégia G20 LOTE: 1 única chamada ao proxy com todos os tickers (vírgula)
+      if (est.tipo === 'g20lote') {
+        var PROXY_L = 'https://g20-proxy.vercel.app';
+        var symbolsL = IBOV_TICKERS.map(function(t){ return t + '.SA'; }).join(',');
+        Promise.race([
+          fetch(PROXY_L + '/api/quote?symbol=' + encodeURIComponent(symbolsL)),
+          new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('timeout')); }, 10000); })
+        ])
+        .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+        .then(function(dict){
+          if (!dict || typeof dict !== 'object') { tentaEstrategia(idx + 1); return; }
+          var data = [];
+          Object.keys(dict).forEach(function(sym){
+            var d = dict[sym]; if (!d) return;
+            var t = sym.replace('.SA','');
+            var pct = parseFloat(d.changePercent);
+            if (isNaN(pct) || pct === 0) {
+              if (typeof d.price === 'number' && typeof d.prevClose === 'number' && d.prevClose > 0) {
+                pct = ((d.price / d.prevClose) - 1) * 100;
+              } else if (typeof d.price === 'number' && typeof d.previousClose === 'number' && d.previousClose > 0) {
+                pct = ((d.price / d.previousClose) - 1) * 100;
+              }
+            }
+            if (!isNaN(pct)) {
+              data.push({
+                t: t, p: pct, isUS: false,
+                price: (typeof d.price === 'number' && d.price > 0) ? d.price : null,
+                high52: (typeof d.high52 === 'number' && d.high52 > 0) ? d.high52 : null,
+                low52:  (typeof d.low52  === 'number' && d.low52  > 0) ? d.low52  : null
+              });
+            }
+          });
+          if (data.length === 0) { tentaEstrategia(idx + 1); return; }
+          V21Movers.ibovCache = { data: data, loadedAt: Date.now(), pregaoTs: null };
+          V21Movers.ibovLoading = false;
+          console.log('%c[v21 ibov] ✓ ' + data.length + '/' + IBOV_TICKERS.length + ' tickers via ' + est.nome, 'color:#4ade80;font-weight:bold');
+          cb(data);
+        })
+        .catch(function(e){
+          console.warn('[v21 ibov] ' + est.nome + ' falhou: ' + (e.message||e) + ' — tentando próxima');
+          tentaEstrategia(idx + 1);
+        });
+        return;
+      }
 
       // Estratégia BATCH: faz 85 chamadas paralelas no proxy G20
       if (est.tipo === 'batch') {
