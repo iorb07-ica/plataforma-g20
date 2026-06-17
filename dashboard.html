@@ -8601,26 +8601,48 @@ function buscarTape(){
   // BCB cache 6h
   var bcbCache = loadData('indBCB_cache',null);
   // Invalida cache antigo com Selic mensal (série 4390, valores ~0.65)
-  // Força busca nova da série 432 (Selic Meta anual, ~14.75)
   if(bcbCache && bcbCache.data && bcbCache.data.selic && bcbCache.data.selic < 5){
     bcbCache = null;
     try{ localStorage.removeItem('g20_indBCB_cache'); }catch(e){}
   }
-  if(bcbCache && (Date.now()-bcbCache.ts) < 6*3600*1000){
-    IND = bcbCache.data;
-    renderTapeStatic();
+
+  // Fallback: últimos valores conhecidos (jun/2026) — evita mostrar "–"
+  // se a API do BCB falhar/timeout no mobile. Atualizados ao primeiro fetch OK.
+  var FALLBACK = { selic: 14.75, cdi: 14.65, ipca: 5.32, igpm: 4.39 };
+
+  // Aplica imediatamente: cache válido > cache antigo > fallback
+  if (bcbCache && bcbCache.data) {
+    IND = Object.assign({}, FALLBACK, bcbCache.data);
   } else {
-    Promise.all([
-      fetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json').then(function(r){return r.json();}).then(function(d){IND.selic=parseFloat(d[0].valor);}).catch(function(){}),
-      fetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados/ultimos/1?formato=json').then(function(r){return r.json();}).then(function(d){var td=parseFloat(d[0].valor)/100;IND.cdi=(Math.pow(1+td,252)-1)*100;}).catch(function(){}),
-      fetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados/ultimos/1?formato=json').then(function(r){return r.json();}).then(function(d){IND.ipca=parseFloat(d[0].valor);}).catch(function(){}),
-      fetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.189/dados/ultimos/12?formato=json').then(function(r){return r.json();}).then(function(d){var a=d.reduce(function(s,i){return s*(1+parseFloat(i.valor)/100);},1);IND.igpm=(a-1)*100;}).catch(function(){})
-    ]).then(function(){
-      try{localStorage.setItem('g20_indBCB_cache',JSON.stringify({ts:Date.now(),data:IND}));}catch(e){}
-      renderTapeStatic();
-      _calcRFVariacaoDia(); // recalcula varia  o RF com IND atualizado
+    IND = Object.assign({}, FALLBACK, IND);
+  }
+  renderTapeStatic(); // mostra algo na hora (nunca "–")
+
+  // Cache válido (< 6h): não precisa buscar de novo
+  if (bcbCache && (Date.now()-bcbCache.ts) < 6*3600*1000) return;
+
+  // fetch com timeout (a API do BCB trava no mobile sem isso)
+  function bcbFetch(url){
+    return new Promise(function(resolve){
+      var done = false;
+      var timer = setTimeout(function(){ if(!done){ done=true; resolve(null); } }, 8000);
+      fetch(url)
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(d){ if(!done){ done=true; clearTimeout(timer); resolve(d); } })
+        .catch(function(){ if(!done){ done=true; clearTimeout(timer); resolve(null); } });
     });
   }
+
+  Promise.all([
+    bcbFetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json').then(function(d){ if(d&&d[0]) IND.selic=parseFloat(d[0].valor); }),
+    bcbFetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados/ultimos/1?formato=json').then(function(d){ if(d&&d[0]){ var td=parseFloat(d[0].valor)/100; IND.cdi=(Math.pow(1+td,252)-1)*100; } }),
+    bcbFetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados/ultimos/1?formato=json').then(function(d){ if(d&&d[0]) IND.ipca=parseFloat(d[0].valor); }),
+    bcbFetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.189/dados/ultimos/12?formato=json').then(function(d){ if(d&&d.length){ var a=d.reduce(function(s,i){return s*(1+parseFloat(i.valor)/100);},1); IND.igpm=(a-1)*100; } })
+  ]).then(function(){
+    try{ localStorage.setItem('g20_indBCB_cache',JSON.stringify({ts:Date.now(),data:IND})); }catch(e){}
+    renderTapeStatic();
+    _calcRFVariacaoDia();
+  });
 
   // Mercado cache 15min
   var mktCache = loadData('indMkt_cache',null);
