@@ -435,6 +435,9 @@
       { href: 'gestao-patrimonial.html', ico: '💰', lucide: 'briefcase',       label: 'Minha Carteira', id: 'tut-gestao' },
       { href: 'atlas.html',              ico: '🌍', lucide: 'globe',            label: 'Atlas G20',      id: 'tut-atlas'  }
     ]},
+    { section: 'Planejamento', cls: 'nav-section--planejamento', items: [
+      { href: 'gestao-financeira.html', ico: '🧾', lucide: 'wallet',           label: 'Gestão Financeira', id: '' }
+    ]},
     { section: 'Comunidade', cls: 'nav-section--comunidade', items: [
       { href: 'consultoria.html',         ico: '👨\u200d💻', lucide: 'user-round',   label: 'Consultoria',    id: '' },
       { href: 'arena.html',               ico: '💬', lucide: 'message-circle',  label: 'Arena G20',      id: '' },
