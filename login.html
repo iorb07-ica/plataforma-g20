@@ -418,35 +418,32 @@ async function checkApprovalAndRedirect(user) {
   }
 }
 
-// ── Controle de redirect em andamento ────────────────────────
-var _redirectHandled = false;
+// ── Controle para evitar duplo processamento ─────────────────
+var _authProcessing = false;
 
-// ── getRedirectResult: captura retorno do login Google no mobile ──
-auth.getRedirectResult().then(function(result) {
-  if (result && result.user) {
-    _redirectHandled = true;
+// ── onAuthStateChanged: gate único de entrada ─────────────────
+// Cobre TODOS os casos: email/senha, Google popup, Google redirect.
+// Quando o signInWithRedirect volta, o Firebase dispara onAuthStateChanged
+// automaticamente — não precisa de getRedirectResult para o redirect.
+auth.onAuthStateChanged(function(user) {
+  if (user && !_authProcessing) {
+    _authProcessing = true;
     setLoading(true, 'Verificando acesso...');
-    checkApprovalAndRedirect(result.user);
-  }
-}).catch(function(e) {
-  if (e.code && e.code !== 'auth/no-auth-event' && e.code !== 'auth/null-user') {
-    showMsg('Erro no login Google: ' + (e.message || e.code), 'error');
+    checkApprovalAndRedirect(user);
   }
 });
 
-// ── onAuthStateChanged: cobre login email/senha e sessão ativa ──
-auth.onAuthStateChanged(function(user) {
-  if (user && !_redirectHandled) {
-    setLoading(true, 'Verificando acesso...');
-    checkApprovalAndRedirect(user);
+// ── getRedirectResult: apenas para capturar erros do redirect ──
+auth.getRedirectResult().catch(function(e) {
+  if (e.code && e.code !== 'auth/no-auth-event' && e.code !== 'auth/null-user') {
+    setLoading(false);
+    showMsg('Erro no login Google: ' + (e.message || e.code), 'error');
   }
 });
 
 // ── Persistência da sessão (checkbox "Manter conectado") ─────
 // Marcado = LOCAL (continua logado ao fechar o navegador).
 // Desmarcado = SESSION (fechar o navegador desconecta — seguro p/ PC compartilhado).
-// NOTA: no signInWithRedirect a persistência precisa ser definida ANTES do redirect,
-// então salvamos a preferência no localStorage e aplicamos quando possível.
 function _salvarPrefPersistencia() {
   try {
     var manter = document.getElementById('chkRemember');
@@ -468,17 +465,18 @@ async function _aplicarPersistencia() {
 // Desktop: signInWithPopup (melhor UX).
 async function loginGoogle() {
   hideMsg();
-  _salvarPrefPersistencia(); // salva preferência antes do redirect
+  _salvarPrefPersistencia();
   try {
     await _aplicarPersistencia();
     var provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
     var isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     if (isMobile) {
-      await auth.signInWithRedirect(provider); // sai e volta — getRedirectResult cuida
+      setLoading(true, 'Redirecionando para o Google...');
+      await auth.signInWithRedirect(provider);
     } else {
       setLoading(true, 'Abrindo login Google...');
-      await auth.signInWithPopup(provider); // onAuthStateChanged cuida
+      await auth.signInWithPopup(provider);
     }
   } catch (e) {
     setLoading(false);
