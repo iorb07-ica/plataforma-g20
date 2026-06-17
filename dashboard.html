@@ -13129,11 +13129,27 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       if (!playerEl) return;
 
       var RSS_URL = 'https://anchor.fm/s/af896e6c/podcast/rss';
-      var API = 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(RSS_URL);
+      // Usa o proxy próprio (mesma origem confiável do resto da plataforma).
+      // Antes usava api.rss2json.com, que ficou instável (422) e travava o card no boot.
+      var API = 'https://g20-proxy.vercel.app/api/rss';
 
       fetch(API)
-        .then(function(r){ return r.ok ? r.json() : null; })
-        .then(function(d){
+        .then(function(r){ return r.ok ? r.text() : null; })
+        .then(function(xml){
+          var d = null;
+          if (xml) {
+            // Parseia o XML do RSS e converte pro formato {items:[{title,link,...}]}
+            try {
+              var doc = new DOMParser().parseFromString(xml, 'text/xml');
+              var nodes = doc.querySelectorAll('item');
+              var items = [];
+              nodes.forEach(function(it){
+                var g = function(tag){ var el = it.querySelector(tag); return el ? el.textContent : ''; };
+                items.push({ title: g('title'), link: g('link') || g('guid'), pubDate: g('pubDate') });
+              });
+              if (items.length) d = { items: items };
+            } catch(e){}
+          }
           if (!d || !d.items || !d.items.length) {
             playerEl.innerHTML = '<div class="v21-cast-loading">Não foi possível carregar o podcast.</div>';
             if (hintEl) hintEl.textContent = 'Indisponível';
@@ -13288,7 +13304,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
     setTimeout(function(){
       if (window.G20Loader) window.G20Loader.msg('Buscando históricos de mercado…');
-    }, 800);
+    }, 400);
     setTimeout(function(){
       if (window.G20Loader) window.G20Loader.msg('Renderizando gráficos e análises…');
       v21LoadCharts();
@@ -13296,8 +13312,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       // Esconde loader (respeitando duração mínima de 3s configurada acima)
       setTimeout(function(){
         if (window.G20Loader) window.G20Loader.hide();
-      }, 400);
-    }, 2200);
+      }, 200);
+    }, 700);
     v21InstallThemeToggle();
     if (window.lucide) lucide.createIcons();
     // R65: v21ImportarProventos agora é disparado FORA de v21Init (após DOMContentLoaded)
