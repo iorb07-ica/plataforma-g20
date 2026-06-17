@@ -8598,8 +8598,6 @@ function _atualizarVariacoesPat(){
 }
 
 function buscarTape(){
-  // DIAG TEMP: confirma que a função roda no mobile
-  try{ var _d=document.getElementById('tt_selic'); if(_d) _d.textContent='...'; }catch(e){}
   // BCB cache 6h
   var bcbCache = loadData('indBCB_cache',null);
   // Invalida cache antigo com Selic mensal (série 4390, valores ~0.65)
@@ -8646,11 +8644,19 @@ function buscarTape(){
     _calcRFVariacaoDia();
   });
 
-  // Mercado cache 15min
+  // Mercado cache 15min — só usa se tiver dados válidos (evita cache vazio travar)
   var mktCache = loadData('indMkt_cache',null);
-  if(mktCache && (Date.now()-mktCache.ts) < 15*60*1000){
+  var cacheValido = mktCache && mktCache.data
+    && typeof mktCache.data === 'object'
+    && Object.keys(mktCache.data).length >= 4   // precisa ter vários símbolos
+    && (Date.now()-mktCache.ts) < 15*60*1000;
+  if(cacheValido){
     renderTapeMkt(mktCache.data);
     return;
+  }
+  // cache ruim/vazio: limpa pra não reusar
+  if(mktCache && (!mktCache.data || Object.keys(mktCache.data||{}).length < 4)){
+    try{ localStorage.removeItem('g20_indMkt_cache'); }catch(e){}
   }
   var symbols = ['BTC-USD','ETH-USD','^GSPC','^IXIC','^BVSP','BRL=X','EURBRL=X','GC=F'];
   fetch(PROXY_URL+'/api/quote?symbol='+encodeURIComponent(symbols.join(',')))
@@ -9500,7 +9506,8 @@ function salvarLive(){
 }
 
 // Fecha modal ao clicar fora
-document.getElementById('adminLivesModal').addEventListener('click', function(e){
+var _alModal = document.getElementById('adminLivesModal');
+if(_alModal) _alModal.addEventListener('click', function(e){
   if(e.target === this) fecharAdminLives();
 });
 // -- SISTEMA DE NOTIFICA--ES (em shared) -----------------------
@@ -9508,24 +9515,12 @@ document.getElementById('adminLivesModal').addEventListener('click', function(e)
 
 // -- INIT ------------------------------------------------------
 (function(){
-  // DIAGNÓSTICO TEMPORÁRIO: captura erro JS e mostra na tela (remover depois)
-  window.addEventListener('error', function(ev){
-    try{
-      var d = document.getElementById('_g20diag');
-      if(!d){
-        d = document.createElement('div');
-        d.id = '_g20diag';
-        d.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#c0392b;color:#fff;font:12px monospace;padding:8px;z-index:99999;white-space:pre-wrap;max-height:40vh;overflow:auto';
-        document.body.appendChild(d);
-      }
-      d.textContent += '⚠️ ' + (ev.message||'erro') + '\n  @ ' + (ev.filename||'').split('/').pop() + ':' + ev.lineno + '\n';
-    }catch(e){}
-  });
+  // buscarTape PRIMEIRO e protegido — não pode depender de nada antes dele
+  try{ buscarTape(); }catch(e){ console.warn('buscarTape:', e); }
 
   // Tema salvo, painel de notificações e pulse handler: shared G20Topbar
   if(window.G20Topbar) G20Topbar.init();
   renderSidebarUser();
-  buscarTape();
   loadPatStrip();
   if(typeof renderNotifBadge==='function') renderNotifBadge();
   // R61: v3InitBlocks removido — camada v3 legacy foi removida do dashboard-v21
