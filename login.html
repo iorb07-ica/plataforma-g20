@@ -367,7 +367,6 @@ var ADMIN_EMAILS = ['iorb@hotmail.com', 'iorb07@gmail.com'];
 
 async function checkApprovalAndRedirect(user) {
   try {
-    showMsg('🔎 Login OK: ' + (user.email||'?') + ' — verificando no banco...', 'info');
     var isAdminEmail = ADMIN_EMAILS.indexOf(user.email) !== -1;
     var doc = await db.collection('users').doc(user.uid).get();
 
@@ -432,22 +431,14 @@ auth.onAuthStateChanged(function(user) {
     _authProcessing = true;
     setLoading(true, 'Verificando acesso...');
     checkApprovalAndRedirect(user);
-  } else if (!user) {
-    var pd = new URLSearchParams(location.search);
-    if (pd.get('diag') === '1') showMsg('ℹ️ Diag: onAuthStateChanged SEM usuário (login não persistiu).', 'info');
   }
 });
 
-// ── getRedirectResult: captura resultado/erro do redirect ──────
-auth.getRedirectResult().then(function(result){
-  var pd = new URLSearchParams(location.search);
-  if (pd.get('diag') === '1') {
-    showMsg('ℹ️ Diag redirect: ' + (result && result.user ? 'OK '+result.user.email : 'sem usuário no retorno'), 'info');
-  }
-}).catch(function(e) {
+// ── getRedirectResult: captura erros do redirect (fallback) ────
+auth.getRedirectResult().catch(function(e) {
   if (e.code && e.code !== 'auth/no-auth-event' && e.code !== 'auth/null-user') {
     setLoading(false);
-    showMsg('⚠️ Redirect erro: ' + (e.code) + ' — ' + (e.message || ''), 'error');
+    showMsg('Erro no login Google: ' + (e.message || e.code), 'error');
   }
 });
 
