@@ -445,6 +445,39 @@
     ]}
   ];
 
+  function buildSectionEl(sec, currentPage) {
+    var div = document.createElement('div');
+    div.className = 'nav-section ' + sec.cls;
+    var lbl = document.createElement('div');
+    lbl.className = 'nav-label';
+    lbl.textContent = sec.section;
+    div.appendChild(lbl);
+    sec.items.forEach(function(item) {
+      var a = document.createElement('a');
+      a.href = item.href;
+      a.className = 'nav-item' + (item.href !== '#' && currentPage === item.href ? ' active' : '');
+      if (item.id) a.id = item.id;
+      a.setAttribute('data-tooltip', item.label);
+      if (typeof csm === 'function') a.onclick = function(){ csm(); };
+      var ico = document.createElement('span');
+      ico.className = 'ico';
+      ico.textContent = item.ico;
+      a.appendChild(ico);
+      var i = document.createElement('i');
+      i.setAttribute('data-lucide', item.lucide);
+      a.appendChild(i);
+      a.appendChild(document.createTextNode(item.label));
+      if (item.badge) {
+        var b = document.createElement('span');
+        b.style.cssText = 'margin-left:6px;background:var(--gold);color:#000;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px';
+        b.textContent = item.badge;
+        a.appendChild(b);
+      }
+      div.appendChild(a);
+    });
+    return div;
+  }
+
   function injectNav() {
     var sidebar = document.getElementById('sidebar') || document.querySelector('.sidebar');
     if (!sidebar) return;
@@ -500,6 +533,22 @@
           secEl.appendChild(a);
         });
       });
+      // Injeta seções do NAV_ITEMS que ainda não existem no HTML da página
+      // (ex: Planejamento). Mantém a ordem do NAV_ITEMS.
+      var _footerEl = sidebar.querySelector('.sidebar-footer');
+      NAV_ITEMS.forEach(function(sec, idx) {
+        if (sidebar.querySelector('.' + sec.cls)) return; // já existe
+        var secEl = buildSectionEl(sec, currentPage);
+        var anchor = null;
+        for (var j = idx + 1; j < NAV_ITEMS.length; j++) {
+          var nextEl = sidebar.querySelector('.' + NAV_ITEMS[j].cls);
+          if (nextEl) { anchor = nextEl; break; }
+        }
+        if (anchor) sidebar.insertBefore(secEl, anchor);
+        else if (_footerEl) sidebar.insertBefore(secEl, _footerEl);
+        else sidebar.appendChild(secEl);
+      });
+
       if (window.lucide && lucide.createIcons) lucide.createIcons();
 
       return;
