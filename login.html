@@ -270,13 +270,15 @@ body{
       <form id="loginForm" autocomplete="on" onsubmit="loginEmail();return false;">
       <div class="form-group">
         <label class="form-label">E-mail</label>
-        <input class="form-control" type="email" id="inputEmail" name="username"
-               autocomplete="username" inputmode="email" placeholder="seu@email.com">
+        <input class="form-control" type="email" id="inputEmail"
+               name="email" autocomplete="email"
+               inputmode="email" placeholder="seu@email.com">
       </div>
       <div class="form-group">
         <label class="form-label">Senha</label>
-        <input class="form-control" type="password" id="inputSenha" name="password"
-               autocomplete="current-password" placeholder="••••••••">
+        <input class="form-control" type="password" id="inputSenha"
+               name="password" autocomplete="current-password"
+               placeholder="••••••••">
       </div>
       <label class="remember-row">
         <input type="checkbox" id="chkRemember">
@@ -416,21 +418,25 @@ async function checkApprovalAndRedirect(user) {
   }
 }
 
-// ── Se já está logado, redireciona ───────────────────────────
-// Também captura o retorno do signInWithRedirect (login Google no mobile)
+// ── Controle de redirect em andamento ────────────────────────
+var _redirectHandled = false;
+
+// ── getRedirectResult: captura retorno do login Google no mobile ──
 auth.getRedirectResult().then(function(result) {
   if (result && result.user) {
+    _redirectHandled = true;
     setLoading(true, 'Verificando acesso...');
     checkApprovalAndRedirect(result.user);
   }
 }).catch(function(e) {
-  if (e.code && e.code !== 'auth/no-auth-event') {
+  if (e.code && e.code !== 'auth/no-auth-event' && e.code !== 'auth/null-user') {
     showMsg('Erro no login Google: ' + (e.message || e.code), 'error');
   }
 });
 
+// ── onAuthStateChanged: cobre login email/senha e sessão ativa ──
 auth.onAuthStateChanged(function(user) {
-  if (user) {
+  if (user && !_redirectHandled) {
     setLoading(true, 'Verificando acesso...');
     checkApprovalAndRedirect(user);
   }
@@ -439,10 +445,18 @@ auth.onAuthStateChanged(function(user) {
 // ── Persistência da sessão (checkbox "Manter conectado") ─────
 // Marcado = LOCAL (continua logado ao fechar o navegador).
 // Desmarcado = SESSION (fechar o navegador desconecta — seguro p/ PC compartilhado).
-async function _aplicarPersistencia() {
+// NOTA: no signInWithRedirect a persistência precisa ser definida ANTES do redirect,
+// então salvamos a preferência no localStorage e aplicamos quando possível.
+function _salvarPrefPersistencia() {
   try {
     var manter = document.getElementById('chkRemember');
-    var modo = (manter && manter.checked)
+    localStorage.setItem('g20_keep_logged', manter && manter.checked ? '1' : '0');
+  } catch(e){}
+}
+async function _aplicarPersistencia() {
+  try {
+    var keep = localStorage.getItem('g20_keep_logged');
+    var modo = (keep === '1')
       ? firebase.auth.Auth.Persistence.LOCAL
       : firebase.auth.Auth.Persistence.SESSION;
     await auth.setPersistence(modo);
@@ -450,21 +464,21 @@ async function _aplicarPersistencia() {
 }
 
 // ── Login Google ─────────────────────────────────────────────
-// No mobile, signInWithPopup é bloqueado pelo browser (o await quebra
-// a cadeia de gesto do usuário). Usamos redirect no mobile, popup no desktop.
+// Mobile: signInWithRedirect (popup é bloqueado pelo browser no mobile).
+// Desktop: signInWithPopup (melhor UX).
 async function loginGoogle() {
   hideMsg();
+  _salvarPrefPersistencia(); // salva preferência antes do redirect
   try {
     await _aplicarPersistencia();
     var provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
     var isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     if (isMobile) {
-      // redirect: sai da página e volta após autenticação (onAuthStateChanged cuida do redirect)
-      await auth.signInWithRedirect(provider);
+      await auth.signInWithRedirect(provider); // sai e volta — getRedirectResult cuida
     } else {
       setLoading(true, 'Abrindo login Google...');
-      await auth.signInWithPopup(provider);
+      await auth.signInWithPopup(provider); // onAuthStateChanged cuida
     }
   } catch (e) {
     setLoading(false);
