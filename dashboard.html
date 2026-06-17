@@ -12501,11 +12501,27 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     source: (function(){
       try { return localStorage.getItem('v21_movers_source') || 'gestao'; } catch(e){ return 'gestao'; }
     })(),
-    ibovCache: null,        // { data: [...], loadedAt: ts }
+    // Cache persistido em localStorage → sobrevive a reload, aparece NA HORA no boot.
+    ibovCache: (function(){
+      try {
+        var c = JSON.parse(localStorage.getItem('v21_movers_ibov') || 'null');
+        if (c && c.data && c.data.length) return c;
+      } catch(e){}
+      return null;
+    })(),
     ibovLoading: false,
     cg20Cache: null,        // { data: [...], loadedAt: ts }
     cg20Loading: false
   };
+
+  // Persiste o cache de movers IBOV pra aparecer instantâneo no próximo carregamento
+  function _v21SaveMoversCache() {
+    try {
+      if (V21Movers.ibovCache && V21Movers.ibovCache.data) {
+        localStorage.setItem('v21_movers_ibov', JSON.stringify(V21Movers.ibovCache));
+      }
+    } catch(e){}
+  }
 
   // Lista oficial dos tickers do IBOV (atualização trimestral; 85 tickers em 2026)
   // Fonte: B3 (composição do Ibovespa)
@@ -12757,6 +12773,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           if (data.length === 0) { tentaEstrategia(idx + 1); return; }
           V21Movers.ibovCache = { data: data, loadedAt: Date.now(), pregaoTs: null };
           V21Movers.ibovLoading = false;
+          _v21SaveMoversCache();
           console.log('%c[v21 ibov] ✓ ' + data.length + '/' + IBOV_TICKERS.length + ' tickers via ' + est.nome, 'color:#4ade80;font-weight:bold');
           cb(data);
         })
@@ -12811,6 +12828,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           }
           V21Movers.ibovCache = { data: data, loadedAt: Date.now(), pregaoTs: null };
           V21Movers.ibovLoading = false;
+          _v21SaveMoversCache();
           console.log('%c[v21 ibov] ✓ ' + data.length + '/' + IBOV_TICKERS.length + ' tickers via ' + est.nome, 'color:#4ade80;font-weight:bold');
           cb(data);
         });
@@ -12831,6 +12849,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         if (result.ok) {
           V21Movers.ibovCache = { data: result.data, loadedAt: Date.now(), pregaoTs: result.pregaoTs };
           V21Movers.ibovLoading = false;
+          _v21SaveMoversCache();
           console.log('%c[v21 ibov] ✓ ' + result.data.length + ' tickers via ' + est.nome, 'color:#4ade80;font-weight:bold');
           cb(result.data);
         } else {
@@ -12857,6 +12876,20 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
       // ═══ FONTE IBOV: fetch lazy via Yahoo ═══
       if (src === 'ibov') {
+        // Se há cache (mesmo velho), mostra NA HORA — nada de tela "Buscando…".
+        if (V21Movers.ibovCache && V21Movers.ibovCache.data && V21Movers.ibovCache.data.length) {
+          _renderMovers(V21Movers.ibovCache.data, altasEl, baixasEl);
+          _updateIbovHint();
+          // Atualiza em background se o cache passou de 10min (sem travar a UI)
+          var idade = Date.now() - (V21Movers.ibovCache.loadedAt || 0);
+          if (idade > 600000 && !V21Movers.ibovLoading) {
+            v21FetchIbov(function(data){
+              if (data && data.length) { _renderMovers(data, altasEl, baixasEl); _updateIbovHint(); }
+            });
+          }
+          return;
+        }
+        // Sem cache nenhum (primeiríssimo acesso) → aí sim mostra "Buscando…"
         if (V21Movers.ibovLoading) {
           altasEl.innerHTML = '<div class="v21-movers-empty">Buscando cotações do IBOV…</div>';
           baixasEl.innerHTML = '<div class="v21-movers-empty">Buscando cotações do IBOV…</div>';
