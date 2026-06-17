@@ -10381,13 +10381,24 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   }
 
   // Wrapper com debounce: v21LoadBench era chamado ~10x no carregamento
-  // (timeouts, callbacks, init). O debounce agrupa chamadas próximas numa só,
-  // evitando reprocessar o benchmark várias vezes seguidas.
+  // (timeouts, callbacks, init). O debounce agrupa chamadas próximas numa só.
   var _v21BenchTimer = null;
+  var _v21BenchLastSig = null;  // assinatura dos dados da última execução real
   function v21LoadBench() {
     if (_v21BenchTimer) clearTimeout(_v21BenchTimer);
     _v21BenchTimer = setTimeout(function(){
       _v21BenchTimer = null;
+      // Pula reprocessamento se os dados de entrada não mudaram desde a última vez
+      try {
+        var ic = window.V21C && V21C.histCache.ibov;
+        var sc = window.V21C && V21C.histCache.sp500;
+        var sig = (ic && ic.pontos ? ic.pontos.length : 0) + '|' +
+                  (sc && sc.pontos ? sc.pontos.length : 0) + '|' +
+                  (window.V21 && V21.benchPeriod ? V21.benchPeriod : '') + '|' +
+                  (localStorage.getItem('g20_patSnapshots') || '').length;
+        if (sig === _v21BenchLastSig) return;  // nada mudou → não reprocessa
+        _v21BenchLastSig = sig;
+      } catch(e){}
       _v21LoadBenchReal();
     }, 120);
   }
@@ -13189,14 +13200,37 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       iframeHeight = 352;
     }
 
-    playerEl.innerHTML =
-      '<iframe src="' + iframeSrc + '" '
+    var iframeHtml =
+      '<iframe data-src="' + iframeSrc + '" '
       + 'width="100%" height="' + iframeHeight + '" '
       + 'style="border-radius:12px;display:block;border:0;" '
       + 'frameborder="0" '
       + 'loading="lazy" '
       + 'allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" '
       + 'allowfullscreen></iframe>';
+
+    playerEl.innerHTML = iframeHtml;
+
+    // Lazy-load REAL: só define o src (que dispara o carregamento pesado do Spotify)
+    // quando o card entra na viewport. Antes, o player carregava no boot mesmo
+    // sem o usuário ver, atrasando a página toda e gerando ruído no console.
+    var ifr = playerEl.querySelector('iframe');
+    if (ifr) {
+      var ativarPlayer = function(){
+        if (ifr.src) return;
+        ifr.src = ifr.getAttribute('data-src');
+      };
+      if ('IntersectionObserver' in window) {
+        var obs = new IntersectionObserver(function(entries){
+          entries.forEach(function(e){
+            if (e.isIntersecting) { ativarPlayer(); obs.disconnect(); }
+          });
+        }, { rootMargin: '200px' });  // começa a carregar um pouco antes de aparecer
+        obs.observe(playerEl);
+      } else {
+        ativarPlayer(); // fallback: navegador antigo carrega normal
+      }
+    }
   }
 
   function v21LoadCharts() {
