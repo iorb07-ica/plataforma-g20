@@ -8611,11 +8611,16 @@ function buscarTape(){
   var FALLBACK = { selic: 14.75, cdi: 14.65, ipca: 5.32, igpm: 4.39 };
 
   // Aplica imediatamente: cache válido > cache antigo > fallback
+  // Object.assign garante que campos faltando no cache caem no FALLBACK
   if (bcbCache && bcbCache.data) {
     IND = Object.assign({}, FALLBACK, bcbCache.data);
   } else {
     IND = Object.assign({}, FALLBACK, IND);
   }
+  // Blindagem: qualquer campo nulo/inválido volta pro fallback (nunca "–")
+  ['selic','cdi','ipca','igpm'].forEach(function(k){
+    if(typeof IND[k] !== 'number' || isNaN(IND[k])) IND[k] = FALLBACK[k];
+  });
   renderTapeStatic(); // mostra algo na hora (nunca "–")
 
   // Busca BCB (só se cache expirou) — isolada para NÃO bloquear o mercado abaixo
@@ -8638,6 +8643,10 @@ function buscarTape(){
       bcbFetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados/ultimos/1?formato=json').then(function(d){ if(d&&d[0]) IND.ipca=parseFloat(d[0].valor); }),
       bcbFetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.189/dados/ultimos/12?formato=json').then(function(d){ if(d&&d.length){ var a=d.reduce(function(s,i){return s*(1+parseFloat(i.valor)/100);},1); IND.igpm=(a-1)*100; } })
     ]).then(function(){
+      // Blindagem: campo inválido após fetch volta pro fallback
+      ['selic','cdi','ipca','igpm'].forEach(function(k){
+        if(typeof IND[k] !== 'number' || isNaN(IND[k])) IND[k] = FALLBACK[k];
+      });
       try{ localStorage.setItem('g20_indBCB_cache',JSON.stringify({ts:Date.now(),data:IND})); }catch(e){}
       renderTapeStatic();
       _calcRFVariacaoDia();
