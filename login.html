@@ -367,6 +367,7 @@ var ADMIN_EMAILS = ['iorb@hotmail.com', 'iorb07@gmail.com'];
 
 async function checkApprovalAndRedirect(user) {
   try {
+    showMsg('🔎 Login OK: ' + (user.email||'?') + ' — verificando no banco...', 'info');
     var isAdminEmail = ADMIN_EMAILS.indexOf(user.email) !== -1;
     var doc = await db.collection('users').doc(user.uid).get();
 
@@ -414,7 +415,8 @@ async function checkApprovalAndRedirect(user) {
 
   } catch (e) {
     setLoading(false);
-    showMsg('Erro ao verificar acesso. Tente novamente.', 'error');
+    _authProcessing = false;
+    showMsg('⚠️ ERRO: ' + (e.code || '') + ' — ' + (e.message || e), 'error');
   }
 }
 
@@ -430,14 +432,22 @@ auth.onAuthStateChanged(function(user) {
     _authProcessing = true;
     setLoading(true, 'Verificando acesso...');
     checkApprovalAndRedirect(user);
+  } else if (!user) {
+    var pd = new URLSearchParams(location.search);
+    if (pd.get('diag') === '1') showMsg('ℹ️ Diag: onAuthStateChanged SEM usuário (login não persistiu).', 'info');
   }
 });
 
-// ── getRedirectResult: apenas para capturar erros do redirect ──
-auth.getRedirectResult().catch(function(e) {
+// ── getRedirectResult: captura resultado/erro do redirect ──────
+auth.getRedirectResult().then(function(result){
+  var pd = new URLSearchParams(location.search);
+  if (pd.get('diag') === '1') {
+    showMsg('ℹ️ Diag redirect: ' + (result && result.user ? 'OK '+result.user.email : 'sem usuário no retorno'), 'info');
+  }
+}).catch(function(e) {
   if (e.code && e.code !== 'auth/no-auth-event' && e.code !== 'auth/null-user') {
     setLoading(false);
-    showMsg('Erro no login Google: ' + (e.message || e.code), 'error');
+    showMsg('⚠️ Redirect erro: ' + (e.code) + ' — ' + (e.message || ''), 'error');
   }
 });
 
@@ -461,29 +471,32 @@ async function _aplicarPersistencia() {
 }
 
 // ── Login Google ─────────────────────────────────────────────
-// Mobile: signInWithRedirect (popup é bloqueado pelo browser no mobile).
-// Desktop: signInWithPopup (melhor UX).
-async function loginGoogle() {
+// Usa popup em TODAS as plataformas. O redirect quebra silenciosamente
+// quando o authDomain (g20-masterclass.firebaseapp.com) difere do domínio
+// do app (iorb07-ica.github.io) — caso clássico no Safari/iOS.
+// O popup precisa ser chamado IMEDIATAMENTE no clique (sem await antes),
+// senão o browser bloqueia por perder a cadeia de gesto do usuário.
+function loginGoogle() {
   hideMsg();
   _salvarPrefPersistencia();
-  try {
-    await _aplicarPersistencia();
-    var provider = new firebase.auth.GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: 'select_account' });
-    var isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    if (isMobile) {
-      setLoading(true, 'Redirecionando para o Google...');
-      await auth.signInWithRedirect(provider);
-    } else {
-      setLoading(true, 'Abrindo login Google...');
-      await auth.signInWithPopup(provider);
-    }
-  } catch (e) {
-    setLoading(false);
-    if (e.code !== 'auth/popup-closed-by-user') {
-      showMsg('Erro no login Google: ' + (e.message || e.code), 'error');
-    }
-  }
+  var provider = new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  // dispara o popup JÁ (sincronamente) — aplica persistência em paralelo
+  _aplicarPersistencia();
+  setLoading(true, 'Abrindo login Google...');
+  auth.signInWithPopup(provider)
+    .then(function(){ /* onAuthStateChanged cuida do redirect */ })
+    .catch(function(e){
+      setLoading(false);
+      if (e.code === 'auth/popup-blocked') {
+        // se mesmo assim o popup for bloqueado, cai pro redirect
+        auth.signInWithRedirect(provider).catch(function(err){
+          showMsg('Erro no login Google: ' + (err.message || err.code), 'error');
+        });
+      } else if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') {
+        showMsg('Erro no login Google: ' + (e.message || e.code), 'error');
+      }
+    });
 }
 
 // ── Login Email/Senha ────────────────────────────────────────
