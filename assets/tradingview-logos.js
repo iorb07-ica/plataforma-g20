@@ -220,6 +220,17 @@
     'EL': 'estee-lauder',
     'ELV': 'anthem',
     'EMBR3': 'embry-ltd',
+    'EMBJ3': 'embry-ltd',
+    'MOTV3': 'motiva',
+    'MBRF3': 'mbrf-global-foods',
+    'AXIA3': 'centrais-eletricas-brasileiras-eletrobras',
+    'AXIA6': 'centrais-eletricas-brasileiras-eletrobras',
+    'ELET3': 'centrais-eletricas-brasileiras-eletrobras',
+    'ELET6': 'centrais-eletricas-brasileiras-eletrobras',
+    'CPLE3': 'copel',
+    'CPLE6': 'copel',
+    'CSMG3': 'copasa',
+    'SMFT3': 'smartfit',
     'EME': 'emcor',
     'EMR': 'emerson',
     'ENEV3': 'eneva',
@@ -661,6 +672,15 @@
       if(!ticker) return null;
       var key = this._normalize(ticker);
       var logoid = LOGOS[key];
+      // Fallback: ticker BR não mapeado (ex: EMBJ3, subscrições/recibos) —
+      // tenta a mesma raiz de 4 letras com outras variações (3,4,5,6,11).
+      if(!logoid && /^[A-Z]{4}\d+$/.test(key)){
+        var raiz = key.replace(/\d+$/, '');
+        var variacoes = ['3','4','11','5','6','31','34','35','39'];
+        for(var i=0;i<variacoes.length;i++){
+          if(LOGOS[raiz+variacoes[i]]){ logoid = LOGOS[raiz+variacoes[i]]; break; }
+        }
+      }
       if(!logoid) return null;
       var size = (opts && opts.size) || 'big';
       var suffix = size === 'big' ? '--big.svg' : '.svg';
