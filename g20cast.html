@@ -473,6 +473,8 @@ if(localStorage.getItem('g20_uid')){
 <script>
 var RSS_URL='https://anchor.fm/s/af896e6c/podcast/rss';
 var SPOTIFY_URL='https://open.spotify.com/show/6D3NYNYewNBjkiPCcW1yKA';
+// Proxy próprio (Vercel) em 1º lugar — sempre funciona. Públicos viram fallback.
+var G20_RSS_PROXY='https://g20-proxy.vercel.app/api/rss';
 var CORS_PROXIES=['https://api.codetabs.com/v1/proxy?quest=','https://api.allorigins.win/raw?url=','https://corsproxy.io/?url='];
 var _allEps=[],_visibleCnt=12;
 function fmtDate(d){try{var dt=new Date(d);if(isNaN(dt))return d;var m=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];return dt.getDate()+' '+m[dt.getMonth()]+'. '+dt.getFullYear();}catch(e){return d;}}
@@ -758,8 +760,17 @@ function parseRSS(xmlStr){
 }
 function fetchViaProxy(url,idx){
   if(idx===undefined)idx=0;
-  if(idx>=CORS_PROXIES.length)return Promise.reject(new Error('Proxies esgotados'));
-  return fetch(CORS_PROXIES[idx]+encodeURIComponent(url))
+  // idx 0 = proxy próprio G20 (busca o XML direto, sem wrapper)
+  if(idx===0){
+    return fetch(G20_RSS_PROXY)
+      .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text();})
+      .then(function(t){ if(!t||t.indexOf('<')===-1)throw new Error('vazio'); return t; })
+      .catch(function(){return fetchViaProxy(url,1);});
+  }
+  // idx 1+ = proxies públicos (fallback)
+  var p=idx-1;
+  if(p>=CORS_PROXIES.length)return Promise.reject(new Error('Proxies esgotados'));
+  return fetch(CORS_PROXIES[p]+encodeURIComponent(url))
     .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text();})
     .then(function(t){try{var j=JSON.parse(t);if(j.contents)return j.contents;}catch(e){}return t;})
     .catch(function(){return fetchViaProxy(url,idx+1);});
