@@ -5918,29 +5918,58 @@ body.pat-hidden .v21-change-extra::after{
   }
 
   /* ═══════════════════════════════════════════════════════════
-     MOBILE — Top 10 Movers (≤768px)
-     1 coluna: TOP ALTAS (com scroll) e abaixo TOP BAIXAS (com scroll).
-     Cada linha em layout horizontal limpo: logo | ticker+preço+barra | pct+delta.
-     Nada de 2 colunas espremidas (causava barras vazadas e baixas sem espaço).
+     MOBILE — Top 10 Movers (≤768px) — FLIP 3D
+     Frente = TOP ALTAS, verso = TOP BAIXAS. Botão no header vira o card.
+     Desktop fica intacto (2 colunas lado a lado).
      ═══════════════════════════════════════════════════════════ */
   @media (max-width: 768px) {
-    /* empilha as colunas: altas em cima, baixas embaixo */
+    /* grid vira palco do flip 3D */
     .v21-movers-grid {
-      display: flex !important;
-      flex-direction: column !important;
-      gap: 14px !important;
+      display: block !important;
+      position: relative !important;
+      perspective: 1400px !important;
+      min-height: 360px !important;
     }
     .v21-movers-col-divider { display: none !important; }
-    .v21-movers-col { width: 100% !important; }
 
-    /* cada lista com altura limitada + scroll próprio (mostra ~4 e rola o resto) */
+    /* inner que gira: contém as 2 colunas como faces */
+    .v21-movers-grid {
+      transform-style: preserve-3d;
+    }
+    /* cada coluna é uma face absoluta */
+    .v21-movers-col {
+      position: absolute !important;
+      inset: 0 !important;
+      width: 100% !important;
+      backface-visibility: hidden !important;
+      -webkit-backface-visibility: hidden !important;
+      transition: transform 0.7s cubic-bezier(0.4, 0.0, 0.2, 1) !important;
+      transform-style: preserve-3d;
+    }
+    /* coluna 1 = ALTAS (frente) */
+    .v21-movers-col:first-of-type {
+      transform: rotateY(0deg) !important;
+    }
+    /* coluna 2 = BAIXAS (verso, começa girada) */
+    .v21-movers-col:last-of-type {
+      transform: rotateY(180deg) !important;
+    }
+    /* estado virado: aplicado no .v21-movers-grid via classe .flipped */
+    .v21-movers-grid.flipped .v21-movers-col:first-of-type {
+      transform: rotateY(-180deg) !important;
+    }
+    .v21-movers-grid.flipped .v21-movers-col:last-of-type {
+      transform: rotateY(0deg) !important;
+    }
+
+    /* lista de cada face com scroll próprio */
     .v21-movers-list {
-      max-height: 280px !important;
+      max-height: 300px !important;
       overflow-y: auto !important;
       padding-right: 4px !important;
     }
 
-    /* linha horizontal limpa (igual desktop, só ajustada) */
+    /* linha horizontal limpa (legível) */
     .v21-movers-row {
       display: grid !important;
       grid-template-columns: 38px minmax(0,1fr) auto !important;
@@ -5949,7 +5978,6 @@ body.pat-hidden .v21-change-extra::after{
       padding: 10px 6px !important;
     }
     .v21-movers-logo { width: 38px !important; height: 38px !important; }
-
     .v21-movers-body { min-width: 0 !important; }
     .v21-movers-body-top {
       flex-direction: row !important;
@@ -5960,8 +5988,6 @@ body.pat-hidden .v21-change-extra::after{
     }
     .v21-movers-ticker { font-size: 14px !important; }
     .v21-movers-price { font-size: 12px !important; }
-
-    /* coluna direita: pct + delta empilhados à direita, largura própria */
     .v21-movers-right {
       flex-direction: column !important;
       align-items: flex-end !important;
@@ -5975,6 +6001,41 @@ body.pat-hidden .v21-change-extra::after{
       padding: 3px 8px !important;
     }
     .v21-movers-delta { font-size: 11px !important; white-space: nowrap !important; }
+
+    /* botão de virar (injetado via JS) — toggle Altas/Baixas */
+    .v21-movers-flip-toggle {
+      display: inline-flex !important;
+      align-items: center;
+      gap: 0;
+      background: var(--v21-surface-2, #2d2a33);
+      border: 1px solid rgba(201,169,97,0.15);
+      border-radius: 8px;
+      padding: 2px;
+      margin-left: 4px;
+    }
+    .v21-movers-flip-toggle button {
+      border: none;
+      background: transparent;
+      color: var(--v21-text-2, #9a958e);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 5px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all .2s ease;
+      font-family: 'DM Sans', sans-serif;
+    }
+    .v21-movers-flip-toggle button.active {
+      background: var(--v21-gold, #c9a961);
+      color: #1a191e;
+    }
+  }
+  /* esconde o toggle no desktop (segurança, caso o JS injete em qualquer largura) */
+  @media (min-width: 769px) {
+    .v21-movers-flip-toggle { display: none !important; }
   }
 
 </style>
@@ -11434,6 +11495,52 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     v21SyncMoversLabel();    v21LoadMovers();
   }
   window.v21ToggleMoversSource = v21ToggleMoversSource;
+
+  // ═══ FLIP MOBILE dos Movers — botão toggle Altas/Baixas (≤768px) ═══
+  // Injeta um toggle no header do card que vira o grid (CSS .flipped).
+  // Só aparece no mobile (CSS esconde no desktop). Idempotente.
+  function v21SetupMoversFlip() {
+    var grid = document.querySelector('.v21-movers-grid');
+    if (!grid) return;
+    var head = document.querySelector('.v21-2d-head');
+    if (!head) return;
+    if (head.querySelector('.v21-movers-flip-toggle')) return; // já injetado
+
+    var wrap = document.createElement('div');
+    wrap.className = 'v21-movers-flip-toggle';
+
+    var btnAltas = document.createElement('button');
+    btnAltas.className = 'active';
+    btnAltas.innerHTML = '▲ Altas';
+    var btnBaixas = document.createElement('button');
+    btnBaixas.innerHTML = '▼ Baixas';
+
+    btnAltas.onclick = function(){
+      grid.classList.remove('flipped');
+      btnAltas.classList.add('active');
+      btnBaixas.classList.remove('active');
+    };
+    btnBaixas.onclick = function(){
+      grid.classList.add('flipped');
+      btnBaixas.classList.add('active');
+      btnAltas.classList.remove('active');
+    };
+
+    wrap.appendChild(btnAltas);
+    wrap.appendChild(btnBaixas);
+
+    // insere no grupo de controles do header (ao lado do filtro de fonte)
+    var controls = head.querySelector('div[style*="margin-left:auto"]');
+    if (controls) controls.appendChild(wrap);
+    else head.appendChild(wrap);
+  }
+  // injeta após o boot (o card já existe no HTML estático)
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', v21SetupMoversFlip);
+  } else {
+    v21SetupMoversFlip();
+  }
+  window.v21SetupMoversFlip = v21SetupMoversFlip;
 
   // Busca cotações dos ativos da CG20 via proxy G20 Vercel (batch em paralelo)
   // Lazy: só quando o usuário clica no filtro CG20
