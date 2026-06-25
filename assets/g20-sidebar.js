@@ -1187,28 +1187,6 @@
     }, 200);
   });
 
-  // ═══ BACKDROP MOBILE — ativa o .overlay EXISTENTE da página quando a sidebar abre ═══
-  // Dashboard e módulos já têm <div class="overlay"> próprio. Em vez de criar um
-  // backdrop novo (que conflitava com z-index), apenas espelhamos a classe .show
-  // do overlay com o estado .open da sidebar. Funciona em todas as páginas.
-  (function setupSidebarBackdrop(){
-    function sync(){
-      var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
-      var ov = document.getElementById('overlay') || document.querySelector('.overlay');
-      if (!sb) return;
-      var open = sb.classList.contains('open');
-      if (ov) ov.classList.toggle('show', open);
-    }
-    function attach(){
-      var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
-      if (!sb) { setTimeout(attach, 200); return; }
-      var obs = new MutationObserver(sync);
-      obs.observe(sb, { attributes: true, attributeFilter: ['class'] });
-      sync();
-    }
-    attach();
-  })();
-
   // Garante que o item Atlas G20 apareça mesmo quando a sidebar demora a renderizar
   // Usa MutationObserver para detectar quando .nav-section--investimentos entra no DOM
   (function waitForInvestimentos(){
