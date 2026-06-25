@@ -417,6 +417,60 @@
     if (window.lucide && lucide.createIcons) lucide.createIcons();
   }
 
+  // ═══ MOBILE — injeta as TABS como seção no topo da sidebar (≤768px) ═══
+  // No mobile as .g20-tabs da topbar são escondidas (CSS), então essas 3
+  // páginas precisam de acesso pela sidebar. Seção criada/removida conforme
+  // o tamanho da tela, sem afetar o desktop.
+  function injectMobileTabs() {
+    var sidebar = document.getElementById('sidebar') || document.querySelector('.sidebar');
+    if (!sidebar) return;
+    var isMobile = window.innerWidth <= 768;
+    var existing = sidebar.querySelector('.nav-section--acesso-rapido');
+
+    if (!isMobile) {
+      // Desktop: garante que a seção mobile não fique presente
+      if (existing) existing.parentNode.removeChild(existing);
+      return;
+    }
+    if (existing) return; // já injetada
+
+    var currentPage = window.location.pathname.split('/').pop() || 'dashboard.html';
+
+    // Monta a seção reaproveitando o padrão visual das demais
+    var sec = document.createElement('div');
+    sec.className = 'nav-section nav-section--acesso-rapido';
+
+    var lbl = document.createElement('div');
+    lbl.className = 'nav-label';
+    lbl.textContent = 'Acesso Rápido';
+    sec.appendChild(lbl);
+
+    TABS.forEach(function(tab) {
+      if (tab.soon) return;
+      var a = document.createElement('a');
+      a.href = tab.href;
+      a.className = 'nav-item' + (tab.href === currentPage ? ' active' : '');
+      a.setAttribute('data-tooltip', tab.label);
+      if (typeof csm === 'function') a.onclick = function(){ csm(); };
+      var ico = document.createElement('i');
+      ico.setAttribute('data-lucide', tab.lucide);
+      a.appendChild(ico);
+      a.appendChild(document.createTextNode(tab.label));
+      sec.appendChild(a);
+    });
+
+    // Insere logo após o cabeçalho do usuário / antes da primeira nav-section
+    var firstSection = sidebar.querySelector('.nav-section');
+    if (firstSection) {
+      firstSection.parentNode.insertBefore(sec, firstSection);
+    } else {
+      var footerEl = sidebar.querySelector('.sidebar-footer');
+      if (footerEl) sidebar.insertBefore(sec, footerEl);
+      else sidebar.appendChild(sec);
+    }
+    if (window.lucide && lucide.createIcons) lucide.createIcons();
+  }
+
   // ═══ NAV ITEMS — lista central, injetada em todas as páginas ═══
   var NAV_ITEMS = [
     { section: 'Principal', cls: 'nav-section--principal', items: [
@@ -1100,6 +1154,7 @@
     aplicarEstado();
     injectTabs();
     injectNav();
+    injectMobileTabs();
     initSidebarTexts();
     injectCollapseBtn();
     setTooltips();
@@ -1121,6 +1176,46 @@
   } else {
     init();
   }
+
+  // Reage a mudança de tamanho/orientação: injeta ou remove a seção
+  // "Acesso Rápido" da sidebar conforme cruza o breakpoint de 768px (debounce).
+  var _mtTimer;
+  window.addEventListener('resize', function(){
+    clearTimeout(_mtTimer);
+    _mtTimer = setTimeout(function(){
+      if (typeof injectMobileTabs === 'function') injectMobileTabs();
+    }, 200);
+  });
+
+  // ═══ BACKDROP MOBILE — sincroniza body.sidebar-open-mobile com a sidebar aberta ═══
+  // Independe de quem faz o toggle (dashboard tem o seu; módulos usam o fallback).
+  // Observa a classe .open da sidebar e espelha numa classe no body, que o CSS usa
+  // para mostrar o backdrop escuro atrás da sidebar (::before).
+  (function setupSidebarBackdrop(){
+    function sync(){
+      var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
+      if (!sb) return;
+      var open = sb.classList.contains('open');
+      document.body.classList.toggle('sidebar-open-mobile', open);
+    }
+    function attach(){
+      var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
+      if (!sb) { setTimeout(attach, 200); return; }
+      var obs = new MutationObserver(sync);
+      obs.observe(sb, { attributes: true, attributeFilter: ['class'] });
+      sync();
+      // Fecha a sidebar ao tocar no backdrop
+      document.body.addEventListener('click', function(e){
+        if (!document.body.classList.contains('sidebar-open-mobile')) return;
+        var sbEl = document.getElementById('sidebar') || document.querySelector('.sidebar');
+        if (sbEl && !sbEl.contains(e.target) &&
+            !e.target.closest('.btn-menu') && !e.target.closest('[onclick*="toggleSidebar"]')) {
+          if (typeof window.closeSidebar === 'function') window.closeSidebar();
+        }
+      });
+    }
+    attach();
+  })();
 
   // Garante que o item Atlas G20 apareça mesmo quando a sidebar demora a renderizar
   // Usa MutationObserver para detectar quando .nav-section--investimentos entra no DOM
