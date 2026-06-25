@@ -1187,16 +1187,17 @@
     }, 200);
   });
 
-  // ═══ BACKDROP MOBILE — sincroniza body.sidebar-open-mobile com a sidebar aberta ═══
-  // Independe de quem faz o toggle (dashboard tem o seu; módulos usam o fallback).
-  // Observa a classe .open da sidebar e espelha numa classe no body, que o CSS usa
-  // para mostrar o backdrop escuro atrás da sidebar (::before).
+  // ═══ BACKDROP MOBILE — ativa o .overlay EXISTENTE da página quando a sidebar abre ═══
+  // Dashboard e módulos já têm <div class="overlay"> próprio. Em vez de criar um
+  // backdrop novo (que conflitava com z-index), apenas espelhamos a classe .show
+  // do overlay com o estado .open da sidebar. Funciona em todas as páginas.
   (function setupSidebarBackdrop(){
     function sync(){
       var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
+      var ov = document.getElementById('overlay') || document.querySelector('.overlay');
       if (!sb) return;
       var open = sb.classList.contains('open');
-      document.body.classList.toggle('sidebar-open-mobile', open);
+      if (ov) ov.classList.toggle('show', open);
     }
     function attach(){
       var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
@@ -1204,15 +1205,6 @@
       var obs = new MutationObserver(sync);
       obs.observe(sb, { attributes: true, attributeFilter: ['class'] });
       sync();
-      // Fecha a sidebar ao tocar no backdrop
-      document.body.addEventListener('click', function(e){
-        if (!document.body.classList.contains('sidebar-open-mobile')) return;
-        var sbEl = document.getElementById('sidebar') || document.querySelector('.sidebar');
-        if (sbEl && !sbEl.contains(e.target) &&
-            !e.target.closest('.btn-menu') && !e.target.closest('[onclick*="toggleSidebar"]')) {
-          if (typeof window.closeSidebar === 'function') window.closeSidebar();
-        }
-      });
     }
     attach();
   })();
