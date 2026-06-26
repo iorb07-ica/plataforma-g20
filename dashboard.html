@@ -5918,45 +5918,59 @@ body.pat-hidden .v21-change-extra::after{
   }
 
   /* ═══════════════════════════════════════════════════════════
-     MOBILE — Top 10 Movers (≤768px) — toggle Altas/Baixas
-     Mostra UMA coluna por vez (display), com micro-animação de flip.
-     Sem duas faces no mesmo plano 3D = sem vazamento/espelhamento.
-     Desktop fica intacto (2 colunas lado a lado).
+     MOBILE — Top 10 Movers (≤768px) — FLIP 3D (estrutura correta)
+     grid(perspective) > inner(preserve-3d, gira) > [col-altas, col-baixas]
+     As faces são as colunas; backface-visibility esconde o verso.
+     Desktop intacto (2 colunas lado a lado).
      ═══════════════════════════════════════════════════════════ */
   @media (max-width: 768px) {
+    /* palco: aplica perspectiva */
     .v21-movers-grid {
       display: block !important;
+      perspective: 1600px !important;
       position: relative !important;
     }
     .v21-movers-col-divider { display: none !important; }
 
-    .v21-movers-col {
+    /* inner: o elemento que realmente gira */
+    .v21-movers-flip-inner {
+      position: relative !important;
       width: 100% !important;
+      transform-style: preserve-3d !important;
+      transition: transform 0.7s cubic-bezier(0.4, 0.0, 0.2, 1) !important;
     }
-    /* por padrão mostra ALTAS (1ª coluna), esconde BAIXAS (2ª) */
-    .v21-movers-col:last-of-type {
-      display: none !important;
-    }
-    /* virado: esconde ALTAS, mostra BAIXAS */
-    .v21-movers-grid.flipped .v21-movers-col:first-of-type {
-      display: none !important;
-    }
-    .v21-movers-grid.flipped .v21-movers-col:last-of-type {
-      display: block !important;
-    }
-    /* micro-animação ao trocar (sobe + fade), evita corte seco */
-    .v21-movers-col {
-      animation: v21MoversFade 0.35s ease;
+    .v21-movers-grid.flipped .v21-movers-flip-inner {
+      transform: rotateY(180deg) !important;
     }
 
-    /* lista de cada coluna com scroll próprio */
+    /* faces: altas (frente) e baixas (verso) ocupam o mesmo lugar */
+    .v21-movers-col {
+      width: 100% !important;
+      backface-visibility: hidden !important;
+      -webkit-backface-visibility: hidden !important;
+    }
+    /* ALTAS = frente (no fluxo, define a altura do card) */
+    .v21-movers-col:first-of-type {
+      position: relative !important;
+      transform: rotateY(0deg) !important;
+    }
+    /* BAIXAS = verso (absoluta por cima, já girada) */
+    .v21-movers-col:last-of-type {
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      transform: rotateY(180deg) !important;
+    }
+
+    /* lista com scroll + FOLGA embaixo (harmonia com o topo) */
     .v21-movers-list {
       max-height: 360px !important;
       overflow-y: auto !important;
       padding-right: 4px !important;
+      padding-bottom: 8px !important;
     }
 
-    /* linha horizontal limpa (legível) */
+    /* linha horizontal limpa */
     .v21-movers-row {
       display: grid !important;
       grid-template-columns: 38px minmax(0,1fr) auto !important;
@@ -6020,13 +6034,11 @@ body.pat-hidden .v21-change-extra::after{
       color: #1a191e;
     }
   }
-  @keyframes v21MoversFade {
-    from { opacity: 0; transform: translateY(6px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
   /* esconde o toggle no desktop (segurança) */
   @media (min-width: 769px) {
     .v21-movers-flip-toggle { display: none !important; }
+    /* no desktop o inner não deve interferir no grid de 2 colunas */
+    .v21-movers-flip-inner { display: contents; }
   }
 
 </style>
@@ -11496,6 +11508,16 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     var head = document.querySelector('.v21-2d-head');
     if (!head) return;
     if (head.querySelector('.v21-movers-flip-toggle')) return; // já injetado
+
+    // Cria o inner wrapper que gira em 3D, envolvendo as 2 colunas.
+    // Estrutura final: grid(perspective) > inner(preserve-3d) > [col-altas, divider, col-baixas]
+    if (!grid.querySelector('.v21-movers-flip-inner')) {
+      var inner = document.createElement('div');
+      inner.className = 'v21-movers-flip-inner';
+      // move todos os filhos do grid pra dentro do inner
+      while (grid.firstChild) inner.appendChild(grid.firstChild);
+      grid.appendChild(inner);
+    }
 
     var wrap = document.createElement('div');
     wrap.className = 'v21-movers-flip-toggle';
