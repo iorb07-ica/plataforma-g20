@@ -11603,7 +11603,19 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     if (!grid) return;
     var head = document.querySelector('.v21-2d-head');
     if (!head) return;
-    if (head.querySelector('.v21-movers-flip-toggle')) return; // já injetado
+
+    var isMobile = window.matchMedia('(max-width: 768px)').matches;
+    var existingToggle = head.querySelector('.v21-movers-flip-toggle');
+
+    // DESKTOP: garante que o toggle NAO exista (remove se foi injetado antes)
+    if (!isMobile) {
+      if (existingToggle) existingToggle.remove();
+      grid.classList.remove('flipped');   // desfaz estado virado
+      return;
+    }
+
+    // MOBILE daqui pra baixo
+    if (existingToggle) return; // já injetado
 
     // Cria o inner wrapper que gira em 3D, envolvendo as 2 colunas.
     // Estrutura final: grid(perspective) > inner(preserve-3d) > [col-altas, divider, col-baixas]
@@ -11651,6 +11663,14 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     v21SetupMoversFlip();
   }
   window.v21SetupMoversFlip = v21SetupMoversFlip;
+  // Reage ao redimensionar / girar: injeta no mobile, remove no desktop (debounce)
+  (function(){
+    var _t;
+    window.addEventListener('resize', function(){
+      clearTimeout(_t);
+      _t = setTimeout(v21SetupMoversFlip, 200);
+    });
+  })();
 
   // Busca cotações dos ativos da CG20 via proxy G20 Vercel (batch em paralelo)
   // Lazy: só quando o usuário clica no filtro CG20
