@@ -11539,7 +11539,13 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       return null;
     })(),
     ibovLoading: false,
-    cg20Cache: null,        // { data: [...], loadedAt: ts }
+    cg20Cache: (function(){
+      try {
+        var c = JSON.parse(localStorage.getItem('v21_movers_cg20') || 'null');
+        if (c && c.data && c.data.length) return c;
+      } catch(e){}
+      return null;
+    })(),
     cg20Loading: false
   };
 
@@ -11548,6 +11554,15 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     try {
       if (V21Movers.ibovCache && V21Movers.ibovCache.data) {
         localStorage.setItem('v21_movers_ibov', JSON.stringify(V21Movers.ibovCache));
+      }
+    } catch(e){}
+  }
+
+  // Persiste o cache de movers CG20 (mesma estratégia do IBOV: instantâneo no reload)
+  function _v21SaveCG20Cache() {
+    try {
+      if (V21Movers.cg20Cache && V21Movers.cg20Cache.data) {
+        localStorage.setItem('v21_movers_cg20', JSON.stringify(V21Movers.cg20Cache));
       }
     } catch(e){}
   }
@@ -11739,6 +11754,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         return;
       }
       V21Movers.cg20Cache = { data: data, loadedAt: Date.now() };
+      _v21SaveCG20Cache();
       console.log('%c[v21 cg20] ✓ ' + data.length + '/' + tickers.length + ' cotações OK', 'color:#4ade80;font-weight:bold');
       cb(data);
     });
@@ -12099,18 +12115,36 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           return;
         }
 
-        // Cache 10min
-        if (V21Movers.cg20Cache && (Date.now() - V21Movers.cg20Cache.loadedAt) < 600000) {
-          _renderMovers(V21Movers.cg20Cache.data, altasEl, baixasEl);
+        var CG20_TTL = 600000; // 10min
+        var temCache = V21Movers.cg20Cache && V21Movers.cg20Cache.data && V21Movers.cg20Cache.data.length;
+        var cacheFresco = temCache && (Date.now() - V21Movers.cg20Cache.loadedAt) < CG20_TTL;
+
+        // Helper: aplica qtd atual da carteira e renderiza
+        var _renderCG20 = function(data){
+          data.forEach(function(x){ x.qtd = (posCG[x.t] && posCG[x.t].qtd) || 0; });
+          _renderMovers(data, altasEl, baixasEl);
+        };
+
+        // 1) Sempre que houver cache, mostra IMEDIATAMENTE (mesmo que velho) — sem espera
+        if (temCache) {
+          _renderCG20(V21Movers.cg20Cache.data.slice());
+          // cache fresco: nada mais a fazer
+          if (cacheFresco) return;
+          // cache velho: revalida em background (stale-while-revalidate), sem bloquear a tela
+          if (!V21Movers.cg20Loading) {
+            v21FetchCG20Quotes(tickersCG20, function(data){
+              if (data && data.length) _renderCG20(data);  // troca suave quando chegar
+            });
+          }
           return;
         }
 
+        // 2) Sem cache nenhum (primeira vez): aí sim mostra o "Buscando…"
         if (V21Movers.cg20Loading) {
           altasEl.innerHTML = '<div class="v21-movers-empty">Buscando cotações da CG20…</div>';
           baixasEl.innerHTML = '<div class="v21-movers-empty">Buscando cotações da CG20…</div>';
           return;
         }
-
         altasEl.innerHTML = '<div class="v21-movers-empty">Buscando cotações da CG20…</div>';
         baixasEl.innerHTML = '<div class="v21-movers-empty">Buscando cotações da CG20…</div>';
         v21FetchCG20Quotes(tickersCG20, function(data){
@@ -12119,11 +12153,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
             baixasEl.innerHTML = '<div class="v21-movers-empty">Tente novamente em instantes</div>';
             return;
           }
-          // R55: Injeta qtd na carteira pra calcular delta R$ da posição (não unitário)
-          data.forEach(function(x){
-            x.qtd = (posCG[x.t] && posCG[x.t].qtd) || 0;
-          });
-          _renderMovers(data, altasEl, baixasEl);
+          _renderCG20(data);
         });
         return;
       }
