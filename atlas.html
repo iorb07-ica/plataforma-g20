@@ -2802,6 +2802,32 @@ setTimeout(()=>{
   const w=container.clientWidth,h=container.clientHeight;
   if(w>0&&h>0){camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);resizeOv();}
 },600);
+
+// ── FIX: globo não carregava na 1ª abertura do dia ──────────────────────────
+// Causa: o renderer nascia com o tamanho do container ANTES de o layout da
+// plataforma (sidebar/topbar) assentar. Com dimensão errada/zero, o globo não
+// aparecia até um resize manual (sair e voltar). O delay fixo de 600ms acima
+// não bastava quando a 1ª carga era mais lenta (sem cache).
+// Solução: ResizeObserver recalcula renderer+câmera assim que o container ganha
+// ou muda de tamanho — no momento exato, sem depender de timing adivinhado.
+(function(){
+  if(typeof ResizeObserver==='undefined') return;
+  let _lastW=0,_lastH=0;
+  const ro=new ResizeObserver(()=>{
+    const w=container.clientWidth,h=container.clientHeight;
+    if(w>0&&h>0&&(w!==_lastW||h!==_lastH)){
+      _lastW=w;_lastH=h;
+      camera.aspect=w/h;camera.updateProjectionMatrix();
+      renderer.setSize(w,h);resizeOv();
+    }
+  });
+  ro.observe(container);
+})();
+// Reforço extra: alguns navegadores só resolvem o tamanho no próximo frame.
+requestAnimationFrame(()=>{
+  const w=container.clientWidth,h=container.clientHeight;
+  if(w>0&&h>0){camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);resizeOv();}
+});
 canvas3.style.cursor='grab';
 
 // Init timeline labels
