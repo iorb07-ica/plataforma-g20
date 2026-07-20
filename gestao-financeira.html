@@ -4034,6 +4034,19 @@ body.didactic-on .didactic-note{ display:block; }
                     currentUserUid = user.uid;      // <<< identidade primária
                     currentUserEmail = user.email;  // mantido só p/ exibição
                     activeProfileName = 'Pessoal';
+                    // Atualiza a sidebar com o nome REAL do usuário logado (Firebase),
+                    // caso o cache g20_user_profile ainda não tenha populado.
+                    try {
+                      var dn = user.displayName || (user.email ? user.email.split('@')[0] : '');
+                      if (dn) {
+                        var nameTextEl = document.querySelector('#sidebarName .user-name-text');
+                        if (nameTextEl) nameTextEl.textContent = dn;
+                        var initEl2 = document.getElementById('sidebarInitials');
+                        if (initEl2) initEl2.textContent = dn.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase();
+                        var badge2 = document.getElementById('badgeInfinity');
+                        if (badge2) badge2.style.display = 'none';
+                      }
+                    } catch(e){}
                     loginSuccess();
                 });
             };
@@ -4221,9 +4234,10 @@ body.didactic-on .didactic-note{ display:block; }
             const key = getStorageKey();
             const rawData = localStorage.getItem(key);
 
-            // Seed de dados inicial (usado quando não há dados)
+            // Seed inicial ZERADO — aluno novo começa sem lançamentos (lança do zero).
+            // Mantém só as categorias/formas de pagamento padrão pra ele já ter opções.
             const seedData = {
-                transactions: [{ id: Date.now(), desc: "Aporte Inicial", amount: 10000, category: "Geral", type: "income", date: new Date().toISOString().split('T')[0], payment: "Pix", tags: [] }],
+                transactions: [],
                 categories: ['Geral', 'Alimentação', 'Moradia', 'Transporte', 'Lazer'],
                 catIcons: { 'Geral': 'fa-tag' },
                 paymentMethods: ['Pix', 'Dinheiro'],
@@ -4235,7 +4249,7 @@ body.didactic-on .didactic-note{ display:block; }
                 const safeProfile = (activeProfileName || 'Pessoal').replace(/[^a-zA-Z0-9_-]/g, '_');
                 const docId = 'financeiro_' + safeProfile;
                 const _finish = () => { ensureDataStructure(); renderAll(); init(); };
-                // 1) tenta o path NOVO (uid)
+                // 1) tenta o path NOVO (uid) — única fonte da verdade
                 window._fbLoad(['users', currentUserUid, 'dados', docId]).then(docSnap => {
                     if (docSnap.exists && docSnap.data() && docSnap.data().data) {
                         data = JSON.parse(docSnap.data().data);
@@ -4243,26 +4257,13 @@ body.didactic-on .didactic-note{ display:block; }
                         _finish();
                         return;
                     }
-                    // 2) path novo vazio → tenta MIGRAR do path antigo (email), se existir
-                    if (currentUserEmail) {
-                        const safeEmail = currentUserEmail.replace(/[^a-zA-Z0-9@._-]/g, '_');
-                        window._fbLoad(['usuarios', safeEmail, 'perfis', safeProfile]).then(oldSnap => {
-                            if (oldSnap.exists && oldSnap.data() && oldSnap.data().data) {
-                                data = JSON.parse(oldSnap.data().data);
-                                if (key) localStorage.setItem(key, JSON.stringify(data));
-                                saveData(); // grava no path NOVO (uid)
-                            } else if (rawData) {
-                                data = JSON.parse(rawData); saveData();
-                            } else {
-                                data = seedData; saveData();
-                            }
-                            _finish();
-                        }).catch(() => { data = rawData ? JSON.parse(rawData) : seedData; _finish(); });
-                    } else if (rawData) {
-                        data = JSON.parse(rawData); saveData(); _finish();
+                    // 2) sem dados na nuvem: usa localStorage se houver, senão começa ZERADO
+                    if (rawData) {
+                        data = JSON.parse(rawData); saveData();
                     } else {
-                        data = seedData; saveData(); _finish();
+                        data = seedData; saveData();
                     }
+                    _finish();
                 }).catch(err => {
                     console.warn('Firestore load failed, usando cache local:', err);
                     data = rawData ? JSON.parse(rawData) : seedData;
@@ -7701,6 +7702,34 @@ body.didactic-on .didactic-note{ display:block; }
         var _bc = document.querySelector('.brand-container'); if(_bc) _bc.style.display = 'none';
 
         // Verifica o estado da Autenticação ou exibe Login
+        // SIDEBAR: atualiza nome/turma/avatar com o perfil do usuário LOGADO
+        // (antes ficava "Israel Oreano" hardcoded no HTML). Puxa de g20_user_profile,
+        // o cache de perfil que a plataforma mantém após o login.
+        (function updateSidebarUser(){
+          try {
+            var u = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
+            var name = u.name || u.nome || '';
+            var turma = u.turma || 'Turma 20';
+            if (name) {
+              var nameTextEl = document.querySelector('#sidebarName .user-name-text');
+              if (nameTextEl) nameTextEl.textContent = name;
+              var badge = document.getElementById('badgeInfinity');
+              // esconde o badge Infinity se o usuário não for infinity
+              if (badge && u.infinite !== true && u.g20Infinity !== true) badge.style.display = 'none';
+            }
+            var turmaEl = document.getElementById('sidebarTurma');
+            if (turmaEl && turma) turmaEl.textContent = turma;
+            var initEl = document.getElementById('sidebarInitials');
+            if (initEl && name) {
+              initEl.textContent = name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase();
+            }
+            var avatarEl = document.getElementById('sidebarAvatar');
+            if (avatarEl && u.photo) {
+              avatarEl.innerHTML = '<img src="'+u.photo+'" onerror="this.style.display=\'none\'">';
+            }
+          } catch(e){}
+        })();
+
         checkAuthState();
 
     
