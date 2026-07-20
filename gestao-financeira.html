@@ -3961,6 +3961,7 @@ body.didactic-on .didactic-note{ display:block; }
 
         // === ESTADOS DE LOGIN E PROFILE (V118.0) ===
         let currentUserEmail = null;
+        let currentUserUid = null;  // identidade primária (padrão da plataforma: users/{uid})
         let currentUserProfiles = []; // Array de nomes de profiles
         let activeProfileName = 'Pessoal'; // Default
 
@@ -3969,16 +3970,14 @@ body.didactic-on .didactic-note{ display:block; }
 
         // Prefixo para as chaves no localStorage: `g20_data_${email}_${profileName}`
         function getStorageKey() {
-            if (!currentUserEmail) return null;
-            const safeEmail = currentUserEmail.replace(/[^a-zA-Z0-9@.-]/g, '');
+            if (!currentUserUid) return null;
             const safeProfile = activeProfileName.replace(/[^a-zA-Z0-9_-]/g, '');
-            return `g20_data_${safeEmail}_${safeProfile}`;
+            return `g20_fin_${currentUserUid}_${safeProfile}`;
         }
 
         function getUserProfilesKey() {
-            if (!currentUserEmail) return null;
-            const safeEmail = currentUserEmail.replace(/[^a-zA-Z0-9@.-]/g, '');
-            return `g20_profiles_${safeEmail}`;
+            if (!currentUserUid) return null;
+            return `g20_fin_profiles_${currentUserUid}`;
         }
 
 // ── LOGIN UI HELPERS ──
@@ -4032,7 +4031,8 @@ body.didactic-on .didactic-note{ display:block; }
                 if (!window._fbReady) { setTimeout(tryAuth, 200); return; }
                 window._fbOnAuth((user) => {
                     if (!user) { location.href = 'login.html'; return; }
-                    currentUserEmail = user.email;
+                    currentUserUid = user.uid;      // <<< identidade primária
+                    currentUserEmail = user.email;  // mantido só p/ exibição
                     activeProfileName = 'Pessoal';
                     loginSuccess();
                 });
@@ -4181,11 +4181,40 @@ body.didactic-on .didactic-note{ display:block; }
             if (!currentUserProfiles.includes(activeProfileName)) {
                 activeProfileName = currentUserProfiles[0] || 'Pessoal';
             }
+
+            // Em background: busca a lista de perfis da NUVEM (fonte da verdade
+            // multi-dispositivo). Se vier diferente, atualiza o seletor.
+            if (window._fbLoad && currentUserUid) {
+                window._fbLoad(['users', currentUserUid, 'dados', 'financeiro_perfis']).then(snap => {
+                    if (snap.exists && snap.data() && snap.data().data) {
+                        try {
+                            const nuvem = JSON.parse(snap.data().data);
+                            if (Array.isArray(nuvem) && nuvem.length &&
+                                JSON.stringify(nuvem) !== JSON.stringify(currentUserProfiles)) {
+                                currentUserProfiles = nuvem;
+                                if (key) localStorage.setItem(key, JSON.stringify(nuvem));
+                                if (!currentUserProfiles.includes(activeProfileName)) {
+                                    activeProfileName = currentUserProfiles[0] || 'Pessoal';
+                                }
+                                if (typeof updateProfileUI === 'function') updateProfileUI();
+                            }
+                        } catch(e){}
+                    }
+                }).catch(()=>{});
+            }
         }
 
         function saveUserProfiles() {
             const key = getUserProfilesKey();
             if (key) localStorage.setItem(key, JSON.stringify(currentUserProfiles));
+            // Sincroniza a LISTA de perfis na nuvem (users/{uid}/dados/financeiro_perfis)
+            // pra que os perfis criados apareçam em qualquer dispositivo.
+            if (window._fbSave && currentUserUid) {
+                window._fbSave(
+                    ['users', currentUserUid, 'dados', 'financeiro_perfis'],
+                    { data: JSON.stringify(currentUserProfiles), atualizado: new Date().toISOString() }
+                ).catch(e => console.warn('Firestore save perfis error:', e));
+            }
         }
 
         function loadProfileData() {
@@ -4201,31 +4230,43 @@ body.didactic-on .didactic-note{ display:block; }
                 budgets: {}
             };
 
-            // Tenta carregar do Firestore (nuvem) primeiro
-            if (window._fbDb && currentUserEmail) {
-                const safeEmail   = currentUserEmail.replace(/[^a-zA-Z0-9@._-]/g, '_');
+            // Tenta carregar do Firestore (nuvem) primeiro — PADRÃO PLATAFORMA: users/{uid}
+            if (window._fbDb && currentUserUid) {
                 const safeProfile = (activeProfileName || 'Pessoal').replace(/[^a-zA-Z0-9_-]/g, '_');
-                window._fbLoad(['usuarios', safeEmail, 'perfis', safeProfile]).then(docSnap => {
+                const docId = 'financeiro_' + safeProfile;
+                const _finish = () => { ensureDataStructure(); renderAll(); init(); };
+                // 1) tenta o path NOVO (uid)
+                window._fbLoad(['users', currentUserUid, 'dados', docId]).then(docSnap => {
                     if (docSnap.exists && docSnap.data() && docSnap.data().data) {
                         data = JSON.parse(docSnap.data().data);
-                        // Sync local cache
                         if (key) localStorage.setItem(key, JSON.stringify(data));
-                    } else if (rawData) {
-                        data = JSON.parse(rawData);
-                        saveData(); // migra para nuvem
-                    } else {
-                        data = seedData;
-                        saveData();
+                        _finish();
+                        return;
                     }
-                    ensureDataStructure();
-                    renderAll();
-                    init();
+                    // 2) path novo vazio → tenta MIGRAR do path antigo (email), se existir
+                    if (currentUserEmail) {
+                        const safeEmail = currentUserEmail.replace(/[^a-zA-Z0-9@._-]/g, '_');
+                        window._fbLoad(['usuarios', safeEmail, 'perfis', safeProfile]).then(oldSnap => {
+                            if (oldSnap.exists && oldSnap.data() && oldSnap.data().data) {
+                                data = JSON.parse(oldSnap.data().data);
+                                if (key) localStorage.setItem(key, JSON.stringify(data));
+                                saveData(); // grava no path NOVO (uid)
+                            } else if (rawData) {
+                                data = JSON.parse(rawData); saveData();
+                            } else {
+                                data = seedData; saveData();
+                            }
+                            _finish();
+                        }).catch(() => { data = rawData ? JSON.parse(rawData) : seedData; _finish(); });
+                    } else if (rawData) {
+                        data = JSON.parse(rawData); saveData(); _finish();
+                    } else {
+                        data = seedData; saveData(); _finish();
+                    }
                 }).catch(err => {
                     console.warn('Firestore load failed, usando cache local:', err);
                     data = rawData ? JSON.parse(rawData) : seedData;
-                    ensureDataStructure();
-                    renderAll();
-                    init();
+                    _finish();
                 });
                 // Mostra dados locais enquanto aguarda nuvem (UX imediata)
                 if (rawData) {
@@ -4266,13 +4307,13 @@ body.didactic-on .didactic-note{ display:block; }
             const key = getStorageKey();
             // Cache local imediato
             if (key) localStorage.setItem(key, JSON.stringify(data));
-            // Persistência na nuvem
-            if (window._fbSave && currentUserEmail) {
-                const safeEmail   = currentUserEmail.replace(/[^a-zA-Z0-9@._-]/g, '_');
+            // Persistência na nuvem — PADRÃO PLATAFORMA: users/{uid}/dados/financeiro_{perfil}
+            if (window._fbSave && currentUserUid) {
                 const safeProfile = (activeProfileName || 'Pessoal').replace(/[^a-zA-Z0-9_-]/g, '_');
+                const docId = 'financeiro_' + safeProfile;
                 window._fbSave(
-                    ['usuarios', safeEmail, 'perfis', safeProfile],
-                    { data: JSON.stringify(data), email: currentUserEmail,
+                    ['users', currentUserUid, 'dados', docId],
+                    { data: JSON.stringify(data), email: currentUserEmail || '',
                       perfil: activeProfileName, atualizado: new Date().toISOString() }
                 ).catch(e => console.warn('Firestore save error:', e));
             }
