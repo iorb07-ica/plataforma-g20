@@ -1040,6 +1040,8 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
   display:flex; align-items:center; justify-content:space-between;
 }
 
+/* Botão Heatmap — estado ligado (dourado) */
+#btnHeatmapCG20.heat-on{background:linear-gradient(135deg,#c9a961,#e8c766)!important;color:#1a191e!important;border-color:transparent!important;font-weight:700}
 /* Heatmap mensal */
 .prov-heatmap { display:grid; grid-template-columns:repeat(12,1fr); gap:4px; }
 .prov-hm-month { display:flex; flex-direction:column; align-items:center; gap:3px; }
@@ -1943,6 +1945,7 @@ body.pat-hidden .g-kpi-sub::after{justify-content:flex-start;padding-right:0;pad
         <div class="hdr-actions">
           <button class="btn-sm btn-outline" onclick="buscarCotacoes()" id="btnAtualizar">↻ Atualizar cotações</button>
           <button class="btn-sm btn-outline" id="btnMoeda" onclick="toggleMoeda()" style="font-size:11px" title="Alternar exibição BRL / USD">🇧🇷 BRL</button>
+          <button class="btn-sm btn-outline" id="btnHeatmapCG20" onclick="toggleHeatmapCarteira()" style="font-size:13px" title="Heatmap de rentabilidade">🔥 Heatmap</button>
           <div class="col-selector-wrap" id="colSelectorWrap">
             <button class="btn-sm btn-outline" onclick="toggleColSelector()" title="Escolher colunas visíveis" style="font-size:13px">⚙️ Colunas</button>
             <div class="col-selector-panel" id="colSelectorPanel">
@@ -4463,6 +4466,58 @@ function renderPosicoes(){
 
   // Reordena colunas conforme preferência salva do usuário (th + td do tbody)
   if(typeof aplicarOrdemColunas === 'function') aplicarOrdemColunas();
+
+  // Aplica heatmap (fundo por intensidade da variação) nas colunas de período
+  if(typeof aplicarHeatmapCarteira === 'function') aplicarHeatmapCarteira();
+}
+
+// ═══ HEATMAP — fundo por intensidade da variação (Opção 1: suave translúcida) ═══
+// Toggle liga/desliga (salvo em localStorage). Teto adaptado por período.
+var HEATMAP_CAPS = {
+  vardia: 3, varsem: 6, var30d: 12, var3m: 15, var6m: 20,
+  varano: 30, var5y: 60, rentPct: 40, totalRet: 60
+};
+var HEATMAP_MULT = 0.60; // intensidade
+function heatmapAtivo(){ return localStorage.getItem('g20_cg20_heatmap') === '1'; }
+function aplicarHeatmapCarteira(){
+  var tbody = document.getElementById('tbodyPosicoes');
+  if(!tbody) return;
+  var ativo = heatmapAtivo();
+  Object.keys(HEATMAP_CAPS).forEach(function(col){
+    var cap = HEATMAP_CAPS[col];
+    tbody.querySelectorAll('td[data-col="'+col+'"]').forEach(function(td){
+      var span = td.querySelector('span');
+      if(!ativo){
+        // Modo OFF: remove fundo e restaura cor original da letra (verde/vermelho)
+        td.style.background = '';
+        if(span){ span.style.color = ''; }
+        return;
+      }
+      // Modo ON: fundo por intensidade + letra branca
+      var m = (td.textContent||'').replace(',','.').match(/-?\d+(\.\d+)?/);
+      if(!m){ td.style.background=''; return; }
+      var v = parseFloat(m[0]);
+      if(isNaN(v) || v===0){ td.style.background=''; if(span){span.style.color='';} return; }
+      var t = Math.min(Math.abs(v)/cap, 1);
+      var alpha = ((0.08 + t*0.55) * HEATMAP_MULT).toFixed(3);
+      var rgb = v>0 ? '61,172,88' : '224,74,74';
+      td.style.background = 'rgba('+rgb+','+alpha+')';
+      if(span){ span.style.color = '#fff'; }
+    });
+  });
+}
+function toggleHeatmapCarteira(){
+  var novo = heatmapAtivo() ? '0' : '1';
+  localStorage.setItem('g20_cg20_heatmap', novo);
+  atualizarBtnHeatmap();
+  aplicarHeatmapCarteira();
+}
+function atualizarBtnHeatmap(){
+  var btn = document.getElementById('btnHeatmapCG20');
+  if(!btn) return;
+  var on = heatmapAtivo();
+  btn.classList.toggle('heat-on', on);
+  btn.title = on ? 'Heatmap ligado (clique para desligar)' : 'Heatmap desligado (clique para ligar)';
 }
 
 function atualizarVarDia(varBRL, totalPos){
@@ -10990,6 +11045,7 @@ function aplOnTipoChange_row(rowId){
     function initAll(){
       moveTickerOutOfContent();
       updateTopbarHeight();
+      if(typeof atualizarBtnHeatmap === 'function') atualizarBtnHeatmap();
     }
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', initAll);
