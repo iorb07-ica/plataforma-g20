@@ -261,7 +261,11 @@ th .sort-arrow{margin-left:4px;opacity:.5}
 th.sorted .sort-arrow{opacity:1;color:var(--gold)}
 td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:middle;background:var(--bg)}
 tr:last-child td{border-bottom:none}
-tr:hover td{background:var(--sur2)!important}
+/* Hover: destaca a linha SEM apagar as cores do heatmap.
+   Em vez de trocar o fundo (que cobria o heatmap), clareia a linha inteira
+   e adiciona uma borda dourada sutil em cima e embaixo. */
+tr:hover td{filter:brightness(1.15);box-shadow:inset 0 1px 0 rgba(201,169,97,.3),inset 0 -1px 0 rgba(201,169,97,.3)}
+tr:hover td:not([style*="background"]){background:var(--sur2)}
 .r{text-align:right}
 .ticker-cell{font-weight:700;font-size:13px;color:var(--text);letter-spacing:.3px}
 .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.3px}
@@ -2869,6 +2873,7 @@ function saveData(k, v, opts){
   if(!_cg20IsAdmin){
     if(k === 'colsVisiveis' || k === 'colOrdem'){
       try{ localStorage.setItem('g20_'+k, JSON.stringify(v)); }catch(e){}
+      _db_cache[k] = v; // mantém o cache em sincronia (senão loadData retorna valor antigo e a seleção não "pega")
     }
     return;
   }
@@ -4479,30 +4484,59 @@ var HEATMAP_CAPS = {
 };
 var HEATMAP_MULT = 0.60; // intensidade
 function heatmapAtivo(){ return localStorage.getItem('g20_cg20_heatmap') === '1'; }
+// Colunas de variação onde o heatmap se aplica
+var HEATMAP_COLS = ['vardia','varsem','var30d','var3m','var6m','varano','var5y','rentPct','totalRet'];
+
+// ── ESCALA FIXA: 5 níveis de verde + 5 de vermelho (paleta Finviz clareado, fonte branca) ──
+var HEATMAP_VERDES  = ['#4a9e5e','#3a9454','#2a8a4a','#1a7a3e','#0e6634']; // fraco → forte
+var HEATMAP_VERMS   = ['#e05555','#cc4444','#b83333','#a02020','#8a1818']; // fraco → forte
+var HEATMAP_NEUTRO  = 'rgba(70,72,82,.55)';
+
+// Cortes (limites) de cada nível, por GRUPO de período. |valor| >= último corte = nível máximo.
+// [nivel1<, nivel2<, nivel3<, nivel4<, nivel5>=]
+var HEATMAP_CORTES = {
+  vardia:  [1.5, 3, 4.5, 6],      // diário
+  varsem:  [2.5, 4.5, 6.5, 8.5],  // semana
+  var30d:  [3, 6, 9, 12],         // mês
+  var3m:   [5, 10, 15, 20],       // trimestre
+  var6m:   [7.5, 15, 22.5, 30],   // semestre
+  varano:  [10, 20, 30, 40],      // ano/YTD
+  var5y:   [20, 40, 60, 80],      // 5 anos
+  rentPct: [20, 40, 60, 80],      // rentabilidade %
+  totalRet:[20, 40, 60, 80]       // retorno total
+};
+function _heatNivel(v, cortes){
+  var a = Math.abs(v);
+  if(a < cortes[0]) return 0;
+  if(a < cortes[1]) return 1;
+  if(a < cortes[2]) return 2;
+  if(a < cortes[3]) return 3;
+  return 4;
+}
+function _heatColor(v, cortes){
+  if(v === 0) return HEATMAP_NEUTRO;
+  var n = _heatNivel(v, cortes);
+  return v > 0 ? HEATMAP_VERDES[n] : HEATMAP_VERMS[n];
+}
 function aplicarHeatmapCarteira(){
   var tbody = document.getElementById('tbodyPosicoes');
   if(!tbody) return;
   var ativo = heatmapAtivo();
-  Object.keys(HEATMAP_CAPS).forEach(function(col){
-    var cap = HEATMAP_CAPS[col];
+  HEATMAP_COLS.forEach(function(col){
+    var cortes = HEATMAP_CORTES[col] || HEATMAP_CORTES.var30d;
     tbody.querySelectorAll('td[data-col="'+col+'"]').forEach(function(td){
-      var span = td.querySelector('span');
+      var sp = td.querySelector('span');
       if(!ativo){
         // Modo OFF: remove fundo e restaura cor original da letra (verde/vermelho)
-        td.style.background = '';
-        if(span){ span.style.color = ''; }
+        td.style.background=''; if(sp) sp.style.color='';
         return;
       }
-      // Modo ON: fundo por intensidade + letra branca
-      var m = (td.textContent||'').replace(',','.').match(/-?\d+(\.\d+)?/);
+      var m=(td.textContent||'').replace(',','.').match(/-?\d+(\.\d+)?/);
       if(!m){ td.style.background=''; return; }
       var v = parseFloat(m[0]);
-      if(isNaN(v) || v===0){ td.style.background=''; if(span){span.style.color='';} return; }
-      var t = Math.min(Math.abs(v)/cap, 1);
-      var alpha = ((0.08 + t*0.55) * HEATMAP_MULT).toFixed(3);
-      var rgb = v>0 ? '61,172,88' : '224,74,74';
-      td.style.background = 'rgba('+rgb+','+alpha+')';
-      if(span){ span.style.color = '#fff'; }
+      if(isNaN(v)){ td.style.background=''; return; }
+      td.style.background = _heatColor(v, cortes);
+      if(sp){ sp.style.color = '#fff'; } // fonte sempre branca
     });
   });
 }
@@ -9186,7 +9220,10 @@ var COL_DEFS = [
 ];
 
 function getColsVisiveis(){
-  var saved = loadData('colsVisiveis', null);
+  // Lê DIRETO do localStorage (não do _db_cache volátil, que o boot assíncrono
+  // do Firebase pode resetar/sobrescrever — causava o bug intermitente dos checkboxes).
+  var saved = null;
+  try{ var raw = localStorage.getItem('g20_colsVisiveis'); if(raw) saved = JSON.parse(raw); }catch(e){ saved = null; }
   var def = {};
   COL_DEFS.forEach(function(c){ def[c.col] = c.fixed ? true : !!c.def; });
   if(!saved) return def;
@@ -9198,7 +9235,11 @@ function getColsVisiveis(){
   return saved;
 }
 
-function saveColsVisiveis(obj){ saveData('colsVisiveis', obj); }
+function saveColsVisiveis(obj){
+  // Persiste DIRETO no localStorage (fonte da verdade estável) e sincroniza o cache.
+  try{ localStorage.setItem('g20_colsVisiveis', JSON.stringify(obj)); }catch(e){}
+  try{ _db_cache['colsVisiveis'] = obj; }catch(e){}
+}
 
 function toggleColSelector(){
   var panel = document.getElementById('colSelectorPanel');
@@ -9287,6 +9328,8 @@ function aplicarColsVisiveis(){
     }
   });
   existing.textContent = rules.join('\n');
+  // Recalcula o heatmap: mudar colunas visíveis pode alterar a régua adaptativa
+  if(typeof aplicarHeatmapCarteira === 'function') aplicarHeatmapCarteira();
 }
 
 // ============================================================
@@ -9429,11 +9472,13 @@ function thDragEnd(th){
 function salvarOrdemColunas(){
   var ths = Array.from(document.querySelectorAll('#theadRow th[data-col]'));
   var ordem = ths.map(function(th){ return th.dataset.col; });
-  saveData('colOrdem', ordem);
+  try{ localStorage.setItem('g20_colOrdem', JSON.stringify(ordem)); }catch(e){}
+  try{ _db_cache['colOrdem'] = ordem; }catch(e){}
 }
 
 function aplicarOrdemColunas(){
-  var ordem = loadData('colOrdem', null);
+  var ordem = null;
+  try{ var raw = localStorage.getItem('g20_colOrdem'); if(raw) ordem = JSON.parse(raw); }catch(e){ ordem = null; }
   if(!ordem || !ordem.length) return;
 
   // 1) Reordena os <th> do cabeçalho
