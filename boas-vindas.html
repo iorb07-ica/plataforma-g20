@@ -141,9 +141,10 @@ html,body{height:100%;background:#090b0f;font-family:'DM Sans',sans-serif}
         <input type="checkbox" id="g20TermosCheck2">
         <span>Declaro estar ciente de que a Plataforma tem <strong>caráter exclusivamente educacional</strong>, não oferece recomendação de investimento, e que toda decisão financeira é de minha <strong>responsabilidade exclusiva</strong>.</span>
       </label>
+      <div id="g20TermosErro" style="display:none;color:#e63946;font-size:13px;font-weight:700;margin-bottom:12px;text-align:center;padding:10px 12px;background:rgba(230,57,70,.1);border:1px solid rgba(230,57,70,.3);border-radius:8px">⚠️ Você precisa marcar as duas caixas para aceitar os Termos e acessar a plataforma.</div>
       <div class="g20-termos-actions">
         <button class="g20-termos-btn g20-termos-btn-cancel" onclick="g20RecusarTermos()">Recusar e sair</button>
-        <button class="g20-termos-btn g20-termos-btn-accept" id="g20TermosBtnAccept" disabled onclick="g20AceitarTermos()">Aceitar e continuar</button>
+        <button class="g20-termos-btn g20-termos-btn-accept" id="g20TermosBtnAccept" onclick="g20AceitarTermos()">Aceitar e continuar</button>
       </div>
     </div>
   </div>
@@ -169,6 +170,7 @@ var auth = firebase.auth();
 var db   = firebase.firestore();
 var _currentUid = null;
 var _currentData = null;
+var _jaAceitouTermos = false;
 
 // === MODAL: bind dos checkboxes pra habilitar botão ===
 document.getElementById('g20TermosCheck1').addEventListener('change', _g20UpdBtn);
@@ -176,7 +178,8 @@ document.getElementById('g20TermosCheck2').addEventListener('change', _g20UpdBtn
 function _g20UpdBtn(){
   var c1 = document.getElementById('g20TermosCheck1').checked;
   var c2 = document.getElementById('g20TermosCheck2').checked;
-  document.getElementById('g20TermosBtnAccept').disabled = !(c1 && c2);
+  // Ao marcar as duas, esconde a mensagem de erro (o botão permanece sempre clicável)
+  if (c1 && c2) { var e = document.getElementById('g20TermosErro'); if (e) e.style.display = 'none'; }
 }
 
 // === MODAL: mostrar/esconder ===
@@ -186,6 +189,15 @@ function g20EsconderTermos(){ document.getElementById('g20TermosOverlay').classL
 // === MODAL: aceitar ===
 function g20AceitarTermos(){
   if(!_currentUid){ alert('Erro: sessão expirada.'); return; }
+  var c1 = document.getElementById('g20TermosCheck1').checked;
+  var c2 = document.getElementById('g20TermosCheck2').checked;
+  var erro = document.getElementById('g20TermosErro');
+  // Sem marcar as DUAS caixas, não deixa acessar — mostra mensagem de erro.
+  if (!c1 || !c2) {
+    if (erro) erro.style.display = 'block';
+    return;
+  }
+  if (erro) erro.style.display = 'none';
   var btn = document.getElementById('g20TermosBtnAccept');
   btn.disabled = true;
   btn.textContent = 'Registrando...';
@@ -197,12 +209,11 @@ function g20AceitarTermos(){
       dataPublicacao: TERMOS_DATA,
       userAgent: navigator.userAgent || '',
       idioma: navigator.language || ''
-    }
+    },
+    tutorialVisto: true
   }, {merge: true}).then(function(){
     console.log('[G20 Termos] Aceite registrado');
-    g20EsconderTermos();
-    // Continua o fluxo original
-    _iniciarFluxoBoasVindas();
+    window.location.href = 'dashboard.html';
   }).catch(function(err){
     console.error('[G20 Termos] Erro:', err);
     alert('Erro ao registrar aceite. Tente novamente.');
@@ -228,17 +239,11 @@ auth.onAuthStateChanged(async function(user) {
   _currentUid = user.uid;
   _currentData = doc.data();
 
-  // Verifica se já aceitou a versão atual dos termos
+  // Guarda se já aceitou a versão atual dos termos (o gate acontece ao clicar em acessar)
   var aceite = _currentData.termosAceitos;
-  var jaAceitou = aceite && aceite.versao === TERMOS_VERSAO;
+  _jaAceitouTermos = !!(aceite && aceite.versao === TERMOS_VERSAO);
 
-  if (!jaAceitou) {
-    // Mostra modal de aceite — bloqueia fluxo
-    g20MostrarTermos();
-  } else {
-    // Já aceitou — segue o fluxo normal
-    _iniciarFluxoBoasVindas();
-  }
+  _iniciarFluxoBoasVindas();
 });
 
 function _iniciarFluxoBoasVindas(){
@@ -255,6 +260,11 @@ function _iniciarFluxoBoasVindas(){
 }
 
 function entrar() {
+  // Aceite dos Termos é OBRIGATÓRIO. Se ainda não aceitou, abre o modal e NÃO deixa entrar.
+  if (!_jaAceitouTermos) {
+    g20MostrarTermos();
+    return;
+  }
   var btn = document.getElementById('btnEntrar');
   btn.disabled = true;
   btn.textContent = 'Carregando...';
