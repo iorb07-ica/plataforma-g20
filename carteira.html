@@ -1947,7 +1947,7 @@ body.pat-hidden .g-kpi-sub::after{justify-content:flex-start;padding-right:0;pad
       <div class="section-hdr">
         <div class="section-title">Carteira G20</div>
         <div class="hdr-actions">
-          <button class="btn-sm btn-outline" onclick="buscarCotacoes()" id="btnAtualizar">↻ Atualizar cotações</button>
+          <button class="btn-sm btn-outline" onclick="atualizarCotacoesManual()" id="btnAtualizar" style="display:none">↻ Atualizar cotações</button>
           <button class="btn-sm btn-outline" id="btnMoeda" onclick="toggleMoeda()" style="font-size:11px" title="Alternar exibição BRL / USD">🇧🇷 BRL</button>
           <button class="btn-sm btn-outline" id="btnHeatmapCG20" onclick="toggleHeatmapCarteira()" style="font-size:13px" title="Heatmap de rentabilidade">🔥 Heatmap</button>
           <div class="col-selector-wrap" id="colSelectorWrap">
@@ -3634,6 +3634,35 @@ function buscarCotacaoCripto(ticker){
 }
 
 
+// ── Cooldown de 1 min no botão "Atualizar cotações" (só admin vê o botão) ──
+// O cooldown vale SÓ para o clique manual. As buscas automáticas (no load) chamam
+// buscarCotacoes() direto e não são afetadas.
+var _cotCooldownUntil = 0;
+function atualizarCotacoesManual(){
+  if(Date.now() < _cotCooldownUntil) return;   // ainda dentro do 1 min
+  _cotCooldownUntil = Date.now() + 60000;       // trava por 60s
+  buscarCotacoes();
+  _tickCooldownCotacoes();
+}
+function _tickCooldownCotacoes(){
+  var btn = document.getElementById('btnAtualizar');
+  if(!btn) return;
+  if(btn._cotTimer) clearInterval(btn._cotTimer);
+  function upd(){
+    var s = Math.ceil((_cotCooldownUntil - Date.now())/1000);
+    if(s <= 0){
+      clearInterval(btn._cotTimer); btn._cotTimer = null;
+      btn.disabled = false;
+      btn.textContent = '↻ Atualizar cotações';
+    } else {
+      btn.disabled = true;
+      btn.textContent = '↻ Aguarde ' + s + 's';
+    }
+  }
+  upd();
+  btn._cotTimer = setInterval(upd, 1000);
+}
+
 function buscarCotacoes(){
   var pos = calcPosicoes();
   if(!pos.length){ alert('Registre aportes primeiro.'); return; }
@@ -3758,8 +3787,12 @@ function buscarCotacoes(){
 
   Promise.all(promises).then(function(){
     var found = Object.keys(cotacoes).length;
-    document.getElementById('btnAtualizar').textContent = '↻ Atualizar cotações';
-    document.getElementById('btnAtualizar').disabled = false;
+    if(Date.now() < _cotCooldownUntil){
+      _tickCooldownCotacoes(); // clique manual: mantém o contador até completar 1 min
+    } else {
+      document.getElementById('btnAtualizar').textContent = '↻ Atualizar cotações';
+      document.getElementById('btnAtualizar').disabled = false;
+    }
 
     if(found > 0){
       atualizarBadge('ok');
@@ -9950,6 +9983,8 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
     if(_cg20IsAdmin){
       // Admin efetivo: garante que NÃO fique em modo leitura (corrige o palpite do script inicial).
       try{ document.documentElement.classList.remove('cg20-ro'); if(document.body) document.body.classList.remove('cg20-ro'); }catch(e){}
+      // Botão "Atualizar cotações" é exclusivo do admin (aluno usa o auto-refresh de 15 min).
+      try{ var _bA = document.getElementById('btnAtualizar'); if(_bA) _bA.style.display = ''; }catch(e){}
       return;
     }
     var bloquear = ['abrirModalAporte','aplSalvar','salvarAporte','editarAporte','editarAporteDrawer',

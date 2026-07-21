@@ -1354,7 +1354,7 @@ body:not(.light) .asset-logo{background:transparent;border-color:rgba(255,255,25
               <button class="filter-pill" onclick="setRVFiltro('UCITs',this)" title="ETFs irlandeses UCITS">UCITs</button>
             </div>
             <div style="display:flex;gap:8px;align-items:center">
-              <button class="btn-sm btn-outline" onclick="buscarCotacoesRV()" id="rvBtnAtualizar" style="font-size:12px">↻ Cotações</button>
+              <button class="btn-sm btn-outline" onclick="atualizarCotacoesRVManual()" id="rvBtnAtualizar" style="font-size:12px;display:none">↻ Cotações</button>
               <button class="btn-sm btn-outline" id="rvBtnHeatmap" onclick="toggleHeatmapRV()" title="Heatmap de rentabilidade" style="font-size:13px">🔥 Heatmap</button>
               <button class="btn-sm btn-outline" id="rvBtnMoeda" onclick="toggleRVMoeda()" title="Alternar BRL / USD" style="font-size:11px;min-width:72px">🇧🇷 BRL</button>
               <div style="position:relative" id="rvColSelectorWrap">
@@ -5599,6 +5599,35 @@ function calcRVPosicoes(){
 }
 
 // ── COTAÇÕES ─────────────────────────────────────────────────
+// ── Botão de cotações: exclusivo do admin + cooldown de 1 min no clique manual ──
+// Aluno usa o auto-refresh (no load + a cada 15 min). Só o clique manual tem cooldown.
+function _gpIsAdmin(){ try{ return JSON.parse(localStorage.getItem('g20_user_profile')||'{}').role === 'admin'; }catch(e){ return false; } }
+var _rvCotCooldownUntil = 0;
+function atualizarCotacoesRVManual(){
+  if(Date.now() < _rvCotCooldownUntil) return;   // ainda dentro do 1 min
+  _rvCotCooldownUntil = Date.now() + 60000;        // trava por 60s
+  buscarCotacoesRV();
+  _tickCooldownCotacoesRV();
+}
+function _tickCooldownCotacoesRV(){
+  var btn = document.getElementById('rvBtnAtualizar');
+  if(!btn) return;
+  if(btn._cotTimer) clearInterval(btn._cotTimer);
+  function upd(){
+    var s = Math.ceil((_rvCotCooldownUntil - Date.now())/1000);
+    if(s <= 0){
+      clearInterval(btn._cotTimer); btn._cotTimer = null;
+      btn.disabled = false;
+      btn.textContent = '↻ Cotações';
+    } else {
+      btn.disabled = true;
+      btn.textContent = '↻ ' + s + 's';
+    }
+  }
+  upd();
+  btn._cotTimer = setInterval(upd, 1000);
+}
+
 function buscarCotacoesRV(){
   var pos = calcRVPosicoes();
   if(!pos.length){ showToast('Registre aportes primeiro.','#e63946'); return; }
@@ -5742,7 +5771,9 @@ function buscarCotacoesRV(){
     });
 
     Promise.all(histPromises).then(function(){
-      if(btn){ btn.textContent='↻ Cotações'; btn.disabled=false; }
+      if(Date.now() < _rvCotCooldownUntil){
+        _tickCooldownCotacoesRV(); // clique manual: mantém o contador até 1 min
+      } else if(btn){ btn.textContent='↻ Cotações'; btn.disabled=false; }
       var found = Object.keys(rvCotacoes).length;
       rvSetCotStatus(found>0 ? '✅ '+found+' cotações atualizadas · USD/BRL: R$ '+rvUsdBRL.toFixed(2) : '⚠️ Sem cotações');
       renderRVPosicoes();
@@ -6817,6 +6848,8 @@ function bindValorInput(id){
       buscarCotacoesRV(); // ao final chama renderCharts com valores de mercado
     }
     setInterval(buscarCotacoesRV, 15 * 60 * 1000); // atualiza a cada 15 minutos
+    // Botão manual de atualizar é exclusivo do admin (aluno usa o auto-refresh)
+    try{ var _rvB = document.getElementById('rvBtnAtualizar'); if(_rvB && _gpIsAdmin()) _rvB.style.display=''; }catch(e){}
   });
 })();
 </script>
