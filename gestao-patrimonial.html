@@ -228,6 +228,7 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 .pat-meta-hint{font-size:9px;color:rgba(201,169,97,.4);font-family:var(--mono);margin-top:5px}
 /* HEATMAP */
 .pat-heatmap{display:none;margin-bottom:14px;animation:fadeIn .25s ease}
+#rvBtnHeatmap.heat-on{background:linear-gradient(135deg,#c9a961,#e8c766)!important;color:#1a191e!important;border-color:transparent!important;font-weight:800}
 .pat-hm-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .pat-hm-title{font-size:12px;letter-spacing:2px;color:rgba(255,255,255,.5);font-family:var(--mono)}
 .pat-hm-legend{display:flex;gap:10px}
@@ -1353,6 +1354,7 @@ body:not(.light) .asset-logo{background:transparent;border-color:rgba(255,255,25
             </div>
             <div style="display:flex;gap:8px;align-items:center">
               <button class="btn-sm btn-outline" onclick="buscarCotacoesRV()" id="rvBtnAtualizar" style="font-size:12px">↻ Cotações</button>
+              <button class="btn-sm btn-outline" id="rvBtnHeatmap" onclick="toggleHeatmapRV()" title="Heatmap de rentabilidade" style="font-size:13px">🔥 Heatmap</button>
               <button class="btn-sm btn-outline" id="rvBtnMoeda" onclick="toggleRVMoeda()" title="Alternar BRL / USD" style="font-size:11px;min-width:72px">🇧🇷 BRL</button>
               <div style="position:relative" id="rvColSelectorWrap">
                 <button class="btn-sm btn-outline" onclick="toggleRVColSelector()" title="Escolher colunas visíveis" style="font-size:13px">⚙️ Colunas</button>
@@ -3708,6 +3710,73 @@ function patSetHeat(h){
   if(tOff) tOff.classList.toggle('on',!h);
   if(tOn) tOn.classList.toggle('on',h);
   if(h) renderHeatmap();
+}
+
+// ═══ HEATMAP DA TABELA RV — fundo por intensidade (mesma escala 6+6 da Carteira G20) ═══
+// nível 1 translúcido (0→corte1) · nível 6 satura (≥ último corte)
+var RVHM_VERDES = ['rgba(46,158,68,0.13)','#2e4736','#356b44','#309e52','#33b35a','#3dc862'];
+var RVHM_VERMS  = ['rgba(246,53,56,0.12)','#4e181c','#6e2c30','#b12a2e','#dd2c32','#f63538'];
+var RVHM_NEUTRO = 'rgba(70,72,82,.55)';
+var RVHM_COLS   = ['vardia','varsem','var30d','var3m','var6m','varano','var5y','rentPct','totalRet'];
+var RVHM_CORTES = {
+  vardia:  [1.5, 3, 4.5, 6, 7.5],
+  varsem:  [2.5, 4.5, 6.5, 8.5, 10.5],
+  var30d:  [3, 6, 9, 12, 15],
+  var3m:   [5, 10, 15, 20, 25],
+  var6m:   [7.5, 15, 22.5, 30, 37.5],
+  varano:  [10, 20, 30, 40, 50],
+  var5y:   [20, 40, 60, 80, 100],
+  rentPct: [20, 40, 60, 80, 100],
+  totalRet:[20, 40, 60, 80, 100]
+};
+function rvHeatmapAtivo(){ return localStorage.getItem('g20_rv_heatmap') === '1'; }
+function _rvHeatNivel(v, cortes){
+  var a = Math.abs(v);
+  if(a < cortes[0]) return 0;
+  if(a < cortes[1]) return 1;
+  if(a < cortes[2]) return 2;
+  if(a < cortes[3]) return 3;
+  if(a < cortes[4]) return 4;
+  return 5;
+}
+function _rvHeatColor(v, cortes){
+  if(v === 0) return RVHM_NEUTRO;
+  var n = _rvHeatNivel(v, cortes);
+  return v > 0 ? RVHM_VERDES[n] : RVHM_VERMS[n];
+}
+function aplicarHeatmapRV(){
+  var tbody = document.getElementById('rvTbody');
+  if(!tbody) return;
+  var ativo = rvHeatmapAtivo();
+  RVHM_COLS.forEach(function(col){
+    var cortes = RVHM_CORTES[col] || RVHM_CORTES.var30d;
+    tbody.querySelectorAll('td[data-rvcol="'+col+'"]').forEach(function(td){
+      var sp = td.querySelector('span');
+      if(!ativo){
+        td.style.background=''; if(sp) sp.style.color='';
+        return;
+      }
+      var m=(td.textContent||'').replace(',','.').match(/-?\d+(\.\d+)?/);
+      if(!m){ td.style.background=''; if(sp) sp.style.color=''; return; }
+      var v = parseFloat(m[0]);
+      if(isNaN(v)){ td.style.background=''; return; }
+      td.style.background = _rvHeatColor(v, cortes);
+      if(sp){ sp.style.color = '#fff'; } // fonte sempre branca quando pintado
+    });
+  });
+}
+function toggleHeatmapRV(){
+  var novo = rvHeatmapAtivo() ? '0' : '1';
+  try{ localStorage.setItem('g20_rv_heatmap', novo); }catch(e){}
+  atualizarBtnRVHeat();
+  aplicarHeatmapRV();
+}
+function atualizarBtnRVHeat(){
+  var btn = document.getElementById('rvBtnHeatmap');
+  if(!btn) return;
+  var on = rvHeatmapAtivo();
+  btn.classList.toggle('heat-on', on);
+  btn.title = on ? 'Heatmap ligado (clique para desligar)' : 'Heatmap desligado (clique para ligar)';
 }
 
 function renderPatPaineis(seriePatrimonioFn){
@@ -6134,6 +6203,8 @@ function renderRVPosicoes(){
   // Ordem gerenciada via drag em tempo real (sem persist)
   // Re-bind depois (idempotente graças à flag _rvBound)
   _rvBindBtns();
+  // Heatmap da tabela RV (pinta células por intensidade, se ligado)
+  try{ atualizarBtnRVHeat(); aplicarHeatmapRV(); }catch(e){ console.error('[aplicarHeatmapRV]', e); }
 }
 
 // ═══════════════ SISTEMA COMPLETO DE LOGOS (ported from Carteira G20) ═══
