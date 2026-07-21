@@ -8678,6 +8678,19 @@ window.g20Logout = function() {
     }
     localStorage.setItem('g20_uid', user.uid);
 
+    // ISOLAMENTO POR USUÁRIO: se o dono dos dados em cache mudou (outra conta logou antes
+    // neste navegador/aba), limpa o cache patrimonial pra NÃO vazar dados de outra pessoa.
+    // Sem isso, um aluno novo podia ver o patrimônio de quem logou antes no mesmo navegador.
+    try {
+      var _prevOwner = localStorage.getItem('g20_dados_owner');
+      if (_prevOwner && _prevOwner !== user.uid) {
+        ['rvAportes','rendaFixa','patrimonioBens','patrimonioSnaps','dividendos',
+         'patSnapshots','lastRVTotal','carteiraMeta','splits','rvColsVis']
+          .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
+      }
+      localStorage.setItem('g20_dados_owner', user.uid);
+    } catch(e){}
+
     // Polling: re-verifica aprova  o a cada 3s (resolve aprova  o ap s login)
     function verificarAcesso(tentativa) {
       _fbDb.collection('users').doc(user.uid).get().then(function(doc) {
@@ -8764,6 +8777,11 @@ window.g20Logout = function() {
       var dbRef = _fbDb.collection('users').doc(user.uid).collection('dados');
       function atualizarPat(){
         dbRef.get({ source: 'server' }).then(function(snap) {
+          // Limpa os dados patrimoniais em cache ANTES de repopular com os do PRÓPRIO aluno.
+          // Assim o dashboard sempre reflete o Firestore real dele — se ele não tem aportes,
+          // fica zerado (não herda resíduo de outra conta que logou antes neste navegador).
+          ['rvAportes','rendaFixa','patrimonioBens','splits','carteiraMeta','dividendos','lastRVTotal']
+            .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
           snap.forEach(function(doc) {
             try { localStorage.setItem('g20_' + doc.id, JSON.stringify(doc.data().value)); } catch(e) {}
           });
