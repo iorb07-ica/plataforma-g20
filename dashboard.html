@@ -6151,6 +6151,23 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
 </style>
 </head>
 <body>
+<!-- ISOLAMENTO SÍNCRONO (roda ANTES de qualquer render): se o usuário logado (g20_uid,
+     gravado pelo login) é diferente do dono do cache patrimonial (g20_dados_owner), limpa
+     tudo NA HORA — assim o painel nunca chega a mostrar, nem por um instante, dado de
+     outra conta. Se for o mesmo usuário, mantém o cache (carregamento normal, sem flash). -->
+<script>
+(function(){
+  try {
+    var _uid = localStorage.getItem('g20_uid');
+    var _owner = localStorage.getItem('g20_dados_owner');
+    if (_uid && _owner && _uid !== _owner) {
+      ['rvAportes','rendaFixa','patrimonioBens','patrimonioSnaps','dividendos',
+       'patSnapshots','lastRVTotal','carteiraMeta','splits','rvColsVis','aportes']
+        .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
+    }
+  } catch(e){}
+})();
+</script>
 <!-- G20 Loader Elegante — visível no boot + acionável em operações >1s -->
 <div id="g20LoadingOverlay" class="g20-loader-overlay" style="display:none!important;visibility:hidden!important;pointer-events:none!important">
   <div class="g20-loader-box">
@@ -8786,6 +8803,9 @@ window.g20Logout = function() {
             try { localStorage.setItem('g20_' + doc.id, JSON.stringify(doc.data().value)); } catch(e) {}
           });
           loadPatStrip();
+          // Re-renderiza o painel Gestão Patrimonial com os dados JÁ corretos do aluno
+          // (sem isso, o painel ficava no valor do 1º render até um F5).
+          if(typeof v21LoadGP==='function'){ try{ v21LoadGP(); }catch(e){} }
           // V3: re-rodar loaders com dados Firestore ja sincronizados em LS
           if(typeof v3InitBlocks === 'function'){
             try{ v3InitBlocks(); }catch(e){ console.warn('v3InitBlocks p\u00f3s-sync:', e); }
