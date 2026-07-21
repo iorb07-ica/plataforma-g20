@@ -369,6 +369,18 @@ var _pendingCadastroName = '';
 
 async function checkApprovalAndRedirect(user) {
   try {
+    // ISOLAMENTO CRÍTICO: ao logar QUALQUER usuário, limpa todo dado patrimonial/pessoal
+    // que possa ter sobrado no localStorage de uma conta anterior (cenário de PC compartilhado:
+    // um aluno loga, sai, outro loga). Cada login começa 100% limpo — os dados do usuário
+    // correto são recarregados do Firestore dele no dashboard. Roda ANTES de qualquer redirect.
+    try {
+      ['rvAportes','rendaFixa','patrimonioBens','patrimonioSnaps','dividendos',
+       'patSnapshots','lastRVTotal','carteiraMeta','splits','rvColsVis','colsVisiveis','colOrdem',
+       'user_profile','patSparkRange_total','patSparkRange_rf','patSparkRange_rv']
+        .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
+      localStorage.setItem('g20_dados_owner', user.uid);
+    } catch(e){}
+
     var isAdminEmail = ADMIN_EMAILS.indexOf(user.email) !== -1;
     var doc = await db.collection('users').doc(user.uid).get();
 
