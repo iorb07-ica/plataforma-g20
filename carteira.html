@@ -2788,11 +2788,11 @@ function _dbInit(uid, callback){
   // ── ADMIN (Israel): lê a coleção inteira (próprios dados) e sincroniza ──
   _db_ref.get({ source: 'server' }).then(function(snap){
     snap.forEach(function(doc){
+      // Preferências de VISUALIZAÇÃO (colunas) são 100% locais: o boot do Firestore
+      // não entra nem no cache nem no localStorage, pra NUNCA sobrescrever a escolha do usuário.
+      if(doc.id === 'colsVisiveis' || doc.id === 'colOrdem') return;
       var val = doc.data().value;
       _db_cache[doc.id] = val;
-      // Preferências de VISUALIZAÇÃO ficam locais (localStorage é a fonte da verdade).
-      // Não deixa o boot do Firestore sobrescrever a última config de colunas do usuário.
-      if(doc.id === 'colsVisiveis' || doc.id === 'colOrdem') return;
       // Mantém localStorage sincronizado com Firestore
       try{ localStorage.setItem('g20_'+doc.id, JSON.stringify(val)); }catch(e){}
     });
@@ -2810,6 +2810,12 @@ function _dbInit(uid, callback){
           }).catch(function(e){ console.warn('G20 sync ['+k+']:', e); });
         }
       }catch(e){}
+    });
+    // Limpeza única: colsVisiveis/colOrdem viraram preferências LOCAIS (por dispositivo).
+    // Remove os docs antigos do Firestore pra garantir que nenhum boot restaure valores
+    // velhos por cima da escolha local do usuário (causa raiz do "6M volta marcado").
+    ['colsVisiveis','colOrdem'].forEach(function(k){
+      try{ _db_ref.doc(k).delete().catch(function(){}); }catch(e){}
     });
     _afterLoad();
   }).catch(function(e){
@@ -4269,6 +4275,10 @@ function toggleMoeda(){
 // GRÁFICO ROSCA PORTFOLIO
 
 function renderPosicoes(){
+
+  // Reaplica a visibilidade das colunas ANTES de montar (mesmo padrão da Minha Carteira,
+  // que roda aplicarRVCols no início do render). CSS por data-col vale mesmo pós re-render.
+  if(typeof aplicarColsVisiveis === 'function') aplicarColsVisiveis();
 
   // ============================================================
   // PROTEÇÃO CONTRA DESSINCRONIZAÇÃO DO FILTRO
