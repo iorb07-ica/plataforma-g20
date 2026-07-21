@@ -8704,14 +8704,26 @@ window.g20Logout = function() {
       var ol=document.getElementById('g20LoadingOverlay');if(ol)ol.style.display='none';
       var data     = doc.data();
       var profile  = data.profile || data;
-      var name     = profile.name || profile.nome || user.displayName || 'Israel';
+      var emailLocal = (user.email || '').split('@')[0];
+      var _rawName = profile.name || profile.nome || '';
+      // Nome "ruim" = vazio OU igual ao prefixo do e-mail (resquício do bug antigo de cadastro).
+      // Nesse caso usa o displayName do Auth, que guarda o nome real que o aluno digitou.
+      var _nomeRuim = (!_rawName || _rawName === emailLocal);
+      var name     = _nomeRuim ? (user.displayName || _rawName || emailLocal) : _rawName;
       var turma    = profile.turma || 'Turma 20';
       var role     = profile.role  || data.role   || 'Membro';
       var photo    = (data.perfil && data.perfil.foto) || profile.photo || user.photoURL || '';
       var initials = name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase() || 'IO';
       var turmaLabel = (role === 'admin') ? 'Admin' : turma;
 
-      var ids = {sidebarName:name, wName:name.split(' ')[0], sidebarTurma:turmaLabel, sidebarInitials:initials};
+      // Auto-correção DEFINITIVA: se o nome no banco estava ruim e achamos um melhor
+      // (o displayName real), grava de volta no Firestore. Conserta contas antigas pra
+      // sempre — reflete na saudação, na sidebar E no perfil, sem mexer no banco na mão.
+      if (_nomeRuim && name && name !== emailLocal) {
+        try { _fbDb.collection('users').doc(user.uid).update({ name: name }).catch(function(){}); } catch(e){}
+      }
+
+      var ids = {sidebarName:name, wName:name.split(' ')[0], sidebarTurma:turmaLabel, sidebarInitials:initials, 'v21-name':name.split(' ')[0]};
       var _bi=document.getElementById('badgeInfinity');if(_bi)_bi.style.display=(data.infinite===true)?'inline-block':'none';
       Object.keys(ids).forEach(function(id){
         var el = document.getElementById(id); if(el) el.textContent = ids[id];
