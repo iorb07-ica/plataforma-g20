@@ -125,7 +125,11 @@ async function verificarAprovacao() {
       _liberado = true;
       if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
       try { localStorage.setItem('g20_uid', _user.uid); } catch(e){}
-      mostrarLiberado();  // NÃO redireciona sozinho — o aluno clica pra entrar
+      if (data.welcomeSeen === true || data.role === 'admin') {
+        window.location.href = 'dashboard.html';   // já viu as boas-vindas (ou é admin) → entra direto
+      } else {
+        mostrarLiberado();                          // 1ª vez → tela de celebração (o aluno clica pra entrar)
+      }
     }
   } catch (e) { console.warn('poll aprovacao:', e); }
 }
@@ -144,7 +148,14 @@ function mostrarLiberado() {
 
 function entrarPlataforma() {
   try { if (_user) localStorage.setItem('g20_uid', _user.uid); } catch(e){}
-  window.location.href = 'dashboard.html';
+  // Marca que o aluno já viu as boas-vindas — não mostra a celebração de novo nos próximos logins.
+  if (_user) {
+    db.collection('users').doc(_user.uid).update({ welcomeSeen: true })
+      .then(function(){ window.location.href = 'dashboard.html'; })
+      .catch(function(){ window.location.href = 'dashboard.html'; });
+  } else {
+    window.location.href = 'dashboard.html';
+  }
 }
 
 function sair() {
