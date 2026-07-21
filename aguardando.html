@@ -35,6 +35,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
 .status-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(232,184,75,.1);border:1px solid rgba(232,184,75,.3);color:var(--gold);font-size:11px;font-weight:700;padding:4px 12px;border-radius:20px;margin-bottom:20px;letter-spacing:.5px}
 .pulse{width:7px;height:7px;border-radius:50%;background:var(--gold);animation:pulse 1.5s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes pop{0%{transform:scale(0);opacity:0}70%{transform:scale(1.15)}100%{transform:scale(1);opacity:1}}
 </style>
 </head>
 <body>
@@ -78,10 +79,21 @@ const db = firebase.firestore();
 
 var _user = null;
 var _pollTimer = null;
+var _pollStarted = false;
 var _liberado = false;
+var _waitingUid = null;
 
 auth.onAuthStateChanged(function(user) {
   if (!user) { window.location.href = 'login.html'; return; }
+  // Trava de sessão: esta tela espera por UM aluno específico. Se a sessão mudar pra
+  // outra conta (ex: admin logado em outra aba DO MESMO navegador), NÃO entra com a
+  // conta errada — volta pro login. Em produção cada aluno usa seu próprio navegador,
+  // então isso só protege o cenário de teste.
+  if (_waitingUid && user.uid !== _waitingUid) {
+    window.location.href = 'login.html';
+    return;
+  }
+  _waitingUid = user.uid;
   _user = user;
   document.getElementById('userEmail').textContent = user.email;
   iniciarPoll();
@@ -89,14 +101,16 @@ auth.onAuthStateChanged(function(user) {
 
 // ── Polling de liberação ──────────────────────────────────────
 // Checa a aprovação direto no SERVIDOR (não no cache) e, assim que o Israel aprovar,
-// libera sozinho e entra no dashboard — sem o aluno precisar dar F5.
+// mostra a tela de "Acesso Liberado" — o aluno entra clicando no botão.
 function iniciarPoll() {
   verificarAprovacao();                       // checa já na hora
+  if (_pollStarted) return;                   // só monta o intervalo uma vez
+  _pollStarted = true;
   _pollTimer = setInterval(function(){
     if (document.visibilityState === 'visible') verificarAprovacao();
-  }, 5000);                                   // e a cada 5s (só com a aba visível)
+  }, 5000);                                   // a cada 5s (só com a aba visível)
   document.addEventListener('visibilitychange', function(){
-    if (document.visibilityState === 'visible') verificarAprovacao(); // volta pra aba = checa na hora
+    if (document.visibilityState === 'visible') verificarAprovacao(); // volta pra aba = checa
   });
 }
 
@@ -108,27 +122,28 @@ async function verificarAprovacao() {
     var data = doc.data();
     if (data.aprovado === true || data.role === 'admin') {
       _liberado = true;
-      if (_pollTimer) clearInterval(_pollTimer);
+      if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
       try { localStorage.setItem('g20_uid', _user.uid); } catch(e){}
-      mostrarLiberado();
-      setTimeout(function(){ window.location.href = 'dashboard.html'; }, 1000);
+      mostrarLiberado();  // NÃO redireciona sozinho — o aluno clica pra entrar
     }
   } catch (e) { console.warn('poll aprovacao:', e); }
 }
 
+// Tela de celebração — fica na tela com um botão pro aluno entrar empolgado
 function mostrarLiberado() {
-  try {
-    var b = document.querySelector('.status-badge');
-    if (b) {
-      b.innerHTML = '<span class="pulse" style="background:var(--green)"></span> ACESSO LIBERADO';
-      b.style.color = 'var(--green)';
-      b.style.borderColor = 'rgba(46,204,113,.4)';
-      b.style.background = 'rgba(46,204,113,.1)';
-    }
-    var ic = document.querySelector('.icon'); if (ic) ic.textContent = '🎉';
-    var ti = document.querySelector('.title'); if (ti) ti.textContent = 'Acesso liberado!';
-    var de = document.querySelector('.desc'); if (de) de.textContent = 'Sua conta foi aprovada. Entrando na plataforma...';
-  } catch(e){}
+  var card = document.querySelector('.card');
+  if (!card) { entrarPlataforma(); return; }
+  card.innerHTML =
+    '<div class="icon" style="animation:pop .6s cubic-bezier(.2,.9,.3,1.4) both">🎉</div>' +
+    '<div class="status-badge" style="color:var(--green);border-color:rgba(46,204,113,.4);background:rgba(46,204,113,.12)"><span class="pulse" style="background:var(--green)"></span> ACESSO LIBERADO</div>' +
+    '<div class="title" style="color:var(--green)">Bem-vindo(a) ao G20!</div>' +
+    '<div class="desc">Sua conta foi <strong style="color:var(--text)">aprovada</strong>! 🚀<br>A partir de agora, você tem acesso completo: carteira de investimentos G20, área exclusiva para controlar suas despesas e receitas, aulas, G20Cast, comunidade e muito mais. Bora começar sua jornada?</div>' +
+    '<button onclick="entrarPlataforma()" style="width:100%;padding:16px;border-radius:12px;background:linear-gradient(135deg,var(--gold),var(--goldd));border:none;color:#0d0c10;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;letter-spacing:.5px;box-shadow:0 12px 32px rgba(232,184,75,.35);transition:transform .15s,box-shadow .15s" onmouseover="this.style.transform=&quot;translateY(-2px)&quot;;this.style.boxShadow=&quot;0 16px 40px rgba(232,184,75,.45)&quot;" onmouseout="this.style.transform=&quot;&quot;;this.style.boxShadow=&quot;0 12px 32px rgba(232,184,75,.35)&quot;">🚀 Acessar Plataforma G20</button>';
+}
+
+function entrarPlataforma() {
+  try { if (_user) localStorage.setItem('g20_uid', _user.uid); } catch(e){}
+  window.location.href = 'dashboard.html';
 }
 
 function sair() {

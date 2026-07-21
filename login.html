@@ -364,6 +364,8 @@ function setTab(tab) {
 // ── Verifica aprovação e redireciona ─────────────────────────
 // Emails que são automaticamente admin (nunca precisam de aprovação)
 var ADMIN_EMAILS = ['iorb@hotmail.com', 'iorb07@gmail.com'];
+// Nome digitado no cadastro (usado ao criar o doc do usuário, antes do displayName ficar pronto)
+var _pendingCadastroName = '';
 
 async function checkApprovalAndRedirect(user) {
   try {
@@ -374,7 +376,7 @@ async function checkApprovalAndRedirect(user) {
       await db.collection('users').doc(user.uid).set({
         uid:       user.uid,
         email:     user.email,
-        name:      user.displayName || user.email.split('@')[0],
+        name:      _pendingCadastroName || user.displayName || user.email.split('@')[0],
         photo:     user.photoURL || '',
         turma:     'Turma 20',
         role:      isAdminEmail ? 'admin' : 'Membro',
@@ -429,6 +431,7 @@ var _authProcessing = false;
 auth.onAuthStateChanged(function(user) {
   if (user && !_authProcessing) {
     _authProcessing = true;
+    _limparTimeoutLogin();
     setLoading(true, 'Verificando acesso...');
     checkApprovalAndRedirect(user);
   }
@@ -461,6 +464,37 @@ async function _aplicarPersistencia() {
   } catch (e) { console.warn('persistencia:', e); }
 }
 
+// Aplica a persistência JÁ no carregamento e sempre que o checkbox muda — assim, no
+// clique de login, a persistência já está setada e o popup abre SEM corrida (era isso
+// que perdia o resultado do popup e travava a 1ª tentativa após o logout por inatividade).
+(function(){
+  try{
+    var chk = document.getElementById('chkRemember');
+    if(chk){
+      chk.checked = (localStorage.getItem('g20_keep_logged') === '1');
+      chk.addEventListener('change', function(){
+        _salvarPrefPersistencia();
+        _aplicarPersistencia();
+      });
+    }
+    _aplicarPersistencia();
+  }catch(e){}
+})();
+
+// ── Rede de segurança: solta o overlay se o login travar (sem precisar de F5) ──
+var _loginTimeout = null;
+function _armarTimeoutLogin() {
+  _limparTimeoutLogin();
+  _loginTimeout = setTimeout(function(){
+    _authProcessing = false;
+    setLoading(false);
+    showMsg('O login demorou demais. Clique novamente para tentar.', 'error');
+  }, 30000);
+}
+function _limparTimeoutLogin() {
+  if (_loginTimeout) { clearTimeout(_loginTimeout); _loginTimeout = null; }
+}
+
 // ── Login Google ─────────────────────────────────────────────
 // Usa popup em TODAS as plataformas. O redirect quebra silenciosamente
 // quando o authDomain (g20-masterclass.firebaseapp.com) difere do domínio
@@ -472,15 +506,26 @@ function loginGoogle() {
   _salvarPrefPersistencia();
   var provider = new firebase.auth.GoogleAuthProvider();
   provider.setCustomParameters({ prompt: 'select_account' });
-  // dispara o popup JÁ (sincronamente) — aplica persistência em paralelo
-  _aplicarPersistencia();
   setLoading(true, 'Abrindo login Google...');
+  _armarTimeoutLogin();
+  // A persistência JÁ foi aplicada (no load / no change do checkbox). Aqui o popup é
+  // chamado direto, SEM setPersistence em paralelo — isso elimina a corrida que fazia
+  // o resultado do popup se perder e travar a 1ª tentativa depois do logout.
   auth.signInWithPopup(provider)
-    .then(function(){ /* onAuthStateChanged cuida do redirect */ })
+    .then(function(result){
+      // Processa o resultado do popup DIRETAMENTE (não depende só do onAuthStateChanged)
+      if (result && result.user && !_authProcessing) {
+        _authProcessing = true;
+        _limparTimeoutLogin();
+        setLoading(true, 'Verificando acesso...');
+        checkApprovalAndRedirect(result.user);
+      }
+    })
     .catch(function(e){
+      _limparTimeoutLogin();
       setLoading(false);
       if (e.code === 'auth/popup-blocked') {
-        // se mesmo assim o popup for bloqueado, cai pro redirect
+        // se o popup for bloqueado, cai pro redirect
         auth.signInWithRedirect(provider).catch(function(err){
           showMsg('Erro no login Google: ' + (err.message || err.code), 'error');
         });
@@ -524,6 +569,10 @@ async function cadastrarEmail() {
   hideMsg();
   setLoading(true, 'Criando conta...');
   try {
+    // Guarda o nome ANTES de criar a conta. O doc no Firestore é criado pelo gatilho
+    // onAuthStateChanged (que dispara já no createUser, antes do updateProfile terminar),
+    // então sem isso o nome cairia pro prefixo do e-mail. Com isso, grava o nome certo.
+    _pendingCadastroName = nome;
     var cred = await auth.createUserWithEmailAndPassword(email, senha);
     await cred.user.updateProfile({ displayName: nome });
     // checkApprovalAndRedirect vai criar o doc e redirecionar para aguardando
