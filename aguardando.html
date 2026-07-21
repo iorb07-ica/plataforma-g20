@@ -63,6 +63,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script>
 firebase.initializeApp({
   apiKey:"AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",
@@ -73,11 +74,67 @@ firebase.initializeApp({
   appId:"1:1052719482127:web:537c1d67c96532be8a2a7a"
 });
 const auth = firebase.auth();
+const db = firebase.firestore();
+
+var _user = null;
+var _pollTimer = null;
+var _liberado = false;
+
 auth.onAuthStateChanged(function(user) {
   if (!user) { window.location.href = 'login.html'; return; }
+  _user = user;
   document.getElementById('userEmail').textContent = user.email;
+  iniciarPoll();
 });
-function sair() { auth.signOut().then(function(){ window.location.href = 'login.html'; }); }
+
+// ── Polling de liberação ──────────────────────────────────────
+// Checa a aprovação direto no SERVIDOR (não no cache) e, assim que o Israel aprovar,
+// libera sozinho e entra no dashboard — sem o aluno precisar dar F5.
+function iniciarPoll() {
+  verificarAprovacao();                       // checa já na hora
+  _pollTimer = setInterval(function(){
+    if (document.visibilityState === 'visible') verificarAprovacao();
+  }, 5000);                                   // e a cada 5s (só com a aba visível)
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState === 'visible') verificarAprovacao(); // volta pra aba = checa na hora
+  });
+}
+
+async function verificarAprovacao() {
+  if (!_user || _liberado) return;
+  try {
+    var doc = await db.collection('users').doc(_user.uid).get({ source: 'server' });
+    if (!doc.exists) return;
+    var data = doc.data();
+    if (data.aprovado === true || data.role === 'admin') {
+      _liberado = true;
+      if (_pollTimer) clearInterval(_pollTimer);
+      try { localStorage.setItem('g20_uid', _user.uid); } catch(e){}
+      mostrarLiberado();
+      setTimeout(function(){ window.location.href = 'dashboard.html'; }, 1000);
+    }
+  } catch (e) { console.warn('poll aprovacao:', e); }
+}
+
+function mostrarLiberado() {
+  try {
+    var b = document.querySelector('.status-badge');
+    if (b) {
+      b.innerHTML = '<span class="pulse" style="background:var(--green)"></span> ACESSO LIBERADO';
+      b.style.color = 'var(--green)';
+      b.style.borderColor = 'rgba(46,204,113,.4)';
+      b.style.background = 'rgba(46,204,113,.1)';
+    }
+    var ic = document.querySelector('.icon'); if (ic) ic.textContent = '🎉';
+    var ti = document.querySelector('.title'); if (ti) ti.textContent = 'Acesso liberado!';
+    var de = document.querySelector('.desc'); if (de) de.textContent = 'Sua conta foi aprovada. Entrando na plataforma...';
+  } catch(e){}
+}
+
+function sair() {
+  if (_pollTimer) clearInterval(_pollTimer);
+  auth.signOut().then(function(){ window.location.href = 'login.html'; });
+}
 </script>
 
   <script>
