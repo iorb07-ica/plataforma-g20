@@ -6151,16 +6151,20 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
 </style>
 </head>
 <body>
-<!-- ISOLAMENTO NO BOOT (roda ANTES de qualquer render): limpa SEMPRE o cache patrimonial,
-     independente de qualquer marcador. O dashboard repopula logo em seguida só com os dados
-     do usuário logado (Firestore do próprio uid). Custa um "R$ —" de meio segundo, mas é a
-     única forma 100% à prova de falha de nunca mostrar dado de outra conta (PC compartilhado). -->
+<!-- ISOLAMENTO NO BOOT: limpa o cache patrimonial SÓ quando ele pertence a OUTRA conta
+     (troca de usuário no mesmo navegador). Para o mesmo usuário, mantém o cache pra tudo
+     renderizar na hora. O login.html já limpa tudo no login (isolamento primário); isto aqui
+     é a rede de segurança pra quem chega ao dashboard sem passar pelo login. -->
 <script>
 (function(){
   try {
-    ['rvAportes','aportes','rendaFixa','patrimonioBens','patrimonioSnaps','dividendos',
-     'patSnapshots','lastRVTotal','carteiraMeta','splits','rvColsVis','metaIF']
-      .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
+    var _uid = localStorage.getItem('g20_uid');
+    var _owner = localStorage.getItem('g20_dados_owner');
+    if (_owner && _uid && _owner !== _uid) {
+      ['rvAportes','aportes','rendaFixa','patrimonioBens','patrimonioSnaps','dividendos',
+       'patSnapshots','lastRVTotal','carteiraMeta','splits','rvColsVis','metaIF']
+        .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
+    }
   } catch(e){}
 })();
 </script>
@@ -6287,7 +6291,7 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
     _rot = setInterval(function(){
       _msg.style.opacity = 0;
       setTimeout(function(){ _i=(_i+1)%_frases.length; _msg.textContent=_frases[_i]; _msg.style.opacity=1; }, 400);
-    }, 1800);
+    }, 1500);
   }
   function _doHide(){
     if(_hidden||!_ov) return; _hidden=true;
@@ -6300,12 +6304,12 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
   window.G20Loader = {
     hide: function(){
       var el = Date.now() - _shownAt;
-      if(el >= 1000) _doHide(); else setTimeout(_doHide, 1000 - el);
+      if(el >= 5000) _doHide(); else setTimeout(_doHide, 5000 - el);
     },
     show:function(){}, showAfter:function(){return null;}, cancel:function(){},
     setMinDuration:function(){}, msg:function(){}
   };
-  if(_ov){ _startRot(); _maxTimer = setTimeout(_doHide, 7000); }
+  if(_ov){ _startRot(); _maxTimer = setTimeout(_doHide, 8000); }
 })();
 </script>
 
@@ -8800,11 +8804,15 @@ window.g20Logout = function() {
       var dbRef = _fbDb.collection('users').doc(user.uid).collection('dados');
       function atualizarPat(){
         dbRef.get({ source: 'server' }).then(function(snap) {
-          // Limpa os dados patrimoniais em cache ANTES de repopular com os do PRÓPRIO aluno.
-          // Assim o dashboard sempre reflete o Firestore real dele — se ele não tem aportes,
-          // fica zerado (não herda resíduo de outra conta que logou antes neste navegador).
-          ['rvAportes','rendaFixa','patrimonioBens','splits','carteiraMeta','dividendos','lastRVTotal','patSnapshots']
-            .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
+          // Limpa o cache patrimonial SÓ quando a conta mudou (outro usuário logou antes neste
+          // navegador). Para o mesmo usuário, preserva o cache — assim os cards renderizam na
+          // hora, sem esperar tudo recarregar. O Firestore do próprio uid sobrescreve em seguida.
+          var _owner = localStorage.getItem('g20_dados_owner');
+          var _switched = (_owner && _owner !== user.uid);
+          if (_switched) {
+            ['rvAportes','rendaFixa','patrimonioBens','splits','carteiraMeta','dividendos','lastRVTotal','patSnapshots','aportes','metaIF']
+              .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
+          }
           snap.forEach(function(doc) {
             // A Carteira G20 curada (aportes) é do ADMIN. Não carrega no cache do aluno,
             // senão os valores dela vazam pros KPIs pessoais (APORTES, composição) como se
@@ -8812,6 +8820,7 @@ window.g20Logout = function() {
             if (!_isAdminDash && doc.id === 'aportes') return;
             try { localStorage.setItem('g20_' + doc.id, JSON.stringify(doc.data().value)); } catch(e) {}
           });
+          try { localStorage.setItem('g20_dados_owner', user.uid); } catch(e){}
           loadPatStrip();
           // Re-renderiza os painéis que dependem dos dados patrimoniais com os dados JÁ
           // corretos do usuário logado (sem isso ficavam no 1º render até um F5).
