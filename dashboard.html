@@ -6158,7 +6158,7 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
 <script>
 (function(){
   try {
-    ['rvAportes','rendaFixa','patrimonioBens','patrimonioSnaps','dividendos',
+    ['rvAportes','aportes','rendaFixa','patrimonioBens','patrimonioSnaps','dividendos',
      'patSnapshots','lastRVTotal','carteiraMeta','splits','rvColsVis']
       .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
   } catch(e){}
@@ -8799,9 +8799,11 @@ window.g20Logout = function() {
             try { localStorage.setItem('g20_' + doc.id, JSON.stringify(doc.data().value)); } catch(e) {}
           });
           loadPatStrip();
-          // Re-renderiza o painel Gestão Patrimonial com os dados JÁ corretos do aluno
-          // (sem isso, o painel ficava no valor do 1º render até um F5).
+          // Re-renderiza os painéis que dependem dos dados patrimoniais com os dados JÁ
+          // corretos do usuário logado (sem isso ficavam no 1º render até um F5).
           if(typeof v21LoadGP==='function'){ try{ v21LoadGP(); }catch(e){} }
+          if(typeof v21LoadKpis==='function'){ try{ v21LoadKpis(); }catch(e){} }
+          if(typeof v21LoadInsights==='function'){ try{ v21LoadInsights(); }catch(e){} }
           // V3: re-rodar loaders com dados Firestore ja sincronizados em LS
           if(typeof v3InitBlocks === 'function'){
             try{ v3InitBlocks(); }catch(e){ console.warn('v3InitBlocks p\u00f3s-sync:', e); }
@@ -9546,10 +9548,15 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
       // Se não tem snapshots, ainda assim preenche IBOV/SP se disponíveis
       if (snap.length < 2) {
-        console.log('  ⚠️ snap.length < 2 — preenchendo só IBOV/SP500 via histCache');
-        var maxSem = Math.max(1, Math.abs(ibovRent || 0), Math.abs(spRent || 0));
+        console.log('  ⚠️ snap.length < 2 — preenchendo CDI + IBOV/SP500 via histCache');
+        // CDI é taxa de mercado — calcula pelo período mesmo sem carteira (não depende dela).
+        var _cdiAA = (typeof IND!=='undefined' && IND.cdi) ? IND.cdi : 14.15;
+        var _per = (typeof V21!=='undefined' && V21.benchPeriod) ? V21.benchPeriod : 'YTD';
+        var _diasCdi = {'1M':30,'6M':182,'YTD':Math.max(1,Math.floor((Date.now()-new Date(new Date().getFullYear(),0,1))/86400000)),'5A':1825,'Max':1825}[_per] || 182;
+        var cdiPer = (Math.pow(1 + _cdiAA/100, _diasCdi/365) - 1) * 100;
+        var maxSem = Math.max(1, Math.abs(ibovRent || 0), Math.abs(spRent || 0), Math.abs(cdiPer));
         setBench('voce', null, maxSem);
-        setBench('cdi', null, maxSem);
+        setBench('cdi', cdiPer, maxSem);
         setBench('ibov', ibovRent, maxSem);
         setBench('spx', spRent, maxSem);
         // Dispara fetch se ainda não tem
