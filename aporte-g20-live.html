@@ -865,6 +865,22 @@
   .aportes-row.cat-etfs   .cat-ic { background: var(--cat-etfs); }
   .aportes-row.cat-etfs   .cat-select { color: #67e8f9; }
 
+  /* Toggle Compra / Venda */
+  .cat-cell-wrap { display:flex; flex-direction:column; gap:5px; align-items:flex-start; }
+  .op-toggle {
+    font-family:'JetBrains Mono',monospace; font-size:9px; font-weight:700; letter-spacing:.5px;
+    padding:2px 7px; border-radius:4px; border:1px solid; cursor:pointer; background:transparent;
+    transition:all .15s ease; line-height:1.4;
+  }
+  .op-toggle.op-C { color:#4ade80; border-color:rgba(74,222,128,.45); background:rgba(74,222,128,.10); }
+  .op-toggle.op-V { color:#f87171; border-color:rgba(248,113,113,.45); background:rgba(248,113,113,.10); }
+  .op-toggle:hover { filter:brightness(1.25); }
+  body.presentation-mode .op-toggle { pointer-events:none; }
+  /* Linha de venda: destaque vermelho sutil */
+  .aportes-row.op-venda td:first-child { border-left-color:#f87171 !important; }
+  .aportes-row.op-venda { background:rgba(248,113,113,.04); }
+  .total-cell.op-venda-val { color:#f87171 !important; }
+
   /* Toggle Pizza / Barras da Alocação */
   .alloc-title-row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
   .alloc-toggle { display:inline-flex; gap:4px; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.08); border-radius:8px; padding:3px; }
@@ -2629,7 +2645,8 @@ function renderAportes() {
 
   aportes.forEach((ap, idx) => {
     const tr = document.createElement('tr');
-    tr.className = `aportes-row cat-${ap.cat}`;
+    const op = ap.op || 'C';
+    tr.className = `aportes-row cat-${ap.cat}${op==='V'?' op-venda':''}`;
     tr.style.animationDelay = (idx * 50) + 'ms';
 
     const totalRS = ap.precoUsd && ap.txCnv
@@ -2642,16 +2659,19 @@ function renderAportes() {
     tr.innerHTML = `
       <td class="m-data" data-label="Data"><input class="cell-input" data-field="data" data-idx="${idx}" value="${ap.data}"></td>
       <td class="m-cat" data-label="Categoria">
-        <div class="cat-chip">
-          <span class="cat-ic">${CAT_ICONS[ap.cat] || '\u2022'}</span>
-          <select class="cat-select" data-field="cat" data-idx="${idx}">
-            <option value="acoes" ${ap.cat==='acoes'?'selected':''}>AÇÃO</option>
-            <option value="fiis" ${ap.cat==='fiis'?'selected':''}>FII</option>
-            <option value="stocks" ${ap.cat==='stocks'?'selected':''}>STOCK</option>
-            <option value="reits" ${ap.cat==='reits'?'selected':''}>REIT</option>
-            <option value="etfs" ${ap.cat==='etfs'?'selected':''}>ETF</option>
-            <option value="cripto" ${ap.cat==='cripto'?'selected':''}>CRIPTO</option>
-          </select>
+        <div class="cat-cell-wrap">
+          <button class="op-toggle op-${op}" data-op="${idx}" title="Alternar Compra / Venda">${op==='V'?'VENDA':'COMPRA'}</button>
+          <div class="cat-chip">
+            <span class="cat-ic">${CAT_ICONS[ap.cat] || '\u2022'}</span>
+            <select class="cat-select" data-field="cat" data-idx="${idx}">
+              <option value="acoes" ${ap.cat==='acoes'?'selected':''}>AÇÃO</option>
+              <option value="fiis" ${ap.cat==='fiis'?'selected':''}>FII</option>
+              <option value="stocks" ${ap.cat==='stocks'?'selected':''}>STOCK</option>
+              <option value="reits" ${ap.cat==='reits'?'selected':''}>REIT</option>
+              <option value="etfs" ${ap.cat==='etfs'?'selected':''}>ETF</option>
+              <option value="cripto" ${ap.cat==='cripto'?'selected':''}>CRIPTO</option>
+            </select>
+          </div>
         </div>
       </td>
       <td class="m-ticker" data-label="Ativo">
@@ -2664,8 +2684,8 @@ function renderAportes() {
       <td class="m-preco" data-label="Pç R$"><input class="cell-input right" data-field="preco" data-idx="${idx}" value="${ap.preco ? fmtNum(ap.preco) : ''}"></td>
       <td class="m-txcnv" data-label="Tx Cnv"><input class="cell-input right" data-field="txCnv" data-idx="${idx}" value="${ap.txCnv ? fmtNum(ap.txCnv) : ''}"></td>
       <td class="m-precousd" data-label="Pç US$"><input class="cell-input right" data-field="precoUsd" data-idx="${idx}" value="${ap.precoUsd ? fmtNum(ap.precoUsd) : ''}"></td>
-      <td class="m-totalrs total-cell" data-label="Total R$" data-val="${totalRS || 0}">${totalRS > 0 ? fmtBRL(totalRS) : '—'}</td>
-      <td class="m-totalusd total-cell" data-label="Total US$" data-val="${totalUSD || 0}">${totalUSD > 0 ? fmtUSD(totalUSD) : '—'}</td>
+      <td class="m-totalrs total-cell${op==='V'?' op-venda-val':''}" data-label="Total R$" data-val="${(op==='V'?-1:1)*(totalRS || 0)}">${totalRS > 0 ? (op==='V'?'\u2212':'')+fmtBRL(totalRS) : '—'}</td>
+      <td class="m-totalusd total-cell${op==='V'?' op-venda-val':''}" data-label="Total US$" data-val="${(op==='V'?-1:1)*(totalUSD || 0)}">${totalUSD > 0 ? (op==='V'?'\u2212':'')+fmtUSD(totalUSD) : '—'}</td>
       <td class="m-actions"><div class="row-actions"><button class="icon-btn" data-remove="${idx}" title="Remover">×</button></div></td>
     `;
 
@@ -2716,6 +2736,16 @@ function renderAportes() {
     });
   });
 
+  // Toggle Compra / Venda: venda gera caixa e AUMENTA o capital disponível pra novos aportes
+  tbody.querySelectorAll('[data-op]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const idx = parseInt(e.currentTarget.dataset.op);
+      aportes[idx].op = ((aportes[idx].op || 'C') === 'C') ? 'V' : 'C';
+      renderAportes();
+      updateTotals();
+    });
+  });
+
   // Logo ao vivo: atualiza enquanto digita o ticker (sem re-render, mantém o foco)
   tbody.querySelectorAll('input[data-field="ticker"]').forEach(inp => {
     inp.addEventListener('input', (e) => {
@@ -2745,9 +2775,11 @@ function renderAportes() {
 function calcTotalAplicadoPorCategoria() {
   const totals = { acoes: 0, fiis: 0, stocks: 0, cripto: 0, reits: 0, etfs: 0 };
   aportes.forEach(ap => {
-    const tot = ap.precoUsd && ap.txCnv
+    let tot = ap.precoUsd && ap.txCnv
       ? Number(ap.qtd) * Number(ap.precoUsd) * Number(ap.txCnv)
       : Number(ap.qtd) * (Number(ap.preco) || 0);
+    // Venda gera caixa: reduz o total aplicado (e portanto aumenta o disponível pra aportar).
+    if ((ap.op || 'C') === 'V') tot = -tot;
     if (totals[ap.cat] !== undefined) totals[ap.cat] += tot;
   });
   return totals;
@@ -2987,7 +3019,7 @@ document.getElementById('btn-add').addEventListener('click', () => {
   const dataStr = String(today.getDate()).padStart(2,'0') + '/' +
                   String(today.getMonth()+1).padStart(2,'0') + '/' +
                   today.getFullYear();
-  aportes.push({ data: dataStr, cat: 'fiis', ticker: '', qtd: 0, preco: 0, txCnv: '', precoUsd: '' });
+  aportes.push({ data: dataStr, cat: 'fiis', ticker: '', qtd: 0, preco: 0, txCnv: '', precoUsd: '', op: 'C' });
   renderAportes();
   updateTotals();
 });
@@ -3341,7 +3373,8 @@ async function salvarAporte() {
       aportes: aportes.map(a => ({
         data: a.data, cat: a.cat, ticker: a.ticker,
         qtd: Number(a.qtd) || 0, preco: Number(a.preco) || 0,
-        txCnv: Number(a.txCnv) || 0, precoUsd: Number(a.precoUsd) || 0
+        txCnv: Number(a.txCnv) || 0, precoUsd: Number(a.precoUsd) || 0,
+        op: a.op || 'C'
       })),
       totalAplicado: totalAplicado, totalDisponivel: totalDisponivel,
       criadoPor: _currentUser ? _currentUser.uid : null,
