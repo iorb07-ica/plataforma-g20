@@ -2070,7 +2070,7 @@ function _dbInit(uid, callback){
     if(_prevOwner && _prevOwner !== uid){
       ['rvAportes','rvDividendos','aportes','dividendos','rendaFixa','splits',
        'patrimonioBens','patrimonioSnaps','carteiraMeta','cotacoesCache',
-       'splits_cache','bonificacoes_cache'].forEach(function(k){
+       'splits_cache','bonificacoes_cache','metaIF','patSnapshots'].forEach(function(k){
         try{ localStorage.removeItem('g20_'+k); }catch(e){}
       });
       _db_cache = {};
@@ -3515,8 +3515,8 @@ function renderKPIs(){
     // Meta IF
     var metaAlvo=0;
     try{ var m=JSON.parse(localStorage.getItem('g20_metaIF')||'{}'); metaAlvo=parseFloat(m.alvo)||0; }catch(e){}
-    if(!metaAlvo||metaAlvo<=0) metaAlvo=Math.max(2000000,total*1.5);
-    var metaPct=Math.min(100,(total/metaAlvo*100));
+    var semMeta=!(metaAlvo>0);
+    var metaPct=semMeta?0:Math.min(100,(total/metaAlvo*100));
     var metaFalta=metaAlvo-total;
 
     // Variação patrimonial 12m
@@ -3586,8 +3586,8 @@ function renderKPIs(){
         // Conteúdo à direita
         '<div style="flex:1;min-width:0;padding:22px 24px 22px 18px;display:flex;flex-direction:column;justify-content:center">'+
           '<div style="font-size:10px;letter-spacing:2px;color:rgba(201,169,97,.6);font-family:var(--mono);margin-bottom:10px">META INDEPENDÊNCIA FINANCEIRA</div>'+
-          '<div style="font-size:32px;font-weight:800;color:#f0ece0;font-family:var(--mono);letter-spacing:-1.5px;line-height:1;margin-bottom:10px"><span class="kpi-money">'+fmtBRL(metaAlvo)+'</span></div>'+
-          '<div style="font-size:12px;color:#c9a961;font-family:var(--mono);margin-bottom:14px">'+(metaFalta>0?'faltam '+fmtBRL(metaFalta):'🎉 Meta atingida!')+'</div>'+
+          '<div style="font-size:32px;font-weight:800;color:#f0ece0;font-family:var(--mono);letter-spacing:-1.5px;line-height:1;margin-bottom:10px"><span class="kpi-money">'+(semMeta?'—':fmtBRL(metaAlvo))+'</span></div>'+
+          '<div style="font-size:12px;color:#c9a961;font-family:var(--mono);margin-bottom:14px">'+(semMeta?'Defina sua meta':(metaFalta>0?'faltam '+fmtBRL(metaFalta):'🎉 Meta atingida!'))+'</div>'+
           '<div style="height:8px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden">'+
             '<div style="width:'+metaPct.toFixed(1)+'%;height:100%;background:linear-gradient(90deg,#a08543,#e8c766);border-radius:4px"></div>'+
           '</div>'+
@@ -3639,20 +3639,18 @@ function renderKPIs(){
     if(!metaBar) return;
     var metaAlvo=0;
     try{ var m=JSON.parse(localStorage.getItem('g20_metaIF')||'{}'); metaAlvo=parseFloat(m.alvo)||0; }catch(e){}
-    if(!metaAlvo||metaAlvo<=0){
-      metaAlvo = Math.max(2000000, total * 1.5);
-    }
-    var pct=Math.min(100, (total/metaAlvo*100));
+    var semMeta=!(metaAlvo>0);
+    var pct=semMeta?0:Math.min(100, (total/metaAlvo*100));
     metaBar.style.display='none';
     var pctEl=document.getElementById('patMetaPct');
     var valsEl=document.getElementById('patMetaVals');
     var fillEl=document.getElementById('patMetaFill');
     var hintEl=document.getElementById('patMetaHint');
     if(pctEl) pctEl.textContent=pct.toFixed(0)+'%';
-    if(valsEl) valsEl.innerHTML='<span class="kpi-money">'+fmtBRL(total)+'</span> / '+fmtBRL(metaAlvo);
+    if(valsEl) valsEl.innerHTML='<span class="kpi-money">'+fmtBRL(total)+'</span> / '+(semMeta?'—':fmtBRL(metaAlvo));
     if(fillEl) fillEl.style.width=pct+'%';
     var falta=metaAlvo-total;
-    if(hintEl) hintEl.textContent=falta>0?'Faltam '+fmtBRL(falta)+' para sua meta IF':'🎉 Meta IF atingida!';
+    if(hintEl) hintEl.textContent=semMeta?'Defina sua meta IF':(falta>0?'Faltam '+fmtBRL(falta)+' para sua meta IF':'🎉 Meta IF atingida!');
   }
 
   // ── HEATMAP ────────────────────────────────────────────
