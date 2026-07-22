@@ -6159,7 +6159,7 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
 (function(){
   try {
     ['rvAportes','aportes','rendaFixa','patrimonioBens','patrimonioSnaps','dividendos',
-     'patSnapshots','lastRVTotal','carteiraMeta','splits','rvColsVis']
+     'patSnapshots','lastRVTotal','carteiraMeta','splits','rvColsVis','metaIF']
       .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
   } catch(e){}
 })();
@@ -8796,12 +8796,17 @@ window.g20Logout = function() {
           ['rvAportes','rendaFixa','patrimonioBens','splits','carteiraMeta','dividendos','lastRVTotal','patSnapshots']
             .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
           snap.forEach(function(doc) {
+            // A Carteira G20 curada (aportes) é do ADMIN. Não carrega no cache do aluno,
+            // senão os valores dela vazam pros KPIs pessoais (APORTES, composição) como se
+            // fossem do próprio aluno. O aluno vê só a carteira dele (rvAportes).
+            if (!_isAdminDash && doc.id === 'aportes') return;
             try { localStorage.setItem('g20_' + doc.id, JSON.stringify(doc.data().value)); } catch(e) {}
           });
           loadPatStrip();
           // Re-renderiza os painéis que dependem dos dados patrimoniais com os dados JÁ
           // corretos do usuário logado (sem isso ficavam no 1º render até um F5).
           if(typeof v21LoadGP==='function'){ try{ v21LoadGP(); }catch(e){} }
+          if(window.v21MetaIF && typeof window.v21MetaIF.render==='function'){ try{ window.v21MetaIF.render(); }catch(e){} }
           if(typeof v21LoadKpis==='function'){ try{ v21LoadKpis(); }catch(e){} }
           if(typeof v21LoadInsights==='function'){ try{ v21LoadInsights(); }catch(e){} }
           // V3: re-rodar loaders com dados Firestore ja sincronizados em LS
@@ -9938,6 +9943,13 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     try { rvAp = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){}
     try { apBR = JSON.parse(localStorage.getItem('g20_aportes')||'[]'); } catch(e){}
     try { precos = JSON.parse(localStorage.getItem('g20_precos')||'{}'); } catch(e){}
+
+    // PROVENTOS PESSOAIS: considera só proventos de ativos que o ALUNO tem na própria carteira
+    // (rvAportes). Sem isso, proventos da Carteira G20 curada (compartilhada) apareciam como se
+    // fossem do aluno. Aluno sem ativos → nenhum provento.
+    var _tickersPessoais = {};
+    rvAp.forEach(function(a){ if(a && a.ticker) _tickersPessoais[String(a.ticker).toUpperCase()] = true; });
+    divs = divs.filter(function(p){ return p && p.ticker && _tickersPessoais[String(p.ticker).toUpperCase()]; });
 
     var hoje = new Date().toISOString().substring(0,10);
     var hoje7 = new Date(); hoje7.setDate(hoje7.getDate()+7);
@@ -12683,7 +12695,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   (function v21MetaIFModule(){
     // Estado persistente em localStorage
     var STORAGE_KEY = 'g20_metaIF';
-    var DEFAULT_META = { alvo: 3000000, taxa: 6.0 }; // R$ 3M + 6% a.a.
+    var DEFAULT_META = { alvo: 0, taxa: 6.0 }; // sem meta por padrão — o aluno define a dele
 
     function loadState(){
       try {
@@ -12698,6 +12710,11 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     }
     function saveState(s){
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch(e){}
+      // Persiste a meta POR USUÁRIO no Firestore (isolada por conta, persiste entre sessões/dispositivos)
+      try {
+        var u = firebase.auth().currentUser;
+        if (u) firebase.firestore().collection('users').doc(u.uid).collection('dados').doc('metaIF').set({ value: s }).catch(function(){});
+      } catch(e){}
     }
 
     // Formatadores
@@ -12863,6 +12880,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     function render(){
       var state = loadState();
       var dados = getDadosAluno();
+      var semMeta = !(state.alvo > 0);  // meta ainda não definida pelo aluno
 
       // Porcentagem atingida
       var pct = 0;
@@ -12913,7 +12931,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       // Projeção temporal
       var etaEl = document.getElementById('v21-metaif-eta');
       if (etaEl) {
-        if (pct >= 100) {
+        if (semMeta) {
+          etaEl.textContent = 'Defina sua meta';
+          etaEl.classList.remove('unreachable');
+        } else if (pct >= 100) {
           etaEl.textContent = 'Meta atingida! 🎯';
           etaEl.classList.remove('unreachable');
         } else {
@@ -12932,7 +12953,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
       // R48: Meta compacta (sempre visível no centro do velocímetro)
       var metaMiniEl = document.getElementById('v21-metaif-meta-mini');
-      if (metaMiniEl) metaMiniEl.textContent = fmtCompacto(state.alvo, 'BRL');
+      if (metaMiniEl) metaMiniEl.textContent = semMeta ? '—' : fmtCompacto(state.alvo, 'BRL');
     }
 
     // Popula os inputs do verso com o state atual (chamado ao virar pro verso)
@@ -12940,7 +12961,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var state = loadState();
       var inputMeta = document.getElementById('v21-metaif-input-meta');
       var inputTaxa = document.getElementById('v21-metaif-input-taxa');
-      if (inputMeta) inputMeta.value = fmtMilhares(state.alvo);
+      if (inputMeta) inputMeta.value = (state.alvo > 0) ? fmtMilhares(state.alvo) : '';
       if (inputTaxa) inputTaxa.value = state.taxa.toFixed(1).replace('.', ',');
     }
 
