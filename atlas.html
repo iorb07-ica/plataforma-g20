@@ -1650,7 +1650,20 @@ function tryInit(){
   if(!texBump||!texBump.image){texBump=new THREE.DataTexture(new Uint8Array([128,128,128,255]),1,1);texBump.needsUpdate=true;}
   buildEarth();
 }
-function onTex(w){return function(t){if(w==='night')texNight=t;if(w==='day')texDay=t;if(w==='bump')texBump=t;loadedCount++;if(loadedCount>=3)tryInit();};}
+function onTex(w){return function(t){
+  if(w==='night')texNight=t;if(w==='day')texDay=t;if(w==='bump')texBump=t;
+  loadedCount++;
+  // Se o globo já foi construído com placeholder (força de 1.5s na 1ª carga com cache frio),
+  // aplica a textura REAL agora — senão os continentes nunca apareciam no primeiro acesso.
+  if(earthMesh&&earthMesh.material){
+    var m=earthMesh.material, _day=(typeof isDayMode!=='undefined'&&isDayMode);
+    if(_day){ if(texDay&&texDay.image) m.map=texDay; }
+    else { if(texNight&&texNight.image){ m.map=texNight; m.emissiveMap=texNight; } }
+    if(texBump&&texBump.image) m.bumpMap=texBump;
+    m.needsUpdate=true;
+  }
+  if(loadedCount>=3)tryInit();
+};}
 function onTexErr(){loadedCount++;if(loadedCount>=3)tryInit();}
 
 // CDN primário: unpkg
