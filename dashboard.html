@@ -8570,9 +8570,13 @@ function loadPatStrip(){
         }
 
         if (serie.length < 2) return null;
+        // MEMÓRIA primeiro: o localStorage pode estourar a cota com ~3000 pontos e falhar
+        // silenciosamente. Sem isso, cache() devolvia null e TODOS os painéis caíam no
+        // cálculo antigo (via snapshots), exibindo percentuais errados.
+        API._serieMem = serie;
         try {
           localStorage.setItem(SERIE_KEY, JSON.stringify({ at: Date.now(), serie: serie }));
-        } catch (e) {}
+        } catch (e) { console.warn('[G20Rent] série não coube no localStorage — usando memória'); }
         return serie;
       });
     },
@@ -8609,12 +8613,18 @@ function loadPatStrip(){
     },
 
     cache: function () {
+      // Memória tem prioridade — não depende de cota nem de serialização.
+      if (API._serieMem && API._serieMem.length >= 2) return API._serieMem;
       try {
         var c = JSON.parse(localStorage.getItem(SERIE_KEY) || 'null');
-        if (c && c.at && (Date.now() - c.at) < SERIE_TTL && c.serie) return c.serie;
+        if (c && c.at && (Date.now() - c.at) < SERIE_TTL && c.serie && c.serie.length >= 2) {
+          API._serieMem = c.serie;
+          return c.serie;
+        }
       } catch (e) {}
       return null;
     },
+    _serieMem: null,
 
     limparCache: function () {
       try {
@@ -9491,7 +9501,8 @@ window.g20Logout = function() {
                   console.log('[G20Rent] ✓ painéis atualizados com a série real');
                   // AUDITORIA: o que cada card DEVE exibir. Compare com a tela.
                   try {
-                    var _sA = G20Rent.cache();
+                    var _sA = G20Rent.cache() || serie;   // usa a série recém-calculada como fallback
+                    if (!_sA || !_sA.length) throw new Error('série indisponível');
                     var _hj = new Date();
                     var _per = {
                       'HOJE': new Date(_hj.getTime() - 86400000).toISOString().substring(0,10),
