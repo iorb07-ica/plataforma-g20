@@ -8257,20 +8257,58 @@ function loadPatStrip(){
     return out.length ? out : null;
   }
 
-  function buscarBolsa(sym, desdeISO) {
+  /* Símbolo do Yahoo Finance: BR → PETR4.SA | US → AAPL | cripto → BTC-USD */
+  function yahooSymbol(ticker, tipo) {
+    var t = String(ticker || '').toUpperCase().trim().split('-')[0];
+    if (!t) return null;
+    var tp = String(tipo || '').toUpperCase();
+    if (tp === 'CRIPTO') return t + '-USD';
+    if (/\d$/.test(t)) return t + '.SA';
+    return t;
+  }
+
+  /* Busca histórico via Yahoo através de proxy CORS.
+     MOTIVO: chamadas diretas a Stooq/CoinGecko são bloqueadas por CORS no GitHub Pages
+     (erro "No 'Access-Control-Allow-Origin' header"). O dashboard já contorna isso com
+     corsproxy.io/allorigins para IBOV e S&P — usamos exatamente a mesma cascata aqui. */
+  function buscarYahoo(sym, desdeISO) {
     if (!sym) return Promise.resolve(null);
     var cached = lerCache(sym);
     if (cached) return Promise.resolve(cached);
-    var url = 'https://stooq.com/q/d/l/?s=' + encodeURIComponent(sym) +
-              '&i=d&d1=' + desdeISO.replace(/-/g, '');
-    return comTimeout(fetch(url))
-      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
-      .then(function (csv) {
-        var p = parseCSV(csv);
-        if (!p) throw new Error('csv inválido');
-        gravarCache(sym, p);
-        return p;
+
+    var anos = Math.max(1, Math.ceil(diasEntre(desdeISO, iso(new Date())) / 365)) + 1;
+    var range = anos >= 10 ? '10y' : (anos >= 5 ? '5y' : (anos >= 2 ? '2y' : '1y'));
+    var yUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' +
+               encodeURIComponent(sym) + '?range=' + range + '&interval=1d';
+
+    function parseYahoo(data) {
+      var r = data && data.chart && data.chart.result && data.chart.result[0];
+      if (!r) throw new Error('sem chart.result');
+      var ts = r.timestamp || [];
+      var cl = (r.indicators && r.indicators.quote && r.indicators.quote[0] &&
+                r.indicators.quote[0].close) || [];
+      if (!ts.length || !cl.length) throw new Error('arrays vazios');
+      var pontos = [];
+      for (var i = 0; i < ts.length; i++) {
+        var c = parseFloat(cl[i]);
+        if (!isFinite(c) || c <= 0) continue;
+        pontos.push({ d: new Date(ts[i] * 1000).toISOString().substring(0, 10), c: c });
+      }
+      if (!pontos.length) throw new Error('sem pontos');
+      pontos.sort(function (a, b) { return a.d < b.d ? -1 : (a.d > b.d ? 1 : 0); });
+      return pontos;
+    }
+
+    // Cascata: corsproxy.io → allorigins → desiste (ativo fica sem série)
+    return comTimeout(fetch('https://corsproxy.io/?' + encodeURIComponent(yUrl)), 18000)
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(parseYahoo)
+      .catch(function () {
+        return comTimeout(fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(yUrl)), 18000)
+          .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+          .then(parseYahoo);
       })
+      .then(function (pontos) { gravarCache(sym, pontos); return pontos; })
       .catch(function () { return null; });
   }
 
@@ -8443,16 +8481,27 @@ function loadPatStrip(){
         };
       });
 
-      var jobs = Object.keys(mapaAtivos).map(function (tk) {
-        var info = mapaAtivos[tk];
-        var p = info.cripto ? buscarCripto(tk, desde) : buscarBolsa(stooqSymbol(tk, info.tipo), desde);
-        return p.then(function (pontos) { return { ticker: tk, pontos: pontos }; });
-      });
-      jobs.push(buscarBolsa('usdbrl', desde).then(function (p) {
-        return { ticker: '__USDBRL__', pontos: p };
-      }));
+      // Todos via Yahoo + proxy CORS (bolsa, cripto e câmbio na mesma cascata).
+      // CONCORRÊNCIA LIMITADA: carteiras grandes têm 50-100 ativos; disparar tudo de uma vez
+      // derruba o proxy público. Processa em lotes pequenos, em sequência.
+      var tickersLista = Object.keys(mapaAtivos);
+      var resultados = [];
 
-      return Promise.all(jobs).then(function (res) {
+      function processarLote(inicio) {
+        var lote = tickersLista.slice(inicio, inicio + 6);
+        if (!lote.length) return Promise.resolve();
+        return Promise.all(lote.map(function (tk) {
+          return buscarYahoo(yahooSymbol(tk, mapaAtivos[tk].tipo), desde)
+            .then(function (pontos) { resultados.push({ ticker: tk, pontos: pontos }); });
+        })).then(function () { return processarLote(inicio + 6); });
+      }
+
+      var jobs = buscarYahoo('USDBRL=X', desde)
+        .then(function (p) { resultados.push({ ticker: '__USDBRL__', pontos: p }); })
+        .then(function () { return processarLote(0); })
+        .then(function () { return resultados; });
+
+      return jobs.then(function (res) {
         var precos = {}, cambio = null;
         res.forEach(function (r) {
           if (!r.pontos) return;
@@ -8569,7 +8618,7 @@ function loadPatStrip(){
       } catch (e) {}
     },
 
-    _twr: twr, _stooqSymbol: stooqSymbol, _coinId: coinId,
+    _twr: twr, _stooqSymbol: stooqSymbol, _yahooSymbol: yahooSymbol, _coinId: coinId,
     _rfBruto: rfBruto, _rfLiquido: rfLiquido, _construirEventos: construirEventos
   };
 
@@ -9360,8 +9409,23 @@ window.g20Logout = function() {
                   igpm:  (typeof IND!=='undefined' && IND.igpm)  ? IND.igpm  : 3.18
                 };
                 G20Rent.calcular({ aportes: _apReal, rendaFixa: _rfReal, indices: _idxReal }).then(function(serie){
-                  if (!serie || serie.length < 2) return;
-                  console.log('[G20Rent] histórico real reconstruído:', serie.length, 'dias');
+                  if (!serie || serie.length < 2) {
+                    console.warn('[G20Rent] ⚠ não foi possível reconstruir o histórico real (sem preços). Mantendo estimativa.');
+                    return;
+                  }
+                  var _u = serie[serie.length-1];
+                  console.log('[G20Rent] ✓ histórico REAL reconstruído: ' + serie.length + ' dias (' +
+                              serie[0].d + ' → ' + _u.d + ')');
+                  console.log('[G20Rent]   patrimônio da série: R$ ' + Math.round(_u.patrimonio).toLocaleString('pt-BR') +
+                              '  | RV: R$ ' + Math.round(_u.rv).toLocaleString('pt-BR') +
+                              '  | RF: R$ ' + Math.round(_u.rf).toLocaleString('pt-BR'));
+                  console.log('[G20Rent]   cobertura de preços: ' + Math.round((_u.cobertura||0)*100) + '%');
+                  try {
+                    ['1m','6m','ytd','max'].forEach(function(_p){
+                      var _r = G20Rent.retornoPeriodo(serie, _p);
+                      console.log('[G20Rent]   ' + _p.toUpperCase() + ': ' + (_r===null?'—':(_r>0?'+':'')+_r.toFixed(2)+'%'));
+                    });
+                  } catch(e){}
                   // Regrava os snapshots com base real e re-renderiza os painéis
                   try {
                     // Libera a trava só para esta gravação: o histórico REAL substitui o
