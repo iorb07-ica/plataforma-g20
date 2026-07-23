@@ -9489,6 +9489,22 @@ window.g20Logout = function() {
                   try { if (typeof loadPatStrip === 'function') loadPatStrip(); } catch(e){}
                   try { if (typeof _patRenderAllSparks === 'function') _patRenderAllSparks(); } catch(e){}
                   console.log('[G20Rent] ✓ painéis atualizados com a série real');
+                  // AUDITORIA: o que cada card DEVE exibir. Compare com a tela.
+                  try {
+                    var _sA = G20Rent.cache();
+                    var _hj = new Date();
+                    var _per = {
+                      'HOJE': new Date(_hj.getTime() - 86400000).toISOString().substring(0,10),
+                      'MÊS':  new Date(_hj.getFullYear(), _hj.getMonth()-1, _hj.getDate()).toISOString().substring(0,10),
+                      'YTD':  _hj.getFullYear() + '-01-01',
+                      'TOTAL': _sA[0].d
+                    };
+                    console.log('[G20Rent] ══ AUDITORIA — valores esperados nos cards ══');
+                    Object.keys(_per).forEach(function(k){
+                      var _v = _v21TwrDesde(_sA, _per[k]);
+                      console.log('[G20Rent]   ' + k.padEnd(6) + ': ' + (_v===null?'—':(_v>0?'+':'')+_v.toFixed(2)+'%'));
+                    });
+                  } catch(e){ console.warn('[G20Rent] auditoria falhou:', e.message); }
                 }).catch(function(){});
               }
             }
@@ -10124,6 +10140,14 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var fimTot = snap[snap.length - 1];
       var totAbs = (fimTot.t || 0) - (inicioTot.t || 0);
       var totPct = inicioTot.t > 0 ? (totAbs / inicioTot.t) * 100 : 0;
+      // Série real (TWR desde o início) tem prioridade
+      try {
+        if (window.G20Rent && G20Rent.cache() && typeof _v21TwrDesde === 'function') {
+          var _sT = G20Rent.cache();
+          var _rt = _v21TwrDesde(_sT, _sT[0].d);
+          if (_rt !== null && isFinite(_rt)) totPct = _rt;
+        }
+      } catch(e){}
       var total = { abs: totAbs, pct: totPct };
 
       function setRow(id, r) {
@@ -10204,7 +10228,16 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var fimMax = snap[last];
       if (!inicioMax || !fimMax) return null;
       return {
-        you: inicioMax.t > 0 ? ((fimMax.t / inicioMax.t) - 1) * 100 : 0,
+        you: (function(){
+          try {
+            if (window.G20Rent && G20Rent.cache() && typeof _v21TwrDesde === 'function') {
+              var _sM = G20Rent.cache();
+              var _rm2 = _v21TwrDesde(_sM, _sM[0].d);
+              if (_rm2 !== null && isFinite(_rm2)) return _rm2;
+            }
+          } catch(e){}
+          return inicioMax.t > 0 ? ((fimMax.t / inicioMax.t) - 1) * 100 : 0;
+        })(),
         cdi: inicioMax.c > 0 ? ((fimMax.c / inicioMax.c) - 1) * 100 : 0,
         ibov: (inicioMax.ibov && inicioMax.ibov > 0) ? ((fimMax.ibov / inicioMax.ibov) - 1) * 100 : null
       };
@@ -11061,6 +11094,13 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         if (inicio30 && fim && inicio30.t > 0 && fim.t > 0) {
           rentMes = ((fim.t / inicio30.t) - 1) * 100;
         }
+        // Série real do motor tem prioridade (TWR, desconta aportes)
+        try {
+          if (window.G20Rent && G20Rent.cache() && typeof _v21TwrDesde === 'function') {
+            var _rm = _v21TwrDesde(G20Rent.cache(), _mesAlvoStr);
+            if (_rm !== null && isFinite(_rm)) rentMes = _rm;
+          }
+        } catch(e){}
         if (inicio30 && fim && inicio30.c > 0 && fim.c > 0) {
           cdiMes = ((fim.c / inicio30.c) - 1) * 100;
         }
@@ -11094,6 +11134,13 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         if (inicioYTD && fimYTD && inicioYTD.t > 0) {
           rentYtd = ((fimYTD.t / inicioYTD.t) - 1) * 100;
         }
+        // Série real do motor tem prioridade (TWR, desconta aportes)
+        try {
+          if (window.G20Rent && G20Rent.cache() && typeof _v21TwrDesde === 'function') {
+            var _ry = _v21TwrDesde(G20Rent.cache(), anoAtual + '-01-01');
+            if (_ry !== null && isFinite(_ry)) rentYtd = _ry;
+          }
+        } catch(e){}
         if (inicioYTD && fimYTD && inicioYTD.c > 0) {
           cdiYtd = ((fimYTD.c / inicioYTD.c) - 1) * 100;
         }
