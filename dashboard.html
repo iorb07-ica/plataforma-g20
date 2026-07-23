@@ -8662,21 +8662,34 @@ function _patSnapUpsert(total,rf,rv){
   try { _real = (window.G20Rent && G20Rent.cache()) ? G20Rent.cache() : null; } catch(e){}
 
   if (_real && _real.length >= 2) {
-    // Já convertida nesta sessão? Não mexe mais — a série real é a fonte da verdade.
-    if (window._g20HistPronto && arr.length >= 2 && arr[arr.length-1] && arr[arr.length-1].real) {
-      return;
-    }
+    // VERSÃO DA SÉRIE: quando a lógica de cálculo muda, os snapshots gravados por versões
+    // anteriores precisam ser DESCARTADOS. Sem isso, séries corrompidas (ex.: com o antigo
+    // fator de escala aplicado em duplicidade, gerando "+106% hoje") sobrevivem no
+    // localStorage e continuam sendo exibidas mesmo depois da correção.
+    var SERIE_VER = 3;
+    var _jaOk = (window._g20HistPronto && arr.length >= 2 && arr[arr.length-1] &&
+                 arr[arr.length-1].real && arr[arr.length-1].sv === SERIE_VER);
+    if (_jaOk) return;
+
     // Grava a série REAL como ela é. SEM ESCALA.
-    // (Tentativas anteriores de escalar para o patrimônio total criavam distorções: o fator
-    //  era recalculado a cada chamada sobre uma série já escalada, multiplicando o efeito e
-    //  gerando percentuais absurdos tipo "+106% hoje". A rentabilidade correta é a da série.)
     var cdiD0 = _cdiDaily(), cdiAcc0 = 100;
     var novo = _real.map(function(p, i){
       if (i > 0) cdiAcc0 *= Math.pow(cdiD0, Math.max(1, _daysBetween(_real[i-1].d, p.d)));
-      return { d: p.d, t: p.patrimonio, rf: (p.rf||0), rv: (p.rv||0), c: cdiAcc0, real: true };
+      return { d: p.d, t: p.patrimonio, rf: (p.rf||0), rv: (p.rv||0),
+               c: cdiAcc0, real: true, sv: SERIE_VER };
     });
+    // A série costuma terminar no último pregão (ex.: 22/07 quando hoje é 23/07).
+    // Precisa existir um ponto de HOJE — mas com o valor da PRÓPRIA série, nunca com o
+    // patrimônio total cru. Gravar o total aqui criava um salto artificial de +106%
+    // (1.518.326 / 735.934 - 1), que contaminava HOJE, MÊS, YTD e Alpha.
+    var _uNovo = novo[novo.length-1];
+    if (_uNovo && _uNovo.d !== hoje) {
+      novo.push({ d: hoje, t: _uNovo.t, rf: _uNovo.rf, rv: _uNovo.rv,
+                  c: _uNovo.c * cdiD0, real: true, sv: SERIE_VER });
+    }
     _patSnapSave(novo);
     window._g20HistPronto = true;
+    console.log('[G20Rent] série aplicada aos painéis: ' + novo.length + ' pontos (v' + SERIE_VER + ')');
     return;
   }
 
@@ -8691,6 +8704,11 @@ function _patSnapUpsert(total,rf,rv){
   }
 
   // ── FALLBACK: seed sintético (só quando não há histórico real disponível) ──
+  // BLINDAGEM: se os snapshots já são a série REAL, este caminho não pode tocar neles.
+  // Era exatamente aqui que o patrimônio total (R$ 1,5M) era anexado como "hoje" sobre a
+  // série real (R$ 735k), gerando o salto de +106% que contaminava todos os percentuais.
+  if (arr.length >= 2 && arr[arr.length-1] && arr[arr.length-1].real) return;
+
   // Migra  o: regenera se seed desatualizado OU se tem menos dias que o esperado
   var allOldSeed = arr.length>0 && arr.every(function(s){return s.seed && s.seedV!==SEED_VERSION;});
   var shortSeed = arr.length>0 && arr.every(function(s){return s.seed;}) && arr.length<SEED_DAYS;
@@ -9263,6 +9281,17 @@ window.g20Logout = function() {
     // reais chegarem — senão cada painel pega uma versão diferente do cache conforme o timing
     // do carregamento, e os percentuais divergem entre si a cada refresh.
     window._g20DadosProntos = false;
+    // Descarta snapshots gravados por versões ANTERIORES da lógica de série. Sem isso,
+    // dados corrompidos de uma versão antiga continuam no localStorage e são exibidos
+    // mesmo depois da correção (o usuário via percentuais absurdos que não sumiam).
+    try {
+      var _sn = JSON.parse(localStorage.getItem('g20_patSnapshots') || '[]');
+      var _lastSn = _sn && _sn.length ? _sn[_sn.length-1] : null;
+      if (_lastSn && _lastSn.real && _lastSn.sv !== 3) {
+        localStorage.removeItem('g20_patSnapshots');
+        console.log('[G20Rent] snapshots de versão antiga descartados — série será reconstruída');
+      }
+    } catch(e){}
     // Rede de segurança: se o Firestore falhar ou demorar demais, libera os painéis com o que
     // houver em cache depois de 8s — melhor mostrar algo do que deixar tudo vazio.
     setTimeout(function(){
