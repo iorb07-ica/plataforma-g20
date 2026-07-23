@@ -9480,18 +9480,15 @@ window.g20Logout = function() {
                       console.log('[G20Rent]   ' + _p.toUpperCase() + ': ' + (_r===null?'—':(_r>0?'+':'')+_r.toFixed(2)+'%'));
                     });
                   } catch(e){}
-                  // Regrava os snapshots com base real e re-renderiza os painéis
-                  try {
-                    // Libera a trava só para esta gravação: o histórico REAL substitui o
-                    // sintético; depois a série volta a ficar congelada na sessão.
-                    window._g20HistPronto = false;
-                    _patSnapUpsert(serie[serie.length-1].patrimonio, 0, serie[serie.length-1].patrimonio);
-                  } catch(e){}
+                  // Os painéis leem DIRETO da série do motor (G20Rent.cache()), então basta
+                  // re-renderizar. Não é preciso converter para snapshots — era justamente
+                  // essa conversão que corrompia os percentuais.
                   ['v21LoadRent','v21LoadRentChart','v21LoadBench','v21LoadKpis'].forEach(function(fn){
                     try { if (typeof window[fn] === 'function') window[fn](); } catch(e){}
                   });
                   try { if (typeof loadPatStrip === 'function') loadPatStrip(); } catch(e){}
                   try { if (typeof _patRenderAllSparks === 'function') _patRenderAllSparks(); } catch(e){}
+                  console.log('[G20Rent] ✓ painéis atualizados com a série real');
                 }).catch(function(){});
               }
             }
@@ -9995,6 +9992,28 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   // Calcula rentabilidade de um período por DATA REAL (não por slots do array)
   // Retorna { abs: delta R$, pct: rentabilidade % }
   function _v21CalcRentPorData(snap, inicioStr) {
+    // ── CAMINHO DIRETO: quando existe a série real do motor, ela é a ÚNICA fonte.
+    // Os snapshots (g20_patSnapshots) são ignorados por completo aqui — eles são gravados
+    // por várias funções em momentos diferentes do boot e acabavam contaminados (ex.: o
+    // patrimônio total anexado sobre a série real gerava "+106% hoje"). Calculando direto
+    // da série, nenhum desses efeitos colaterais alcança os percentuais.
+    try {
+      if (window.G20Rent && G20Rent.cache()) {
+        var _serie = G20Rent.cache();
+        var _pct = _v21TwrDesde(_serie, inicioStr);
+        if (_pct !== null && isFinite(_pct)) {
+          // Variação absoluta em R$, coerente com a mesma série
+          var _corte = _serie.filter(function(p){ return p.d >= inicioStr; });
+          var _abs = 0;
+          if (_corte.length >= 2) {
+            _abs = _corte[_corte.length-1].patrimonio - _corte[0].patrimonio;
+          }
+          return { abs: _abs, pct: _pct };
+        }
+      }
+    } catch(e){}
+
+    // ── FALLBACK: sem série real, usa os snapshots (estimativa) ──
     if (!snap || snap.length < 2) return { abs: 0, pct: 0 };
     var found = _v21SnapFromDate(snap, inicioStr);
     var idx = found ? found.idx : 0;
@@ -10005,18 +10024,6 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     var tFim = fim.t || 0;
     var delta = tFim - tIni;
     var pct = tIni > 0 ? (delta / tIni) * 100 : 0;
-
-    // FONTE ÚNICA DA VERDADE: quando existe a série real reconstruída dos aportes, o
-    // percentual vem do TWR do motor (que desconta aportes/resgates). A conta simples
-    // acima trata aporte como rentabilidade e infla o resultado.
-    try {
-      if (window.G20Rent && G20Rent.cache()) {
-        var _s = G20Rent.cache();
-        var _twrPct = _v21TwrDesde(_s, inicioStr);
-        if (_twrPct !== null && isFinite(_twrPct)) pct = _twrPct;
-      }
-    } catch(e){}
-
     return { abs: delta, pct: pct };
   }
 
@@ -10154,6 +10161,33 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
   // ==================== CARD 3 — BENCHMARKS COM BARRAS ====================
   function calcRentRange(snap, period) {
+    // CAMINHO DIRETO: série real do motor é a única fonte (mesma lógica de _v21CalcRentPorData).
+    try {
+      if (window.G20Rent && G20Rent.cache() && typeof _v21TwrDesde === 'function') {
+        var _sr = G20Rent.cache();
+        var _hj = new Date();
+        var _ini = new Date(_hj);
+        if (period === '1m') _ini.setMonth(_ini.getMonth() - 1);
+        else if (period === '6m') _ini.setMonth(_ini.getMonth() - 6);
+        else if (period === 'ytd') _ini = new Date(_hj.getFullYear(), 0, 1);
+        else if (period === '1a') _ini.setFullYear(_ini.getFullYear() - 1);
+        else if (period === '5a') _ini.setFullYear(_ini.getFullYear() - 5);
+        else _ini = null;   // max
+        var _iniStr = _ini ? _ini.toISOString().substring(0,10) : _sr[0].d;
+        var _you = _v21TwrDesde(_sr, _iniStr);
+        if (_you !== null && isFinite(_you)) {
+          var _cdiPct = null;
+          try {
+            var _sn2 = snap || [];
+            var _f2 = _v21SnapFromDate(_sn2, _iniStr);
+            var _i2 = _f2 ? _f2.snap : _sn2[0];
+            var _fm2 = _sn2[_sn2.length-1];
+            if (_i2 && _fm2 && _i2.c > 0) _cdiPct = ((_fm2.c / _i2.c) - 1) * 100;
+          } catch(e){}
+          return { you: _you, cdi: _cdiPct, ibov: null };
+        }
+      }
+    } catch(e){}
     if (!snap || snap.length < 2) return null;
     var last = snap.length - 1;
     var hoje = new Date();
