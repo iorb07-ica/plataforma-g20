@@ -8155,6 +8155,312 @@ function loadPatStrip(){
 }
 
 // //  HISTRICO PATRIMONIAL + SPARKLINE + CDI
+/* ===== MOTOR DE RENTABILIDADE REAL (embutido) ===== */
+/* ============================================================================
+   G20 · MOTOR DE RENTABILIDADE REAL  (v1)
+   ----------------------------------------------------------------------------
+   Substitui o histórico SINTÉTICO (random walk) por uma reconstrução REAL da
+   evolução do patrimônio, a partir de:
+     • lançamentos de aportes (ticker, data, qtd, preco, op C/V)
+     • série histórica de preços de cada ativo (Stooq, grátis, sem API key)
+     • câmbio USD/BRL histórico (para ativos em dólar)
+
+   E calcula rentabilidade TIME-WEIGHTED (TWR), que DESCONTA aportes e resgates.
+   Sem isso, aportar dinheiro novo aparecia como "rentabilidade" e a comparação
+   com CDI/IBOV/S&P era injusta.
+
+   Uso:
+     G20Rent.calcular({ aportes: [...], onReady: fn })  →  série diária
+     G20Rent.retornoPeriodo(serie, 'ytd')               →  % TWR do período
+
+   Depende apenas de fetch + localStorage. Não usa libs externas.
+   ============================================================================ */
+(function (global) {
+  'use strict';
+
+  var CACHE_PREFIX = 'g20_histpx_';     // cache de preços por ativo
+  var CACHE_TTL    = 24 * 60 * 60 * 1000;   // 24h
+  var SERIE_KEY    = 'g20_serieReal';   // série reconstruída (cache)
+  var SERIE_TTL    = 12 * 60 * 60 * 1000;   // 12h
+
+  // ---------------------------------------------------------------- utils
+  function iso(d) {
+    return d.getFullYear() + '-' +
+           String(d.getMonth() + 1).padStart(2, '0') + '-' +
+           String(d.getDate()).padStart(2, '0');
+  }
+  function parseISO(s) {
+    var p = String(s).substring(0, 10).split('-');
+    return new Date(+p[0], (+p[1]) - 1, +p[2]);
+  }
+  function addDays(d, n) { var x = new Date(d); x.setDate(x.getDate() + n); return x; }
+
+  /* Converte o ticker do G20 para o símbolo do Stooq.
+     BR: PETR4 → petr4.sa | VRTA11 → vrta11.sa
+     US: AAPL  → aapl.us
+     Cripto e RF são tratados à parte (não têm série no Stooq). */
+  function stooqSymbol(ticker, tipo) {
+    var t = String(ticker || '').toUpperCase().trim();
+    if (!t) return null;
+    var tp = String(tipo || '').toUpperCase();
+    if (tp === 'CRIPTO' || tp === 'RF') return null;      // sem série de bolsa
+    // Brasileiro: termina com dígito (PETR4, VRTA11, BOVA11...)
+    if (/\d$/.test(t)) return t.toLowerCase() + '.sa';
+    return t.toLowerCase() + '.us';
+  }
+
+  // ------------------------------------------------------- preços históricos
+  function lerCache(sym) {
+    try {
+      var c = JSON.parse(localStorage.getItem(CACHE_PREFIX + sym) || 'null');
+      if (c && c.loadedAt && (Date.now() - c.loadedAt) < CACHE_TTL && c.pontos) return c.pontos;
+    } catch (e) {}
+    return null;
+  }
+  function gravarCache(sym, pontos) {
+    try {
+      localStorage.setItem(CACHE_PREFIX + sym,
+        JSON.stringify({ loadedAt: Date.now(), pontos: pontos }));
+    } catch (e) {}   // storage cheio: segue sem cache
+  }
+
+  function parseCSV(csv) {
+    var linhas = csv.trim().split('\n');
+    if (linhas.length < 2) return null;
+    var head = linhas[0].toLowerCase().split(',');
+    var iD = head.indexOf('date'), iC = head.indexOf('close');
+    if (iD < 0 || iC < 0) return null;
+    var out = [];
+    for (var i = 1; i < linhas.length; i++) {
+      var col = linhas[i].split(',');
+      var v = parseFloat(col[iC]);
+      if (col[iD] && isFinite(v) && v > 0) out.push({ d: col[iD], c: v });
+    }
+    out.sort(function (a, b) { return a.d < b.d ? -1 : (a.d > b.d ? 1 : 0); });
+    return out.length ? out : null;
+  }
+
+  function buscarSerie(sym, desdeISO) {
+    var cached = lerCache(sym);
+    if (cached) return Promise.resolve(cached);
+
+    var d1 = desdeISO.replace(/-/g, '');
+    var url = 'https://stooq.com/q/d/l/?s=' + encodeURIComponent(sym) + '&i=d&d1=' + d1;
+
+    return Promise.race([
+      fetch(url),
+      new Promise(function (_, rej) { setTimeout(function () { rej(new Error('timeout')); }, 15000); })
+    ])
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then(function (csv) {
+        var pontos = parseCSV(csv);
+        if (!pontos) throw new Error('csv inválido');
+        gravarCache(sym, pontos);
+        return pontos;
+      })
+      .catch(function () { return null; });   // falhou: ativo fica sem série
+  }
+
+  /* Índice de preço por data com "último preço conhecido" (forward fill).
+     Feriados e fins de semana herdam o fechamento anterior — sem isso o
+     patrimônio zeraria em dias sem pregão. */
+  function indexar(pontos) {
+    var mapa = {}, ultimo = null;
+    for (var i = 0; i < pontos.length; i++) { mapa[pontos[i].d] = pontos[i].c; }
+    return {
+      em: function (dISO) {
+        if (mapa[dISO] != null) { ultimo = mapa[dISO]; return ultimo; }
+        // procura o pregão anterior mais próximo (até 10 dias atrás)
+        var d = parseISO(dISO);
+        for (var k = 1; k <= 10; k++) {
+          var alvo = iso(addDays(d, -k));
+          if (mapa[alvo] != null) return mapa[alvo];
+        }
+        return null;
+      }
+    };
+  }
+
+  // ------------------------------------------------------ posições por data
+  /* Reconstrói quantas cotas de cada ativo existiam em cada dia.
+     op 'V' (venda) subtrai; qualquer outro valor soma (compra). */
+  function construirPosicoes(aportes) {
+    var eventos = aportes
+      .filter(function (a) { return a && a.ticker && a.data && +a.qtd > 0; })
+      .map(function (a) {
+        return {
+          d: String(a.data).substring(0, 10),
+          ticker: String(a.ticker).toUpperCase().trim(),
+          tipo: a.tipo || '',
+          moeda: (a.moeda || 'BRL').toUpperCase(),
+          qtd: (String(a.op).toUpperCase() === 'V' ? -1 : 1) * (+a.qtd),
+          custo: (String(a.op).toUpperCase() === 'V' ? -1 : 1) * (+a.qtd) * (+a.preco || 0)
+        };
+      })
+      .sort(function (x, y) { return x.d < y.d ? -1 : (x.d > y.d ? 1 : 0); });
+    return eventos;
+  }
+
+  // ------------------------------------------------------------- TWR
+  /* Retorno Time-Weighted: encadeia os retornos diários já limpos de
+     aportes/resgates. É o único jeito de comparar com CDI/IBOV/S&P de forma
+     justa — o dinheiro que ENTRA não vira "rentabilidade". */
+  function twr(serie) {
+    var fator = 1;
+    for (var i = 1; i < serie.length; i++) {
+      var vIni = serie[i - 1].patrimonio;
+      var vFim = serie[i].patrimonio;
+      var fluxo = serie[i].fluxo || 0;         // aporte(+) / resgate(-) do dia
+      if (!(vIni > 0)) continue;
+      // Desconta o fluxo do valor final: só sobra o que foi mercado.
+      var r = (vFim - fluxo - vIni) / vIni;
+      if (isFinite(r)) fator *= (1 + r);
+    }
+    return (fator - 1) * 100;
+  }
+
+  // --------------------------------------------------------------- API
+  var API = {
+    /* Reconstrói a série diária real do patrimônio.
+       opts = { aportes: [...], desde: 'YYYY-MM-DD' (opcional), onProgress: fn } */
+    calcular: function (opts) {
+      opts = opts || {};
+      var aportes = opts.aportes || [];
+      var eventos = construirPosicoes(aportes);
+      if (!eventos.length) return Promise.resolve(null);
+
+      var desde = opts.desde || eventos[0].d;
+      var hoje = iso(new Date());
+
+      // Ativos distintos que precisam de série de preço
+      var mapaAtivos = {};
+      eventos.forEach(function (e) {
+        var sym = stooqSymbol(e.ticker, e.tipo);
+        if (sym) mapaAtivos[e.ticker] = { sym: sym, moeda: e.moeda };
+      });
+      var tickers = Object.keys(mapaAtivos);
+
+      // Busca todas as séries + câmbio em paralelo
+      var jobs = tickers.map(function (tk) {
+        return buscarSerie(mapaAtivos[tk].sym, desde).then(function (p) {
+          return { ticker: tk, pontos: p };
+        });
+      });
+      jobs.push(buscarSerie('usdbrl', desde).then(function (p) {
+        return { ticker: '__USDBRL__', pontos: p };
+      }));
+
+      return Promise.all(jobs).then(function (res) {
+        var idx = {}, cambio = null;
+        res.forEach(function (r) {
+          if (!r.pontos) return;
+          if (r.ticker === '__USDBRL__') cambio = indexar(r.pontos);
+          else idx[r.ticker] = indexar(r.pontos);
+        });
+
+        // Caminha dia a dia acumulando posições e avaliando a mercado
+        var serie = [];
+        var pos = {};                 // ticker -> qtd acumulada
+        var ei = 0;
+        var cursor = parseISO(desde);
+        var fim = parseISO(hoje);
+
+        while (cursor <= fim) {
+          var dISO = iso(cursor);
+          var fluxoDia = 0;
+
+          // aplica eventos do dia
+          while (ei < eventos.length && eventos[ei].d <= dISO) {
+            var ev = eventos[ei];
+            pos[ev.ticker] = (pos[ev.ticker] || 0) + ev.qtd;
+            var custo = ev.custo;
+            if (ev.moeda === 'USD') {
+              var fx = cambio ? cambio.em(dISO) : null;
+              custo = custo * (fx || 5);
+            }
+            fluxoDia += custo;         // entrada de dinheiro (ou saída, se venda)
+            ei++;
+          }
+
+          // avalia a mercado
+          var patrimonio = 0, avaliados = 0, total = 0;
+          Object.keys(pos).forEach(function (tk) {
+            var q = pos[tk];
+            if (!(q > 0)) return;
+            total++;
+            var px = idx[tk] ? idx[tk].em(dISO) : null;
+            if (px == null) return;         // sem preço: ignora (não zera o dia)
+            avaliados++;
+            var val = q * px;
+            if (mapaAtivos[tk] && mapaAtivos[tk].moeda === 'USD') {
+              var fx2 = cambio ? cambio.em(dISO) : null;
+              val = val * (fx2 || 5);
+            }
+            patrimonio += val;
+          });
+
+          // Só registra dias com pelo menos metade da carteira avaliada —
+          // evita degraus artificiais quando faltam preços.
+          if (patrimonio > 0 && (total === 0 || avaliados / total >= 0.5)) {
+            serie.push({ d: dISO, patrimonio: patrimonio, fluxo: fluxoDia, cobertura: total ? avaliados / total : 1 });
+          }
+          cursor = addDays(cursor, 1);
+        }
+
+        if (serie.length < 2) return null;
+        try {
+          localStorage.setItem(SERIE_KEY, JSON.stringify({ at: Date.now(), serie: serie }));
+        } catch (e) {}
+        return serie;
+      });
+    },
+
+    /* Retorno TWR de um período: '1m' | '6m' | 'ytd' | '1a' | '5a' | 'max' */
+    retornoPeriodo: function (serie, periodo) {
+      if (!serie || serie.length < 2) return null;
+      var hoje = parseISO(serie[serie.length - 1].d);
+      var ini;
+      if (periodo === 'ytd') ini = new Date(hoje.getFullYear(), 0, 1);
+      else if (periodo === '1m') { ini = new Date(hoje); ini.setMonth(ini.getMonth() - 1); }
+      else if (periodo === '6m') { ini = new Date(hoje); ini.setMonth(ini.getMonth() - 6); }
+      else if (periodo === '1a') { ini = new Date(hoje); ini.setFullYear(ini.getFullYear() - 1); }
+      else if (periodo === '5a') { ini = new Date(hoje); ini.setFullYear(ini.getFullYear() - 5); }
+      else ini = parseISO(serie[0].d);
+
+      var iniISO = iso(ini);
+      var corte = serie.filter(function (p) { return p.d >= iniISO; });
+      if (corte.length < 2) return null;
+      return twr(corte);
+    },
+
+    /* Série em cache (se ainda válida) */
+    cache: function () {
+      try {
+        var c = JSON.parse(localStorage.getItem(SERIE_KEY) || 'null');
+        if (c && c.at && (Date.now() - c.at) < SERIE_TTL && c.serie) return c.serie;
+      } catch (e) {}
+      return null;
+    },
+
+    limparCache: function () {
+      try {
+        localStorage.removeItem(SERIE_KEY);
+        Object.keys(localStorage).forEach(function (k) {
+          if (k.indexOf(CACHE_PREFIX) === 0) localStorage.removeItem(k);
+        });
+      } catch (e) {}
+    },
+
+    // exportos para teste
+    _twr: twr,
+    _stooqSymbol: stooqSymbol,
+    _construirPosicoes: construirPosicoes
+  };
+
+  global.G20Rent = API;
+})(typeof window !== 'undefined' ? window : this);
+
+
 var PAT_SNAP_KEY = 'g20_patSnapshots';
 var PAT_RANGE_KEYS = {total:'g20_patSparkRange_total', rf:'g20_patSparkRange_rf', rv:'g20_patSparkRange_rv'};
 
@@ -8174,6 +8480,27 @@ function _patSnapUpsert(total,rf,rv){
   if(!(total>0)) return;
   var arr=_patSnapLoad();
   var hoje=_todayISO();
+
+  // ── HISTÓRICO REAL ────────────────────────────────────────────────────────
+  // Se já existe série reconstruída dos aportes (G20Rent), ela SUBSTITUI o seed
+  // sintético. O seed só existe como último recurso visual quando não há dados.
+  var _real = null;
+  try { _real = (window.G20Rent && G20Rent.cache()) ? G20Rent.cache() : null; } catch(e){}
+  if (_real && _real.length >= 2) {
+    var cdiD0 = _cdiDaily(), cdiAcc0 = 100;
+    var novo = _real.map(function(p, i){
+      if (i > 0) cdiAcc0 *= Math.pow(cdiD0, Math.max(1, _daysBetween(_real[i-1].d, p.d)));
+      return { d: p.d, t: p.patrimonio, rf: 0, rv: p.patrimonio, c: cdiAcc0, real: true };
+    });
+    // Ancora o último ponto no patrimônio ATUAL (que inclui RF e bens)
+    var ult = novo[novo.length-1];
+    if (ult && ult.d === hoje) { ult.t = total; ult.rf = rf; ult.rv = rv; }
+    else novo.push({ d: hoje, t: total, rf: rf, rv: rv, c: cdiAcc0 * cdiD0, real: true });
+    _patSnapSave(novo);
+    return;
+  }
+
+  // ── FALLBACK: seed sintético (só quando não há histórico real disponível) ──
   // Migra  o: regenera se seed desatualizado OU se tem menos dias que o esperado
   var allOldSeed = arr.length>0 && arr.every(function(s){return s.seed && s.seedV!==SEED_VERSION;});
   var shortSeed = arr.length>0 && arr.every(function(s){return s.seed;}) && arr.length<SEED_DAYS;
@@ -8203,19 +8530,40 @@ function _patSnapUpsert(total,rf,rv){
 }
 
 // Semente sint tica: random walk ancorado HOJE, caminhando pra tr s (v3)
-var SEED_VERSION = 4;
+var SEED_VERSION = 5;
 var SEED_DAYS = 1825;
+// PRNG DETERMINÍSTICO (mulberry32). Substitui Math.random() no seed sintético.
+// MOTIVO: com Math.random(), cada regeneração criava um histórico DIFERENTE — o mesmo
+// patrimônio produzia YTD de -5% num refresh e +10% no outro (amplitude de ~15 p.p.).
+// Com semente fixa (derivada do uid + patrimônio), o histórico é sempre o MESMO.
+function _seedRand(seedStr){
+  var h = 2166136261 >>> 0;
+  for (var i = 0; i < seedStr.length; i++) {
+    h ^= seedStr.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return function(){
+    h |= 0; h = (h + 0x6D2B79F5) | 0;
+    var t = Math.imul(h ^ (h >>> 15), 1 | h);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 function _patSeed(total,rf,rv,dias){
   var arr=[], hoje=new Date();
   var cdiD=_cdiDaily();
   var volT=0.008;   // ~0.8% dia no total
   var volRV=0.015;  // ~1.5% dia na RV
+  // Semente estável: mesmo usuário + mesmo patrimônio => sempre o mesmo histórico.
+  var _uid = '';
+  try { _uid = localStorage.getItem('g20_uid') || ''; } catch(e){}
+  var rand = _seedRand(_uid + '|' + Math.round(total) + '|' + Math.round(rv) + '|' + dias);
   // tSer[0] = hoje; vamos caminhando pra tr s e empilhando
   var tSer=[total], rfSer=[rf], rvSer=[rv];
   var t=total, r=rf, v=rv;
   for(var i=1;i<dias;i++){
-    var dT=(Math.random()*2-1)*volT;
-    var dV=(Math.random()*2-1)*volRV;
+    var dT=(rand()*2-1)*volT;
+    var dV=(rand()*2-1)*volRV;
     t = t/(1+dT);
     v = v/(1+dV);
     r = r/cdiD; // RF rende ~CDI
@@ -8224,7 +8572,7 @@ function _patSeed(total,rf,rv,dias){
   tSer.reverse(); rfSer.reverse(); rvSer.reverse();
   // Adiciona ru do leve no RF pra n o ficar reta visual ( 0.08% dia)
   for(var k=0;k<rfSer.length-1;k++){
-    rfSer[k] *= (1 + (Math.random()*2-1)*0.0008);
+    rfSer[k] *= (1 + (rand()*2-1)*0.0008);
   }
   var cdiAcc=100;
   for(var j=0;j<dias;j++){
@@ -8719,6 +9067,21 @@ window.g20Logout = function() {
       return;
     }
     localStorage.setItem('g20_uid', user.uid);
+    // Enquanto o Firestore não responder, o localStorage pode conter snapshots ANTIGOS (da
+    // sessão anterior). Os painéis de rentabilidade só devem renderizar depois que os dados
+    // reais chegarem — senão cada painel pega uma versão diferente do cache conforme o timing
+    // do carregamento, e os percentuais divergem entre si a cada refresh.
+    window._g20DadosProntos = false;
+    // Rede de segurança: se o Firestore falhar ou demorar demais, libera os painéis com o que
+    // houver em cache depois de 8s — melhor mostrar algo do que deixar tudo vazio.
+    setTimeout(function(){
+      if (window._g20DadosProntos === false) {
+        window._g20DadosProntos = true;
+        ['v21LoadRent','v21LoadRentChart','v21LoadBench','v21LoadKpis'].forEach(function(fn){
+          try { if (typeof window[fn] === 'function') window[fn](); } catch(e){}
+        });
+      }
+    }, 8000);
 
     // ISOLAMENTO POR USUÁRIO: se o dono dos dados em cache mudou (outra conta logou antes
     // neste navegador/aba), limpa o cache patrimonial pra NÃO vazar dados de outra pessoa.
@@ -8834,6 +9197,36 @@ window.g20Logout = function() {
             try { localStorage.setItem('g20_' + doc.id, JSON.stringify(doc.data().value)); } catch(e) {}
           });
           try { localStorage.setItem('g20_dados_owner', user.uid); } catch(e){}
+          // Snapshots reais do usuário já estão no localStorage: libera os painéis.
+          window._g20DadosProntos = true;
+
+          // ── RECONSTRÓI O HISTÓRICO REAL a partir dos lançamentos ──────────────
+          // Junta a carteira pessoal (rvAportes) e, para o admin, a Carteira G20
+          // curada (aportes). Busca preços históricos e refaz a série do patrimônio.
+          try {
+            if (window.G20Rent && !G20Rent.cache()) {
+              var _apReal = [];
+              try { _apReal = _apReal.concat(JSON.parse(localStorage.getItem('g20_rvAportes')||'[]')); } catch(e){}
+              if (_isAdminDash) {
+                try { _apReal = _apReal.concat(JSON.parse(localStorage.getItem('g20_aportes')||'[]')); } catch(e){}
+              }
+              if (_apReal.length) {
+                G20Rent.calcular({ aportes: _apReal }).then(function(serie){
+                  if (!serie || serie.length < 2) return;
+                  console.log('[G20Rent] histórico real reconstruído:', serie.length, 'dias');
+                  // Regrava os snapshots com base real e re-renderiza os painéis
+                  try {
+                    var _t = 0;
+                    try { _t = JSON.parse(localStorage.getItem('g20_lastRVTotal')||'0') || serie[serie.length-1].patrimonio; } catch(e){ _t = serie[serie.length-1].patrimonio; }
+                    _patSnapUpsert(serie[serie.length-1].patrimonio, 0, serie[serie.length-1].patrimonio);
+                  } catch(e){}
+                  ['v21LoadRent','v21LoadRentChart','v21LoadBench','v21LoadKpis'].forEach(function(fn){
+                    try { if (typeof window[fn] === 'function') window[fn](); } catch(e){}
+                  });
+                }).catch(function(){});
+              }
+            }
+          } catch(e){}
           loadPatStrip();
           // Re-renderiza os painéis que dependem dos dados patrimoniais com os dados JÁ
           // corretos do usuário logado (sem isso ficavam no 1º render até um F5).
@@ -9395,6 +9788,9 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   }
 
   function v21LoadRent() {
+    // Não renderiza com cache antigo: espera os snapshots reais do Firestore (evita
+    // percentuais divergentes entre painéis e números mudando a cada refresh).
+    if (window._g20DadosProntos === false) return;
     try {
       var snap = [];
       try { snap = JSON.parse(localStorage.getItem('g20_patSnapshots') || '[]'); } catch(e){}
@@ -9503,6 +9899,9 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   var _v21BenchTimer = null;
   var _v21BenchLastSig = null;  // assinatura dos dados da última execução real
   function v21LoadBench() {
+    // Não renderiza com cache antigo: espera os snapshots reais do Firestore (evita
+    // percentuais divergentes entre painéis e números mudando a cada refresh).
+    if (window._g20DadosProntos === false) return;
     if (_v21BenchTimer) clearTimeout(_v21BenchTimer);
     _v21BenchTimer = setTimeout(function(){
       _v21BenchTimer = null;
@@ -10266,6 +10665,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   }
 
   function v21LoadKpis() {
+    // Mesma proteção dos painéis: sem dados reais, não calcula (evita divergência).
+    if (window._g20DadosProntos === false) return;
     try {
       // Helpers ----------------------------------------
       function fmtBRL(v) {
@@ -10501,31 +10902,52 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           if (!histBench || !histBench.pontos || histBench.pontos.length < 30) return null;
           if (!ultimosSnaps || ultimosSnaps.length < 30) return null;
 
-          // Alinha datas: pra cada snap, pega fechamento do bench mesmo dia ou mais próximo anterior
-          var rBench = [];
-          for (var i = 1; i < ultimosSnaps.length; i++) {
-            var dAnt = ultimosSnaps[i-1].d;
-            var dAtu = ultimosSnaps[i].d;
-            var pAnt = null, pAtu = null;
-            for (var j = histBench.pontos.length - 1; j >= 0; j--) {
-              var d = histBench.pontos[j].d;
-              if (!pAtu && d <= dAtu) pAtu = histBench.pontos[j].close;
-              if (!pAnt && d <= dAnt) { pAnt = histBench.pontos[j].close; break; }
+          // Índice de preços do benchmark por data, em ordem CRESCENTE.
+          // (A versão anterior varria o histórico de trás pra frente com um `break` que
+          //  disparava ao achar o preço anterior — muitas vezes ANTES de achar o preço atual,
+          //  gerando retornos zerados em série e derrubando o beta artificialmente para ~0.)
+          var pts = histBench.pontos.slice().sort(function(x,y){ return x.d < y.d ? -1 : (x.d > y.d ? 1 : 0); });
+
+          // Preço do bench no dia d, ou no pregão anterior mais próximo (busca binária).
+          function precoEm(dStr) {
+            var lo = 0, hi = pts.length - 1, res = null;
+            while (lo <= hi) {
+              var mid = (lo + hi) >> 1;
+              if (pts[mid].d <= dStr) { res = pts[mid]; lo = mid + 1; }
+              else hi = mid - 1;
             }
-            if (pAnt && pAtu && pAnt > 0) rBench.push((pAtu/pAnt) - 1);
-            else rBench.push(0);
+            return (res && res.close > 0) ? res.close : null;
           }
 
-          // Cov e Var sobre os pares alinhados
-          var n = Math.min(rCart.length, rBench.length);
+          // Só usa pares em que AMBOS os retornos existem (descarta o dia em vez de zerar).
+          var xs = [], ys = [];
+          for (var i = 1; i < ultimosSnaps.length; i++) {
+            var pAnt = precoEm(ultimosSnaps[i-1].d);
+            var pAtu = precoEm(ultimosSnaps[i].d);
+            var tAnt = ultimosSnaps[i-1].t, tAtu = ultimosSnaps[i].t;
+            if (!pAnt || !pAtu || !(tAnt > 0) || !(tAtu > 0)) continue;
+            var rB = (pAtu / pAnt) - 1;
+            var rC = (tAtu / tAnt) - 1;
+            // Descarta dias de aporte/resgate: variação do patrimônio muito fora do padrão de
+            // mercado (>15% num dia) é entrada/saída de dinheiro, não movimento de preço.
+            if (Math.abs(rC) > 0.15) continue;
+            // Descarta snapshot ESTAGNADO: patrimônio idêntico ao dia anterior enquanto o mercado
+            // se moveu de verdade = cotação não atualizou naquele dia (dado falho). Manter esses
+            // dias injeta retorno zero na carteira e derruba o beta artificialmente para ~0.
+            if (rC === 0 && Math.abs(rB) > 0.001) continue;
+            if (rB === 0 && rC === 0) continue;   // dia sem pregão dos dois lados
+            xs.push(rC); ys.push(rB);
+          }
+
+          var n = Math.min(xs.length, ys.length);
           if (n < 30) return null;
           var mC = 0, mB = 0;
-          for (var k = 0; k < n; k++) { mC += rCart[k]; mB += rBench[k]; }
+          for (var k = 0; k < n; k++) { mC += xs[k]; mB += ys[k]; }
           mC /= n; mB /= n;
           var cov = 0, varB = 0;
-          for (var k = 0; k < n; k++) {
-            cov += (rCart[k] - mC) * (rBench[k] - mB);
-            varB += (rBench[k] - mB) * (rBench[k] - mB);
+          for (var k2 = 0; k2 < n; k2++) {
+            cov += (xs[k2] - mC) * (ys[k2] - mB);
+            varB += (ys[k2] - mB) * (ys[k2] - mB);
           }
           if (varB === 0) return null;
           return cov / varB;
@@ -10927,7 +11349,16 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   // ─────────────────────────────────────────────────────
   // CHART 1: RENTABILIDADE (linha comparativa)
   // ─────────────────────────────────────────────────────
+  // Expostas em window para o fallback de segurança do boot poder re-renderizar.
+  window.v21LoadRent = function(){ return v21LoadRent(); };
+  window.v21LoadRentChart = function(){ return v21LoadRentChart(); };
+  window.v21LoadBench = function(){ return v21LoadBench(); };
+  window.v21LoadKpis = function(){ return v21LoadKpis(); };
+
   function v21LoadRentChart() {
+    // Não renderiza com cache antigo: espera os snapshots reais do Firestore (evita
+    // percentuais divergentes entre painéis e números mudando a cada refresh).
+    if (window._g20DadosProntos === false) return;
     try {
       if (typeof Chart === 'undefined') return;
       var snap = [];
