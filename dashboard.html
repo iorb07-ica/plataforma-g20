@@ -8662,25 +8662,18 @@ function _patSnapUpsert(total,rf,rv){
   try { _real = (window.G20Rent && G20Rent.cache()) ? G20Rent.cache() : null; } catch(e){}
 
   if (_real && _real.length >= 2) {
-    // Já convertida nesta sessão? Só atualiza o valor de hoje na escala correta.
+    // Já convertida nesta sessão? Não mexe mais — a série real é a fonte da verdade.
     if (window._g20HistPronto && arr.length >= 2 && arr[arr.length-1] && arr[arr.length-1].real) {
-      var _esc = (window._g20EscalaSerie && window._g20EscalaSerie > 0) ? window._g20EscalaSerie : 1;
-      var _u = arr[arr.length-1];
-      if (_u.d === hoje) { _u.t = total / _esc * _esc; }   // mantém coerência de escala
-      _patSnapSave(arr);
       return;
     }
-    // Primeira conversão: escala a série real para bater com o patrimônio atual.
-    var _ultReal = _real[_real.length-1];
-    var _fator = (_ultReal && _ultReal.patrimonio > 0) ? (total / _ultReal.patrimonio) : 1;
-    if (!(_fator > 0) || !isFinite(_fator)) _fator = 1;
-    window._g20EscalaSerie = _fator;
-
+    // Grava a série REAL como ela é. SEM ESCALA.
+    // (Tentativas anteriores de escalar para o patrimônio total criavam distorções: o fator
+    //  era recalculado a cada chamada sobre uma série já escalada, multiplicando o efeito e
+    //  gerando percentuais absurdos tipo "+106% hoje". A rentabilidade correta é a da série.)
     var cdiD0 = _cdiDaily(), cdiAcc0 = 100;
     var novo = _real.map(function(p, i){
       if (i > 0) cdiAcc0 *= Math.pow(cdiD0, Math.max(1, _daysBetween(_real[i-1].d, p.d)));
-      return { d: p.d, t: p.patrimonio * _fator, rf: (p.rf||0) * _fator,
-               rv: (p.rv||0) * _fator, c: cdiAcc0, real: true };
+      return { d: p.d, t: p.patrimonio, rf: (p.rf||0), rv: (p.rv||0), c: cdiAcc0, real: true };
     });
     _patSnapSave(novo);
     window._g20HistPronto = true;
