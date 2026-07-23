@@ -9968,17 +9968,43 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   function _v21CalcRentPorData(snap, inicioStr) {
     if (!snap || snap.length < 2) return { abs: 0, pct: 0 };
     var found = _v21SnapFromDate(snap, inicioStr);
-    // Se inicioStr > última data (período muito curto), usa o último vs penúltimo
     var idx = found ? found.idx : 0;
     var fim = snap[snap.length - 1];
-    // Se achou o mesmo snap do fim (período zero dias), volta 1 slot
     if (idx === snap.length - 1) idx = Math.max(0, idx - 1);
     var inicio = snap[idx];
     var tIni = inicio.t || 0;
     var tFim = fim.t || 0;
     var delta = tFim - tIni;
     var pct = tIni > 0 ? (delta / tIni) * 100 : 0;
+
+    // FONTE ÚNICA DA VERDADE: quando existe a série real reconstruída dos aportes, o
+    // percentual vem do TWR do motor (que desconta aportes/resgates). A conta simples
+    // acima trata aporte como rentabilidade e infla o resultado.
+    try {
+      if (window.G20Rent && G20Rent.cache()) {
+        var _s = G20Rent.cache();
+        var _twrPct = _v21TwrDesde(_s, inicioStr);
+        if (_twrPct !== null && isFinite(_twrPct)) pct = _twrPct;
+      }
+    } catch(e){}
+
     return { abs: delta, pct: pct };
+  }
+
+  /* TWR da série real a partir de uma data (desconta aportes/resgates). */
+  function _v21TwrDesde(serie, inicioStr) {
+    if (!serie || serie.length < 2) return null;
+    var corte = serie.filter(function(p){ return p.d >= inicioStr; });
+    if (corte.length < 2) return null;
+    var fator = 1;
+    for (var i = 1; i < corte.length; i++) {
+      var vIni = corte[i-1].patrimonio, vFim = corte[i].patrimonio;
+      var fluxo = corte[i].fluxo || 0;
+      if (!(vIni > 0)) continue;
+      var r = (vFim - fluxo - vIni) / vIni;
+      if (isFinite(r)) fator *= (1 + r);
+    }
+    return (fator - 1) * 100;
   }
 
   // R51: Desenha sparkline SVG do slice snap[fromIdx..toIdx].
@@ -10127,8 +10153,16 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     var inicio = found ? found.snap : snap[0];
     var fim = snap[last];
     if (!inicio || !fim) return null;
+    // Mesma fonte única: TWR real quando a série reconstruída existe.
+    var _youReal = null;
+    try {
+      if (window.G20Rent && G20Rent.cache() && typeof _v21TwrDesde === 'function') {
+        _youReal = _v21TwrDesde(G20Rent.cache(), inicioStr);
+      }
+    } catch(e){}
     return {
-      you: inicio.t > 0 ? ((fim.t / inicio.t) - 1) * 100 : 0,
+      you: (_youReal !== null && isFinite(_youReal)) ? _youReal
+           : (inicio.t > 0 ? ((fim.t / inicio.t) - 1) * 100 : 0),
       cdi: inicio.c > 0 ? ((fim.c / inicio.c) - 1) * 100 : 0,
       ibov: (inicio.ibov && inicio.ibov > 0) ? ((fim.ibov / inicio.ibov) - 1) * 100 : null
     };
