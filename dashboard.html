@@ -8896,6 +8896,19 @@ function _renderCmp(elId, slice, campo, code, labelAtivo){
 
 function _patRenderCard(card){
   var arr=_patSnapLoad();
+  // SÉRIE REAL: o gráfico deve mostrar a evolução VERDADEIRA do patrimônio, reconstruída
+  // dos aportes com preços históricos. Os snapshots podem conter resíduos (degraus no
+  // último dia) que deformavam a curva com um salto vertical no fim.
+  try {
+    if (window.G20Rent && G20Rent.cache()) {
+      var _sr = G20Rent.cache();
+      var _cdiD = _cdiDaily(), _acc = 100;
+      arr = _sr.map(function(p, i){
+        if (i > 0) _acc *= Math.pow(_cdiD, Math.max(1, _daysBetween(_sr[i-1].d, p.d)));
+        return { d: p.d, t: p.patrimonio, rv: (p.rv||p.patrimonio), rf: (p.rf||0), c: _acc };
+      });
+    }
+  } catch(e){}
   var code=_patGetRange(card);
   var slice=_sliceRange(arr,code);
   var cfg = {
