@@ -8597,6 +8597,18 @@ function _patSnapUpsert(total,rf,rv){
   var arr=_patSnapLoad();
   var hoje=_todayISO();
 
+  // TRAVA ANTI-DIVERGÊNCIA: uma vez que o histórico foi montado nesta sessão, ele NÃO é
+  // regenerado. Sem isso, cada painel que renderizava depois de uma regeneração lia uma
+  // versão diferente da série — e os percentuais divergiam entre si na mesma tela.
+  if (window._g20HistPronto && arr.length >= 2) {
+    var _ultimo = arr[arr.length-1];
+    if (_ultimo && _ultimo.d === hoje) { _ultimo.t = total; _ultimo.rf = rf; _ultimo.rv = rv; }
+    else arr.push({ d: hoje, t: total, rf: rf, rv: rv,
+                    c: (_ultimo ? _ultimo.c * _cdiDaily() : 100) });
+    _patSnapSave(arr);
+    return;
+  }
+
   // ── HISTÓRICO REAL ────────────────────────────────────────────────────────
   // Se já existe série reconstruída dos aportes (G20Rent), ela SUBSTITUI o seed
   // sintético. O seed só existe como último recurso visual quando não há dados.
@@ -8613,6 +8625,7 @@ function _patSnapUpsert(total,rf,rv){
     if (ult && ult.d === hoje) { ult.t = total; ult.rf = rf; ult.rv = rv; }
     else novo.push({ d: hoje, t: total, rf: rf, rv: rv, c: cdiAcc0 * cdiD0, real: true });
     _patSnapSave(novo);
+    window._g20HistPronto = true;
     return;
   }
 
@@ -8643,6 +8656,7 @@ function _patSnapUpsert(total,rf,rv){
   }
   if(arr.length>400) arr=arr.slice(-400);
   _patSnapSave(arr);
+  window._g20HistPronto = true;   // congela a série pelo resto da sessão
 }
 
 // Semente sint tica: random walk ancorado HOJE, caminhando pra tr s (v3)
@@ -9340,8 +9354,9 @@ window.g20Logout = function() {
                   console.log('[G20Rent] histórico real reconstruído:', serie.length, 'dias');
                   // Regrava os snapshots com base real e re-renderiza os painéis
                   try {
-                    var _t = 0;
-                    try { _t = JSON.parse(localStorage.getItem('g20_lastRVTotal')||'0') || serie[serie.length-1].patrimonio; } catch(e){ _t = serie[serie.length-1].patrimonio; }
+                    // Libera a trava só para esta gravação: o histórico REAL substitui o
+                    // sintético; depois a série volta a ficar congelada na sessão.
+                    window._g20HistPronto = false;
                     _patSnapUpsert(serie[serie.length-1].patrimonio, 0, serie[serie.length-1].patrimonio);
                   } catch(e){}
                   ['v21LoadRent','v21LoadRentChart','v21LoadBench','v21LoadKpis'].forEach(function(fn){
