@@ -8615,12 +8615,22 @@ function _patSnapUpsert(total,rf,rv){
   var _real = null;
   try { _real = (window.G20Rent && G20Rent.cache()) ? G20Rent.cache() : null; } catch(e){}
   if (_real && _real.length >= 2) {
+    // ESCALA: a série reconstruída cobre só o que tem preço histórico (renda variável
+    // e RF calculada). O patrimônio de HOJE inclui também bens e ativos sem série.
+    // Sem ajustar, o último ponto daria um degrau gigante ("+17% hoje").
+    // Solução: escalar a série inteira pelo fator (patrimônio real / último ponto),
+    // preservando a FORMA da curva — os percentuais ficam corretos.
+    var _ultReal = _real[_real.length-1];
+    var _fator = (_ultReal && _ultReal.patrimonio > 0) ? (total / _ultReal.patrimonio) : 1;
+    if (!(_fator > 0) || !isFinite(_fator)) _fator = 1;
+
     var cdiD0 = _cdiDaily(), cdiAcc0 = 100;
     var novo = _real.map(function(p, i){
       if (i > 0) cdiAcc0 *= Math.pow(cdiD0, Math.max(1, _daysBetween(_real[i-1].d, p.d)));
-      return { d: p.d, t: p.patrimonio, rf: 0, rv: p.patrimonio, c: cdiAcc0, real: true };
+      var _t = p.patrimonio * _fator;
+      return { d: p.d, t: _t, rf: (p.rf||0) * _fator, rv: (p.rv||0) * _fator, c: cdiAcc0, real: true };
     });
-    // Ancora o último ponto no patrimônio ATUAL (que inclui RF e bens)
+    // Garante que o ponto de hoje existe e reflete o patrimônio exato
     var ult = novo[novo.length-1];
     if (ult && ult.d === hoje) { ult.t = total; ult.rf = rf; ult.rv = rv; }
     else novo.push({ d: hoje, t: total, rf: rf, rv: rv, c: cdiAcc0 * cdiD0, real: true });
