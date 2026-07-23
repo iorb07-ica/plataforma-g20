@@ -8271,8 +8271,15 @@ function loadPatStrip(){
      MOTIVO: chamadas diretas a Stooq/CoinGecko são bloqueadas por CORS no GitHub Pages
      (erro "No 'Access-Control-Allow-Origin' header"). O dashboard já contorna isso com
      corsproxy.io/allorigins para IBOV e S&P — usamos exatamente a mesma cascata aqui. */
+  /* Tickers de empresas que saíram da bolsa (fusão, OPA, incorporação). O Yahoo devolve
+     404 e o console enche de erro à toa — a posição já está zerada na carteira de qualquer
+     forma, então é seguro pular. */
+  var DELISTADOS = { 'SQIA3':1, 'CIO':1, 'STOR':1, 'SKX':1, 'STBP3':1, 'BRK.B':1 };
+
   function buscarYahoo(sym, desdeISO) {
     if (!sym) return Promise.resolve(null);
+    var _base = String(sym).replace('.SA','').toUpperCase();
+    if (DELISTADOS[_base]) return Promise.resolve(null);
     var cached = lerCache(sym);
     if (cached) return Promise.resolve(cached);
 
@@ -8646,63 +8653,47 @@ function _patSnapUpsert(total,rf,rv){
   var arr=_patSnapLoad();
   var hoje=_todayISO();
 
-  // TRAVA ANTI-DIVERGÊNCIA: uma vez que o histórico foi montado nesta sessão, ele NÃO é
-  // regenerado. Sem isso, cada painel que renderizava depois de uma regeneração lia uma
-  // versão diferente da série — e os percentuais divergiam entre si na mesma tela.
-  if (window._g20HistPronto && arr.length >= 2) {
-    var _ultimo = arr[arr.length-1];
-    // ESCALA COERENTE: a série real cobre só o que tem preço histórico. O `total` que chega
-    // aqui é o patrimônio COMPLETO (inclui bens e ativos sem série). Gravar o total cru sobre
-    // uma série escalada cria um degrau gigante no último dia ("+17% hoje"). Por isso o valor
-    // de hoje entra na MESMA escala dos demais pontos.
-    var _esc = (window._g20EscalaSerie && window._g20EscalaSerie > 0) ? window._g20EscalaSerie : null;
-    var _tHoje = _esc ? (total / _esc) : total;
-    if (_ultimo && _ultimo.d === hoje) {
-      _ultimo.t = _tHoje;
-      _ultimo.rf = _esc ? (rf / _esc) : rf;
-      _ultimo.rv = _esc ? (rv / _esc) : rv;
-    } else {
-      arr.push({ d: hoje, t: _tHoje,
-                 rf: _esc ? (rf / _esc) : rf,
-                 rv: _esc ? (rv / _esc) : rv,
-                 c: (_ultimo ? _ultimo.c * _cdiDaily() : 100) });
-    }
-    _patSnapSave(arr);
-    return;
-  }
-
-  // ── HISTÓRICO REAL ────────────────────────────────────────────────────────
-  // Se já existe série reconstruída dos aportes (G20Rent), ela SUBSTITUI o seed
-  // sintético. O seed só existe como último recurso visual quando não há dados.
+  // ── PRIORIDADE ABSOLUTA DO HISTÓRICO REAL ─────────────────────────────────
+  // Se a série reconstruída dos aportes existe (agora ou em cache), ela SEMPRE manda.
+  // Esta checagem vem ANTES de tudo porque várias funções chamam _patSnapUpsert em
+  // momentos diferentes do carregamento (cotações, proventos, etc.) — sem isso, a
+  // última a rodar sobrescrevia o histórico real com a estimativa sintética.
   var _real = null;
   try { _real = (window.G20Rent && G20Rent.cache()) ? G20Rent.cache() : null; } catch(e){}
+
   if (_real && _real.length >= 2) {
-    // ESCALA: a série reconstruída cobre só o que tem preço histórico (renda variável
-    // e RF calculada). O patrimônio de HOJE inclui também bens e ativos sem série.
-    // Sem ajustar, o último ponto daria um degrau gigante ("+17% hoje").
-    // Solução: escalar a série inteira pelo fator (patrimônio real / último ponto),
-    // preservando a FORMA da curva — os percentuais ficam corretos.
+    // Já convertida nesta sessão? Só atualiza o valor de hoje na escala correta.
+    if (window._g20HistPronto && arr.length >= 2 && arr[arr.length-1] && arr[arr.length-1].real) {
+      var _esc = (window._g20EscalaSerie && window._g20EscalaSerie > 0) ? window._g20EscalaSerie : 1;
+      var _u = arr[arr.length-1];
+      if (_u.d === hoje) { _u.t = total / _esc * _esc; }   // mantém coerência de escala
+      _patSnapSave(arr);
+      return;
+    }
+    // Primeira conversão: escala a série real para bater com o patrimônio atual.
     var _ultReal = _real[_real.length-1];
     var _fator = (_ultReal && _ultReal.patrimonio > 0) ? (total / _ultReal.patrimonio) : 1;
     if (!(_fator > 0) || !isFinite(_fator)) _fator = 1;
-    // Guarda a escala: as atualizações seguintes (quando as cotações chegam) precisam
-    // gravar o valor de hoje na MESMA escala, senão criam um degrau no último dia.
     window._g20EscalaSerie = _fator;
 
     var cdiD0 = _cdiDaily(), cdiAcc0 = 100;
     var novo = _real.map(function(p, i){
       if (i > 0) cdiAcc0 *= Math.pow(cdiD0, Math.max(1, _daysBetween(_real[i-1].d, p.d)));
-      var _t = p.patrimonio * _fator;
-      return { d: p.d, t: _t, rf: (p.rf||0) * _fator, rv: (p.rv||0) * _fator, c: cdiAcc0, real: true };
+      return { d: p.d, t: p.patrimonio * _fator, rf: (p.rf||0) * _fator,
+               rv: (p.rv||0) * _fator, c: cdiAcc0, real: true };
     });
-    // O fator de escala já faz o último ponto bater com o patrimônio atual — não
-    // sobrescrever com o total cru (isso recriaria o degrau que a escala eliminou).
-    var ult = novo[novo.length-1];
-    if (!ult || ult.d !== hoje) {
-      novo.push({ d: hoje, t: total, rf: rf, rv: rv, c: cdiAcc0 * cdiD0, real: true });
-    }
     _patSnapSave(novo);
     window._g20HistPronto = true;
+    return;
+  }
+
+  // ── SEM SÉRIE REAL: mantém a estimativa (congelada na sessão) ──────────────
+  if (window._g20HistPronto && arr.length >= 2) {
+    var _ultimo = arr[arr.length-1];
+    if (_ultimo && _ultimo.d === hoje) { _ultimo.t = total; _ultimo.rf = rf; _ultimo.rv = rv; }
+    else arr.push({ d: hoje, t: total, rf: rf, rv: rv,
+                    c: (_ultimo ? _ultimo.c * _cdiDaily() : 100) });
+    _patSnapSave(arr);
     return;
   }
 
@@ -9411,6 +9402,29 @@ window.g20Logout = function() {
           // Junta a carteira pessoal (rvAportes) e, para o admin, a Carteira G20
           // curada (aportes). Busca preços históricos e refaz a série do patrimônio.
           try {
+            if (window.G20Rent) {
+              // Se a série real JÁ está em cache (calculada numa carga anterior), aplica-a
+              // agora mesmo. Sem isso ela ficava guardada mas nunca chegava aos snapshots —
+              // o dashboard seguia exibindo a estimativa sintética.
+              var _cacheSerie = null;
+              try { _cacheSerie = G20Rent.cache(); } catch(e){}
+              if (_cacheSerie && _cacheSerie.length >= 2) {
+                console.log('[G20Rent] ✓ usando histórico real em cache: ' + _cacheSerie.length + ' dias');
+                try {
+                  window._g20HistPronto = false;
+                  var _tAtual = 0;
+                  try { _tAtual = parseFloat(localStorage.getItem('g20_lastRVTotal')||'0') || 0; } catch(e){}
+                  if (!(_tAtual > 0)) _tAtual = _cacheSerie[_cacheSerie.length-1].patrimonio;
+                  _patSnapUpsert(_tAtual, 0, _tAtual);
+                } catch(e){}
+                ['v21LoadRent','v21LoadRentChart','v21LoadBench','v21LoadKpis'].forEach(function(fn){
+                  try { if (typeof window[fn] === 'function') window[fn](); } catch(e){}
+                });
+                // Card de patrimônio (badge "hoje" + sparklines) também precisa refletir a série real
+                try { if (typeof loadPatStrip === 'function') loadPatStrip(); } catch(e){}
+                try { if (typeof _patRenderAllSparks === 'function') _patRenderAllSparks(); } catch(e){}
+              }
+            }
             if (window.G20Rent && !G20Rent.cache()) {
               var _apReal = [];
               try { _apReal = _apReal.concat(JSON.parse(localStorage.getItem('g20_rvAportes')||'[]')); } catch(e){}
@@ -9454,6 +9468,8 @@ window.g20Logout = function() {
                   ['v21LoadRent','v21LoadRentChart','v21LoadBench','v21LoadKpis'].forEach(function(fn){
                     try { if (typeof window[fn] === 'function') window[fn](); } catch(e){}
                   });
+                  try { if (typeof loadPatStrip === 'function') loadPatStrip(); } catch(e){}
+                  try { if (typeof _patRenderAllSparks === 'function') _patRenderAllSparks(); } catch(e){}
                 }).catch(function(){});
               }
             }
