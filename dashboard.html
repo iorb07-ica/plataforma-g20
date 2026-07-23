@@ -8651,9 +8651,22 @@ function _patSnapUpsert(total,rf,rv){
   // versão diferente da série — e os percentuais divergiam entre si na mesma tela.
   if (window._g20HistPronto && arr.length >= 2) {
     var _ultimo = arr[arr.length-1];
-    if (_ultimo && _ultimo.d === hoje) { _ultimo.t = total; _ultimo.rf = rf; _ultimo.rv = rv; }
-    else arr.push({ d: hoje, t: total, rf: rf, rv: rv,
-                    c: (_ultimo ? _ultimo.c * _cdiDaily() : 100) });
+    // ESCALA COERENTE: a série real cobre só o que tem preço histórico. O `total` que chega
+    // aqui é o patrimônio COMPLETO (inclui bens e ativos sem série). Gravar o total cru sobre
+    // uma série escalada cria um degrau gigante no último dia ("+17% hoje"). Por isso o valor
+    // de hoje entra na MESMA escala dos demais pontos.
+    var _esc = (window._g20EscalaSerie && window._g20EscalaSerie > 0) ? window._g20EscalaSerie : null;
+    var _tHoje = _esc ? (total / _esc) : total;
+    if (_ultimo && _ultimo.d === hoje) {
+      _ultimo.t = _tHoje;
+      _ultimo.rf = _esc ? (rf / _esc) : rf;
+      _ultimo.rv = _esc ? (rv / _esc) : rv;
+    } else {
+      arr.push({ d: hoje, t: _tHoje,
+                 rf: _esc ? (rf / _esc) : rf,
+                 rv: _esc ? (rv / _esc) : rv,
+                 c: (_ultimo ? _ultimo.c * _cdiDaily() : 100) });
+    }
     _patSnapSave(arr);
     return;
   }
@@ -8672,6 +8685,9 @@ function _patSnapUpsert(total,rf,rv){
     var _ultReal = _real[_real.length-1];
     var _fator = (_ultReal && _ultReal.patrimonio > 0) ? (total / _ultReal.patrimonio) : 1;
     if (!(_fator > 0) || !isFinite(_fator)) _fator = 1;
+    // Guarda a escala: as atualizações seguintes (quando as cotações chegam) precisam
+    // gravar o valor de hoje na MESMA escala, senão criam um degrau no último dia.
+    window._g20EscalaSerie = _fator;
 
     var cdiD0 = _cdiDaily(), cdiAcc0 = 100;
     var novo = _real.map(function(p, i){
@@ -8679,10 +8695,12 @@ function _patSnapUpsert(total,rf,rv){
       var _t = p.patrimonio * _fator;
       return { d: p.d, t: _t, rf: (p.rf||0) * _fator, rv: (p.rv||0) * _fator, c: cdiAcc0, real: true };
     });
-    // Garante que o ponto de hoje existe e reflete o patrimônio exato
+    // O fator de escala já faz o último ponto bater com o patrimônio atual — não
+    // sobrescrever com o total cru (isso recriaria o degrau que a escala eliminou).
     var ult = novo[novo.length-1];
-    if (ult && ult.d === hoje) { ult.t = total; ult.rf = rf; ult.rv = rv; }
-    else novo.push({ d: hoje, t: total, rf: rf, rv: rv, c: cdiAcc0 * cdiD0, real: true });
+    if (!ult || ult.d !== hoje) {
+      novo.push({ d: hoje, t: total, rf: rf, rv: rv, c: cdiAcc0 * cdiD0, real: true });
+    }
     _patSnapSave(novo);
     window._g20HistPronto = true;
     return;
