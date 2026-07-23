@@ -11307,7 +11307,16 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       // β = Cov(retornoCarteira, retornoBench) / Var(retornoBench)
       // Janela: últimos 90 dias úteis (ou o que tiver disponível, mínimo 30)
       try {
-        var patSnaps = snap.slice(); // já foi lido no topo
+        // SÉRIE REAL: o beta mede como a carteira se move em relação ao índice. Calculado
+        // sobre os snapshots antigos (que eram sintéticos/aleatórios) o resultado ficava
+        // sempre perto de ZERO — random walk não tem correlação nenhuma com o mercado.
+        // Com a série reconstruída dos aportes + preços reais, o beta passa a ter sentido.
+        var patSnaps = snap.slice();
+        try {
+          if (window.G20Rent && G20Rent.cache()) {
+            patSnaps = G20Rent.cache().map(function(p){ return { d: p.d, t: p.patrimonio }; });
+          }
+        } catch(e){}
         var jan = 90;
         var ultimosSnaps = patSnaps.slice(-jan);
 
