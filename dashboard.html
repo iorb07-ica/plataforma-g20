@@ -8157,33 +8157,31 @@ function loadPatStrip(){
 // //  HISTRICO PATRIMONIAL + SPARKLINE + CDI
 /* ===== MOTOR DE RENTABILIDADE REAL (embutido) ===== */
 /* ============================================================================
-   G20 · MOTOR DE RENTABILIDADE REAL  (v1)
+   G20 · MOTOR DE RENTABILIDADE REAL  (v2)
    ----------------------------------------------------------------------------
-   Substitui o histórico SINTÉTICO (random walk) por uma reconstrução REAL da
-   evolução do patrimônio, a partir de:
-     • lançamentos de aportes (ticker, data, qtd, preco, op C/V)
-     • série histórica de preços de cada ativo (Stooq, grátis, sem API key)
-     • câmbio USD/BRL histórico (para ativos em dólar)
+   Reconstrói a evolução REAL do patrimônio dia a dia e calcula rentabilidade
+   TIME-WEIGHTED (TWR), que desconta aportes e resgates.
 
-   E calcula rentabilidade TIME-WEIGHTED (TWR), que DESCONTA aportes e resgates.
-   Sem isso, aportar dinheiro novo aparecia como "rentabilidade" e a comparação
-   com CDI/IBOV/S&P era injusta.
+   COBERTURA COMPLETA DA CARTEIRA:
+     • Ações / FIIs / Stocks / REITs / ETFs → preços históricos (Stooq)
+     • Cripto                              → CoinGecko, cotado em USD e
+                                             convertido a BRL (mesmo padrão da
+                                             plataforma: BTC-USD, precoUsd)
+     • Renda Fixa (CDB/LCI/LCA/TD/...)     → calculada pela regra do papel
+                                             (CDI/Selic/IPCA/IGPM/Prefixado),
+                                             com IR e IOF, em CADA data
+     • Câmbio USD/BRL                      → série histórica real
 
-   Uso:
-     G20Rent.calcular({ aportes: [...], onReady: fn })  →  série diária
-     G20Rent.retornoPeriodo(serie, 'ytd')               →  % TWR do período
-
-   Depende apenas de fetch + localStorage. Não usa libs externas.
+   RESULTADO: rentabilidade TOTAL da carteira (renda fixa + variável + cripto).
    ============================================================================ */
 (function (global) {
   'use strict';
 
-  var CACHE_PREFIX = 'g20_histpx_';     // cache de preços por ativo
-  var CACHE_TTL    = 24 * 60 * 60 * 1000;   // 24h
-  var SERIE_KEY    = 'g20_serieReal';   // série reconstruída (cache)
-  var SERIE_TTL    = 12 * 60 * 60 * 1000;   // 12h
+  var CACHE_PREFIX = 'g20_histpx_';
+  var CACHE_TTL    = 24 * 60 * 60 * 1000;
+  var SERIE_KEY    = 'g20_serieReal';
+  var SERIE_TTL    = 12 * 60 * 60 * 1000;
 
-  // ---------------------------------------------------------------- utils
   function iso(d) {
     return d.getFullYear() + '-' +
            String(d.getMonth() + 1).padStart(2, '0') + '-' +
@@ -8194,36 +8192,55 @@ function loadPatStrip(){
     return new Date(+p[0], (+p[1]) - 1, +p[2]);
   }
   function addDays(d, n) { var x = new Date(d); x.setDate(x.getDate() + n); return x; }
+  function diasEntre(a, b) {
+    return Math.max(0, Math.floor((parseISO(b) - parseISO(a)) / 86400000));
+  }
 
-  /* Converte o ticker do G20 para o símbolo do Stooq.
-     BR: PETR4 → petr4.sa | VRTA11 → vrta11.sa
-     US: AAPL  → aapl.us
-     Cripto e RF são tratados à parte (não têm série no Stooq). */
+  /* ------------------------------------------------- mapeamento de símbolos */
   function stooqSymbol(ticker, tipo) {
     var t = String(ticker || '').toUpperCase().trim();
     if (!t) return null;
     var tp = String(tipo || '').toUpperCase();
-    if (tp === 'CRIPTO' || tp === 'RF') return null;      // sem série de bolsa
-    // Brasileiro: termina com dígito (PETR4, VRTA11, BOVA11...)
+    if (tp === 'CRIPTO' || tp === 'RF') return null;
+    t = t.split('-')[0];
     if (/\d$/.test(t)) return t.toLowerCase() + '.sa';
     return t.toLowerCase() + '.us';
   }
 
-  // ------------------------------------------------------- preços históricos
-  function lerCache(sym) {
+  var COIN_IDS = {
+    BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', BNB: 'binancecoin',
+    XRP: 'ripple', ADA: 'cardano', DOGE: 'dogecoin', AVAX: 'avalanche-2',
+    DOT: 'polkadot', MATIC: 'matic-network', LINK: 'chainlink', LTC: 'litecoin',
+    UNI: 'uniswap', ATOM: 'cosmos', XLM: 'stellar', TRX: 'tron',
+    NEAR: 'near', OP: 'optimism', ARB: 'arbitrum', USDT: 'tether', USDC: 'usd-coin'
+  };
+  function coinId(ticker) {
+    var t = String(ticker || '').toUpperCase().trim().split('-')[0];
+    return COIN_IDS[t] || null;
+  }
+
+  /* ------------------------------------------------------------------ cache */
+  function lerCache(chave) {
     try {
-      var c = JSON.parse(localStorage.getItem(CACHE_PREFIX + sym) || 'null');
+      var c = JSON.parse(localStorage.getItem(CACHE_PREFIX + chave) || 'null');
       if (c && c.loadedAt && (Date.now() - c.loadedAt) < CACHE_TTL && c.pontos) return c.pontos;
     } catch (e) {}
     return null;
   }
-  function gravarCache(sym, pontos) {
+  function gravarCache(chave, pontos) {
     try {
-      localStorage.setItem(CACHE_PREFIX + sym,
+      localStorage.setItem(CACHE_PREFIX + chave,
         JSON.stringify({ loadedAt: Date.now(), pontos: pontos }));
-    } catch (e) {}   // storage cheio: segue sem cache
+    } catch (e) {}
+  }
+  function comTimeout(promise, ms) {
+    return Promise.race([
+      promise,
+      new Promise(function (_, rej) { setTimeout(function () { rej(new Error('timeout')); }, ms || 15000); })
+    ]);
   }
 
+  /* --------------------------------------------------- preços bolsa (Stooq) */
   function parseCSV(csv) {
     var linhas = csv.trim().split('\n');
     if (linhas.length < 2) return null;
@@ -8240,37 +8257,60 @@ function loadPatStrip(){
     return out.length ? out : null;
   }
 
-  function buscarSerie(sym, desdeISO) {
+  function buscarBolsa(sym, desdeISO) {
+    if (!sym) return Promise.resolve(null);
     var cached = lerCache(sym);
     if (cached) return Promise.resolve(cached);
-
-    var d1 = desdeISO.replace(/-/g, '');
-    var url = 'https://stooq.com/q/d/l/?s=' + encodeURIComponent(sym) + '&i=d&d1=' + d1;
-
-    return Promise.race([
-      fetch(url),
-      new Promise(function (_, rej) { setTimeout(function () { rej(new Error('timeout')); }, 15000); })
-    ])
+    var url = 'https://stooq.com/q/d/l/?s=' + encodeURIComponent(sym) +
+              '&i=d&d1=' + desdeISO.replace(/-/g, '');
+    return comTimeout(fetch(url))
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
       .then(function (csv) {
-        var pontos = parseCSV(csv);
-        if (!pontos) throw new Error('csv inválido');
-        gravarCache(sym, pontos);
-        return pontos;
+        var p = parseCSV(csv);
+        if (!p) throw new Error('csv inválido');
+        gravarCache(sym, p);
+        return p;
       })
-      .catch(function () { return null; });   // falhou: ativo fica sem série
+      .catch(function () { return null; });
   }
 
-  /* Índice de preço por data com "último preço conhecido" (forward fill).
-     Feriados e fins de semana herdam o fechamento anterior — sem isso o
-     patrimônio zeraria em dias sem pregão. */
+  /* ------------------------------------------------ preços cripto (CoinGecko)
+     Cotação em USD — mesmo padrão do resto da plataforma (BTC-USD / precoUsd).
+     A conversão para BRL usa a MESMA série de câmbio dos ativos americanos. */
+  function buscarCripto(ticker, desdeISO) {
+    var id = coinId(ticker);
+    if (!id) return Promise.resolve(null);
+    var chave = 'cg_' + id;
+    var cached = lerCache(chave);
+    if (cached) return Promise.resolve(cached);
+
+    var dias = Math.min(3650, Math.max(1, diasEntre(desdeISO, iso(new Date()))) + 1);
+    var url = 'https://api.coingecko.com/api/v3/coins/' + id +
+              '/market_chart?vs_currency=usd&days=' + dias + '&interval=daily';
+
+    return comTimeout(fetch(url), 20000)
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (j) {
+        if (!j || !j.prices || !j.prices.length) throw new Error('sem preços');
+        var mapa = {};
+        j.prices.forEach(function (par) {
+          var v = par[1];
+          if (isFinite(v) && v > 0) mapa[iso(new Date(par[0]))] = v;
+        });
+        var out = Object.keys(mapa).sort().map(function (d) { return { d: d, c: mapa[d] }; });
+        if (!out.length) throw new Error('vazio');
+        gravarCache(chave, out);
+        return out;
+      })
+      .catch(function () { return null; });
+  }
+
   function indexar(pontos) {
-    var mapa = {}, ultimo = null;
-    for (var i = 0; i < pontos.length; i++) { mapa[pontos[i].d] = pontos[i].c; }
+    var mapa = {};
+    for (var i = 0; i < pontos.length; i++) mapa[pontos[i].d] = pontos[i].c;
     return {
       em: function (dISO) {
-        if (mapa[dISO] != null) { ultimo = mapa[dISO]; return ultimo; }
-        // procura o pregão anterior mais próximo (até 10 dias atrás)
+        if (mapa[dISO] != null) return mapa[dISO];
         var d = parseISO(dISO);
         for (var k = 1; k <= 10; k++) {
           var alvo = iso(addDays(d, -k));
@@ -8281,128 +8321,194 @@ function loadPatStrip(){
     };
   }
 
-  // ------------------------------------------------------ posições por data
-  /* Reconstrói quantas cotas de cada ativo existiam em cada dia.
-     op 'V' (venda) subtrai; qualquer outro valor soma (compra). */
-  function construirPosicoes(aportes) {
-    var eventos = aportes
+  /* =====================================================================
+     RENDA FIXA — valor do papel em QUALQUER data
+     Replica a lógica já validada da Minha Carteira (_calcBruto + IR/IOF),
+     parametrizada por data para reconstruir o histórico.
+     ===================================================================== */
+  var RF_ISENTO_IR  = { LCI:1, LCA:1, LIG:1, CRI:1, CRA:1, DEB:1, 'Debênture':1, 'Debenture':1 };
+  var RF_ISENTO_IOF = { LCI:1, LCA:1, LIG:1, CRI:1, CRA:1, DEB:1, 'Debênture':1, 'Debenture':1 };
+
+  function aliquotaIR(dias) {
+    if (dias <= 180) return 22.5;
+    if (dias <= 360) return 20;
+    if (dias <= 720) return 17.5;
+    return 15;
+  }
+  function aliquotaIOF(dias) {
+    if (dias >= 30) return 0;
+    var tab = [96,93,90,86,83,80,76,73,70,66,63,60,56,53,50,46,43,40,36,33,30,26,23,20,16,13,10,6,3,0];
+    return tab[Math.max(0, Math.min(29, dias - 1))] || 0;
+  }
+  function diasUteisEstimados(dc) { return dc * (252 / 365); }
+
+  function rfBruto(rf, dataRefISO, idx) {
+    var vi = parseFloat(rf.valorInv || rf.valor || 0);
+    var ini = String(rf.dataInicio || rf.data || '').substring(0, 10);
+    if (!(vi > 0) || !ini || dataRefISO < ini) return 0;
+    var taxa = parseFloat(rf.taxa);
+    if (!isFinite(taxa)) taxa = 0;
+    var t = taxa / 100;
+    var dc = diasEntre(ini, dataRefISO);
+    if (dc <= 0) return vi;
+
+    var ix = String(rf.indexador || 'CDI').toUpperCase();
+    var fator = 1;
+    if (ix === 'CDI') {
+      fator = Math.pow(1 + (idx.cdi || 0) / 100, t * diasUteisEstimados(dc) / 252);
+    } else if (ix === 'SELIC') {
+      fator = Math.pow(1 + (idx.selic || 0) / 100 + t, diasUteisEstimados(dc) / 252);
+    } else if (ix === 'IPCA' || ix === 'IPCA+') {
+      fator = Math.pow(1 + (idx.ipca || 0) / 100 + t, dc / 365);
+    } else if (ix === 'IGPM' || ix === 'IGP-M') {
+      fator = Math.pow(1 + (idx.igpm || 0) / 100 + t, dc / 365);
+    } else if (ix === 'PREFIXADO') {
+      fator = Math.pow(1 + t, dc / 365);
+    }
+    return vi * fator;
+  }
+
+  function rfLiquido(rf, dataRefISO, idx) {
+    var vi = parseFloat(rf.valorInv || rf.valor || 0);
+    var bruto = rfBruto(rf, dataRefISO, idx);
+    if (!(bruto > 0)) return 0;
+    var rend = bruto - vi;
+    if (rend <= 0) return bruto;
+    var ini = String(rf.dataInicio || rf.data || '').substring(0, 10);
+    var dc = diasEntre(ini, dataRefISO);
+    var tipo = rf.tipo || rf.subTipo || 'CDB';
+    if (!RF_ISENTO_IOF[tipo]) rend -= rend * (aliquotaIOF(dc) / 100);
+    if (!RF_ISENTO_IR[tipo])  rend -= rend * (aliquotaIR(dc) / 100);
+    return vi + rend;
+  }
+
+  /* ------------------------------------------------------ eventos de aporte */
+  function construirEventos(aportes) {
+    return (aportes || [])
       .filter(function (a) { return a && a.ticker && a.data && +a.qtd > 0; })
       .map(function (a) {
+        var venda = String(a.op || 'C').toUpperCase() === 'V';
+        var sinal = venda ? -1 : 1;
+        var tp = String(a.tipo || '').toUpperCase();
+        var moeda = String(a.moeda || ((tp === 'CRIPTO' || tp === 'STOCK' || tp === 'REIT') ? 'USD' : 'BRL')).toUpperCase();
         return {
           d: String(a.data).substring(0, 10),
-          ticker: String(a.ticker).toUpperCase().trim(),
+          ticker: String(a.ticker).toUpperCase().trim().split('-')[0],
           tipo: a.tipo || '',
-          moeda: (a.moeda || 'BRL').toUpperCase(),
-          qtd: (String(a.op).toUpperCase() === 'V' ? -1 : 1) * (+a.qtd),
-          custo: (String(a.op).toUpperCase() === 'V' ? -1 : 1) * (+a.qtd) * (+a.preco || 0)
+          moeda: moeda,
+          qtd: sinal * (+a.qtd),
+          custo: sinal * (+a.qtd) * (+a.preco || 0)
         };
       })
       .sort(function (x, y) { return x.d < y.d ? -1 : (x.d > y.d ? 1 : 0); });
-    return eventos;
   }
 
-  // ------------------------------------------------------------- TWR
-  /* Retorno Time-Weighted: encadeia os retornos diários já limpos de
-     aportes/resgates. É o único jeito de comparar com CDI/IBOV/S&P de forma
-     justa — o dinheiro que ENTRA não vira "rentabilidade". */
+  /* ----------------------------------------------------------------- TWR */
   function twr(serie) {
     var fator = 1;
     for (var i = 1; i < serie.length; i++) {
       var vIni = serie[i - 1].patrimonio;
       var vFim = serie[i].patrimonio;
-      var fluxo = serie[i].fluxo || 0;         // aporte(+) / resgate(-) do dia
+      var fluxo = serie[i].fluxo || 0;
       if (!(vIni > 0)) continue;
-      // Desconta o fluxo do valor final: só sobra o que foi mercado.
       var r = (vFim - fluxo - vIni) / vIni;
       if (isFinite(r)) fator *= (1 + r);
     }
     return (fator - 1) * 100;
   }
 
-  // --------------------------------------------------------------- API
+  /* ----------------------------------------------------------------- API */
   var API = {
-    /* Reconstrói a série diária real do patrimônio.
-       opts = { aportes: [...], desde: 'YYYY-MM-DD' (opcional), onProgress: fn } */
     calcular: function (opts) {
       opts = opts || {};
-      var aportes = opts.aportes || [];
-      var eventos = construirPosicoes(aportes);
-      if (!eventos.length) return Promise.resolve(null);
+      var eventos = construirEventos(opts.aportes);
+      var rfLista = (opts.rendaFixa || []).filter(function (r) {
+        return r && (parseFloat(r.valorInv || r.valor || 0) > 0) && (r.dataInicio || r.data);
+      });
+      var idx = opts.indices || { cdi: 14.15, selic: 14.25, ipca: 4.64, igpm: 3.18 };
+      if (!eventos.length && !rfLista.length) return Promise.resolve(null);
 
-      var desde = opts.desde || eventos[0].d;
+      var datas = [];
+      if (eventos.length) datas.push(eventos[0].d);
+      rfLista.forEach(function (r) { datas.push(String(r.dataInicio || r.data).substring(0, 10)); });
+      datas.sort();
+      var desde = opts.desde || datas[0];
       var hoje = iso(new Date());
 
-      // Ativos distintos que precisam de série de preço
       var mapaAtivos = {};
       eventos.forEach(function (e) {
-        var sym = stooqSymbol(e.ticker, e.tipo);
-        if (sym) mapaAtivos[e.ticker] = { sym: sym, moeda: e.moeda };
+        mapaAtivos[e.ticker] = {
+          cripto: String(e.tipo).toUpperCase() === 'CRIPTO',
+          moeda: e.moeda, tipo: e.tipo
+        };
       });
-      var tickers = Object.keys(mapaAtivos);
 
-      // Busca todas as séries + câmbio em paralelo
-      var jobs = tickers.map(function (tk) {
-        return buscarSerie(mapaAtivos[tk].sym, desde).then(function (p) {
-          return { ticker: tk, pontos: p };
-        });
+      var jobs = Object.keys(mapaAtivos).map(function (tk) {
+        var info = mapaAtivos[tk];
+        var p = info.cripto ? buscarCripto(tk, desde) : buscarBolsa(stooqSymbol(tk, info.tipo), desde);
+        return p.then(function (pontos) { return { ticker: tk, pontos: pontos }; });
       });
-      jobs.push(buscarSerie('usdbrl', desde).then(function (p) {
+      jobs.push(buscarBolsa('usdbrl', desde).then(function (p) {
         return { ticker: '__USDBRL__', pontos: p };
       }));
 
       return Promise.all(jobs).then(function (res) {
-        var idx = {}, cambio = null;
+        var precos = {}, cambio = null;
         res.forEach(function (r) {
           if (!r.pontos) return;
           if (r.ticker === '__USDBRL__') cambio = indexar(r.pontos);
-          else idx[r.ticker] = indexar(r.pontos);
+          else precos[r.ticker] = indexar(r.pontos);
         });
 
-        // Caminha dia a dia acumulando posições e avaliando a mercado
-        var serie = [];
-        var pos = {};                 // ticker -> qtd acumulada
-        var ei = 0;
-        var cursor = parseISO(desde);
-        var fim = parseISO(hoje);
+        var serie = [], pos = {}, ei = 0;
+        var cursor = parseISO(desde), fim = parseISO(hoje);
 
         while (cursor <= fim) {
           var dISO = iso(cursor);
           var fluxoDia = 0;
+          var fx = cambio ? cambio.em(dISO) : null;
 
-          // aplica eventos do dia
           while (ei < eventos.length && eventos[ei].d <= dISO) {
             var ev = eventos[ei];
             pos[ev.ticker] = (pos[ev.ticker] || 0) + ev.qtd;
             var custo = ev.custo;
-            if (ev.moeda === 'USD') {
-              var fx = cambio ? cambio.em(dISO) : null;
-              custo = custo * (fx || 5);
-            }
-            fluxoDia += custo;         // entrada de dinheiro (ou saída, se venda)
+            if (ev.moeda === 'USD') custo = custo * (fx || 5);
+            fluxoDia += custo;
             ei++;
           }
 
-          // avalia a mercado
-          var patrimonio = 0, avaliados = 0, total = 0;
+          // Renda variável + cripto (a mercado)
+          var valRV = 0, avaliados = 0, totalAtivos = 0;
           Object.keys(pos).forEach(function (tk) {
             var q = pos[tk];
             if (!(q > 0)) return;
-            total++;
-            var px = idx[tk] ? idx[tk].em(dISO) : null;
-            if (px == null) return;         // sem preço: ignora (não zera o dia)
+            totalAtivos++;
+            var px = precos[tk] ? precos[tk].em(dISO) : null;
+            if (px == null) return;
             avaliados++;
-            var val = q * px;
-            if (mapaAtivos[tk] && mapaAtivos[tk].moeda === 'USD') {
-              var fx2 = cambio ? cambio.em(dISO) : null;
-              val = val * (fx2 || 5);
-            }
-            patrimonio += val;
+            var v = q * px;
+            if (mapaAtivos[tk] && mapaAtivos[tk].moeda === 'USD') v = v * (fx || 5);
+            valRV += v;
           });
 
-          // Só registra dias com pelo menos metade da carteira avaliada —
-          // evita degraus artificiais quando faltam preços.
-          if (patrimonio > 0 && (total === 0 || avaliados / total >= 0.5)) {
-            serie.push({ d: dISO, patrimonio: patrimonio, fluxo: fluxoDia, cobertura: total ? avaliados / total : 1 });
+          // Renda fixa (pela regra do papel, nesta data)
+          var valRF = 0, aporteRFdia = 0;
+          rfLista.forEach(function (rf) {
+            var ini = String(rf.dataInicio || rf.data).substring(0, 10);
+            if (dISO < ini) return;
+            if (dISO === ini) aporteRFdia += parseFloat(rf.valorInv || rf.valor || 0);
+            valRF += rfLiquido(rf, dISO, idx);
+          });
+          fluxoDia += aporteRFdia;
+
+          var patrimonio = valRV + valRF;
+          var cobertura = totalAtivos ? (avaliados / totalAtivos) : 1;
+
+          if (patrimonio > 0 && (totalAtivos === 0 || cobertura >= 0.5)) {
+            serie.push({
+              d: dISO, patrimonio: patrimonio, fluxo: fluxoDia,
+              rv: valRV, rf: valRF, cobertura: cobertura
+            });
           }
           cursor = addDays(cursor, 1);
         }
@@ -8415,7 +8521,6 @@ function loadPatStrip(){
       });
     },
 
-    /* Retorno TWR de um período: '1m' | '6m' | 'ytd' | '1a' | '5a' | 'max' */
     retornoPeriodo: function (serie, periodo) {
       if (!serie || serie.length < 2) return null;
       var hoje = parseISO(serie[serie.length - 1].d);
@@ -8426,14 +8531,27 @@ function loadPatStrip(){
       else if (periodo === '1a') { ini = new Date(hoje); ini.setFullYear(ini.getFullYear() - 1); }
       else if (periodo === '5a') { ini = new Date(hoje); ini.setFullYear(ini.getFullYear() - 5); }
       else ini = parseISO(serie[0].d);
-
       var iniISO = iso(ini);
       var corte = serie.filter(function (p) { return p.d >= iniISO; });
       if (corte.length < 2) return null;
       return twr(corte);
     },
 
-    /* Série em cache (se ainda válida) */
+    /* Retorno total + composição por classe no fim do período. */
+    porClasse: function (serie, periodo) {
+      if (!serie || serie.length < 2) return null;
+      var ult = serie[serie.length - 1];
+      var tot = ult.patrimonio || 1;
+      return {
+        total: API.retornoPeriodo(serie, periodo),
+        valorRV: ult.rv || 0,
+        valorRF: ult.rf || 0,
+        pesoRV: (ult.rv || 0) / tot * 100,
+        pesoRF: (ult.rf || 0) / tot * 100,
+        cobertura: ult.cobertura
+      };
+    },
+
     cache: function () {
       try {
         var c = JSON.parse(localStorage.getItem(SERIE_KEY) || 'null');
@@ -8451,10 +8569,8 @@ function loadPatStrip(){
       } catch (e) {}
     },
 
-    // exportos para teste
-    _twr: twr,
-    _stooqSymbol: stooqSymbol,
-    _construirPosicoes: construirPosicoes
+    _twr: twr, _stooqSymbol: stooqSymbol, _coinId: coinId,
+    _rfBruto: rfBruto, _rfLiquido: rfLiquido, _construirEventos: construirEventos
   };
 
   global.G20Rent = API;
@@ -9210,8 +9326,16 @@ window.g20Logout = function() {
               if (_isAdminDash) {
                 try { _apReal = _apReal.concat(JSON.parse(localStorage.getItem('g20_aportes')||'[]')); } catch(e){}
               }
-              if (_apReal.length) {
-                G20Rent.calcular({ aportes: _apReal }).then(function(serie){
+              var _rfReal = [];
+              try { _rfReal = JSON.parse(localStorage.getItem('g20_rendaFixa')||'[]'); } catch(e){}
+              if (_apReal.length || _rfReal.length) {
+                var _idxReal = {
+                  cdi:   (typeof IND!=='undefined' && IND.cdi)   ? IND.cdi   : 14.15,
+                  selic: (typeof IND!=='undefined' && IND.selic) ? IND.selic : 14.25,
+                  ipca:  (typeof IND!=='undefined' && IND.ipca)  ? IND.ipca  : 4.64,
+                  igpm:  (typeof IND!=='undefined' && IND.igpm)  ? IND.igpm  : 3.18
+                };
+                G20Rent.calcular({ aportes: _apReal, rendaFixa: _rfReal, indices: _idxReal }).then(function(serie){
                   if (!serie || serie.length < 2) return;
                   console.log('[G20Rent] histórico real reconstruído:', serie.length, 'dias');
                   // Regrava os snapshots com base real e re-renderiza os painéis
