@@ -15133,8 +15133,38 @@ html body .topbar {
     return null;
   }
 
+  /* ═══════════════════════════════════════════════════════════════
+     PORTAL — move o painel para o <body> antes de posicionar.
+
+     POR QUE ISTO É NECESSÁRIO:
+     Um ancestral com `transform` diferente de `none` passa a ser o
+     containing block de descendentes `position: fixed`. Ou seja: o
+     fixed deixa de ser relativo à VIEWPORT e vira relativo ao CARD.
+
+     Os cards têm `:hover { transform: translateY(-2px) }`. Então:
+       · Tooltip do Beta: passar o mouse no "?" também é hover no card
+         → transform ativo → o tooltip era posicionado com coordenadas
+         de viewport dentro de um contexto do card → ia parar fora da
+         tela. Nunca aparecia.
+       · Dropdown do GP: mesma coisa. Só que ao TIRAR o mouse do card
+         o transform sumia, o fixed voltava ao normal e o menu
+         aparecia — daí o sintoma "só aparece quando o mouse sai".
+
+     Movendo o painel para filho direto do <body>, não existe mais
+     ancestral transformado e o fixed volta a funcionar sempre.
+     ═══════════════════════════════════════════════════════════════ */
+  function portalizar(painel){
+    if (!painel || painel.parentNode === document.body) return;
+    if (!painel.dataset.g20Origem) {
+      // Guarda a âncora original, caso algum código precise remontar
+      painel.dataset.g20Origem = '1';
+    }
+    document.body.appendChild(painel);
+  }
+
   function posicionarFlutuante(ancora, painel, classeMedida, gap, margem){
     gap = gap || 6; margem = margem || 10;
+    portalizar(painel);
     painel.classList.add(classeMedida);
     var r = ancora.getBoundingClientRect();
     var pw = painel.offsetWidth, ph = painel.offsetHeight;
@@ -15189,17 +15219,40 @@ html body .topbar {
   // ═════════════════════════════════════════════
   // 2) TOOLTIPS DE AJUDA ("?")
   // ═════════════════════════════════════════════
+  /* Depois do portal o tooltip não é mais irmão do "?", então o
+     vínculo passa a ser explícito: guardamos o id de cada lado na
+     primeira vez que os encontramos ainda adjacentes. */
   function tipDe(dot){
+    if (dot.dataset && dot.dataset.g20Tip) {
+      var porId = document.getElementById(dot.dataset.g20Tip);
+      if (porId) return porId;
+    }
     var t = dot.nextElementSibling;
-    return (t && t.classList && t.classList.contains('v21-help-tip')) ? t : null;
+    if (t && t.classList && t.classList.contains('v21-help-tip')) {
+      if (!t.id) t.id = 'v21tip_' + Math.random().toString(36).slice(2,9);
+      if (dot.dataset) dot.dataset.g20Tip = t.id;
+      if (!dot.id) dot.id = 'v21dot_' + Math.random().toString(36).slice(2,9);
+      if (t.dataset) t.dataset.g20Dot = dot.id;
+      return t;
+    }
+    return null;
+  }
+
+  function dotDe(tip){
+    if (tip.dataset && tip.dataset.g20Dot) {
+      var d = document.getElementById(tip.dataset.g20Dot);
+      if (d) return d;
+    }
+    var p = tip.previousElementSibling;
+    return (p && p.classList && p.classList.contains('v21-help-dot')) ? p : null;
   }
   function tipFecharTodos(exceto){
     var abertos = document.querySelectorAll('.v21-help-tip.is-open');
     for (var i=0;i<abertos.length;i++){
       if (abertos[i] === exceto) continue;
       abertos[i].classList.remove('is-open');
-      var d = abertos[i].previousElementSibling;
-      if (d && d.classList && d.classList.contains('v21-help-dot')) {
+      var d = dotDe(abertos[i]);
+      if (d) {
         d.classList.remove('is-open');
         d.setAttribute('aria-expanded','false');
       }
@@ -15215,8 +15268,8 @@ html body .topbar {
   function tipFechar(tip){
     if (!tip) return;
     tip.classList.remove('is-open');
-    var d = tip.previousElementSibling;
-    if (d && d.classList && d.classList.contains('v21-help-dot')) {
+    var d = dotDe(tip);
+    if (d) {
       d.classList.remove('is-open');
       d.setAttribute('aria-expanded','false');
     }
