@@ -113,6 +113,23 @@
 
       /* Botão "rever tour" na topbar */
       '.g20t-help{display:inline-flex;align-items:center;justify-content:center}',
+
+      /* ── Modo GRANDE com foto do autor (guias do perfil) ── */
+      '.g20t-author{display:none;align-items:center;gap:11px;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid rgba(232,184,75,.16)}',
+      '.g20t-avatar{width:52px;height:52px;border-radius:50%;object-fit:cover;border:2px solid #e8b84b;box-shadow:0 4px 14px rgba(232,184,75,.28);flex-shrink:0}',
+      '.g20t-author-name{font-family:"DM Sans",sans-serif;font-size:15px;font-weight:700;color:var(--text,#eef0f4)}',
+      '.g20t-author-name::after{content:" · G20 Masterclass";font-weight:500;color:#c9a961;font-size:12.5px}',
+      '.g20t-tip--autor .g20t-author{display:flex}',
+
+      '.g20t-tip--grande{width:480px}',
+      '.g20t-tip--grande .g20t-body{padding:22px 26px 8px}',
+      '.g20t-tip--grande .g20t-titulo{font-size:30px;margin-bottom:12px}',
+      '.g20t-tip--grande .g20t-texto{font-size:16px;line-height:1.65}',
+      '.g20t-tip--grande .g20t-foot{padding:16px 26px 22px}',
+      '.g20t-tip--grande .g20t-next{font-size:15px;padding:12px 26px}',
+      '.g20t-tip--grande .g20t-skip{font-size:14px}',
+      '@media(max-width:768px){.g20t-tip--grande{width:auto}.g20t-tip--grande .g20t-titulo{font-size:26px}.g20t-tip--grande .g20t-texto{font-size:15px}}',
+
       '@media(prefers-reduced-motion:reduce){.g20t-hole,.g20t-tip,.g20t-arrow{transition:none!important}}'
     ].join('');
     document.head.appendChild(st);
@@ -197,6 +214,7 @@
     tip.innerHTML =
       '<div class="g20t-bar"><i style="width:0%"></i></div>' +
       '<div class="g20t-body">' +
+        '<div class="g20t-author"><img class="g20t-avatar" alt=""><span class="g20t-author-name"></span></div>' +
         '<div class="g20t-count"></div>' +
         '<div class="g20t-titulo"></div>' +
         '<div class="g20t-texto"></div>' +
@@ -218,6 +236,9 @@
       count: tip.querySelector('.g20t-count'),
       titulo: tip.querySelector('.g20t-titulo'),
       texto: tip.querySelector('.g20t-texto'),
+      author: tip.querySelector('.g20t-author'),
+      avatar: tip.querySelector('.g20t-avatar'),
+      authorName: tip.querySelector('.g20t-author-name'),
       skip: tip.querySelector('.g20t-skip'),
       back: tip.querySelector('.g20t-back'),
       next: tip.querySelector('.g20t-next')
@@ -344,6 +365,18 @@
 
     e.tip.classList.remove('is-in');
     e.arrow.classList.remove('is-in');
+
+    // Modo "grande" com foto do autor (usado nos guias do perfil)
+    var temAvatar = !!(S.cfg && S.cfg.avatar);
+    e.tip.classList.toggle('g20t-tip--grande', !!(S.cfg && S.cfg.grande));
+    e.tip.classList.toggle('g20t-tip--autor', temAvatar);
+    if (temAvatar) {
+      e.avatar.src = S.cfg.avatar;
+      e.authorName.textContent = S.cfg.autor || '';
+      e.author.style.display = '';
+    } else {
+      e.author.style.display = 'none';
+    }
 
     // Guia de um passo só não precisa de contador nem de barra de progresso
     e.count.style.display = passoUnico ? 'none' : '';
