@@ -153,6 +153,87 @@
     }
   })();
 
+  // ═══════════════ REGISTRO DE ACESSO (sessão 50.0) ═══════════════
+  // Base do dashboard de alunos. Grava um RESUMO por sessão, não rastreio
+  // de clique a clique: quantas sessões, quais dias, quais páginas.
+  //
+  // Custo: ~1 escrita por página visitada por sessão. Com 300 alunos dá algo
+  // como 2 a 3 mil escritas/dia — bem dentro da cota gratuita do Firestore
+  // (20 mil/dia). Nenhum serviço externo, nenhum custo adicional.
+  //
+  // Onde fica: users/{uid}/dados/acesso
+  //   { sessoes, primeiroAcesso, ultimoAcesso, turma,
+  //     dias: {'2026-07-24': 3}, paginas: {dashboard: 12, carteira: 4} }
+  (function(){
+    var arquivo = (location.pathname.split('/').pop() || 'dashboard.html').toLowerCase();
+    var pagina  = arquivo.replace('.html','') || 'dashboard';
+    if(pagina === 'login' || pagina === 'termos-de-uso') return;
+
+    // Uma sessão = uma aba aberta. Reabrir depois conta como nova sessão.
+    var SESSAO_KEY = 'g20_sessao_ativa';
+    var novaSessao = false;
+    try {
+      if(!sessionStorage.getItem(SESSAO_KEY)){
+        sessionStorage.setItem(SESSAO_KEY, String(Date.now()));
+        novaSessao = true;
+      }
+    } catch(e){}
+
+    // Cada página conta uma vez por sessão (evita inflar com F5)
+    var marcaPagina = 'g20_sessao_pg_' + pagina;
+    var paginaNova = false;
+    try {
+      if(!sessionStorage.getItem(marcaPagina)){
+        sessionStorage.setItem(marcaPagina, '1');
+        paginaNova = true;
+      }
+    } catch(e){}
+
+    if(!novaSessao && !paginaNova) return;
+
+    function hojeLocal(){
+      var d = new Date();
+      return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    }
+
+    function registrar(){
+      try{
+        if(typeof firebase === 'undefined' || !firebase.apps || !firebase.apps.length || !firebase.auth) return false;
+        firebase.auth().onAuthStateChanged(function(user){
+          if(!user) return;
+          try{
+            var inc = firebase.firestore.FieldValue.increment;
+            var ref = firebase.firestore().collection('users').doc(user.uid).collection('dados').doc('acesso');
+            var patch = {
+              ultimoAcesso: new Date().toISOString(),
+              primeiroAcesso: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            patch['paginas.' + pagina] = inc(1);
+            patch['dias.' + hojeLocal()] = inc(1);
+            if(novaSessao) patch.sessoes = inc(1);
+
+            // primeiroAcesso não pode ser sobrescrito: só grava se ainda não existir
+            ref.get().then(function(d){
+              if(d.exists && d.data().primeiroAcesso) delete patch.primeiroAcesso;
+              try {
+                var perfil = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
+                if(perfil.turma) patch.turma = perfil.turma;
+              } catch(e){}
+              ref.set(patch, { merge:true }).catch(function(){});
+            }).catch(function(){
+              ref.set(patch, { merge:true }).catch(function(){});
+            });
+          }catch(e){}
+        });
+        return true;
+      }catch(e){ return false; }
+    }
+
+    if(!registrar()){
+      var n = 0, t = setInterval(function(){ if(registrar() || ++n > 80) clearInterval(t); }, 50);
+    }
+  })();
+
   // ═══════════════ LOGOUT AUTOMÁTICO POR INATIVIDADE (30 min) ═══════════════
   // Protege quem esquece a aba aberta em PC compartilhado. A "última atividade"
   // é compartilhada entre abas (localStorage), então estar ativo em uma aba
