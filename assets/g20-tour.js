@@ -340,9 +340,14 @@
 
     var p = S.steps[i], e = S.els;
     S.alvo = p.el ? q(p.el) : null;
+    var passoUnico = (S.steps.length === 1);
 
     e.tip.classList.remove('is-in');
     e.arrow.classList.remove('is-in');
+
+    // Guia de um passo só não precisa de contador nem de barra de progresso
+    e.count.style.display = passoUnico ? 'none' : '';
+    e.bar.parentNode.style.display = passoUnico ? 'none' : '';
 
     e.count.textContent = 'Passo ' + (i + 1) + ' de ' + S.steps.length;
     e.titulo.textContent = p.titulo || '';
