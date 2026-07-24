@@ -7822,6 +7822,11 @@ function _calcRFVarDia(rf){
 
 // //  VARIAO DIRIA
 var _dashRVCot={}, _dashUsdBRL=5.85;
+/* 5.85 é apenas um valor inicial de segurança, NÃO uma cotação real.
+   Esta flag marca se o câmbio foi de fato buscado. Sem ela, cálculos a
+   mercado usariam 5,85 quando o dólar está 5,08 — inflando os ativos em
+   dólar em ~15% e produzindo um patrimônio plausível e errado. */
+var _dashUsdBRLok = false;
 
 function _rvIsBR(ticker,tipo){
   if(tipo==='Ação BR'||tipo==='FII'||tipo==='ETF BR') return true;
@@ -7884,7 +7889,7 @@ function _buscarCotacoesEAtualizarRV(){
   // C mbio
   fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL')
     .then(function(r){return r.json();})
-    .then(function(d){if(d.USDBRL&&d.USDBRL.bid){var r=parseFloat(d.USDBRL.bid);if(r>3&&r<20)_dashUsdBRL=r;}})
+    .then(function(d){if(d.USDBRL&&d.USDBRL.bid){var r=parseFloat(d.USDBRL.bid);if(r>3&&r<20){_dashUsdBRL=r;_dashUsdBRLok=true;}}})
     .catch(function(){});
 
   var tickersBR=posicoes.filter(function(p){return _rvIsBR(p.ticker,p.tipo);}).map(function(p){return p.ticker;});
@@ -8530,16 +8535,16 @@ function loadPatStrip(){
        registramos quantos ficaram sem preço, para não afirmar precisão
        que não temos.
        ═══════════════════════════════════════════════════════════════ */
-    var rvMercado = 0, semCotacao = 0, comCotacao = 0;
+    var rvMercado = 0, faltando = [];
     try {
       var _pz = {};
       try { _pz = JSON.parse(localStorage.getItem('g20_precos')||'{}'); } catch(e){}
-      var _fxNow = 5.00;
+      var _fxNow = 0;
       try {
         var _u = _pz['USDBRL=X'] || _pz['USD'] || _pz['USDBRL'];
         var _uv = g20PriceOf(_u);
-        if (_uv) _fxNow = parseFloat(_uv) || 5.00;
-        else if (typeof _dashUsdBRL === 'number' && _dashUsdBRL > 0) _fxNow = _dashUsdBRL;
+        if (_uv) _fxNow = parseFloat(_uv) || 0;
+        else if (_dashUsdBRLok && _dashUsdBRL > 0) _fxNow = _dashUsdBRL;   // só se REALMENTE buscado
       } catch(e){}
 
       var _moedaDe = {};
@@ -8554,18 +8559,37 @@ function loadPatStrip(){
           var v = (typeof it === 'number') ? it : g20PriceOf(it);
           cot = parseFloat(v) || 0;
         }
-        if (cot > 0 && (_moedaDe[tk] === 'USD')) cot = cot * _fxNow;
-        if (cot > 0) { comCotacao++; rvMercado += pp.qtd * cot; }
-        else { semCotacao++; rvMercado += pp.totalInv; }   // sem preço: usa custo
+        // 2ª fonte: cotações que o próprio dashboard já buscou nesta sessão
+        if (!(cot > 0) && typeof _dashRVCot === 'object' && _dashRVCot[tk] && _dashRVCot[tk].preco > 0) {
+          cot = parseFloat(_dashRVCot[tk].preco) || 0;
+        }
+        var ehUSD = (_moedaDe[tk] === 'USD');
+        // Ativo em dólar sem câmbio disponível também é "sem cotação confiável"
+        if (cot > 0 && ehUSD) {
+          if (!(_fxNow > 0)) { faltando.push(tk + ' (sem USD/BRL)'); return; }
+          cot = cot * _fxNow;
+        }
+        if (cot > 0) rvMercado += pp.qtd * cot;
+        else faltando.push(tk);
       });
-      if (semCotacao > 0) {
-        console.warn('[patrimônio] ' + semCotacao + ' ativo(s) sem cotação — entraram pelo custo. ' +
-                     'RV a mercado pode divergir da Minha Carteira.');
+
+      /* REGRA: ou avalia a carteira INTEIRA a mercado, ou não produz valor
+         ao vivo. Completar com custo daria um número que parece de mercado
+         mas não é — e um valor plausível e errado é pior que nenhum, porque
+         ninguém desconfia dele. Faltando qualquer cotação, o card continua
+         mostrando o último fechamento (que é completo e real) e diz isso. */
+      if (faltando.length > 0) {
+        rvMercado = 0;
+        console.warn('%c[patrimônio] RV a mercado NÃO calculada: ' + faltando.length +
+          ' ativo(s) sem cotação → ' + faltando.join(', ') +
+          '. O card exibe o ÚLTIMO FECHAMENTO (avaliação completa) e a variação do último pregão.',
+          'color:#e8b84b;font-weight:bold');
       }
     } catch(e){ rvMercado = 0; }
 
-    // Se não deu para avaliar a mercado, cai no custo (comportamento anterior)
-    var _rvParaSnap = (rvMercado > 0) ? rvMercado : rvInv;
+    /* Só entrega valor ao vivo se a carteira inteira foi avaliada.
+       Caso contrário passa 0 — e o snapshot mantém o fechamento. */
+    var _rvParaSnap = rvMercado;
 
     // Sparkline: grava snapshot de hoje + renderiza
     _patSnapUpsert(total, rfAtual, _rvParaSnap);
@@ -9167,9 +9191,14 @@ function _patSnapUpsert(total,rf,rv){
          Assim o gráfico continua com uma base só, e a "variação do dia"
          pode ser calculada de verdade: preço de agora vs fechamento de
          ontem — que é exatamente o que a coluna 1D da Minha Carteira faz. */
-      novo.push({ d: hoje, t: _uNovo.t, rf: _uNovo.rf, rv: _uNovo.rv,
-                  c: _uNovo.c * cdiD0, real: true, sv: SERIE_VER, copia: true,
-                  rvVivo: (rv > 0 ? rv : 0), rfVivo: (rf > 0 ? rf : 0) });
+      var _pontoHoje = { d: hoje, t: _uNovo.t, rf: _uNovo.rf, rv: _uNovo.rv,
+                         c: _uNovo.c * cdiD0, real: true, sv: SERIE_VER, copia: true };
+      /* Os campos ao vivo só são gravados JUNTOS e só quando a RV inteira
+         foi avaliada a mercado (rv > 0). Gravar só o RF ao vivo faria o
+         card comparar RF de agora com RV de ontem — outra mistura de
+         bases, do mesmo tipo que já nos custou horas hoje. */
+      if (rv > 0) { _pontoHoje.rvVivo = rv; _pontoHoje.rfVivo = (rf > 0 ? rf : _uNovo.rf); }
+      novo.push(_pontoHoje);
     }
     _patSnapSave(novo);
     window._g20HistPronto = true;
@@ -10591,8 +10620,11 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     /* Se o ponto trouxe cotações ao vivo (só o de hoje traz), elas têm
        prioridade: representam o preço de agora, não o fechamento de
        ontem. É o que permite mostrar a variação do dia. */
-    var rv = (s.rvVivo > 0) ? s.rvVivo : (s.rv || 0);
-    var rf = (s.rfVivo > 0) ? s.rfVivo : (s.rf || 0);
+    /* Cotações ao vivo só valem em PAR — se só uma existisse, misturaríamos
+       preço de agora com fechamento de ontem dentro do mesmo número. */
+    var _vivoOk = (s.rvVivo > 0 && s.rfVivo > 0);
+    var rv = _vivoOk ? s.rvVivo : (s.rv || 0);
+    var rf = _vivoOk ? s.rfVivo : (s.rf || 0);
     if (modo === 'rv') return rv;
     if (modo === 'rf') return rf;
 
@@ -10689,10 +10721,31 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var gpVal = getEl('v21-gp-value');
       if (gpVal) gpVal.textContent = fmtBRL(valor);
 
-      // Variação hoje (mesma composição, pra não misturar bases)
+      /* ═══════════════════════════════════════════════════════════════
+         VARIAÇÃO DO PERÍODO — sempre há um número real a mostrar.
+
+         Regra: comparar os dois pontos mais recentes que representem
+         AVALIAÇÕES DE MERCADO DISTINTAS.
+
+           · Com cotação ao vivo completa → agora vs último fechamento
+           · Sem cotação ao vivo (mercado fechado, fim de semana, feriado)
+             → último fechamento vs fechamento anterior
+
+         O ponto "de hoje" que é mera cópia do fechamento é PULADO: ele não
+         é uma avaliação nova, e compará-lo com sua própria origem dá 0,00%,
+         passando a ideia falsa de mercado parado.
+         ═══════════════════════════════════════════════════════════════ */
       if (snap.length >= 2) {
-        var pontoAnt = snap[snap.length - 2];
         var pontoAtu = snap[snap.length - 1];
+        var pontoAnt = snap[snap.length - 2];
+
+        var _vivoCompleto = (pontoAtu.rvVivo > 0 && pontoAtu.rfVivo > 0);
+        if (pontoAtu.copia && !_vivoCompleto) {
+          // Sem avaliação nova hoje: recua para o último par de pregões reais.
+          var _i = snap.length - 1;
+          while (_i > 0 && snap[_i].copia) _i--;          // pula cópias
+          if (_i >= 1) { pontoAtu = snap[_i]; pontoAnt = snap[_i - 1]; }
+        }
 
         // Os dois pontos precisam ser do MESMO tipo. Comparar um ponto da
         // série real (t = RV+RF) com um sintético (t inclui bens) produz
@@ -10712,16 +10765,16 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
              (a série só vai até onde há preços). Anunciar "+0,00% hoje"
              passaria a ideia falsa de mercado parado — melhor dizer de
              quando é o dado. */
-          /* Só escondemos a variação quando o ponto de hoje é cópia E não
-             veio cotação ao vivo junto. Com cotação, a comparação é
-             legítima: preço de agora contra o fechamento anterior. */
-          var _temVivo = (pontoAtu.rvVivo > 0 || pontoAtu.rfVivo > 0);
-          var _semPregaoNovo = !!pontoAtu.copia && !_temVivo;
-          if (_semPregaoNovo) {
-            var _dF = String(pontoAnt.d || '');
-            var _fech = _dF.length >= 10 ? (_dF.substring(8,10) + '/' + _dF.substring(5,7)) : '—';
-            chgEl.innerHTML = '<span class="v21-change-extra">fechamento de ' + _fech + '</span>';
-          }
+          /* Rótulo: deixa claro se o número é de agora ou do último pregão. */
+          /* "hoje" quando o ponto comparado é o mais recente E representa
+             uma avaliação de agora (ponto real do dia ou cópia já
+             enriquecida com cotações ao vivo). Caso contrário, mostra a
+             data do pregão de referência. */
+          var _ehAoVivo = (snap[snap.length-1] === pontoAtu) &&
+                          (!pontoAtu.copia || (pontoAtu.rvVivo > 0 && pontoAtu.rfVivo > 0));
+          var _dRef = String(pontoAtu.d || '');
+          var _rotulo = _ehAoVivo ? 'hoje'
+                      : (_dRef.length >= 10 ? ('em ' + _dRef.substring(8,10) + '/' + _dRef.substring(5,7)) : 'no pregão');
 
           /* Detecção de variação implausível.
 
@@ -10760,9 +10813,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
             }
           }
 
-          if (_semPregaoNovo) {
-            /* já tratado acima — não sobrescreve */
-          } else if (!basesIguais || implausivel) {
+          if (!basesIguais || implausivel) {
             console.warn('[v21 GP] variação do dia omitida — ' +
               (!basesIguais ? ('bases diferentes (' + tipoAnt + ' → ' + tipoAtu + ')')
                             : ('variação implausível: ' + pct.toFixed(2) + '% num dia')));
@@ -10777,10 +10828,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
             var pillHTML = '';
             if (delta >= 0) {
               pillHTML = '<span class="v21-pill-up"><i data-lucide="trending-up"></i>+' + pct.toFixed(2).replace('.',',') + '%</span>';
-              pillHTML += ' <span class="v21-change-extra">(' + fmtBRLSigned(delta) + ') hoje</span>';
+              pillHTML += ' <span class="v21-change-extra">(' + fmtBRLSigned(delta) + ') ' + _rotulo + '</span>';
             } else {
               pillHTML = '<span class="v21-pill-down"><i data-lucide="trending-down"></i>' + pct.toFixed(2).replace('.',',') + '%</span>';
-              pillHTML += ' <span class="v21-change-extra">(' + fmtBRLSigned(delta) + ') hoje</span>';
+              pillHTML += ' <span class="v21-change-extra">(' + fmtBRLSigned(delta) + ') ' + _rotulo + '</span>';
             }
             chgEl.innerHTML = pillHTML;
             if (window.lucide) lucide.createIcons();
@@ -14734,7 +14785,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  window.G20_BUILD = '2026-07-24-R167';
+  window.G20_BUILD = '2026-07-24-R169';
   console.log('%c[G20 v21] BUILD ' + window.G20_BUILD + ' — se este número não mudar após subir um arquivo novo, o Service Worker está servindo cache antigo (F5 normal usa o cache; Ctrl+Shift+R ignora).', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // ════════════════════════════════════════════════════════
