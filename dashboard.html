@@ -6738,6 +6738,10 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
       <button class="btn-icon" id="v21PatHideBtn" onclick="togglePatHide()" title="Ocultar valores" aria-label="Ocultar valores">
         <i data-lucide="eye" id="v21PatHideIco"></i>
       </button>
+      <!-- v50: Rever tour guiado -->
+      <button class="btn-icon g20t-help" id="v21TourBtn" onclick="v21ReverTour()" title="Rever o tour da plataforma" aria-label="Rever o tour da plataforma">
+        <i data-lucide="help-circle"></i>
+      </button>
       <button class="btn-icon" id="themeBtn" onclick="toggleTheme()" aria-label="Alternar tema">
         <i data-lucide="moon"></i>
       </button>
@@ -6878,7 +6882,7 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
       <!-- CARD 2: DESEMPENHO (valores em R$ por período)
            Renomeado de "Rentabilidade" para não colidir com o gráfico
            comparativo mais abaixo, que também se chamava Rentabilidade. -->
-      <div class="v21-card">
+      <div class="v21-card" id="v21CardDesempenho">
         <div class="v21-card-label">
           <i data-lucide="line-chart"></i>Desempenho
         </div>
@@ -6923,7 +6927,7 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
       </div>
 
       <!-- CARD 3: VS BENCHMARKS -->
-      <div class="v21-card">
+      <div class="v21-card" id="v21CardBench">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
           <div class="v21-card-label" style="padding-top:2px">
             <i data-lucide="award"></i>vs Benchmarks
@@ -6967,7 +6971,7 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
       </div>
 
       <!-- CARD 4: AGENDA DE PROVENTOS -->
-      <div class="v21-card v21-card-agenda">
+      <div class="v21-card v21-card-agenda" id="v21CardAgenda">
         <div class="v21-agenda-header">
           <div class="v21-card-label">
             <i data-lucide="calendar-days"></i>Agenda de Proventos
@@ -15574,7 +15578,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  window.G20_BUILD = '2026-07-24-R190';
+  window.G20_BUILD = '2026-07-24-R191';
   console.log('%c[G20 v21] BUILD ' + window.G20_BUILD + ' — se este número não mudar após subir um arquivo novo, o Service Worker está servindo cache antigo (F5 normal usa o cache; Ctrl+Shift+R ignora).', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // ════════════════════════════════════════════════════════
@@ -16245,6 +16249,153 @@ html body .topbar {
 })();
 </script>
 
+<!-- ═══════════════════════════════════════════════════════════════
+     TOUR GUIADO DO PRIMEIRO ACESSO (sessão 50.0)
+     Motor: assets/g20-tour.js — genérico, reutilizável nas outras páginas.
+     Persistência: localStorage g20_tour_dashboard + Firestore
+                   users/{uid}/dados/tour  -> { dashboard: N }
+     Para forçar todo mundo a ver de novo: suba o número em `versao`.
+     Para testar: console -> G20Tour.reset('dashboard') e recarregue.
+     ═══════════════════════════════════════════════════════════════ -->
+<script src="assets/g20-tour.js?v=1"></script>
+<script>
+(function(){
+  var PASSOS = [
+    {
+      titulo: 'Bem-vindo à Plataforma G20',
+      texto: 'Em menos de um minuto eu te mostro onde fica cada coisa por aqui. ' +
+             'Você pode pular a qualquer momento e rever depois pelo ícone <b>?</b> no topo da tela.'
+    },
+    {
+      el: '#sidebarUserBlock', pos: 'right', skipMobile: true,
+      titulo: 'Seu perfil',
+      texto: 'Clique aqui pra completar seus dados, trocar a foto e definir seus objetivos. ' +
+             'Perfil completo é o que te coloca no <b>Networking</b> da turma.'
+    },
+    {
+      el: '.btn-menu', pos: 'bottom', mobileOnly: true,
+      titulo: 'O menu fica aqui',
+      texto: 'No celular, todas as seções da plataforma ficam dentro deste botão: aulas, vídeos, podcast, carteiras e comunidade.'
+    },
+    {
+      el: '.nav-section--conteudo', pos: 'right', skipMobile: true,
+      titulo: 'Todo o conteúdo',
+      texto: '<b>Sala de Aula</b> traz as aulas em ordem, com seu progresso salvo. ' +
+             '<b>G20Flix</b> é a videoteca de lives e extras. <b>G20Cast</b> é o podcast diário. ' +
+             '<b>Carteira G20</b> é a carteira educacional que eu construo ao vivo. ' +
+             'E o <b>Game G20</b> é o ranking mensal da turma.'
+    },
+    {
+      el: '#tut-gestao', pos: 'right', skipMobile: true,
+      titulo: 'Minha Carteira',
+      texto: 'Aqui é onde você cadastra os <b>seus</b> aportes: renda variável, renda fixa e bens. ' +
+             'É essa página que alimenta todos os números que você vê no dashboard. Comece por ela.'
+    },
+    {
+      el: '.nav-section--comunidade', pos: 'right', skipMobile: true,
+      titulo: 'Você não caminha sozinho',
+      texto: 'Consultoria individual comigo, com agendamento direto por aqui, e o grupo de WhatsApp da turma para o dia a dia.'
+    },
+    {
+      el: '#tickerTapeWrap', pos: 'bottom', pad: 4,
+      titulo: 'O mercado em tempo real',
+      texto: 'Selic, CDI, IPCA, bitcoin, índices e câmbio atualizados. ' +
+             'Não precisa abrir outra aba pra saber como o dia está andando.'
+    },
+    {
+      el: '#v21CardGP', pos: 'bottom',
+      titulo: 'Seu patrimônio',
+      texto: 'O total consolidado da sua carteira, a variação do dia e o mini gráfico da evolução. ' +
+             'O filtro no canto do card escolhe o que entra na conta: renda variável, renda fixa, bens.'
+    },
+    {
+      el: '#v21CardDesempenho', pos: 'bottom',
+      titulo: 'Desempenho',
+      texto: 'Quanto a carteira rendeu em cada janela: hoje, semana, mês, ano e 5 anos. ' +
+             'Os <b>aportes já vêm descontados</b> — o que aparece aqui é rentabilidade de verdade, não dinheiro que você depositou.'
+    },
+    {
+      el: '#v21CardBench', pos: 'bottom',
+      titulo: 'vs Benchmarks',
+      texto: 'Sua carteira contra CDI, Ibovespa e S&amp;P 500, sempre na mesma janela de tempo. ' +
+             'É aqui que você descobre se está batendo o mercado ou só surfando nele.'
+    },
+    {
+      el: '#v21CardAgenda', pos: 'left',
+      titulo: 'Agenda de proventos',
+      texto: 'Dividendos, JCP e rendimentos que estão pra pingar na conta, com data e valor estimado. ' +
+             'Renda passiva deixa de ser surpresa e vira previsão.'
+    },
+    {
+      el: '#v21KpisRow', pos: 'bottom', pad: 6,
+      titulo: 'Os seis indicadores',
+      texto: 'Rentabilidade vs CDI, alpha do ano, proventos do mês, aportes do ano, beta da carteira e renda passiva mensal. ' +
+             'O <b>?</b> ao lado do beta explica o que aquele número significa.'
+    },
+    {
+      el: '#v21ChartsRow', pos: 'top', pad: 6,
+      titulo: 'Os gráficos',
+      texto: 'Evolução comparada com os índices, composição por classe de ativo e o histórico de proventos. ' +
+             'Clique nos períodos pra trocar a janela de análise.'
+    },
+    {
+      el: '#v21-metaif-card', pos: 'top',
+      titulo: 'Meta de independência',
+      texto: 'Diga quanto de patrimônio você quer pra viver de renda. A plataforma calcula quanto falta e, ' +
+             'no seu ritmo de aporte, <b>em quanto tempo você chega lá</b>.'
+    },
+    {
+      el: '#v21MuralCard', pos: 'top',
+      titulo: 'Mural G20',
+      texto: 'O que a turma está fazendo agora: aportes registrados, conquistas e movimentos. Comunidade viva, em tempo real.'
+    },
+    {
+      el: '#v21-insights-card', pos: 'top',
+      titulo: 'Insights do dia',
+      texto: 'Leituras automáticas da sua carteira a cada acesso: concentração, oportunidades e alertas. ' +
+             'É uma análise, não uma recomendação — a decisão continua sendo sua.'
+    },
+    {
+      el: '.btn-gsearch', pos: 'bottom', skipMobile: true,
+      titulo: 'Busca rápida',
+      texto: 'Aperte <b>Ctrl + K</b> de qualquer lugar da plataforma. Acha ativo, notícia ou página em dois segundos.'
+    },
+    {
+      el: '#v21PatHideBtn', pos: 'bottom',
+      titulo: 'Modo privacidade',
+      texto: 'Esconde todos os valores em um clique. Útil quando tem gente olhando a tela por cima do seu ombro.'
+    },
+    {
+      el: '#v21TourBtn', pos: 'bottom',
+      titulo: 'É isso. Bons aportes.',
+      texto: 'Esse tour mora nesse botão — clique aqui sempre que quiser rever. ' +
+             'Agora vá em <b>Minha Carteira</b> e cadastre seu primeiro aporte. <b>#nãofoisorte</b>'
+    }
+  ];
+
+  // Botão "rever tour" da topbar
+  window.v21ReverTour = function(){
+    if (window.G20Tour) G20Tour.start({ id:'dashboard', versao:1, steps: PASSOS });
+  };
+
+  // Primeiro acesso: dispara sozinho depois do splash, uma única vez
+  function agendar(){
+    if (!window.G20Tour) return setTimeout(agendar, 300);
+    G20Tour.auto({
+      id: 'dashboard',
+      versao: 1,
+      atraso: 1100,
+      steps: PASSOS
+    });
+  }
+
+  if (typeof firebase !== 'undefined' && firebase.auth) {
+    firebase.auth().onAuthStateChanged(function(u){ if (u) agendar(); });
+  } else {
+    setTimeout(agendar, 1500);
+  }
+})();
+</script>
 
 </body>
 </html>
