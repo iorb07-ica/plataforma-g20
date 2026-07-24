@@ -10319,6 +10319,9 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     v21LoadGP();
   }
   window.v21GpSetMode = v21GpSetMode;
+  // Exposta também: o bloco de controles isolados (fim do arquivo) e
+  // qualquer outro escopo precisam poder redesenhar o card GP.
+  window.v21LoadGP = v21LoadGP;
 
   /* Extrai o valor do snapshot conforme o modo.
      O snapshot guarda t (total), rv e rf — bens = t - rv - rf. */
@@ -15189,6 +15192,67 @@ html body .topbar {
   // ═════════════════════════════════════════════
   var GP_LABELS = { rvrf:'RV + RF', rv:'Apenas RV', rf:'Apenas RF', total:'Total' };
 
+  /* ═══════════════════════════════════════════════════════════════
+     DELEGAÇÃO PARA O RENDERIZADOR ORIGINAL
+
+     O bloco principal define v21GpSetMode/v21LoadGP dentro de uma
+     IIFE. v21LoadGP NUNCA é exposta ao window — só v21GpSetMode é.
+
+     Este bloco roda por ÚLTIMO no documento. Se ele simplesmente
+     sobrescrevesse window.v21GpSetMode, a versão boa (que chama o
+     v21LoadGP do escopo dela) seria perdida, e o card só atualizaria
+     quando algum outro evento disparasse um re-render — exatamente o
+     sintoma "o rótulo muda na hora, mas o valor demora".
+
+     Por isso capturamos a original ANTES de sobrescrever e delegamos
+     a ela. O renderizador local só entra em ação se ela não existir
+     (bloco principal abortado).
+     ═══════════════════════════════════════════════════════════════ */
+  var _gpSetModeOriginal = (typeof window.v21GpSetMode === 'function') ? window.v21GpSetMode : null;
+
+  // ── Renderizador de emergência (só usado se o principal não existir) ──
+  function _fmtBRLlocal(v){
+    try { return 'R$ ' + Number(v).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0}); }
+    catch(e){ return 'R$ ' + Math.round(v); }
+  }
+  function _valorDoSnap(s, modo){
+    if (!s) return 0;
+    var t = s.t||0, rv = s.rv||0, rf = s.rf||0;
+    if (modo === 'rv') return rv;
+    if (modo === 'rf') return rf;
+    if (modo === 'total') return t;
+    var soma = rv + rf;
+    return soma > 0 ? soma : t;
+  }
+  function _renderGpLocal(modo){
+    var snap = [];
+    try { snap = JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]'); } catch(e){}
+    if (!snap.length) return false;
+
+    var valor = _valorDoSnap(snap[snap.length-1], modo);
+    var el = document.getElementById('v21-gp-value');
+    if (el) el.textContent = _fmtBRLlocal(valor);
+
+    if (snap.length >= 2) {
+      var ant = _valorDoSnap(snap[snap.length-2], modo) || valor;
+      var delta = valor - ant;
+      var pct = ant > 0 ? (delta/ant)*100 : 0;
+      var chg = document.getElementById('v21-gp-change');
+      if (chg) {
+        var cls = delta >= 0 ? 'v21-pill-up' : 'v21-pill-down';
+        var sinal = delta >= 0 ? '+' : '';
+        chg.innerHTML = '<span class="'+cls+'">'+sinal+pct.toFixed(2).replace('.',',')+'%</span>'+
+                        ' <span class="v21-change-extra">('+sinal+_fmtBRLlocal(Math.abs(delta))+') hoje</span>';
+      }
+    }
+    var comp = document.getElementById('v21-gp-composition');
+    if (comp) {
+      comp.textContent = modo === 'rv' ? 'RV' : modo === 'rf' ? 'RF'
+                       : modo === 'total' ? 'RV + RF + Bens' : 'RV + RF';
+    }
+    return true;
+  }
+
   function gpMenu(){ return document.getElementById('v21GpFilterMenu'); }
   function gpBtn(){  return document.getElementById('v21GpFilterBtn');  }
 
@@ -15200,19 +15264,32 @@ html body .topbar {
 
   function gpAplicar(modo){
     if (!GP_LABELS[modo]) modo = 'rvrf';
+
+    // 1) Persiste a escolha ANTES de qualquer render — o renderizador
+    //    lê o modo do localStorage.
     try { localStorage.setItem('g20_gpMode', modo); } catch(e){}
 
+    // 2) Feedback visual imediato (rótulo + marca de selecionado)
     var lbl = document.getElementById('v21GpFilterLabel');
     if (lbl) lbl.textContent = GP_LABELS[modo];
-
     var opts = document.querySelectorAll('.v21-gp-filter-opt');
     for (var i=0;i<opts.length;i++){
       var ativo = opts[i].getAttribute('data-gpmode') === modo;
       if (ativo) opts[i].classList.add('is-active'); else opts[i].classList.remove('is-active');
     }
-    // Redesenha o card. Se a função não existir (bloco anterior quebrou),
-    // o filtro ainda troca o rótulo e persiste a escolha.
-    try { if (typeof window.v21LoadGP === 'function') window.v21LoadGP(); } catch(e){}
+
+    // 3) Re-render do card — SEM ESPERAR nada assíncrono.
+    var ok = false;
+    if (_gpSetModeOriginal) {
+      // Caminho normal: a função do bloco principal redesenha valor,
+      // variação, composição e sparkline de uma vez.
+      try { _gpSetModeOriginal(modo); ok = true; } catch(e){}
+    }
+    if (!ok) {
+      // Bloco principal indisponível: pinta pelo menos os números.
+      try { ok = _renderGpLocal(modo); } catch(e){}
+    }
+    if (!ok) console.warn('[G20 UI] não foi possível redesenhar o card GP');
   }
   window.v21GpSetMode = gpAplicar;
 
