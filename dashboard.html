@@ -7077,7 +7077,7 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
           </div>
         </div>
         <div class="v21-chart-summary" id="v21RentSummary">
-          <div class="v21-chart-summary-item"><div class="v21-chart-summary-lbl">VOCÊ</div><div class="v21-chart-summary-val" id="v21RentSumVoce">—</div></div>
+          <div class="v21-chart-summary-item"><div class="v21-chart-summary-lbl">CARTEIRA</div><div class="v21-chart-summary-val" id="v21RentSumVoce">—</div></div>
           <div class="v21-chart-summary-item"><div class="v21-chart-summary-lbl">CDI</div><div class="v21-chart-summary-val" id="v21RentSumCdi">—</div></div>
           <div class="v21-chart-summary-item"><div class="v21-chart-summary-lbl">IBOV</div><div class="v21-chart-summary-val" id="v21RentSumIbov">—</div></div>
           <div class="v21-chart-summary-item"><div class="v21-chart-summary-lbl">S&amp;P500</div><div class="v21-chart-summary-val" id="v21RentSumSp500">—</div></div>
@@ -9004,16 +9004,29 @@ function loadPatStrip(){
         var serie = [], pos = {}, ei = 0;
         var cursor = parseISO(desde), fim = parseISO(hoje);
 
+        var _fxUltimo = 0, _fxFalhas = [], _fxSemNada = 0;
+        window._g20FxDiag = { falhas: _fxFalhas, semNada: 0 };
         while (cursor <= fim) {
           var dISO = iso(cursor);
           var fluxoDia = 0, fluxoRVdia = 0;
-          var fx = cambio ? cambio.em(dISO) : null;
+          /* CÂMBIO DO DIA.
+             Antes: `fx || 5` — se faltasse cotação, usava 5,00 em silêncio.
+             Em 2019 o dólar valia ~3,85: cair para 5,00 inflava os ativos em
+             dólar em ~30% naquele dia, criando um salto que parecia mercado.
+             E a métrica de "cobertura" não pegava isso, porque ela só conta
+             preço de ATIVO, não câmbio.
+             Agora: carry-forward sem teto (guarda o último câmbio conhecido)
+             e registro de quando faltou, para não haver falha silenciosa. */
+          var fxDia = cambio ? cambio.em(dISO) : null;
+          if (fxDia > 0) { _fxUltimo = fxDia; }
+          else if (_fxUltimo > 0) { fxDia = _fxUltimo; _fxFalhas.push(dISO); }
+          var fx = fxDia;
 
           while (ei < eventos.length && eventos[ei].d <= dISO) {
             var ev = eventos[ei];
             pos[ev.ticker] = (pos[ev.ticker] || 0) + ev.qtd;
             var custo = ev.custo;
-            if (ev.moeda === 'USD') custo = custo * (fx || 5);
+            if (ev.moeda === 'USD') { if (!(fx > 0)) _fxSemNada++; custo = custo * (fx > 0 ? fx : 5); }
             fluxoDia += custo;
             fluxoRVdia += custo;      // separado, para variação por classe
             ei++;
@@ -9029,7 +9042,7 @@ function loadPatStrip(){
             if (px == null) return;
             avaliados++;
             var v = q * px;
-            if (mapaAtivos[tk] && mapaAtivos[tk].moeda === 'USD') v = v * (fx || 5);
+            if (mapaAtivos[tk] && mapaAtivos[tk].moeda === 'USD') { if (!(fx > 0)) _fxSemNada++; v = v * (fx > 0 ? fx : 5); }
             valRV += v;
           });
 
@@ -9047,10 +9060,11 @@ function loadPatStrip(){
           var cobertura = totalAtivos ? (avaliados / totalAtivos) : 1;
 
           if (patrimonio > 0 && (totalAtivos === 0 || cobertura >= 0.5)) {
-            serie.push({
+            try { window._g20FxDiag.semNada = _fxSemNada; } catch(e){}
+          serie.push({
               d: dISO, patrimonio: patrimonio, fluxo: fluxoDia,
               fluxoRV: fluxoRVdia, fluxoRF: aporteRFdia,
-              rv: valRV, rf: valRF, cobertura: cobertura
+              rv: valRV, rf: valRF, cobertura: cobertura, fx: (fx > 0 ? fx : null)
             });
           }
           cursor = addDays(cursor, 1);
@@ -10104,6 +10118,21 @@ window.g20Logout = function() {
                               '  | RF: R$ ' + Math.round(_u.rf).toLocaleString('pt-BR'));
                   console.log('[G20Rent]   cobertura de preços: ' + Math.round((_u.cobertura||0)*100) + '%');
                   try {
+                    var _fd = window._g20FxDiag || {};
+                    var _nf = (_fd.falhas || []).length;
+                    if (_nf > 0) {
+                      console.warn('%c[G20Rent]   ⚠ câmbio ausente em ' + _nf + ' dia(s) — usado o último conhecido. ' +
+                        'Primeiros: ' + (_fd.falhas || []).slice(0,6).join(', '),
+                        'color:#e8b84b;font-weight:bold');
+                    } else {
+                      console.log('[G20Rent]   cobertura de câmbio: 100%');
+                    }
+                    if (_fd.semNada > 0) {
+                      console.warn('%c[G20Rent]   ⚠ ' + _fd.semNada + ' avaliação(ões) SEM câmbio algum — usou 5,00 (valor de emergência). ' +
+                        'Ativos em dólar podem estar distorcidos nesses dias.', 'color:#f87171;font-weight:bold');
+                    }
+                  } catch(e){}
+                  try {
                     ['1m','6m','ytd','max'].forEach(function(_p){
                       var _r = G20Rent.retornoPeriodo(serie, _p);
                       console.log('[G20Rent]   ' + _p.toUpperCase() + ': ' + (_r===null?'—':(_r>0?'+':'')+_r.toFixed(2)+'%'));
@@ -10758,7 +10787,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         patAnt: a.patrimonio, patAtu: b.patrimonio,
         aporte: fluxo,
         cobAnt: (a.cobertura == null ? 1 : a.cobertura),
-        cobAtu: (b.cobertura == null ? 1 : b.cobertura)
+        cobAtu: (b.cobertura == null ? 1 : b.cobertura),
+        fxAnt: (a.fx || null), fxAtu: (b.fx || null)
       });
     }
     if (!saltos.length) { console.warn('[G20DiagSalto] nada no filtro ' + filtroAno); return; }
@@ -10770,15 +10800,20 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
                 ' — ' + saltos.length + ' pregões analisados', 'color:#c9a961;font-weight:bold');
     console.table(top.map(function(s){
       var perdeuCobertura = s.cobAtu < s.cobAnt - 0.001;
+      var saltoCambio = (s.fxAnt && s.fxAtu && Math.abs(s.fxAtu/s.fxAnt - 1) > 0.03);
       return {
         data: s.para,
         'retorno %': s.retPct.toFixed(2),
+        'câmbio': (s.fxAtu ? s.fxAtu.toFixed(4) : '—'),
+        'Δ câmbio %': (s.fxAnt && s.fxAtu ? ((s.fxAtu/s.fxAnt-1)*100).toFixed(2) : '—'),
         'patrim. antes': Math.round(s.patAnt).toLocaleString('pt-BR'),
         'patrim. depois': Math.round(s.patAtu).toLocaleString('pt-BR'),
         'aporte no dia': Math.round(s.aporte).toLocaleString('pt-BR'),
         'cobertura antes': (s.cobAnt*100).toFixed(1) + '%',
         'cobertura depois': (s.cobAtu*100).toFixed(1) + '%',
-        'causa provável': perdeuCobertura ? '⚠ PERDEU COTAÇÃO' : (Math.abs(s.retPct) > 5 ? 'verificar' : 'mercado')
+        'causa provável': perdeuCobertura ? '⚠ PERDEU COTAÇÃO'
+                          : (saltoCambio ? '⚠ SALTO DE CÂMBIO'
+                          : (Math.abs(s.retPct) > 5 ? 'verificar' : 'mercado'))
       };
     }));
 
@@ -15064,7 +15099,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  window.G20_BUILD = '2026-07-24-R182';
+  window.G20_BUILD = '2026-07-24-R184';
   console.log('%c[G20 v21] BUILD ' + window.G20_BUILD + ' — se este número não mudar após subir um arquivo novo, o Service Worker está servindo cache antigo (F5 normal usa o cache; Ctrl+Shift+R ignora).', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // ════════════════════════════════════════════════════════
