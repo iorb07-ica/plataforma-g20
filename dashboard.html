@@ -64,8 +64,11 @@ function _divsSalvar(lista){
     localStorage.setItem('g20_dividendos', JSON.stringify(lista));
     return true;
   } catch(e){
-    console.warn('[proventos] localStorage cheio — mantendo ' + lista.length +
-                 ' proventos apenas em memória nesta sessão');
+    if (!window._g20AvisouCotaProv) {
+      window._g20AvisouCotaProv = true;
+      console.warn('[proventos] localStorage cheio — mantendo ' + lista.length +
+                   ' proventos apenas em memória nesta sessão');
+    }
     // Tenta liberar espaço descartando caches recriáveis
     try {
       ['v21_hist_ibov_v3','v21_hist_sp500_v3','g20_cdiHist_v1'].forEach(function(k){
@@ -8574,8 +8577,20 @@ function loadPatStrip(){
         else if (_dashUsdBRLok && _dashUsdBRL > 0) _fxNow = _dashUsdBRL;   // só se REALMENTE buscado
       } catch(e){}
 
+      /* Moeda do ativo — MESMA inferência do motor.
+         Antes: `a.moeda || 'BRL'`. Se o aporte não tivesse o campo `moeda`
+         preenchido, uma ação americana era tratada como BRL e o preço em
+         dólar entrava sem conversão — subestimando a carteira inteira.
+         O motor infere pelo TIPO quando o campo falta; aqui fazemos igual. */
       var _moedaDe = {};
-      rvAportes.forEach(function(a){ if (a.ticker) _moedaDe[a.ticker] = a.moeda || 'BRL'; });
+      rvAportes.forEach(function(a){
+        if (!a.ticker) return;
+        var _tp = String(a.tipo || '').toUpperCase();
+        var _inferido = (_tp === 'CRIPTO' || _tp === 'CRYPTO' || _tp === 'STOCK' ||
+                         _tp === 'REIT' || _tp === 'ETF US' || _tp === 'UCITS' || _tp === 'UCITs')
+                        ? 'USD' : 'BRL';
+        _moedaDe[a.ticker] = String(a.moeda || _inferido).toUpperCase();
+      });
 
       Object.keys(posRV).forEach(function(tk){
         var pp = posRV[tk];
@@ -8605,7 +8620,11 @@ function loadPatStrip(){
             }
           } catch(e){}
         }
+        /* Confirmação cruzada: o fetch de cotações marca isUS. Se ele diz
+           que o ativo é americano, a cotação está em dólar — independente
+           do que o cadastro do aporte diga. */
         var ehUSD = (_moedaDe[tk] === 'USD');
+        try { if (typeof _dashRVCot === 'object' && _dashRVCot[tk] && _dashRVCot[tk].isUS) ehUSD = true; } catch(e){}
         // Ativo em dólar sem câmbio disponível também é "sem cotação confiável"
         if (cot > 0 && ehUSD) {
           if (!(_fxNow > 0)) { faltando.push(tk + ' (sem USD/BRL)'); return; }
@@ -9029,6 +9048,11 @@ function loadPatStrip(){
           if (r.ticker === '__USDBRL__') cambio = indexar(r.pontos);
           else precos[r.ticker] = indexar(r.pontos);
         });
+        /* Expõe as séries de preço para diagnóstico. Elas já foram baixadas
+           para a reconstrução; reaproveitar evita nova rodada de rede e
+           garante que o diagnóstico compare contra EXATAMENTE os mesmos
+           preços que o motor usou. */
+        try { window._g20Precos = precos; window._g20Cambio = cambio; } catch(e){}
 
         var serie = [], pos = {}, ei = 0;
         var cursor = parseISO(desde), fim = parseISO(hoje);
@@ -9284,6 +9308,29 @@ function _patSnapUpsert(total,rf,rv){
          ontem — que é exatamente o que a coluna 1D da Minha Carteira faz. */
       var _pontoHoje = { d: hoje, t: _uNovo.t, rf: _uNovo.rf, rv: _uNovo.rv,
                          c: _uNovo.c * cdiD0, real: true, sv: SERIE_VER, copia: true };
+
+      /* ─── TRAVA DE SANIDADE DA COTAÇÃO AO VIVO ───
+         A série reconstruída é uma avaliação COMPLETA e validada da
+         carteira no último fechamento. O valor ao vivo deve ser um
+         pequeno delta em relação a ela — uma carteira diversificada não
+         muda 15% entre o fechamento e agora.
+
+         Se destoar mais que isso, o cálculo ao vivo tem defeito (moeda
+         não convertida, cotação de outro ativo, preço fora de escala) e
+         NÃO pode alimentar os cards. Melhor mostrar o fechamento, que é
+         confiável, do que um número ao vivo quebrado. */
+      var _rvSerie = _uNovo.rv || 0;
+      if (rv > 0 && _rvSerie > 0) {
+        var _desvio = Math.abs(rv - _rvSerie) / _rvSerie * 100;
+        if (_desvio > 15) {
+          console.warn('%c[G20Rent] ⚠ cotação ao vivo DESCARTADA: RV ao vivo R$ ' +
+            Math.round(rv).toLocaleString('pt-BR') + ' vs série R$ ' +
+            Math.round(_rvSerie).toLocaleString('pt-BR') + ' (' + _desvio.toFixed(1) + '% de desvio). ' +
+            'Os cards usam o último fechamento até o cálculo ao vivo ficar coerente.',
+            'color:#f87171;font-weight:bold');
+          rv = 0;   // anula: o ponto de hoje fica só com o fechamento
+        }
+      }
       /* Os campos ao vivo só são gravados JUNTOS e só quando a RV inteira
          foi avaliada a mercado (rv > 0). Gravar só o RF ao vivo faria o
          card comparar RF de agora com RV de ontem — outra mistura de
@@ -10799,6 +10846,83 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
      Uso:  G20DiagAporte()             → todos os aportes problemáticos
            G20DiagAporte('2019-06-05') → mostra os aportes daquele dia
      ═══════════════════════════════════════════════════════════════ */
+  /* ═══════════════════════════════════════════════════════════════
+     G20DiagPreco() — confere cada aporte contra o mercado
+
+     Para cada aporte, busca o preço que o ativo realmente tinha naquela
+     data (mesma série que o motor usou) e compara com o preço guardado.
+
+     Um aporte cujo preço destoa muito do mercado indica erro de registro
+     — tipicamente ajuste de desdobramento aplicado a mais ou a menos.
+     A razão entre os dois costuma ser um número redondo (4x, 10x, 1/4)
+     e isso denuncia qual split foi contado errado.
+
+     Não altera nada: só compara e mostra.
+     ═══════════════════════════════════════════════════════════════ */
+  window.G20DiagPreco = function(){
+    var precos = window._g20Precos;
+    if (!precos) {
+      console.warn('[G20DiagPreco] séries de preço ainda não carregadas. ' +
+                   'Espere o motor terminar (veja "[G20Rent] ✓ histórico REAL reconstruído") e rode de novo.');
+      return;
+    }
+    var ap = [];
+    try { ap = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){}
+    if (!ap.length) { console.warn('[G20DiagPreco] sem aportes'); return; }
+
+    var linhas = [], suspeitos = 0;
+    ap.forEach(function(a){
+      var tk = String(a.ticker||'').toUpperCase().trim().split('-')[0];
+      var d  = String(a.data||'').substring(0,10);
+      var pStored = (+a.preco) || 0;
+      var serie = precos[tk];
+      var pMercado = serie ? serie.em(d) : null;
+
+      var razao = (pMercado > 0 && pStored > 0) ? (pMercado / pStored) : null;
+      var desvio = razao ? Math.abs(razao - 1) * 100 : null;
+      var alerta = '';
+      if (razao) {
+        // Razão próxima de um inteiro (ou seu inverso) denuncia split mal aplicado
+        var candidatos = [2,3,4,5,7,10,20];
+        candidatos.forEach(function(k){
+          if (Math.abs(razao - k) / k < 0.08)        alerta = '⚠ preço ' + k + 'x MENOR que o mercado';
+          else if (Math.abs(razao - 1/k) * k < 0.08) alerta = '⚠ preço ' + k + 'x MAIOR que o mercado';
+        });
+        if (!alerta && desvio > 25) alerta = '⚠ destoa ' + desvio.toFixed(0) + '%';
+      } else if (!serie) {
+        alerta = 'sem série de preço';
+      } else {
+        alerta = 'sem preço na data';
+      }
+      if (alerta) suspeitos++;
+
+      linhas.push({
+        data: d, ticker: tk, qtd: a.qtd,
+        'preço guardado': pStored ? pStored.toFixed(4) : '—',
+        'preço de mercado': pMercado ? pMercado.toFixed(4) : '—',
+        'razão': razao ? razao.toFixed(2) + 'x' : '—',
+        'situação': alerta || 'ok'
+      });
+    });
+
+    linhas.sort(function(x,y){
+      var ax = x['situação'] !== 'ok' ? 0 : 1, ay = y['situação'] !== 'ok' ? 0 : 1;
+      if (ax !== ay) return ax - ay;
+      return x.data < y.data ? -1 : 1;
+    });
+
+    console.log('%c[G20DiagPreco] ' + ap.length + ' aportes conferidos · ' + suspeitos + ' com preço suspeito',
+                'color:' + (suspeitos ? '#f87171' : '#4ade80') + ';font-weight:bold');
+    console.table(linhas);
+    if (suspeitos) {
+      console.log('%c  Razão 4,00x significa: o preço guardado é 4 vezes menor que o mercado marcava naquele dia.',
+                  'color:#e8b84b');
+      console.log('  Isso é a assinatura de um desdobramento 4:1 aplicado ao preço uma vez a mais que à quantidade.');
+      console.log('  O custo do aporte fica subestimado, e a diferença vira "lucro" no dia — que depois compõe no retorno total.');
+    }
+    return linhas;
+  };
+
   window.G20DiagAporte = function(dataAlvo){
     var ap = [];
     try { ap = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){}
@@ -14646,10 +14770,14 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         // 🔍 DIAGNÓSTICO: mostra EXATAMENTE o que está na GP e no cache de cotações
         var tickersDashRV = Object.keys(window._dashRVCot || {});
         var tickersPosGP = Object.keys(posGP).filter(function(t){ return posGP[t].qtd > 0.001; });
-        console.log('%c[v21 movers GP] DIAGNÓSTICO:', 'background:#c9a961;color:#1a191e;padding:2px 6px;font-weight:bold');
-        console.log('  📦 _dashRVCot tem cotações de:', tickersDashRV);
-        console.log('  💼 posGP (g20_rvAportes aberto > 0):', tickersPosGP);
-        console.log('  🔍 Aportes brutos (g20_rvAportes):', apGP);
+        /* Diagnóstico verboso — rodava 4x por carregamento e enterrava os
+           avisos que importam. Agora só sai com G20_DEBUG_MOVERS = true. */
+        if (window.G20_DEBUG_MOVERS) {
+          console.log('%c[v21 movers GP] DIAGNÓSTICO:', 'background:#c9a961;color:#1a191e;padding:2px 6px;font-weight:bold');
+          console.log('  📦 _dashRVCot tem cotações de:', tickersDashRV);
+          console.log('  💼 posGP (g20_rvAportes aberto > 0):', tickersPosGP);
+          console.log('  🔍 Aportes brutos (g20_rvAportes):', apGP);
+        }
 
         var tickersGP = Object.keys(window._dashRVCot)
           .filter(function(t){ return posGP[t] && posGP[t].qtd > 0.001; })
@@ -14668,7 +14796,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           })
           .filter(function(x){ return x.p !== null; });
 
-        console.log('  ✅ tickersGP filtrados (vão pro card):', tickersGP);
+        if (window.G20_DEBUG_MOVERS) console.log('  ✅ tickersGP filtrados (vão pro card):', tickersGP);
 
         if (tickersGP.length === 0) {
           altasEl.innerHTML = '<div class="v21-movers-empty">Sem posições na GP</div>';
@@ -15198,7 +15326,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  window.G20_BUILD = '2026-07-24-R185';
+  window.G20_BUILD = '2026-07-24-R187';
   console.log('%c[G20 v21] BUILD ' + window.G20_BUILD + ' — se este número não mudar após subir um arquivo novo, o Service Worker está servindo cache antigo (F5 normal usa o cache; Ctrl+Shift+R ignora).', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // ════════════════════════════════════════════════════════
