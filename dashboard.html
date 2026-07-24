@@ -4818,6 +4818,17 @@ body.pat-hidden .v21-change-extra::after{
     transform: translateY(0);
     pointer-events: auto;
   }
+
+  /* Estado só para medir largura/altura antes de posicionar.
+     visibility:hidden faria offsetWidth = 0; por isso usamos
+     opacity 0 + visible, fora da tela. */
+  .v21-help-tip.v21-help-measuring {
+    visibility: visible;
+    opacity: 0;
+    transition: none;
+    left: -9999px;
+    top: 0;
+  }
   .v21-help-tip strong { color: #e8b84b; font-weight: 700; }
   .v21-help-tip p { margin: 0 0 8px 0; }
   .v21-help-tip p:last-child { margin-bottom: 0; }
@@ -10362,18 +10373,32 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         else if (period === '5a') _ini.setFullYear(_ini.getFullYear() - 5);
         else _ini = null;   // max
         var _iniStr = _ini ? _ini.toISOString().substring(0,10) : _sr[0].d;
-        var _you = _v21TwrDesde(_sr, _iniStr);
-        if (_you !== null && isFinite(_you)) {
-          var _cdiPct = null;
-          try {
-            var _sn2 = snap || [];
-            var _f2 = _v21SnapFromDate(_sn2, _iniStr);
-            var _i2 = _f2 ? _f2.snap : _sn2[0];
-            var _fm2 = _sn2[_sn2.length-1];
-            if (_i2 && _fm2 && _i2.c > 0) _cdiPct = ((_fm2.c / _i2.c) - 1) * 100;
-          } catch(e){}
-          return { you: _you, cdi: _cdiPct, ibov: null };
-        }
+          var _you = _v21TwrDesde(_sr, _iniStr);
+          if (_you !== null && isFinite(_you)) {
+            var _cdiPct = null;
+            // PRIORIDADE: série real do BCB (4391). O snap.c é sintético —
+            // projeta a taxa de UM dia sobre todo o período, inflando o
+            // acumulado (era o que fazia o CDI YTD marcar 11,25% quando o
+            // real é ~7,75%).
+            try {
+              var _hojeStr = new Date().toISOString().substring(0,10);
+              if (typeof v21CdiRentabilidade === 'function') {
+                var _cr = v21CdiRentabilidade(_iniStr, _hojeStr);
+                if (_cr !== null && isFinite(_cr)) _cdiPct = _cr;
+              }
+            } catch(e){}
+            // Fallback: snapshots, só se o BCB não respondeu
+            if (_cdiPct === null) {
+              try {
+                var _sn2 = snap || [];
+                var _f2 = _v21SnapFromDate(_sn2, _iniStr);
+                var _i2 = _f2 ? _f2.snap : _sn2[0];
+                var _fm2 = _sn2[_sn2.length-1];
+                if (_i2 && _fm2 && _i2.c > 0) _cdiPct = ((_fm2.c / _i2.c) - 1) * 100;
+              } catch(e){}
+            }
+            return { you: _you, cdi: _cdiPct, ibov: null };
+          }
       }
     } catch(e){}
     if (!snap || snap.length < 2) return null;
@@ -10554,6 +10579,31 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         }
         return;
       }
+
+      // ── NÃO RENDERIZA NÚMERO ERRADO ENQUANTO CARREGA ──
+      // O motor G20Rent (série real) leva alguns segundos. Antes, este card
+      // renderizava na hora usando o fallback de snapshots (patrimônio bruto,
+      // aporte contando como lucro) e só depois corrigia — o usuário via
+      // +20,44% virar +3,29%. Agora, se a série real ainda não chegou, o card
+      // fica em "—" e re-tenta. Melhor vazio por 2s que errado por 2s.
+      var _serieReal = null;
+      try { _serieReal = (window.G20Rent && G20Rent.cache()) ? G20Rent.cache() : null; } catch(e){}
+
+      if (!_serieReal || _serieReal.length < 2) {
+        var maxAg = Math.max(1, Math.abs(ibovRent || 0), Math.abs(spRent || 0));
+        setBench('voce', null, maxAg);
+        setBench('cdi',  null, maxAg);
+        setBench('ibov', ibovRent, maxAg);
+        setBench('spx',  spRent, maxAg);
+        var alphaAg = getEl('v21-bench-alpha');
+        if (alphaAg) { alphaAg.textContent = '—'; alphaAg.className = 'v21-bench-alpha-val muted'; }
+
+        // Re-tenta até a série ficar pronta (máx ~15s)
+        window._v21BenchRetry = (window._v21BenchRetry || 0) + 1;
+        if (window._v21BenchRetry < 30) setTimeout(v21LoadBench, 500);
+        return;
+      }
+      window._v21BenchRetry = 0;
 
       var r = calcRentRange(snap, V21.benchPeriod);
       if (!r) {
@@ -11664,6 +11714,168 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   // Cascata: Yahoo direto → Yahoo via allOrigins → Stooq CSV
   // Cache localStorage 24h
   // ─────────────────────────────────────────────────────
+  /* ═══════════════════════════════════════════════════════════════════
+     CDI HISTÓRICO REAL — Banco Central (SGS)
+
+     PROBLEMA QUE ISTO RESOLVE:
+     Antes, a curva do CDI era sintética. O código pegava a taxa de UM
+     único dia (sgs.12, "últimos/1"), anualizava, e projetava esse mesmo
+     fator diário para trás sobre todo o histórico:
+
+         cdiAcc *= Math.pow(cdiDiario, dias)
+
+     Ou seja: assumia que o CDI de hoje valeu todos os dias dos últimos
+     5 anos. Como a Selic variou muito no período, o CDI acumulado saía
+     errado em TODAS as janelas — e o card Alpha (Você − CDI) herdava o
+     erro inteiro.
+
+     AGORA: usa a série 4391 (CDI acumulado no MÊS, % a.m., fonte
+     BCB-Demab) e compõe mês a mês:  ∏(1 + i/100) − 1
+     Nunca soma — CDI é juro composto.
+     O mês corrente é completado com a taxa diária (sgs.12) pelos dias
+     úteis já decorridos, senão o YTD ficaria sempre um mês atrasado.
+     ═══════════════════════════════════════════════════════════════════ */
+  var G20Cdi = {
+    pontos: null,      // [{d:'YYYY-MM-DD', fator:Number}] fator acumulado desde o início
+    loading: false,
+    failed: false
+  };
+  window.G20Cdi = G20Cdi;
+
+  function _cdiCacheKey(){ return 'g20_cdiHist_v1'; }
+
+  function v21FetchCdiHistorico(callback){
+    if (G20Cdi.pontos) { callback && callback(G20Cdi.pontos); return; }
+    if (G20Cdi.loading || G20Cdi.failed) return;
+
+    // Cache 12h (a série mensal muda pouco)
+    try {
+      var cx = JSON.parse(localStorage.getItem(_cdiCacheKey())||'null');
+      if (cx && cx.ts && (Date.now()-cx.ts) < 12*60*60*1000 && cx.pontos && cx.pontos.length > 12) {
+        G20Cdi.pontos = cx.pontos;
+        console.log('[CDI] cache local: ' + cx.pontos.length + ' pontos mensais');
+        callback && callback(cx.pontos);
+        return;
+      }
+    } catch(e){}
+
+    G20Cdi.loading = true;
+
+    // 6 anos cobre a janela 5A com folga
+    var ini = new Date(); ini.setFullYear(ini.getFullYear()-6);
+    var dIni = String(ini.getDate()).padStart(2,'0')+'/'+String(ini.getMonth()+1).padStart(2,'0')+'/'+ini.getFullYear();
+    var urlMensal = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.4391/dados?formato=json&dataInicial=' + dIni;
+
+    function comTimeout(p, ms){
+      return Promise.race([p, new Promise(function(_,rej){ setTimeout(function(){ rej(new Error('timeout')); }, ms||12000); })]);
+    }
+
+    // BUG CORRIGIDO: a versão anterior fazia `return r.ok ? r.json() : null`.
+    // Retornar null NÃO rejeita a promise, então o .catch() nunca disparava e
+    // a cascata de proxy morria em silêncio — o CDI caía no fallback sintético
+    // sem avisar. Agora erro de HTTP vira throw de verdade.
+    function buscar(url, rotulo){
+      return comTimeout(fetch(url))
+        .then(function(r){
+          if (!r || !r.ok) throw new Error((rotulo||'') + ' HTTP ' + (r ? r.status : '?'));
+          return r.json();
+        })
+        .then(function(j){
+          // allOrigins às vezes devolve string JSON dentro de texto
+          if (typeof j === 'string') { try { j = JSON.parse(j); } catch(e){ throw new Error('json inválido'); } }
+          if (!j || !j.length) throw new Error((rotulo||'') + ' vazio');
+          return j;
+        });
+    }
+
+    buscar(urlMensal, 'bcb-direto')
+      .catch(function(e1){
+        console.warn('[CDI] direto falhou (' + e1.message + '), tentando corsproxy');
+        return buscar('https://corsproxy.io/?' + encodeURIComponent(urlMensal), 'corsproxy');
+      })
+      .catch(function(e2){
+        console.warn('[CDI] corsproxy falhou (' + e2.message + '), tentando allorigins');
+        return buscar('https://api.allorigins.win/raw?url=' + encodeURIComponent(urlMensal), 'allorigins');
+      })
+      .then(function(dados){
+        if (!dados || !dados.length) throw new Error('sem dados 4391');
+
+        // Compõe o fator acumulado mês a mês (juro composto, NUNCA soma)
+        var fator = 1;
+        var pontos = dados.map(function(item){
+          var taxaMes = parseFloat(String(item.valor).replace(',','.'));
+          if (isFinite(taxaMes)) fator *= (1 + taxaMes/100);
+          // item.data vem como DD/MM/YYYY = primeiro dia do mês de referência.
+          // Marcamos o fator no FIM do mês (quando o acumulado já ocorreu).
+          var p = item.data.split('/');
+          var fimMes = new Date(parseInt(p[2],10), parseInt(p[1],10), 0);
+          return {
+            d: fimMes.getFullYear()+'-'+String(fimMes.getMonth()+1).padStart(2,'0')+'-'+String(fimMes.getDate()).padStart(2,'0'),
+            fator: fator
+          };
+        });
+
+        G20Cdi.pontos = pontos;
+        G20Cdi.loading = false;
+        try { localStorage.setItem(_cdiCacheKey(), JSON.stringify({ts:Date.now(), pontos:pontos})); } catch(e){}
+        console.log('%c[CDI] ✓ série real BCB 4391: ' + pontos.length + ' meses', 'color:#4ade80;font-weight:bold');
+
+        try { if (typeof v21LoadRentChart === 'function') v21LoadRentChart(); } catch(e){}
+        callback && callback(pontos);
+      })
+      .catch(function(err){
+        G20Cdi.loading = false;
+        G20Cdi.failed = true;
+        console.warn('[CDI] falhou série real, usando estimativa: ' + (err && err.message));
+      });
+  }
+
+  /* Rentabilidade do CDI entre duas datas, em %.
+     Interpola o mês corrente com a taxa diária pelos dias úteis decorridos. */
+  function v21CdiRentabilidade(inicioStr, fimStr){
+    var pts = G20Cdi.pontos;
+    if (!pts || pts.length < 2) return null;
+
+    function fatorEm(dataStr){
+      // Último fechamento mensal <= dataStr
+      var base = null, idx = -1;
+      for (var i = 0; i < pts.length; i++) {
+        if (pts[i].d <= dataStr) { base = pts[i]; idx = i; } else break;
+      }
+      if (!base) return null;
+
+      // Completa os dias úteis do mês corrente com a taxa diária do CDI
+      var diasUteis = _diasUteisEntre(base.d, dataStr);
+      if (diasUteis > 0) {
+        var aa = (typeof IND !== 'undefined' && IND && IND.cdi) ? IND.cdi : 10.65;
+        var diaria = Math.pow(1 + aa/100, 1/252);
+        return base.fator * Math.pow(diaria, diasUteis);
+      }
+      return base.fator;
+    }
+
+    var fIni = fatorEm(inicioStr);
+    var fFim = fatorEm(fimStr);
+    if (!fIni || !fFim || fIni <= 0) return null;
+    return ((fFim / fIni) - 1) * 100;
+  }
+  window.v21CdiRentabilidade = v21CdiRentabilidade;
+
+  /* Dias úteis (seg–sex) entre duas datas. Não considera feriados —
+     o desvio residual é de fração de ponto-base e some no arredondamento. */
+  function _diasUteisEntre(aStr, bStr){
+    var a = new Date(aStr + 'T12:00:00'), b = new Date(bStr + 'T12:00:00');
+    if (!(b > a)) return 0;
+    var n = 0, cur = new Date(a);
+    cur.setDate(cur.getDate()+1);
+    while (cur <= b) {
+      var dw = cur.getDay();
+      if (dw !== 0 && dw !== 6) n++;
+      cur.setDate(cur.getDate()+1);
+    }
+    return n;
+  }
+
   function v21FetchHistorico(series, callback) {
     if (V21C.histLoading[series]) return;
     if (V21C.histFailed[series]) return;
@@ -11679,17 +11891,24 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     } else if (series === 'sp500') {
       cfg = {
         yahooSymbol: '^GSPC',
-        stooqSymbol: 'spy.us'  // ETF SPY (tracka índice S&P 500 real, em USD, sem CFD)
+        // ANTES: 'spy.us' (ETF SPY). Isso tornava o número IRREPRODUTÍVEL —
+        // dependia de qual proxy respondesse primeiro. SPY é um ETF com preço
+        // próprio (distribui dividendos, tem taxa); ^GSPC é o índice.
+        // Agora ambas as fontes apontam para o MESMO instrumento: o índice.
+        stooqSymbol: '^spx'
       };
     } else {
       return;
     }
 
     // Cache localStorage 24h
-    // v2: cache key inclui versão pra invalidar dados com símbolo antigo (^spx → spy.us)
-    var cacheKey = 'v21_hist_' + series + '_v2';
-    // Limpa cache antigo (^spx CFD) se existir
-    try { localStorage.removeItem('v21_hist_' + series); } catch(e){}
+    // v3: invalida cache com instrumento antigo do S&P (spy.us ETF → ^spx índice).
+    // Sem o bump, o dado do ETF sobreviveria 24h e a correção não apareceria.
+    var cacheKey = 'v21_hist_' + series + '_v3';
+    try {
+      localStorage.removeItem('v21_hist_' + series);
+      localStorage.removeItem('v21_hist_' + series + '_v2');
+    } catch(e){}
     try {
       var cached = JSON.parse(localStorage.getItem(cacheKey)||'null');
       // v3: invalida cache se tiver menos de 10 pontos (dados corrompidos de falha anterior)
@@ -12031,12 +12250,26 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         }
       } catch(e){}
 
+      // ── FONTE DO CDI: série real do BCB (4391), com fallback ──
+      // O snap.c é sintético: projeta a taxa de UM dia sobre todo o
+      // histórico. Com a série real, cada mês usa sua própria taxa.
+      var _cdiReal = (window.G20Cdi && G20Cdi.pontos && G20Cdi.pontos.length > 1);
+      if (!_cdiReal && window.G20Cdi && !G20Cdi.loading && !G20Cdi.failed) {
+        try { v21FetchCdiHistorico(); } catch(e){}
+      }
+
       eixoDatas.forEach(function(d){
         var vVoce = null;
         var vCdi = null;
 
         if (_twrCurva) {
           vVoce = _v21TwrEm(_twrCurva, _twrDatas, d);
+        }
+
+        // CDI real: rentabilidade acumulada entre o início da janela e d
+        if (_cdiReal) {
+          var _rc = v21CdiRentabilidade(inicioStr, d);
+          if (_rc !== null && isFinite(_rc)) vCdi = _rc;
         }
 
         if (baseT && d >= dataBaseVoce) {
@@ -12048,7 +12281,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           if (snapAtual) {
             // Fallback do "Você" apenas se o motor real não respondeu
             if (!_twrCurva && snapAtual.t > 0 && baseT > 0) vVoce = ((snapAtual.t / baseT) - 1) * 100;
-            if (snapAtual.c > 0 && baseC > 0) vCdi = ((snapAtual.c / baseC) - 1) * 100;
+            // Fallback do CDI apenas se a série do BCB não respondeu
+            if (!_cdiReal && snapAtual.c > 0 && baseC > 0) vCdi = ((snapAtual.c / baseC) - 1) * 100;
           }
         }
         serieVoce.push(vVoce);
@@ -13647,6 +13881,11 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         try { v21FetchHistorico('ibov'); } catch(e) { console.error('[v21 init] erro fetch IBOV:', e); }
         console.log('%c[v21 init] → Disparando fetch SP500 agora', 'color:#4ade80;font-weight:bold');
         try { v21FetchHistorico('sp500'); } catch(e) { console.error('[v21 init] erro fetch SP500:', e); }
+        // Série real do CDI (BCB 4391) — substitui a curva sintética
+        if (typeof v21FetchCdiHistorico === 'function') {
+          console.log('%c[v21 init] → Disparando fetch CDI (BCB 4391) agora', 'color:#4ade80;font-weight:bold');
+          try { v21FetchCdiHistorico(); } catch(e) { console.error('[v21 init] erro fetch CDI:', e); }
+        }
       } else {
         console.warn('%c[v21 init] ⚠ v21FetchHistorico NÃO ESTÁ DEFINIDA — agendando retry em 500ms', 'color:#e63946;font-weight:bold');
         setTimeout(disparaFetchAgora, 500);
@@ -14478,12 +14717,12 @@ html body .topbar {
   var MARGEM = 12;   // respiro mínimo da borda da viewport
 
   function posicionar(dot, tip){
-    // Mede com o tooltip já visível (visibility:hidden mede 0)
-    var prevVis = tip.style.visibility;
-    var prevOpa = tip.style.opacity;
-    tip.style.visibility = 'hidden';
-    tip.style.opacity = '0';
-    tip.classList.add('is-open');
+    // Mede fora da tela, sem tocar em opacity/visibility inline.
+    // BUG ANTERIOR: a medição setava style.opacity='0' e devolvia o valor
+    // antigo (string vazia) depois. Como o inline vence a classe CSS, o
+    // tooltip abria mas ficava invisível — parecia que o hover não funcionava.
+    // Agora usamos uma classe de medição que não interfere no estado final.
+    tip.classList.add('v21-help-measuring');
 
     var r = dot.getBoundingClientRect();
     var tw = tip.offsetWidth;
@@ -14506,8 +14745,7 @@ html body .topbar {
     tip.style.left = Math.round(left) + 'px';
     tip.style.top  = Math.round(top) + 'px';
 
-    tip.style.visibility = prevVis;
-    tip.style.opacity = prevOpa;
+    tip.classList.remove('v21-help-measuring');
   }
 
   function abrir(dot, tip){
