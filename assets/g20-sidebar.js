@@ -9,7 +9,7 @@
   // Chaves financeiras/pessoais que NUNCA podem sobrar para o próximo usuário.
   var G20_PRIVATE_KEYS = ['aportes','dividendos','rvAportes','rvDividendos','rendaFixa','splits',
     'patrimonioBens','patrimonioSnaps','carteiraMeta','metaIF','metaIF_anual','lastRVTotal',
-    'cotacoesCache','splits_cache','bonificacoes_cache',
+    'cotacoesCache','splits_cache','bonificacoes_cache','perfil_ok',
     'tokenBrapi','tokenFmp','tokenLogoDev','tokenTwelve',
     'prov_last_import','prov_last_status','prov_last_start',
     'rv_prov_last_import','rv_prov_last_status','rv_prov_last_start'];
@@ -45,6 +45,111 @@
     }
     if(!attach()){
       var n = 0, t = setInterval(function(){ if(attach() || ++n > 60) clearInterval(t); }, 50);
+    }
+  })();
+
+  // ═══════════════ PERFIL OBRIGATÓRIO — REGRAS (sessão 50.0) ═══════════════
+  // FONTE ÚNICA DA VERDADE. O perfil.html consome estas regras via window.G20Perfil,
+  // então nunca existem duas listas de campos obrigatórios se contradizendo.
+  //
+  // Para mudar o que é obrigatório: mexa SÓ neste array.
+  //   k      = chave no Firestore (users/{uid}.perfil)
+  //   campo  = id do input no perfil.html
+  //   aba    = aba onde o campo mora
+  //   min    = mínimo de caracteres (texto livre)
+  //   tipo   = 'data' | 'whats' para validações especiais
+  window.G20Perfil = (function(){
+    var REQ = [
+      { k:'nome',            campo:'f-nome',            aba:'pessoal',    rotulo:'Nome completo',              min:5  },
+      { k:'nascimento',      campo:'f-nascimento',      aba:'pessoal',    rotulo:'Data de nascimento',         tipo:'data' },
+      { k:'cidade',          campo:'f-cidade',          aba:'pessoal',    rotulo:'Cidade',                     min:2  },
+      { k:'estado',          campo:'f-estado',          aba:'pessoal',    rotulo:'Estado' },
+      { k:'renda',           campo:'f-renda',           aba:'financeiro', rotulo:'Renda mensal' },
+      { k:'patrimonio',      campo:'f-patrimonio',      aba:'financeiro', rotulo:'Patrimônio atual' },
+      { k:'aporteMensal',    campo:'f-aporte-mensal',   aba:'financeiro', rotulo:'Quanto investe por mês' },
+      { k:'experiencia',     campo:'f-experiencia',     aba:'financeiro', rotulo:'Experiência em investimentos' },
+      { k:'meta',            campo:'f-meta',            aba:'financeiro', rotulo:'Meta financeira principal',  min:25 },
+      { k:'objetivo',        campo:'f-objetivo',        aba:'financeiro', rotulo:'Objetivo principal no G20' },
+      { k:'disponibilidade', campo:'f-disponibilidade', aba:'financeiro', rotulo:'Disponibilidade semanal' },
+      { k:'porqueG20',       campo:'f-porqueg20',       aba:'financeiro', rotulo:'Por que entrou no G20',      min:60 },
+      { k:'profissao',       campo:'f-profissao',       aba:'profissao',  rotulo:'Profissão',                  min:3  },
+      { k:'area',            campo:'f-area',            aba:'profissao',  rotulo:'Área de atuação' },
+      { k:'whatsapp',        campo:'f-whatsapp',        aba:'redes',      rotulo:'WhatsApp',                   tipo:'whats' }
+    ];
+
+    var MSG_CURTO = 'Escreva com um pouco mais de calma aqui. Um campo bem preenchido mostra ' +
+                    'seriedade, ajuda o Israel a te conhecer de verdade e te conecta com a rede do G20. ' +
+                    'Não é formulário de banco — é o seu retrato dentro da turma.';
+
+    function idadeValida(v){
+      if(!v) return false;
+      var d = new Date(v);
+      if(isNaN(d.getTime())) return false;
+      var hoje = new Date();
+      var anos = hoje.getFullYear() - d.getFullYear();
+      var m = hoje.getMonth() - d.getMonth();
+      if(m < 0 || (m === 0 && hoje.getDate() < d.getDate())) anos--;
+      return anos >= 16 && anos <= 100;
+    }
+
+    function valido(regra, valor){
+      var v = (valor == null ? '' : String(valor)).trim();
+      if(!v || v === 'Selecione...') return false;
+      if(regra.tipo === 'data')  return idadeValida(v);
+      if(regra.tipo === 'whats'){ var d = v.replace(/\D/g,''); return d.length >= 10 && d.length <= 15; }
+      if(regra.min) return v.length >= regra.min;
+      return true;
+    }
+
+    function faltando(perfil){
+      perfil = perfil || {};
+      return REQ.filter(function(r){ return !valido(r, perfil[r.k]); });
+    }
+    function completo(perfil){ return faltando(perfil).length === 0; }
+    function porAba(){
+      var m = {};
+      REQ.forEach(function(r){ (m[r.aba] = m[r.aba] || []).push(r); });
+      return m;
+    }
+
+    return { REQ:REQ, MSG_CURTO:MSG_CURTO, valido:valido, faltando:faltando, completo:completo, porAba:porAba };
+  })();
+
+  // ═══════════════ PERFIL OBRIGATÓRIO — TRAVA DE ACESSO ═══════════════
+  // Sem perfil completo, nenhuma página da plataforma abre. O aluno é levado
+  // para perfil.html?obrigatorio=1 e só sai de lá quando terminar.
+  // Admin nunca é travado — senão você se tranca fora da própria plataforma.
+  (function(){
+    var LIVRES = ['perfil.html','login.html','termos-de-uso.html','index.html',''];
+    var arquivo = (location.pathname.split('/').pop() || '').toLowerCase();
+    if(LIVRES.indexOf(arquivo) >= 0) return;
+
+    // Caminho rápido: já validado neste navegador, não toca a rede.
+    try { if(localStorage.getItem('g20_perfil_ok') === '1') return; } catch(e){}
+
+    function liberar(){ try{ localStorage.setItem('g20_perfil_ok','1'); }catch(e){} }
+
+    function checar(){
+      try{
+        if(typeof firebase === 'undefined' || !firebase.apps || !firebase.apps.length || !firebase.auth) return false;
+        firebase.auth().onAuthStateChanged(function(user){
+          if(!user) return;                       // sem login, o guard de auth de cada página resolve
+          firebase.firestore().collection('users').doc(user.uid).get().then(function(doc){
+            if(!doc.exists) return;
+            var d = doc.data() || {};
+            if(d.role === 'admin'){ liberar(); return; }         // admin passa sempre
+            var falt = window.G20Perfil.faltando(d.perfil || {});
+            if(falt.length === 0){ liberar(); return; }
+            console.warn('[G20] perfil incompleto — ' + falt.length + ' campo(s). Redirecionando.');
+            location.replace('perfil.html?obrigatorio=1');
+          }).catch(function(){ /* rede falhou: não tranca ninguém por erro de rede */ });
+        });
+        return true;
+      }catch(e){ return false; }
+    }
+
+    if(!checar()){
+      var n = 0, t = setInterval(function(){ if(checar() || ++n > 80) clearInterval(t); }, 50);
     }
   })();
 
