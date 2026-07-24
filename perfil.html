@@ -768,6 +768,78 @@ body.perfil-travado .nav-item:hover{
 body.perfil-travado .sidebar-user,
 body.perfil-travado .btn-logout{ opacity:1; cursor:pointer }
 
+
+/* ═══════════════════════════════════════════════════════════════════════
+   TELA DE BOAS-VINDAS DO PERFIL (sessão 50.0)
+   ═══════════════════════════════════════════════════════════════════════ */
+.pwl-overlay{
+  position:fixed; inset:0; z-index:99995;
+  display:flex; align-items:center; justify-content:center; padding:24px;
+  background:rgba(6,8,12,.78); backdrop-filter:blur(6px);
+  opacity:0; transition:opacity .28s ease;
+}
+.pwl-overlay.is-in{ opacity:1 }
+.pwl-card{
+  width:560px; max-width:100%; max-height:92vh; overflow-y:auto;
+  background:linear-gradient(180deg, #1a1922, #14131a);
+  border:1px solid rgba(232,184,75,.28); border-radius:22px;
+  padding:38px 40px 30px; text-align:center;
+  box-shadow:0 40px 100px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.03) inset;
+  transform:translateY(14px) scale(.98); transition:transform .3s cubic-bezier(.4,0,.2,1);
+}
+.pwl-overlay.is-in .pwl-card{ transform:translateY(0) scale(1) }
+.pwl-badge{
+  display:inline-block; font-family:'JetBrains Mono',monospace; font-size:11px;
+  letter-spacing:1.6px; text-transform:uppercase; color:#e8b84b;
+  background:rgba(232,184,75,.1); border:1px solid rgba(232,184,75,.3);
+  padding:6px 14px; border-radius:20px; margin-bottom:20px;
+}
+.pwl-title{
+  font-family:'Bebas Neue','DM Sans',sans-serif; font-size:44px; line-height:1;
+  letter-spacing:1px; color:#f2f4f8; margin:0 0 14px;
+}
+.pwl-lead{ font-size:15px; line-height:1.6; color:#c2cbdb; margin:0 auto 26px; max-width:440px }
+.pwl-lead b{ color:#e8b84b; font-weight:600 }
+
+.pwl-points{ display:flex; flex-direction:column; gap:14px; text-align:left; margin-bottom:24px }
+.pwl-point{
+  display:flex; gap:14px; align-items:flex-start;
+  background:rgba(255,255,255,.03); border:1px solid rgba(232,184,75,.12);
+  border-radius:13px; padding:14px 16px;
+}
+.pwl-point > span{ font-size:22px; flex-shrink:0; line-height:1.2 }
+.pwl-point b{ display:block; font-size:14px; color:#f2f4f8; margin-bottom:3px }
+.pwl-point div{ font-size:13px; line-height:1.5; color:#9aa5b8 }
+.pwl-point i{ color:#c2cbdb; font-style:italic }
+
+.pwl-note{
+  font-size:13px; line-height:1.6; color:#a9b3c6;
+  background:rgba(232,184,75,.06); border:1px solid rgba(232,184,75,.16);
+  border-radius:12px; padding:13px 16px; margin:0 0 26px;
+}
+.pwl-note b{ color:#e8b84b }
+.pwl-btn{
+  width:100%; font-family:'DM Sans',sans-serif; font-size:16px; font-weight:700;
+  color:#0b0d14; background:linear-gradient(135deg,#e8b84b,#c8943a);
+  border:none; border-radius:12px; padding:15px; cursor:pointer;
+  box-shadow:0 10px 30px rgba(232,184,75,.28); transition:.18s;
+}
+.pwl-btn:hover{ filter:brightness(1.06); box-shadow:0 12px 36px rgba(232,184,75,.4) }
+.pwl-btn:active{ transform:scale(.99) }
+.pwl-foot{ font-size:11px; color:#6b7488; margin-top:16px; letter-spacing:.3px }
+
+@media(max-width:600px){
+  .pwl-card{ padding:30px 22px 24px; border-radius:18px }
+  .pwl-title{ font-size:36px }
+  .pwl-lead{ font-size:14px }
+}
+body.light .pwl-card{ background:linear-gradient(180deg,#fff,#f7f8fa); border-color:rgba(200,148,58,.4) }
+body.light .pwl-title{ color:#0e1626 }
+body.light .pwl-lead{ color:#3d465c }
+body.light .pwl-point{ background:rgba(20,40,80,.03); border-color:rgba(200,148,58,.2) }
+body.light .pwl-point b{ color:#0e1626 }
+body.light .pwl-point div{ color:#5c6580 }
+
 </style>
 <link rel="stylesheet" href="assets/g20-topbar.css?v=10">
 <link rel="stylesheet" href="assets/g20-sidebar.css?v=10">
@@ -2362,6 +2434,58 @@ function atualizarBannerObrigatorio(){
 }
 
 /* ── Guias por aba: leves, um por vez, uma vez só ── */
+/* ═══════════════════════════════════════════════════════════════
+   BOAS-VINDAS DO PERFIL (sessão 50.0)
+   Tela cheia, uma vez só, antes do primeiro guia de aba. Explica POR QUE
+   preencher e pede calma e verdade — reduz a fricção de encarar 15 campos.
+   Só aparece com perfil incompleto E se ainda não foi vista.
+   ═══════════════════════════════════════════════════════════════ */
+var _WELCOME_KEY = 'g20_perfil_welcome_v1';
+function perfilWelcomeVista(){
+  try { return localStorage.getItem(_WELCOME_KEY) === '1'; } catch(e){ return false; }
+}
+function marcarPerfilWelcome(){
+  try { localStorage.setItem(_WELCOME_KEY, '1'); } catch(e){}
+}
+
+function abrirPerfilWelcome(aoFechar){
+  if(document.getElementById('perfilWelcome')){ if(aoFechar) aoFechar(); return; }
+  var nome = '';
+  try {
+    var p = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
+    nome = (p.name || '').trim().split(/\s+/)[0] || '';
+  } catch(e){}
+  var ola = nome ? ('Falta pouco, ' + nome + '.') : 'Falta pouco pra você entrar.';
+
+  var ov = document.createElement('div');
+  ov.id = 'perfilWelcome';
+  ov.className = 'pwl-overlay';
+  ov.innerHTML =
+    '<div class="pwl-card" role="dialog" aria-modal="true">' +
+      '<div class="pwl-badge">🔒 Acesso a um passo</div>' +
+      '<h1 class="pwl-title">' + ola + '</h1>' +
+      '<p class="pwl-lead">Antes de liberar a Plataforma G20 completa, o Israel precisa te conhecer de verdade. ' +
+        'São <b>15 campos</b>, uns 3 minutos — e cada resposta tem um motivo.</p>' +
+      '<div class="pwl-points">' +
+        '<div class="pwl-point"><span>🎯</span><div><b>Orientação sob medida</b>É o seu perfil que permite ao Israel preparar consultorias e conselhos pensados pra <i>você</i>, não genéricos.</div></div>' +
+        '<div class="pwl-point"><span>🤝</span><div><b>A turma certa</b>Profissão, cidade e área conectam você com os G20s que têm tudo a ver com o seu momento.</div></div>' +
+        '<div class="pwl-point"><span>📈</span><div><b>Seu ponto de partida</b>Onde você está hoje é o que vai medir o quanto você evoluiu lá na frente.</div></div>' +
+      '</div>' +
+      '<p class="pwl-note">Preencha com <b>calma e com a verdade</b>. Não é formulário de banco — é o seu retrato dentro do G20. Quanto mais real, mais a plataforma trabalha a seu favor.</p>' +
+      '<button type="button" class="pwl-btn" id="pwlStart">Bora começar →</button>' +
+      '<div class="pwl-foot">Você só verá isso uma vez</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  requestAnimationFrame(function(){ ov.classList.add('is-in'); });
+
+  function fechar(){
+    marcarPerfilWelcome();
+    ov.classList.remove('is-in');
+    setTimeout(function(){ if(ov.parentNode) ov.parentNode.removeChild(ov); if(aoFechar) aoFechar(); }, 260);
+  }
+  document.getElementById('pwlStart').addEventListener('click', fechar);
+}
+
 var GUIAS = {
   pessoal: {
     titulo: 'Começando pelo básico',
@@ -2645,7 +2769,13 @@ setTimeout(function(){
   var faltam = reqPendentes().length;
   if(faltam > 0 || _MODO_OBRIGATORIO){
     var ativa = document.querySelector('.perfil-tab.active');
-    guiaDaAba(ativa ? ativa.dataset.tab : 'pessoal');
+    var primeiraAba = ativa ? ativa.dataset.tab : 'pessoal';
+    // No primeiro acesso, a tela de boas-vindas vem ANTES do guia da aba
+    if(!perfilWelcomeVista()){
+      abrirPerfilWelcome(function(){ guiaDaAba(primeiraAba); });
+    } else {
+      guiaDaAba(primeiraAba);
+    }
   }
 }, 2200);
 
