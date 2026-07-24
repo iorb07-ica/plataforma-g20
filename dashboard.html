@@ -43,6 +43,51 @@ function _getQtdNaDataGestao(ticker, dataRef){
   }catch(e){ return 0; }
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   ESCRITA SEGURA NO localStorage (proventos)
+
+   Os dois setItem de g20_dividendos não tinham try/catch. Quando a
+   cota do localStorage estoura — o que já acontece nesta conta, veja
+   "[G20Rent] série não coube no localStorage" no console — o setItem
+   LANÇA. Como as chamadas ficam dentro de .then(), o erro caía no
+   .catch() genérico e era engolido em silêncio: os proventos nunca
+   eram gravados e todos os cards apareciam zerados, sem nenhum aviso.
+
+   Agora a gravação é protegida e, se falhar, a lista continua
+   disponível em memória para a sessão atual.
+   ═══════════════════════════════════════════════════════════════ */
+window._g20DivsMem = null;
+
+function _divsSalvar(lista){
+  window._g20DivsMem = lista;            // memória sempre
+  try {
+    localStorage.setItem('g20_dividendos', JSON.stringify(lista));
+    return true;
+  } catch(e){
+    console.warn('[proventos] localStorage cheio — mantendo ' + lista.length +
+                 ' proventos apenas em memória nesta sessão');
+    // Tenta liberar espaço descartando caches recriáveis
+    try {
+      ['v21_hist_ibov_v3','v21_hist_sp500_v3','g20_cdiHist_v1'].forEach(function(k){
+        localStorage.removeItem(k);
+      });
+      localStorage.setItem('g20_dividendos', JSON.stringify(lista));
+      console.warn('[proventos] espaço liberado — proventos gravados');
+      return true;
+    } catch(e2){ return false; }
+  }
+}
+
+function _divsCarregar(){
+  var doLS = [];
+  try { doLS = JSON.parse(localStorage.getItem('g20_dividendos')||'[]'); } catch(e){}
+  if (doLS && doLS.length) return doLS;
+  // Caiu na memória? usa ela.
+  if (window._g20DivsMem && window._g20DivsMem.length) return window._g20DivsMem;
+  return doLS || [];
+}
+window._divsCarregar = _divsCarregar;
+
 function _importarProventosGestaoBackground(onEmpty){
   if(_gestaoImportRunning) return;
   _gestaoImportRunning = true;
@@ -98,7 +143,7 @@ function _importarProventosGestaoBackground(onEmpty){
         novos++;
       });
     });
-    if(novos>0){ localStorage.setItem('g20_dividendos', JSON.stringify(lista)); }
+    if(novos>0){ _divsSalvar(lista); }
     _gestaoImportRunning=false;
     _gestaoImportDone=true;
     renderProvAgenda();
@@ -194,7 +239,7 @@ function _importarTodosProventosBackground(onDone){
       });
     });
 
-    localStorage.setItem('g20_dividendos', JSON.stringify(lista));
+    _divsSalvar(lista);
     if(onDone) onDone();
   }).catch(function(){ if(onDone) onDone(); });
 }
@@ -207,11 +252,17 @@ function _provDeveReimportar(){
     var ver = localStorage.getItem('g20_prov_cache_ver');
     var ultimaStr = localStorage.getItem('g20_prov_last_import');
     if(ver !== _PROV_CACHE_VER){
-      var divs = JSON.parse(localStorage.getItem('g20_dividendos')||'[]')
-        .filter(function(d){ var f=d.fonte||''; return f!=='auto'&&f.indexOf('Auto-')!==0; });
-      localStorage.setItem('g20_dividendos', JSON.stringify(divs));
-      localStorage.setItem('g20_prov_cache_ver', _PROV_CACHE_VER);
-      localStorage.removeItem('g20_prov_last_import');
+      // A marca de versão é gravada PRIMEIRO, porque é minúscula e quase
+      // nunca falha. Se ela ficasse por último e o setItem da lista
+      // estourasse a cota, o bloco lançaria antes de marcar — e a cada
+      // carregamento os proventos seriam apagados de novo, em loop.
+      try { localStorage.setItem('g20_prov_cache_ver', _PROV_CACHE_VER); } catch(e){}
+      try { localStorage.removeItem('g20_prov_last_import'); } catch(e){}
+      try {
+        var divs = JSON.parse(localStorage.getItem('g20_dividendos')||'[]')
+          .filter(function(d){ var f=d.fonte||''; return f!=='auto'&&f.indexOf('Auto-')!==0; });
+        localStorage.setItem('g20_dividendos', JSON.stringify(divs));
+      } catch(e){}
       return true;
     }
     if(!ultimaStr) return true;
@@ -9506,7 +9557,7 @@ if(_alModal) _alModal.addEventListener('click', function(e){
     try{
       // 2) Import de proventos (popula g20_dividendos com dados do proxy Vercel)
       var divs = [];
-      try{ divs = JSON.parse(localStorage.getItem('g20_dividendos')||'[]'); }catch(e){}
+      try{ divs = (window._divsCarregar ? _divsCarregar() : JSON.parse(localStorage.getItem('g20_dividendos')||'[]')); }catch(e){}
       var aportesRV = [];
       try{ aportesRV = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); }catch(e){}
       var aportesG20 = [];
@@ -9889,7 +9940,7 @@ window.g20Logout = function() {
           if(typeof renderProvAgenda==='function') renderProvAgenda();
           // Reimporta se: 1) TTL venceu, OU 2) storage de dividendos vazio (primeira vez no dashboard)
           var divsAtuais = [];
-          try{ divsAtuais = JSON.parse(localStorage.getItem('g20_dividendos')||'[]'); }catch(e){}
+          try{ divsAtuais = (window._divsCarregar ? _divsCarregar() : JSON.parse(localStorage.getItem('g20_dividendos')||'[]')); }catch(e){}
           var precisaImportar = (typeof _provDeveReimportar==='function' && _provDeveReimportar()) || divsAtuais.length === 0;
           if(precisaImportar && typeof _importarTodosProventosBackground==='function'){
             _importarTodosProventosBackground(function(){
@@ -11081,7 +11132,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       _buildQtdCache();
 
       var divs = [];
-      try { divs = JSON.parse(localStorage.getItem('g20_dividendos')||'[]'); } catch(e){}
+      try { divs = (window._divsCarregar ? _divsCarregar() : JSON.parse(localStorage.getItem('g20_dividendos')||'[]')); } catch(e){}
 
       if (!divs.length) {
         list.innerHTML = '<div class="v21-agenda-empty">Nenhum provento encontrado</div>';
@@ -11280,7 +11331,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     var apBR = [];
     var precos = {};
     try { snap = JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]'); } catch(e){}
-    try { divs = JSON.parse(localStorage.getItem('g20_dividendos')||'[]'); } catch(e){}
+    try { divs = (window._divsCarregar ? _divsCarregar() : JSON.parse(localStorage.getItem('g20_dividendos')||'[]')); } catch(e){}
     try { rvAp = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){}
     try { apBR = JSON.parse(localStorage.getItem('g20_aportes')||'[]'); } catch(e){}
     try { precos = JSON.parse(localStorage.getItem('g20_precos')||'{}'); } catch(e){}
@@ -11601,7 +11652,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var apBR = [];
       var precos = {};
       try { snap = JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]'); } catch(e){}
-      try { divs = JSON.parse(localStorage.getItem('g20_dividendos')||'[]'); } catch(e){}
+      try { divs = (window._divsCarregar ? _divsCarregar() : JSON.parse(localStorage.getItem('g20_dividendos')||'[]')); } catch(e){}
       try { rvAp = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){}
       try { apBR = JSON.parse(localStorage.getItem('g20_aportes')||'[]'); } catch(e){}
       try { precos = JSON.parse(localStorage.getItem('g20_precos')||'{}'); } catch(e){}
@@ -13037,7 +13088,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var rvAp = [];
       var apBR = [];
       var precos = {};
-      try { divs = JSON.parse(localStorage.getItem('g20_dividendos')||'[]'); } catch(e){}
+      try { divs = (window._divsCarregar ? _divsCarregar() : JSON.parse(localStorage.getItem('g20_dividendos')||'[]')); } catch(e){}
       try { rvAp = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){}
       try { apBR = JSON.parse(localStorage.getItem('g20_aportes')||'[]'); } catch(e){}
       try { precos = JSON.parse(localStorage.getItem('g20_precos')||'{}'); } catch(e){}
