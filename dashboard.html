@@ -9083,7 +9083,12 @@ function _patSnapUpsert(total,rf,rv){
     if (_ultimo && _ultimo.real) return;
     if (_ultimo && _ultimo.d === hoje) { _ultimo.t = total; _ultimo.rf = rf; _ultimo.rv = rv; }
     else arr.push({ d: hoje, t: total, rf: rf, rv: rv,
-                    c: (_ultimo ? _ultimo.c * _cdiDaily() : 100) });
+                    c: (_ultimo ? _ultimo.c * _cdiDaily() : 100),
+                    // Marca a natureza do ponto: usa valores AO VIVO, cujo
+                    // `total` inclui bens — mesma base dos pontos sintéticos.
+                    // Sem esta marca o ponto ficava "sem tipo" e o card não
+                    // conseguia saber se podia compará-lo com o anterior.
+                    seed: true, seedV: SEED_VERSION });
     _patSnapSave(arr);
     return;
   }
@@ -9116,7 +9121,7 @@ function _patSnapUpsert(total,rf,rv){
     last.t=total; last.rf=rf; last.rv=rv;
   }else{
     var cdiAcc = last ? last.c * Math.pow(_cdiDaily(), Math.max(1,_daysBetween(last.d,hoje))) : 100;
-    arr.push({d:hoje,t:total,rf:rf,rv:rv,c:cdiAcc});
+    arr.push({d:hoje,t:total,rf:rf,rv:rv,c:cdiAcc,seed:true,seedV:SEED_VERSION});
   }
   if(arr.length>400) arr=arr.slice(-400);
   _patSnapSave(arr);
@@ -9973,9 +9978,67 @@ window.g20Logout = function() {
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function() {
-        navigator.serviceWorker.register('sw.js')
-          .then(function(reg) { console.log('SW registrado:', reg.scope); })
+        /* ═══════════════════════════════════════════════════════════
+           REGISTRO DO SERVICE WORKER — com atualização forçada
+
+           PROBLEMA QUE ISTO RESOLVE:
+           O registro anterior era "registre e esqueça". O SW instalado
+           continuava servindo a versão em cache indefinidamente, então
+           um reload normal (F5) entregava o dashboard ANTIGO, enquanto
+           Ctrl+Shift+R (que ignora o SW) entregava o novo. Daí números
+           e gráficos diferentes entre um e outro.
+
+           Agora: o sw.js nunca vem do cache HTTP, checamos atualização
+           a cada carga, e quando uma versão nova é detectada pedimos
+           que ela assuma imediatamente e recarregamos a página uma vez.
+           ═══════════════════════════════════════════════════════════ */
+        navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+          .then(function(reg) {
+            console.log('SW registrado:', reg.scope);
+
+            // Força checagem de nova versão a cada carregamento
+            try { reg.update(); } catch(e){}
+
+            function assumir(sw){
+              if (!sw) return;
+              // Pede ao SW novo que pule a fase "waiting". Só funciona se o
+              // sw.js tratar esta mensagem — se não tratar, ele assume quando
+              // todas as abas forem fechadas.
+              try { sw.postMessage({ type: 'SKIP_WAITING' }); } catch(e){}
+              try { sw.postMessage('SKIP_WAITING'); } catch(e){}
+            }
+
+            // Já existe uma versão nova parada esperando?
+            if (reg.waiting) {
+              console.log('%c[SW] versão nova aguardando — ativando', 'color:#e8b84b;font-weight:bold');
+              assumir(reg.waiting);
+            }
+
+            reg.addEventListener('updatefound', function(){
+              var novoSW = reg.installing;
+              if (!novoSW) return;
+              novoSW.addEventListener('statechange', function(){
+                if (novoSW.state === 'installed' && navigator.serviceWorker.controller) {
+                  console.log('%c[SW] nova versão instalada — ativando', 'color:#e8b84b;font-weight:bold');
+                  assumir(novoSW);
+                }
+              });
+            });
+
+            // Revalida periodicamente (aba aberta por muito tempo)
+            setInterval(function(){ try { reg.update(); } catch(e){} }, 15 * 60 * 1000);
+          })
           .catch(function(e) { console.warn('SW erro:', e); });
+
+        // Quando o SW novo assume o controle, recarrega UMA vez para que a
+        // página passe a rodar os arquivos da versão nova.
+        var _swRecarregando = false;
+        navigator.serviceWorker.addEventListener('controllerchange', function(){
+          if (_swRecarregando) return;
+          _swRecarregando = true;
+          console.log('%c[SW] novo controlador ativo — recarregando', 'color:#4ade80;font-weight:bold');
+          window.location.reload();
+        });
       });
     }
   </script>
@@ -10305,6 +10368,21 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
     // Pega últimos 60 pontos (ou todos se menos)
     var pts = snapshots.slice(-Math.min(snapshots.length, 60));
+
+    // Plota SÓ pontos da mesma natureza do último. Uma série que mistura
+    // pontos reais (t = RV+RF) com sintéticos (t inclui bens) desenha um
+    // degrau vertical que não é movimento de mercado, é troca de base.
+    var tipoDe = function(s){ return s.real ? 'real' : (s.seed ? 'seed' : '?'); };
+    var tipoRef = tipoDe(pts[pts.length-1]);
+    var ptsCoerentes = pts.filter(function(s){ return tipoDe(s) === tipoRef; });
+    if (ptsCoerentes.length >= 2) {
+      if (ptsCoerentes.length !== pts.length) {
+        console.warn('[v21 GP] sparkline: ' + (pts.length - ptsCoerentes.length) +
+                     ' ponto(s) de base diferente descartado(s)');
+      }
+      pts = ptsCoerentes;
+    }
+
     // Usa a MESMA composição do valor exibido — senão o gráfico conta
     // uma história diferente do número logo acima dele.
     var vals = pts.map(function(s){ return _gpValorDoSnap(s, modo, bens); }).filter(function(v){ return v > 0; });
@@ -10397,8 +10475,14 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   }
 
   /* Extrai o valor do snapshot conforme o modo.
-     Sempre parte de rv/rf (base consistente em toda a série). O campo t
-     só é usado como último recurso, para snapshots antigos sem rv/rf. */
+
+     ATENÇÃO À BASE DE CADA PONTO — o array pode conter dois tipos:
+       · ponto 'real'  (série do G20Rent): t === rv + rf, SEM bens
+       · ponto 'seed'  (sintético):        t inclui bens, e t/rv caminham
+                                           com volatilidades independentes
+     Tratar os dois igual mistura escalas e produz o salto vertical no
+     fim do gráfico. Por isso o cálculo parte sempre de rv/rf (coerente
+     nos dois tipos) e os bens entram conforme a natureza do ponto. */
   function _gpValorDoSnap(s, modo, bens){
     if (!s) return 0;
     var t  = s.t  || 0;
@@ -10406,10 +10490,49 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     var rf = s.rf || 0;
     if (modo === 'rv') return rv;
     if (modo === 'rf') return rf;
-    var base = (rv + rf) > 0 ? (rv + rf) : t;
-    if (modo === 'total') return base + (bens || 0);
-    return base;   // rvrf (padrão)
+
+    var temComponentes = (rv > 0 || rf > 0);
+    var invest = temComponentes ? (rv + rf) : t;   // sempre RV+RF
+
+    if (modo === 'total') {
+      // Ponto sintético já carrega os bens dentro de t; ponto real não.
+      if (s.seed && t > invest) return t;
+      return invest + (bens || 0);
+    }
+    return invest;   // rvrf (padrão)
   }
+
+  /* Diagnóstico: imprime a cauda da série com a base de cada ponto.
+     Serve pra identificar rapidamente mistura de bases quando algum
+     percentual sair estranho. Chame G20DiagGP() no console. */
+  window.G20DiagGP = function(){
+    var snap = [];
+    try { snap = JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]'); } catch(e){}
+    var bens = _gpBensLiquidos();
+    console.log('%c[G20 diag] bens líquidos: R$ ' + Math.round(bens).toLocaleString('pt-BR'),
+                'color:#c9a961;font-weight:bold');
+    console.log('[G20 diag] total de pontos: ' + snap.length);
+    var cauda = snap.slice(-6);
+    console.table(cauda.map(function(s){
+      return {
+        data: s.d,
+        tipo: s.real ? 'real' : (s.seed ? 'seed' : '?'),
+        t: Math.round(s.t||0),
+        rv: Math.round(s.rv||0),
+        rf: Math.round(s.rf||0),
+        'rv+rf': Math.round((s.rv||0)+(s.rf||0)),
+        't == rv+rf?': Math.abs((s.t||0)-((s.rv||0)+(s.rf||0))) < 1 ? 'sim' : 'NAO'
+      };
+    }));
+    ['rvrf','rv','rf','total'].forEach(function(m){
+      if (cauda.length < 2) return;
+      var a = _gpValorDoSnap(cauda[cauda.length-2], m, bens);
+      var b = _gpValorDoSnap(cauda[cauda.length-1], m, bens);
+      var v = a > 0 ? ((b-a)/a*100) : 0;
+      console.log('[G20 diag] ' + m.padEnd(6) + ' hoje=' + Math.round(b).toLocaleString('pt-BR') +
+                  '  variação=' + v.toFixed(2) + '%' + (Math.abs(v) > 15 ? '  <<< SUSPEITO' : ''));
+    });
+  };
 
   function v21LoadGP() {
     try {
@@ -10426,21 +10549,48 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
       // Variação hoje (mesma composição, pra não misturar bases)
       if (snap.length >= 2) {
-        var anterior = _gpValorDoSnap(snap[snap.length - 2], modo, bens) || valor;
+        var pontoAnt = snap[snap.length - 2];
+        var pontoAtu = snap[snap.length - 1];
+
+        // Os dois pontos precisam ser do MESMO tipo. Comparar um ponto da
+        // série real (t = RV+RF) com um sintético (t inclui bens) produz
+        // uma "variação do dia" que na verdade é a diferença entre duas
+        // bases — era daí que vinham os +58% num único dia.
+        var tipoAnt = pontoAnt.real ? 'real' : (pontoAnt.seed ? 'seed' : '?');
+        var tipoAtu = pontoAtu.real ? 'real' : (pontoAtu.seed ? 'seed' : '?');
+        var basesIguais = (tipoAnt === tipoAtu);
+
+        var anterior = _gpValorDoSnap(pontoAnt, modo, bens) || valor;
         var delta = valor - anterior;
         var pct = anterior > 0 ? (delta / anterior) * 100 : 0;
-        var pillHTML = '';
-        if (delta >= 0) {
-          pillHTML = '<span class="v21-pill-up"><i data-lucide="trending-up"></i>+' + pct.toFixed(2).replace('.',',') + '%</span>';
-          pillHTML += ' <span class="v21-change-extra">(' + fmtBRLSigned(delta) + ') hoje</span>';
-        } else {
-          pillHTML = '<span class="v21-pill-down"><i data-lucide="trending-down"></i>' + pct.toFixed(2).replace('.',',') + '%</span>';
-          pillHTML += ' <span class="v21-change-extra">(' + fmtBRLSigned(delta) + ') hoje</span>';
-        }
+
         var chgEl = getEl('v21-gp-change');
         if (chgEl) {
-          chgEl.innerHTML = pillHTML;
-          if (window.lucide) lucide.createIcons();
+          // Rede de segurança por magnitude: nenhuma carteira diversificada
+          // de RV+RF se move ±25% num único dia. Se isso aparecer, é quase
+          // certo que os dois pontos vêm de bases diferentes (mesmo que
+          // ambos estejam marcados igual). Melhor omitir por um dia do que
+          // mostrar um número errado para o aluno.
+          var LIMITE_DIA = 25;
+          var implausivel = anterior > 0 && Math.abs(pct) > LIMITE_DIA;
+
+          if (!basesIguais || implausivel) {
+            console.warn('[v21 GP] variação do dia omitida — ' +
+              (!basesIguais ? ('bases diferentes (' + tipoAnt + ' → ' + tipoAtu + ')')
+                            : ('variação implausível: ' + pct.toFixed(2) + '% num dia')));
+            chgEl.innerHTML = '<span class="v21-change-extra">atualizando histórico…</span>';
+          } else {
+            var pillHTML = '';
+            if (delta >= 0) {
+              pillHTML = '<span class="v21-pill-up"><i data-lucide="trending-up"></i>+' + pct.toFixed(2).replace('.',',') + '%</span>';
+              pillHTML += ' <span class="v21-change-extra">(' + fmtBRLSigned(delta) + ') hoje</span>';
+            } else {
+              pillHTML = '<span class="v21-pill-down"><i data-lucide="trending-down"></i>' + pct.toFixed(2).replace('.',',') + '%</span>';
+              pillHTML += ' <span class="v21-change-extra">(' + fmtBRLSigned(delta) + ') hoje</span>';
+            }
+            chgEl.innerHTML = pillHTML;
+            if (window.lucide) lucide.createIcons();
+          }
         }
       }
 
@@ -14390,7 +14540,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  console.log('%c[G20 v21] BUILD 2026-04-23-R160 ▸ FIX definitivo proventos: (1) callback do import agora chama _provMarcarImportado() pra atualizar TTL (bug crítico — sem isso o TTL travava no tempo). (2) Auto-import disparado FORA do v21Init (blindado contra falhas anteriores). Deve aparecer no console: "[v21 boot] Auto-import de proventos (independente)" seguido de "[v21] Disparando importação..." e "[v21] TTL atualizado: 2026-04-22..."', 'color:#4ade80;font-weight:bold;font-size:13px');
+  window.G20_BUILD = '2026-07-24-R161';
+  console.log('%c[G20 v21] BUILD ' + window.G20_BUILD + ' — se este número não mudar após subir um arquivo novo, o Service Worker está servindo cache antigo (F5 normal usa o cache; Ctrl+Shift+R ignora).', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // ════════════════════════════════════════════════════════
   // ETAPA 2E — META INDEPENDÊNCIA FINANCEIRA (R38)
