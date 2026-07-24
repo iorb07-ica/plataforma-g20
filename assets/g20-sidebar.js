@@ -69,7 +69,6 @@
       { k:'aporteMensal',    campo:'f-aporte-mensal',   aba:'financeiro', rotulo:'Quanto investe por mês' },
       { k:'experiencia',     campo:'f-experiencia',     aba:'financeiro', rotulo:'Experiência em investimentos' },
       { k:'meta',            campo:'f-meta',            aba:'financeiro', rotulo:'Meta financeira principal',  min:25 },
-      { k:'objetivo',        campo:'f-objetivo',        aba:'financeiro', rotulo:'Objetivo principal no G20' },
       { k:'disponibilidade', campo:'f-disponibilidade', aba:'financeiro', rotulo:'Disponibilidade semanal' },
       { k:'porqueG20',       campo:'f-porqueg20',       aba:'financeiro', rotulo:'O que você espera da jornada no G20', min:60 },
       { k:'profissao',       campo:'f-profissao',       aba:'profissao',  rotulo:'Profissão',                  min:3  },
