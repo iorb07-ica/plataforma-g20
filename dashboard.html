@@ -9054,6 +9054,26 @@ function loadPatStrip(){
            preços que o motor usou. */
         try { window._g20Precos = precos; window._g20Cambio = cambio; } catch(e){}
 
+        /* Com os preços em mãos, audita os aportes e corrige distorções de
+           desdobramento automaticamente. Roda uma vez por sessão: o aluno
+           não deve precisar saber que splits existem, muito menos ajustar
+           preço na mão. */
+        try {
+          if (!window._g20PrecosAuditados && typeof window.G20CorrigirPrecos === 'function') {
+            window._g20PrecosAuditados = true;
+            setTimeout(function(){
+              try {
+                var r = window.G20CorrigirPrecos(true);
+                if (r && r.length) {
+                  console.warn('%c[G20 preço] Aportes corrigidos automaticamente. ' +
+                    'A rentabilidade será recalculada no próximo carregamento.',
+                    'color:#e8b84b;font-weight:bold');
+                }
+              } catch(e){ console.warn('[G20 preço] auditoria falhou:', e && e.message); }
+            }, 1200);
+          }
+        } catch(e){}
+
         var serie = [], pos = {}, ei = 0;
         var cursor = parseISO(desde), fim = parseISO(hoje);
 
@@ -10859,6 +10879,122 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
      Não altera nada: só compara e mostra.
      ═══════════════════════════════════════════════════════════════ */
+  /* ═══════════════════════════════════════════════════════════════
+     CORREÇÃO AUTOMÁTICA DE PREÇO DE APORTE
+
+     POR QUE ISTO EXISTE:
+     Desdobramentos e grupamentos exigem ajustar quantidade E preço na
+     mesma proporção. Quando o ajuste é aplicado ao preço uma vez a mais
+     (ou a menos) que à quantidade, o custo do aporte fica errado por um
+     fator inteiro — e a diferença aparece como "lucro" no dia da compra,
+     que depois COMPÕE no retorno acumulado por anos.
+
+     Foi o que aconteceu com a AAPL de 05/06/2019: preço guardado
+     US$ 11,4075 contra US$ 45,635 de mercado — exatamente 4x, o
+     desdobramento 4:1 de agosto/2020 contado duas vezes.
+
+     Gerenciar isso é obrigação da plataforma, não do aluno. Esta rotina
+     roda sozinha, compara cada aporte com o preço real da data e corrige
+     quando o desvio tem a assinatura inconfundível de split mal aplicado:
+     uma razão muito próxima de um fator inteiro.
+
+     O que ela NÃO faz: mexer em aporte cujo preço só difere um pouco do
+     fechamento. Isso é normal — você comprou no intradiário, num preço
+     diferente do fechamento daquele dia. Só corrige o que é claramente
+     erro de desdobramento.
+     ═══════════════════════════════════════════════════════════════ */
+  var FATORES_SPLIT = [2, 3, 4, 5, 6, 7, 8, 10, 15, 20, 25, 50, 100];
+  var TOLERANCIA    = 0.02;   // 2% — a razão precisa ser quase exata
+
+  function _g20FatorDeSplit(razao){
+    if (!(razao > 0)) return null;
+    for (var i = 0; i < FATORES_SPLIT.length; i++) {
+      var k = FATORES_SPLIT[i];
+      if (Math.abs(razao - k) / k <= TOLERANCIA)       return { fator: k,     tipo: 'multiplicar' };
+      if (Math.abs(razao - 1/k) <= (1/k) * TOLERANCIA) return { fator: 1/k,   tipo: 'dividir', inv: k };
+    }
+    return null;
+  }
+
+  function _g20SalvarAportes(lista){
+    // localStorage sempre
+    try { localStorage.setItem('g20_rvAportes', JSON.stringify(lista)); } catch(e){}
+    // Firestore: mesmo caminho que a Minha Carteira usa (users/{uid}/dados/rvAportes)
+    try {
+      var u = (typeof _fbAuth !== 'undefined' && _fbAuth) ? _fbAuth.currentUser : null;
+      if (u && typeof _fbDb !== 'undefined' && _fbDb) {
+        _fbDb.collection('users').doc(u.uid).collection('dados').doc('rvAportes')
+          .set({ value: lista, updatedAt: firebase.firestore.FieldValue.serverTimestamp() })
+          .then(function(){ console.log('%c[G20 preço] correção sincronizada com o Firestore', 'color:#4ade80'); })
+          .catch(function(e){ console.warn('[G20 preço] falha ao sincronizar:', e && e.message); });
+      } else {
+        console.warn('[G20 preço] sem sessão — correção salva só localmente nesta sessão.');
+      }
+    } catch(e){ console.warn('[G20 preço] erro ao sincronizar:', e && e.message); }
+  }
+
+  window.G20CorrigirPrecos = function(aplicar){
+    var precos = window._g20Precos;
+    if (!precos) {
+      console.warn('[G20 preço] séries de preço ainda não carregadas — aguarde o motor terminar.');
+      return;
+    }
+    var ap = [];
+    try { ap = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){}
+    if (!ap.length) return;
+
+    var plano = [];
+    ap.forEach(function(a, idx){
+      if (a._precoAuditado) return;                    // já conferido antes
+      var tk = String(a.ticker||'').toUpperCase().trim().split('-')[0];
+      var d  = String(a.data||'').substring(0,10);
+      var pStored = (+a.preco) || 0;
+      var serie = precos[tk];
+      if (!serie || !(pStored > 0)) return;
+      var pMercado = serie.em(d);
+      if (!(pMercado > 0)) return;
+
+      var razao = pMercado / pStored;
+      var m = _g20FatorDeSplit(razao);
+      if (!m) return;                                  // desvio não tem cara de split
+
+      plano.push({ idx: idx, ticker: tk, data: d, qtd: a.qtd,
+                   de: pStored, para: pMercado, razao: razao });
+    });
+
+    if (!plano.length) {
+      console.log('%c[G20 preço] nenhum aporte com erro de desdobramento.', 'color:#4ade80');
+      return [];
+    }
+
+    console.log('%c[G20 preço] ' + plano.length + ' aporte(s) com preço distorcido por desdobramento:',
+                'color:#e8b84b;font-weight:bold');
+    console.table(plano.map(function(x){
+      return { data:x.data, ticker:x.ticker, qtd:x.qtd,
+               'preço atual': x.de.toFixed(4),
+               'preço correto': x.para.toFixed(4),
+               'razão': x.razao.toFixed(2)+'x',
+               'custo antes': (x.qtd*x.de).toFixed(2),
+               'custo depois': (x.qtd*x.para).toFixed(2) };
+    }));
+
+    if (!aplicar) {
+      console.log('  Simulação. Para aplicar e sincronizar: G20CorrigirPrecos(true)');
+      return plano;
+    }
+
+    plano.forEach(function(x){
+      ap[x.idx].preco = parseFloat(x.para.toFixed(8));
+      ap[x.idx]._precoAuditado = true;
+      ap[x.idx]._precoAnterior = x.de;                 // rastro, permite desfazer
+      ap[x.idx]._precoCorrigidoEm = new Date().toISOString();
+    });
+    _g20SalvarAportes(ap);
+    console.log('%c[G20 preço] ✓ ' + plano.length + ' aporte(s) corrigido(s). Recarregue para ver os números novos.',
+                'color:#4ade80;font-weight:bold');
+    return plano;
+  };
+
   window.G20DiagPreco = function(){
     var precos = window._g20Precos;
     if (!precos) {
@@ -15326,7 +15462,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  window.G20_BUILD = '2026-07-24-R187';
+  window.G20_BUILD = '2026-07-24-R188';
   console.log('%c[G20 v21] BUILD ' + window.G20_BUILD + ' — se este número não mudar após subir um arquivo novo, o Service Worker está servindo cache antigo (F5 normal usa o cache; Ctrl+Shift+R ignora).', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // ════════════════════════════════════════════════════════
