@@ -8516,8 +8516,59 @@ function loadPatStrip(){
     var cartEl=document.getElementById('qCarteiraStat');
     if(cartEl&&rvCart) cartEl.textContent='R$ '+(parseFloat(rvCart)/1000).toFixed(0)+'k';
 
+    /* ═══════════════════════════════════════════════════════════════
+       VALOR DE MERCADO DA RV (não o custo)
+
+       `rvInv` acima é a soma de p.totalInv — ou seja, o CUSTO DE
+       AQUISIÇÃO (quantidade × preço pago), não o valor de mercado.
+       Gravar isso no snapshot como "RV de hoje" faria o card divergir
+       da Minha Carteira, que mostra posição a mercado.
+
+       Aqui recalculamos a mesma coisa que a Minha Carteira: quantidade
+       em aberto × cotação atual, com conversão USD→BRL. Se faltar
+       cotação de algum ativo, ele entra pelo custo (melhor que zerar) e
+       registramos quantos ficaram sem preço, para não afirmar precisão
+       que não temos.
+       ═══════════════════════════════════════════════════════════════ */
+    var rvMercado = 0, semCotacao = 0, comCotacao = 0;
+    try {
+      var _pz = {};
+      try { _pz = JSON.parse(localStorage.getItem('g20_precos')||'{}'); } catch(e){}
+      var _fxNow = 5.00;
+      try {
+        var _u = _pz['USDBRL=X'] || _pz['USD'] || _pz['USDBRL'];
+        var _uv = g20PriceOf(_u);
+        if (_uv) _fxNow = parseFloat(_uv) || 5.00;
+        else if (typeof _dashUsdBRL === 'number' && _dashUsdBRL > 0) _fxNow = _dashUsdBRL;
+      } catch(e){}
+
+      var _moedaDe = {};
+      rvAportes.forEach(function(a){ if (a.ticker) _moedaDe[a.ticker] = a.moeda || 'BRL'; });
+
+      Object.keys(posRV).forEach(function(tk){
+        var pp = posRV[tk];
+        if (!(pp.qtd > 0.001)) return;
+        var cot = 0;
+        var it = _pz[tk];
+        if (it) {
+          var v = (typeof it === 'number') ? it : g20PriceOf(it);
+          cot = parseFloat(v) || 0;
+        }
+        if (cot > 0 && (_moedaDe[tk] === 'USD')) cot = cot * _fxNow;
+        if (cot > 0) { comCotacao++; rvMercado += pp.qtd * cot; }
+        else { semCotacao++; rvMercado += pp.totalInv; }   // sem preço: usa custo
+      });
+      if (semCotacao > 0) {
+        console.warn('[patrimônio] ' + semCotacao + ' ativo(s) sem cotação — entraram pelo custo. ' +
+                     'RV a mercado pode divergir da Minha Carteira.');
+      }
+    } catch(e){ rvMercado = 0; }
+
+    // Se não deu para avaliar a mercado, cai no custo (comportamento anterior)
+    var _rvParaSnap = (rvMercado > 0) ? rvMercado : rvInv;
+
     // Sparkline: grava snapshot de hoje + renderiza
-    _patSnapUpsert(total, rfAtual, rvInv);
+    _patSnapUpsert(total, rfAtual, _rvParaSnap);
     _patRenderAllSparks();
   }catch(e){}
 }
@@ -9110,8 +9161,15 @@ function _patSnapUpsert(total,rf,rv){
       // HOJE é uma CÓPIA desse fechamento — não há dado novo de mercado ainda.
       // Marcamos como cópia para que os cards não anunciem "+0,00% hoje", que
       // dá a impressão falsa de que o mercado não se moveu.
+      /* O ponto de HOJE guarda DUAS coisas:
+           · t/rv/rf  = repetem o último fechamento (mantêm a série coerente)
+           · rvVivo/rfVivo = cotações de agora, vindas da carteira ao vivo
+         Assim o gráfico continua com uma base só, e a "variação do dia"
+         pode ser calculada de verdade: preço de agora vs fechamento de
+         ontem — que é exatamente o que a coluna 1D da Minha Carteira faz. */
       novo.push({ d: hoje, t: _uNovo.t, rf: _uNovo.rf, rv: _uNovo.rv,
-                  c: _uNovo.c * cdiD0, real: true, sv: SERIE_VER, copia: true });
+                  c: _uNovo.c * cdiD0, real: true, sv: SERIE_VER, copia: true,
+                  rvVivo: (rv > 0 ? rv : 0), rfVivo: (rf > 0 ? rf : 0) });
     }
     _patSnapSave(novo);
     window._g20HistPronto = true;
@@ -10530,8 +10588,11 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   function _gpValorDoSnap(s, modo, bens){
     if (!s) return 0;
     var t  = s.t  || 0;
-    var rv = s.rv || 0;
-    var rf = s.rf || 0;
+    /* Se o ponto trouxe cotações ao vivo (só o de hoje traz), elas têm
+       prioridade: representam o preço de agora, não o fechamento de
+       ontem. É o que permite mostrar a variação do dia. */
+    var rv = (s.rvVivo > 0) ? s.rvVivo : (s.rv || 0);
+    var rf = (s.rfVivo > 0) ? s.rfVivo : (s.rf || 0);
     if (modo === 'rv') return rv;
     if (modo === 'rf') return rf;
 
@@ -10651,7 +10712,11 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
              (a série só vai até onde há preços). Anunciar "+0,00% hoje"
              passaria a ideia falsa de mercado parado — melhor dizer de
              quando é o dado. */
-          var _semPregaoNovo = !!pontoAtu.copia;
+          /* Só escondemos a variação quando o ponto de hoje é cópia E não
+             veio cotação ao vivo junto. Com cotação, a comparação é
+             legítima: preço de agora contra o fechamento anterior. */
+          var _temVivo = (pontoAtu.rvVivo > 0 || pontoAtu.rfVivo > 0);
+          var _semPregaoNovo = !!pontoAtu.copia && !_temVivo;
           if (_semPregaoNovo) {
             var _dF = String(pontoAnt.d || '');
             var _fech = _dF.length >= 10 ? (_dF.substring(8,10) + '/' + _dF.substring(5,7)) : '—';
@@ -10672,7 +10737,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           var LIMITE_ABS = 15;
           var implausivel = anterior > 0 && Math.abs(pct) > LIMITE_ABS;
 
-          if (!implausivel && anterior > 0 && snap.length >= 8) {
+          if (!implausivel && anterior > 0 && snap.length >= 8 && Math.abs(pct) > 3) {
+            /* Piso de 3%: abaixo disso é oscilação normal de bolsa e não
+               deve ser suprimida, por mais lisa que a série histórica seja.
+               O teste estatístico só vale acima desse patamar. */
             var movs = [];
             for (var mi = Math.max(1, snap.length - 30); mi < snap.length - 1; mi++) {
               var va = _gpValorDoSnap(snap[mi-1], modo, bens);
@@ -14666,7 +14734,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  window.G20_BUILD = '2026-07-24-R165';
+  window.G20_BUILD = '2026-07-24-R167';
   console.log('%c[G20 v21] BUILD ' + window.G20_BUILD + ' — se este número não mudar após subir um arquivo novo, o Service Worker está servindo cache antigo (F5 normal usa o cache; Ctrl+Shift+R ignora).', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // ════════════════════════════════════════════════════════
