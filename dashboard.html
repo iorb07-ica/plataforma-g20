@@ -9192,6 +9192,22 @@ function loadPatStrip(){
       try {
         var c = JSON.parse(localStorage.getItem(SERIE_KEY) || 'null');
         if (c && c.at && (Date.now() - c.at) < SERIE_TTL && c.serie && c.serie.length >= 2) {
+          /* A série vale enquanto os APORTES não mudarem. Se algum preço foi
+             corrigido DEPOIS que ela foi montada, ela carrega os números
+             velhos — descarta e reconstrói. */
+          var _mudou = false;
+          try {
+            var _ap = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
+            for (var _i = 0; _i < _ap.length; _i++) {
+              var _t = _ap[_i] && _ap[_i]._precoCorrigidoEm;
+              if (_t && new Date(_t).getTime() > c.at) { _mudou = true; break; }
+            }
+          } catch(e){}
+          if (_mudou) {
+            console.log('[G20Rent] aportes corrigidos depois desta série — reconstruindo.');
+            try { localStorage.removeItem(SERIE_KEY); } catch(e){}
+            return null;
+          }
           API._serieMem = c.serie;
           return c.serie;
         }
@@ -9199,6 +9215,17 @@ function loadPatStrip(){
       return null;
     },
     _serieMem: null,
+
+    /* Invalida a série reconstruída. Necessário quando os APORTES mudam
+       (correção de preço por desdobramento, novo aporte, edição): a série
+       foi montada com os dados antigos e continuaria mostrando os números
+       velhos até o TTL expirar. */
+    invalidar: function () {
+      API._serieMem = null;
+      try { localStorage.removeItem(SERIE_KEY); } catch (e) {}
+      try { window._g20HistPronto = false; } catch (e) {}
+      console.log('[G20Rent] cache da série invalidado — será reconstruída.');
+    },
 
     limparCache: function () {
       try {
@@ -10990,8 +11017,20 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       ap[x.idx]._precoCorrigidoEm = new Date().toISOString();
     });
     _g20SalvarAportes(ap);
-    console.log('%c[G20 preço] ✓ ' + plano.length + ' aporte(s) corrigido(s). Recarregue para ver os números novos.',
+
+    /* A série foi reconstruída com os preços ANTIGOS. Sem invalidar, os
+       cards continuariam mostrando o retorno inflado até o cache expirar.
+       Invalida e recarrega — assim a correção aparece na hora, sem o
+       aluno precisar saber que existe cache. */
+    try { if (window.G20Rent && G20Rent.invalidar) G20Rent.invalidar(); } catch(e){}
+    try { localStorage.removeItem('g20_patSnapshots'); } catch(e){}
+    try { window._g20SnapMem = null; } catch(e){}
+
+    console.log('%c[G20 preço] ✓ ' + plano.length + ' aporte(s) corrigido(s). Recarregando para recalcular…',
                 'color:#4ade80;font-weight:bold');
+    if (aplicar !== 'sem-reload') {
+      setTimeout(function(){ try { window.location.reload(); } catch(e){} }, 2500);
+    }
     return plano;
   };
 
@@ -11804,6 +11843,40 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         else if (period === '5a') _ini.setFullYear(_ini.getFullYear() - 5);
         else _ini = null;   // max
         var _iniStr = _ini ? _ini.toISOString().substring(0,10) : _sr[0].d;
+
+        /* ─── "MAX" PRECISA SER O MESMO MAX PARA TODOS ───
+           A série da carteira começa no primeiro aporte (2018). Os índices
+           são baixados com range=5y, então só existem a partir de ~2021.
+           Usar o início da série para a carteira e 5 anos para os índices
+           comparava 8 anos seus contra 5 anos do IBOV — daí a carteira
+           aparecer com +595% ao lado de um IBOV de +38%.
+
+           Em "max", o ponto de partida passa a ser o mais RECENTE entre a
+           série e os benchmarks: a janela mais longa em que todos existem.
+           Assim a comparação é honesta. */
+        if (!_ini) {
+          var _partidas = [_sr[0].d];
+          try {
+            ['ibov','sp500'].forEach(function(_s){
+              var _c = window.V21C && V21C.histCache && V21C.histCache[_s];
+              var _pts = _c && _c.pontos;
+              if (_pts && _pts.length) {
+                var _d0 = _pts[0] && (_pts[0].d || _pts[0].data || _pts[0][0]);
+                if (_d0) _partidas.push(String(_d0).substring(0,10));
+              }
+            });
+          } catch(e){}
+          _partidas.sort();
+          var _comum = _partidas[_partidas.length - 1];   // o mais recente
+          if (_comum && _comum > _iniStr) {
+            _iniStr = _comum;
+            if (!window._g20AvisouMax) {
+              window._g20AvisouMax = true;
+              console.log('[v21 bench] "Max" alinhado em ' + _iniStr +
+                          ' — janela comum entre a carteira e os índices.');
+            }
+          }
+        }
           var _you = _v21TwrDesde(_sr, _iniStr);
           if (_you !== null && isFinite(_you)) {
             var _cdiPct = null;
@@ -15462,7 +15535,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  window.G20_BUILD = '2026-07-24-R188';
+  window.G20_BUILD = '2026-07-24-R189';
   console.log('%c[G20 v21] BUILD ' + window.G20_BUILD + ' — se este número não mudar após subir um arquivo novo, o Service Worker está servindo cache antigo (F5 normal usa o cache; Ctrl+Shift+R ignora).', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // ════════════════════════════════════════════════════════
