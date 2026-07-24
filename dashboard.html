@@ -8914,7 +8914,27 @@ function loadPatStrip(){
 
   /* ------------------------------------------------------ eventos de aporte */
   function construirEventos(aportes) {
-    return (aportes || [])
+    /* Preço do aporte, tolerante a nome de campo.
+       O cálculo antigo era `(+a.preco || 0)`: se o campo tivesse outro nome
+       ou viesse vazio, o custo virava ZERO. A posição entrava na carteira
+       mas o aporte não era contabilizado como fluxo — e o motor lia isso
+       como LUCRO do dia. Um aporte de R$ 5 mil numa carteira de R$ 20 mil
+       vira "+25% num dia", e esse ganho falso COMPÕE no retorno total. */
+    var _semPreco = [];
+    function _precoDoAporte(a){
+      var p = (+a.preco) || (+a.precoMedio) || (+a.pm) ||
+              (+a.precoUnit) || (+a.valorUnitario) || (+a.price) || 0;
+      if (!(p > 0)) {
+        // Último recurso: valor total dividido pela quantidade
+        var tot = (+a.total) || (+a.valorTotal) || (+a.custoTotal) || 0;
+        var q   = (+a.qtd) || 0;
+        if (tot > 0 && q > 0) p = tot / q;
+      }
+      if (!(p > 0)) _semPreco.push(String(a.data||'').substring(0,10) + ' ' + (a.ticker||'?'));
+      return p;
+    }
+
+    var _ev = (aportes || [])
       .filter(function (a) { return a && a.ticker && a.data && +a.qtd > 0; })
       .map(function (a) {
         var venda = String(a.op || 'C').toUpperCase() === 'V';
@@ -8927,10 +8947,19 @@ function loadPatStrip(){
           tipo: a.tipo || '',
           moeda: moeda,
           qtd: sinal * (+a.qtd),
-          custo: sinal * (+a.qtd) * (+a.preco || 0)
+          custo: sinal * (+a.qtd) * _precoDoAporte(a)
         };
       })
       .sort(function (x, y) { return x.d < y.d ? -1 : (x.d > y.d ? 1 : 0); });
+
+    if (_semPreco.length) {
+      console.warn('%c[G20Rent] ⚠ ' + _semPreco.length + ' aporte(s) SEM PREÇO — custo zero, ' +
+        'vão aparecer como lucro falso no dia: ' + _semPreco.slice(0,10).join(' | ') +
+        (_semPreco.length > 10 ? ' …' : '') + '   → rode G20DiagAporte() para detalhar.',
+        'color:#f87171;font-weight:bold');
+    }
+    try { window._g20AportesSemPreco = _semPreco; } catch(e){}
+    return _ev;
   }
 
   /* ----------------------------------------------------------------- TWR */
@@ -10753,6 +10782,76 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   /* Diagnóstico: imprime a cauda da série com a base de cada ponto.
      Serve pra identificar rapidamente mistura de bases quando algum
      percentual sair estranho. Chame G20DiagGP() no console. */
+  /* ═══════════════════════════════════════════════════════════════
+     G20DiagAporte() — procura aportes com CUSTO ZERO
+
+     O motor deriva o custo assim:
+         custo = qtd * (+a.preco || 0)
+     Se o campo `preco` estiver ausente, vazio ou com outro nome, o
+     resultado é ZERO. A posição entra na carteira (a quantidade é lida
+     normalmente) mas o aporte não é registrado como fluxo — e o motor
+     interpreta a entrada como LUCRO daquele dia.
+
+     Um aporte de R$ 5.000 numa carteira de R$ 20.000 vira "+25% num dia",
+     e esse ganho falso COMPÕE no TWR pelo resto da série. É a explicação
+     mais provável para o retorno total inflado.
+
+     Uso:  G20DiagAporte()             → todos os aportes problemáticos
+           G20DiagAporte('2019-06-05') → mostra os aportes daquele dia
+     ═══════════════════════════════════════════════════════════════ */
+  window.G20DiagAporte = function(dataAlvo){
+    var ap = [];
+    try { ap = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){}
+    if (!ap.length) { console.warn('[G20DiagAporte] sem aportes'); return; }
+
+    function precoDe(a){ return (+a.preco || 0); }
+    function custoDe(a){ return (+a.qtd || 0) * precoDe(a); }
+
+    if (dataAlvo) {
+      var doDia = ap.filter(function(a){ return String(a.data||'').substring(0,10) === dataAlvo; });
+      console.log('%c[G20DiagAporte] aportes em ' + dataAlvo + ': ' + doDia.length,
+                  'color:#c9a961;font-weight:bold');
+      if (!doDia.length) {
+        console.log('  Nenhum aporte nessa data. Se houve salto, a causa é outra.');
+      } else {
+        console.table(doDia.map(function(a){
+          return { ticker:a.ticker, op:(a.op||'C'), qtd:a.qtd, preco:a.preco,
+                   moeda:a.moeda||'(auto)', tipo:a.tipo||'',
+                   'custo calculado': custoDe(a).toFixed(2),
+                   'ok?': custoDe(a) > 0 ? 'sim' : '⚠ CUSTO ZERO' };
+        }));
+        console.log('  Objeto cru do primeiro (para ver os nomes de campo reais):');
+        console.log(doDia[0]);
+      }
+      return doDia;
+    }
+
+    var ruins = ap.filter(function(a){ return (+a.qtd||0) > 0 && custoDe(a) <= 0; });
+    console.log('%c[G20DiagAporte] ' + ap.length + ' aportes · ' + ruins.length + ' com custo ZERO',
+                'color:' + (ruins.length ? '#f87171' : '#4ade80') + ';font-weight:bold');
+    if (ruins.length) {
+      console.table(ruins.map(function(a){
+        return { data:String(a.data||'').substring(0,10), ticker:a.ticker, op:(a.op||'C'),
+                 qtd:a.qtd, preco:(a.preco===undefined?'(ausente)':a.preco),
+                 'campos disponíveis': Object.keys(a).join(', ') };
+      }));
+      console.log('%c  → cada um destes vira "lucro" falso no dia, e compõe no retorno total.',
+                  'color:#f87171;font-weight:bold');
+    } else {
+      console.log('  → todos os aportes têm custo. O salto tem outra origem.');
+    }
+
+    // Aportes cujo preço destoa muito do que o mercado marcava (possível erro de digitação)
+    console.log('');
+    console.log('  Maiores aportes registrados (conferência visual):');
+    console.table(ap.slice().sort(function(x,y){ return custoDe(y)-custoDe(x); }).slice(0,8).map(function(a){
+      return { data:String(a.data||'').substring(0,10), ticker:a.ticker, op:(a.op||'C'),
+               qtd:a.qtd, preco:a.preco, moeda:a.moeda||'(auto)',
+               custo: custoDe(a).toFixed(2) };
+    }));
+    return ruins;
+  };
+
   /* ═══════════════════════════════════════════════════════════════
      G20DiagSalto() — caça o degrau da série
 
@@ -15099,7 +15198,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  window.G20_BUILD = '2026-07-24-R184';
+  window.G20_BUILD = '2026-07-24-R185';
   console.log('%c[G20 v21] BUILD ' + window.G20_BUILD + ' — se este número não mudar após subir um arquivo novo, o Service Worker está servindo cache antigo (F5 normal usa o cache; Ctrl+Shift+R ignora).', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // ════════════════════════════════════════════════════════
