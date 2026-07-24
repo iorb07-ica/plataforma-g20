@@ -750,6 +750,19 @@ body.light .netpub-linha{ background:rgba(200,148,58,.07); border-color:rgba(200
 body.light .netpub-toggle-txt{ color:#3d465c }
 body.light .netpub-help-tip{ background:#fff; border-color:rgba(200,148,58,.35) }
 
+
+/* Sidebar apagada enquanto o perfil está incompleto — o clique já é
+   interceptado no JS; isto só deixa visível que ali ainda não dá. */
+body.perfil-travado .nav-item,
+body.perfil-travado .g20-tabs a{
+  opacity:.42; cursor:not-allowed;
+}
+body.perfil-travado .nav-item:hover{
+  background:none!important; border-left-color:transparent!important;
+}
+body.perfil-travado .sidebar-user,
+body.perfil-travado .btn-logout{ opacity:1; cursor:pointer }
+
 </style>
 <link rel="stylesheet" href="assets/g20-topbar.css?v=10">
 <link rel="stylesheet" href="assets/g20-sidebar.css?v=10">
@@ -2542,6 +2555,60 @@ function montarChips(boxId, inputId, sugestoes){
   _syncTodos(input);
 }
 
+
+/* ═══════════════════════════════════════════════════════════════
+   NAVEGAÇÃO TRAVADA ENQUANTO O PERFIL ESTIVER INCOMPLETO (sessão 50.0)
+
+   A trava de acesso mora no g20-sidebar.js e vale em todas as páginas.
+   Só que, ao cair aqui, o aluno continua com a sidebar inteira do lado —
+   e clicar em "Carteira G20" o levaria para lá, onde ele seria devolvido
+   pela trava. Funciona, mas pisca feio e passa a impressão de bug.
+
+   Aqui a navegação é interrompida ANTES de sair da página: o clique não
+   acontece, o aluno recebe um aviso e é levado ao primeiro campo que falta.
+   Sair (logout) continua liberado — ninguém fica preso na plataforma.
+   ═══════════════════════════════════════════════════════════════ */
+(function(){
+  function travado(){
+    try { return reqPendentes().length > 0; } catch(e){ return false; }
+  }
+
+  function marcarVisual(){
+    document.body.classList.toggle('perfil-travado', travado());
+  }
+
+  document.addEventListener('click', function(e){
+    if(!travado()) return;
+    var alvo = e.target.closest ? e.target.closest('a[href]') : null;
+    if(!alvo) return;
+
+    var href = (alvo.getAttribute('href') || '').trim();
+    if(!href || href === '#' || href.charAt(0) === '#') return;
+    if(href.indexOf('perfil.html') >= 0 || href.indexOf('termos-de-uso') >= 0) return;
+    if(href.indexOf('http') === 0 || alvo.target === '_blank') return;   // links externos seguem livres
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    var falta = reqPendentes();
+    showToast('Complete o perfil para liberar a plataforma. Faltam ' + falta.length + ' campo(s).', 'err');
+    if(falta.length){
+      if(typeof switchTab === 'function') switchTab(falta[0].aba);
+      setTimeout(function(){
+        marcarPendente(falta[0]);
+        var el = document.getElementById(falta[0].campo);
+        if(el){
+          el.scrollIntoView({behavior:'smooth', block:'center'});
+          setTimeout(function(){ try{ el.focus({preventScroll:true}); }catch(err){} }, 400);
+        }
+      }, 60);
+    }
+  }, true);
+
+  document.addEventListener('input', marcarVisual);
+  document.addEventListener('change', marcarVisual);
+  setTimeout(marcarVisual, 2400);
+})();
 
 /* "?" do perfil público: abre e fecha o balão explicativo */
 (function(){
