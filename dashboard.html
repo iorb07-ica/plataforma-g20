@@ -4789,9 +4789,13 @@ body.pat-hidden .v21-change-extra::after{
   .v21-gp-filter-btn.is-open svg { transform: rotate(180deg); }
 
   .v21-gp-filter-menu {
-    position: absolute;
-    top: calc(100% + 6px);
-    right: 0;
+    /* fixed, não absolute: o card tem `.v21-card-gp > * { z-index:1 }`,
+       que cria stacking context e prenderia o menu dentro do header do
+       card (mesmo problema que o tooltip do Beta teve). Posição é
+       calculada por JS. */
+    position: fixed;
+    top: 0;
+    left: 0;
     min-width: 208px;
     background: linear-gradient(150deg, #1a1f2e 0%, #0f121b 100%);
     border: 1px solid rgba(232,184,75,0.22);
@@ -4805,11 +4809,21 @@ body.pat-hidden .v21-change-extra::after{
     z-index: 9997;
     text-transform: none;
     letter-spacing: 0;
+    pointer-events: none;
   }
   .v21-gp-filter-menu.is-open {
     opacity: 1;
     visibility: visible;
     transform: translateY(0);
+    pointer-events: auto;
+  }
+  /* Estado de medição (offsetWidth = 0 com visibility:hidden) */
+  .v21-gp-filter-menu.v21-gp-measuring {
+    visibility: visible;
+    opacity: 0;
+    transition: none;
+    left: -9999px;
+    top: 0;
   }
 
   .v21-gp-filter-opt {
@@ -4819,15 +4833,43 @@ body.pat-hidden .v21-change-extra::after{
     width: 100%;
     background: transparent;
     border: 0;
+    border-left: 2px solid transparent;
     border-radius: 8px;
     padding: 8px 10px;
     text-align: left;
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition: background 0.13s ease, border-color 0.13s ease;
     font-family: 'DM Sans', sans-serif;
+    position: relative;
   }
-  .v21-gp-filter-opt:hover { background: rgba(201,169,97,0.10); }
-  .v21-gp-filter-opt.is-active { background: rgba(201,169,97,0.15); }
+  /* Os <span> internos não capturam o ponteiro: o alvo é sempre o
+     <button> inteiro. Sem isso, passar o mouse sobre o texto ou sobre
+     o espaço entre as duas linhas "perdia" o hover. */
+  .v21-gp-filter-opt > * { pointer-events: none; }
+
+  /* HOVER — o que será ativado no clique (dourado forte, barra à esquerda) */
+  .v21-gp-filter-opt:hover {
+    background: rgba(201,169,97,0.18);
+    border-left-color: #e8b84b;
+  }
+  .v21-gp-filter-opt:hover .v21-gp-opt-t { color: #e8b84b; }
+  .v21-gp-filter-opt:hover .v21-gp-opt-d { color: #b5ad9c; }
+
+  /* SELECIONADO — o modo atual (mais discreto que o hover) */
+  .v21-gp-filter-opt.is-active {
+    background: rgba(201,169,97,0.09);
+    border-left-color: rgba(201,169,97,0.55);
+  }
+  /* Marca ✓ no item ativo, pra distinguir de "onde o mouse está" */
+  .v21-gp-filter-opt.is-active::after {
+    content: '✓';
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 11px;
+    color: #c9a961;
+  }
 
   .v21-gp-opt-t {
     font-size: 12.5px;
@@ -6488,13 +6530,63 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
   var _msg = document.getElementById('g20LoaderMsg');
   var _frases = ['Carregando carteira','Lendo proventos','Chamando o Buffett \uD83C\uDFA9','#n\u00e3ofoisorte'];
   var _i=0, _rot=null, _shownAt=Date.now(), _hidden=false, _maxTimer=null;
-  // Primeiro acesso neste navegador: 7s (efeito UAU + tudo carregando do zero). Depois: 6s.
-  var _primeiraVez = false;
-  try { _primeiraVez = !localStorage.getItem('g20_dash_seen'); localStorage.setItem('g20_dash_seen','1'); } catch(e){}
-  var _piso = _primeiraVez ? 7000 : 3000;
-  var _teto = _piso + 2000;
+
+  /* ═══════════════════════════════════════════════════════════════
+     QUANDO MOSTRAR O SPLASH COMPLETO
+
+     Antes: _piso de 3s SEMPRE. Mesmo com tudo em cache, o dashboard
+     ficava 3 segundos parado — enquanto qualquer outra página do
+     menu abre instantânea. Isso quebrava a fluidez da navegação.
+
+     Agora o splash completo só aparece quando realmente há trabalho
+     pesado a fazer:
+       1. Primeiro acesso neste navegador (efeito de estreia)
+       2. Primeira abertura do DIA (dados do dia precisam vir da rede)
+       3. Retorno após intervalo longo (> 2h sem abrir)
+
+     Nos demais casos — navegar pra outra página e voltar, recarregar,
+     abrir de novo 10 minutos depois — o overlay some assim que os
+     dados estiverem prontos, sem piso artificial nenhum.
+     ═══════════════════════════════════════════════════════════════ */
+  var AGORA = Date.now();
+  var LIMITE_OCIOSO = 2 * 60 * 60 * 1000;   // 2h
+
+  var _primeiraVez = false, _primeiraDoDia = false, _voltandoDepoisDeMuito = false;
+  try {
+    _primeiraVez = !localStorage.getItem('g20_dash_seen');
+    localStorage.setItem('g20_dash_seen','1');
+
+    // Primeira abertura do dia (data local, não UTC)
+    var _hoje = new Date();
+    var _hojeStr = _hoje.getFullYear()+'-'+String(_hoje.getMonth()+1).padStart(2,'0')+'-'+String(_hoje.getDate()).padStart(2,'0');
+    _primeiraDoDia = (localStorage.getItem('g20_dash_lastDay') !== _hojeStr);
+    localStorage.setItem('g20_dash_lastDay', _hojeStr);
+
+    // Tempo desde a última visita
+    var _ultima = parseInt(localStorage.getItem('g20_dash_lastSeen')||'0', 10);
+    if (_ultima > 0 && (AGORA - _ultima) > LIMITE_OCIOSO) _voltandoDepoisDeMuito = true;
+    localStorage.setItem('g20_dash_lastSeen', String(AGORA));
+  } catch(e){}
+
+  var _splashCompleto = _primeiraVez || _primeiraDoDia || _voltandoDepoisDeMuito;
+
+  // Piso: só existe quando o splash completo faz sentido.
+  // Nos retornos rápidos é ZERO — fecha assim que os dados chegam.
+  var _piso = _primeiraVez ? 5000 : (_splashCompleto ? 2500 : 0);
+  // Teto de segurança: nunca deixa o overlay preso se algo falhar.
+  var _teto = _splashCompleto ? (_piso + 2500) : 1200;
+
+  try {
+    console.log('[G20Loader] ' + (_splashCompleto
+      ? ('splash completo (' + (_primeiraVez ? 'estreia' : _primeiraDoDia ? 'primeira do dia' : 'retorno após 2h+') + ') — piso ' + _piso + 'ms')
+      : 'modo rápido — sem piso, fecha ao carregar'));
+  } catch(e){}
+
   function _startRot(){
     if(_rot||!_msg) return;
+    // Sem splash completo o overlay dura menos que uma troca de frase;
+    // rotacionar só causaria flicker.
+    if(!_splashCompleto) return;
     _rot = setInterval(function(){
       _msg.style.opacity = 0;
       setTimeout(function(){ _i=(_i+1)%_frases.length; _msg.textContent=_frases[_i]; _msg.style.opacity=1; }, 400);
@@ -6504,10 +6596,9 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
     if(_hidden||!_ov) return; _hidden=true;
     if(_rot){ clearInterval(_rot); _rot=null; }
     if(_maxTimer){ clearTimeout(_maxTimer); _maxTimer=null; }
-    _ov.classList.add('is-hiding');           // fade-out suave revelando o dashboard pronto
+    _ov.classList.add('is-hiding');
     setTimeout(function(){ if(_ov) _ov.style.display='none'; }, 600);
   }
-  // Fecha quando os dados essenciais carregam, respeitando o piso (7s estreia / 6s demais).
   window.G20Loader = {
     hide: function(){
       var el = Date.now() - _shownAt;
@@ -10304,41 +10395,77 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
   // ─── Dropdown do filtro (delegado; não navega ao clicar) ───
   (function(){
+    function posicionarMenu(btn, menu){
+      menu.classList.add('v21-gp-measuring');
+      var r = btn.getBoundingClientRect();
+      var mw = menu.offsetWidth, mh = menu.offsetHeight;
+      var vw = window.innerWidth, vh = window.innerHeight;
+
+      var left = r.right - mw;              // alinha pela direita do botão
+      if (left < 10) left = 10;
+      if (left + mw > vw - 10) left = Math.max(10, vw - 10 - mw);
+
+      var top = r.bottom + 6;
+      if (top + mh > vh - 10) {             // não cabe embaixo → abre pra cima
+        var acima = r.top - 6 - mh;
+        top = (acima >= 10) ? acima : Math.max(10, vh - 10 - mh);
+      }
+      menu.style.left = Math.round(left) + 'px';
+      menu.style.top  = Math.round(top) + 'px';
+      menu.classList.remove('v21-gp-measuring');
+    }
+
+    function fechar(){
+      var menu = document.getElementById('v21GpFilterMenu');
+      var fbtn = document.getElementById('v21GpFilterBtn');
+      if (menu) menu.classList.remove('is-open');
+      if (fbtn) { fbtn.classList.remove('is-open'); fbtn.setAttribute('aria-expanded','false'); }
+    }
+
+    // CAPTURA: intercepta antes do onclick inline do card, que navega
+    // para gestao-patrimonial.html. Sem parar aqui, escolher uma opção
+    // trocava de página em vez de aplicar o filtro.
     document.addEventListener('click', function(ev){
-      var btn = ev.target.closest && ev.target.closest('.v21-gp-filter-btn');
-      var opt = ev.target.closest && ev.target.closest('.v21-gp-filter-opt');
+      var dentroDoFiltro = ev.target.closest && ev.target.closest('.v21-gp-filter');
+      var noMenu = ev.target.closest && ev.target.closest('.v21-gp-filter-menu');
       var menu = document.getElementById('v21GpFilterMenu');
       var fbtn = document.getElementById('v21GpFilterBtn');
       if (!menu || !fbtn) return;
 
+      // Qualquer clique no filtro OU no menu: bloqueia navegação do card
+      if (dentroDoFiltro || noMenu) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+      }
+
+      var btn = ev.target.closest && ev.target.closest('.v21-gp-filter-btn');
       if (btn) {
-        ev.preventDefault(); ev.stopPropagation();
         var abrir = !menu.classList.contains('is-open');
+        if (abrir) posicionarMenu(fbtn, menu);
         menu.classList.toggle('is-open', abrir);
         fbtn.classList.toggle('is-open', abrir);
         fbtn.setAttribute('aria-expanded', abrir ? 'true' : 'false');
         return;
       }
+
+      var opt = ev.target.closest && ev.target.closest('.v21-gp-filter-opt');
       if (opt) {
-        ev.preventDefault(); ev.stopPropagation();
         v21GpSetMode(opt.getAttribute('data-gpmode'));
-        menu.classList.remove('is-open');
-        fbtn.classList.remove('is-open');
-        fbtn.setAttribute('aria-expanded','false');
+        fechar();
         return;
       }
-      menu.classList.remove('is-open');
-      fbtn.classList.remove('is-open');
-      fbtn.setAttribute('aria-expanded','false');
+
+      if (!noMenu) fechar();
     }, true);
 
     document.addEventListener('keydown', function(ev){
-      if (ev.key !== 'Escape') return;
-      var menu = document.getElementById('v21GpFilterMenu');
-      var fbtn = document.getElementById('v21GpFilterBtn');
-      if (menu) menu.classList.remove('is-open');
-      if (fbtn) { fbtn.classList.remove('is-open'); fbtn.setAttribute('aria-expanded','false'); }
+      if (ev.key === 'Escape') fechar();
     });
+
+    // O menu é fixed: se a página rolar, ele descolaria do botão.
+    window.addEventListener('scroll', fechar, true);
+    window.addEventListener('resize', fechar);
 
     // Aplica o rótulo salvo assim que o DOM existir
     function initLabel(){
