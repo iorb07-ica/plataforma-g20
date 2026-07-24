@@ -71,7 +71,7 @@
       { k:'meta',            campo:'f-meta',            aba:'financeiro', rotulo:'Meta financeira principal',  min:25 },
       { k:'objetivo',        campo:'f-objetivo',        aba:'financeiro', rotulo:'Objetivo principal no G20' },
       { k:'disponibilidade', campo:'f-disponibilidade', aba:'financeiro', rotulo:'Disponibilidade semanal' },
-      { k:'porqueG20',       campo:'f-porqueg20',       aba:'financeiro', rotulo:'Por que entrou no G20',      min:60 },
+      { k:'porqueG20',       campo:'f-porqueg20',       aba:'financeiro', rotulo:'O que você espera da jornada no G20', min:60 },
       { k:'profissao',       campo:'f-profissao',       aba:'profissao',  rotulo:'Profissão',                  min:3  },
       { k:'area',            campo:'f-area',            aba:'profissao',  rotulo:'Área de atuação' },
       { k:'whatsapp',        campo:'f-whatsapp',        aba:'redes',      rotulo:'WhatsApp',                   tipo:'whats' }
@@ -153,84 +153,135 @@
     }
   })();
 
-  // ═══════════════ REGISTRO DE ACESSO (sessão 50.0) ═══════════════
-  // Base do dashboard de alunos. Grava um RESUMO por sessão, não rastreio
-  // de clique a clique: quantas sessões, quais dias, quais páginas.
+  // ═══════════════ ENGAJAMENTO DO ALUNO (sessão 50.0) ═══════════════
+  // Mede o que interessa para acompanhar a turma: QUEM entrou, QUANDO,
+  // QUANTAS VEZES e POR QUANTO TEMPO. Não registra clique nem página —
+  // isso viraria ruído e um volume de escrita desnecessário.
   //
-  // Custo: ~1 escrita por página visitada por sessão. Com 300 alunos dá algo
-  // como 2 a 3 mil escritas/dia — bem dentro da cota gratuita do Firestore
-  // (20 mil/dia). Nenhum serviço externo, nenhum custo adicional.
+  // Onde fica (tudo sob users/{uid}/dados/, que as Rules atuais já cobrem):
   //
-  // Onde fica: users/{uid}/dados/acesso
-  //   { sessoes, primeiroAcesso, ultimoAcesso, turma,
-  //     dias: {'2026-07-24': 3}, paginas: {dashboard: 12, carteira: 4} }
+  //   dados/acesso            resumo de sempre
+  //     { sessoes, minutosTotal, diasAtivos, primeiroAcesso,
+  //       ultimoAcesso, ultimoDia, turma }
+  //
+  //   dados/acesso-2026-07    um documento por mês, com o dia a dia
+  //     { mes:'2026-07', turma, min_24: 42, ses_24: 3, min_25: 18, ses_25: 1 }
+  //
+  // Os nomes de campo são planos de propósito (min_24, e não '2026-07-24.min'):
+  // no Firestore, ponto só vira caminho aninhado dentro de update(), nunca
+  // dentro de set(). Chave plana funciona igual nos dois e não tem armadilha.
+  //
+  // O relógio só corre com a aba VISÍVEL e com atividade nos últimos 5 min —
+  // aba esquecida aberta a tarde inteira não vira "3 horas de estudo".
+  // Grava a cada 5 minutos, então uma sessão de 40 min custa ~8 escritas.
   (function(){
-    var arquivo = (location.pathname.split('/').pop() || 'dashboard.html').toLowerCase();
-    var pagina  = arquivo.replace('.html','') || 'dashboard';
-    if(pagina === 'login' || pagina === 'termos-de-uso') return;
+    var arquivo = (location.pathname.split('/').pop() || '').toLowerCase();
+    if(arquivo === 'login.html' || arquivo === 'termos-de-uso.html') return;
 
-    // Uma sessão = uma aba aberta. Reabrir depois conta como nova sessão.
-    var SESSAO_KEY = 'g20_sessao_ativa';
-    var novaSessao = false;
-    try {
-      if(!sessionStorage.getItem(SESSAO_KEY)){
-        sessionStorage.setItem(SESSAO_KEY, String(Date.now()));
-        novaSessao = true;
-      }
-    } catch(e){}
-
-    // Cada página conta uma vez por sessão (evita inflar com F5)
-    var marcaPagina = 'g20_sessao_pg_' + pagina;
-    var paginaNova = false;
-    try {
-      if(!sessionStorage.getItem(marcaPagina)){
-        sessionStorage.setItem(marcaPagina, '1');
-        paginaNova = true;
-      }
-    } catch(e){}
-
-    if(!novaSessao && !paginaNova) return;
+    var MIN       = 60 * 1000;
+    var FLUSH_MS  = 5 * MIN;         // grava a cada 5 minutos
+    var OCIOSO_MS = 5 * MIN;         // sem atividade nesse tempo, o relógio pausa
+    var pendentes = 0;               // minutos ainda não gravados
+    var _uidAtual = null;
+    var _resumoLido = false;
 
     function hojeLocal(){
       var d = new Date();
       return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
     }
+    function turmaLocal(){
+      try { return (JSON.parse(localStorage.getItem('g20_user_profile') || '{}').turma) || ''; }
+      catch(e){ return ''; }
+    }
+    function ativo(){
+      if(document.visibilityState !== 'visible') return false;
+      try {
+        var ult = parseInt(localStorage.getItem('g20_last_activity') || '0', 10);
+        if(ult && (Date.now() - ult) > OCIOSO_MS) return false;   // reaproveita o marcador do auto-logout
+      } catch(e){}
+      return true;
+    }
 
-    function registrar(){
+    // Uma sessão = uma aba aberta. Fechar e voltar conta como novo login.
+    var novaSessao = false;
+    try {
+      if(!sessionStorage.getItem('g20_sessao_ativa')){
+        sessionStorage.setItem('g20_sessao_ativa', String(Date.now()));
+        novaSessao = true;
+      }
+    } catch(e){}
+
+    function refs(uid){
+      var base = firebase.firestore().collection('users').doc(uid).collection('dados');
+      return {
+        resumo: base.doc('acesso'),
+        mes:    base.doc('acesso-' + hojeLocal().slice(0,7))
+      };
+    }
+
+    // Abre a sessão: +1 login, e +1 dia ativo se hoje ainda não contou
+    function abrirSessao(uid){
+      var inc = firebase.firestore.FieldValue.increment;
+      var r = refs(uid), hoje = hojeLocal(), dia = hoje.slice(8);
+
+      r.resumo.get().then(function(d){
+        var dados = d.exists ? (d.data() || {}) : {};
+        var patch = {
+          sessoes:      inc(1),
+          ultimoAcesso: new Date().toISOString(),
+          ultimoDia:    hoje,
+          turma:        turmaLocal()
+        };
+        if(!dados.primeiroAcesso) patch.primeiroAcesso = new Date().toISOString();
+        if(dados.ultimoDia !== hoje) patch.diasAtivos = inc(1);
+        r.resumo.set(patch, { merge:true }).catch(function(){});
+
+        var pm = { mes: hoje.slice(0,7), turma: turmaLocal() };
+        pm['ses_' + dia] = inc(1);
+        r.mes.set(pm, { merge:true }).catch(function(){});
+      }).catch(function(){});
+    }
+
+    // Descarrega os minutos acumulados
+    function gravar(){
+      if(!_uidAtual || pendentes < 1) return;
+      var qtd = Math.round(pendentes);
+      pendentes -= qtd;
+      try{
+        var inc = firebase.firestore.FieldValue.increment;
+        var r = refs(_uidAtual), hoje = hojeLocal(), dia = hoje.slice(8);
+        r.resumo.set({ minutosTotal: inc(qtd), ultimoAcesso: new Date().toISOString(), ultimoDia: hoje },
+                     { merge:true }).catch(function(){});
+        var pm = { mes: hoje.slice(0,7) };
+        pm['min_' + dia] = inc(qtd);
+        r.mes.set(pm, { merge:true }).catch(function(){});
+      }catch(e){}
+    }
+
+    function iniciar(){
       try{
         if(typeof firebase === 'undefined' || !firebase.apps || !firebase.apps.length || !firebase.auth) return false;
         firebase.auth().onAuthStateChanged(function(user){
-          if(!user) return;
-          try{
-            var inc = firebase.firestore.FieldValue.increment;
-            var ref = firebase.firestore().collection('users').doc(user.uid).collection('dados').doc('acesso');
-            var patch = {
-              ultimoAcesso: new Date().toISOString(),
-              primeiroAcesso: firebase.firestore.FieldValue.serverTimestamp()
-            };
-            patch['paginas.' + pagina] = inc(1);
-            patch['dias.' + hojeLocal()] = inc(1);
-            if(novaSessao) patch.sessoes = inc(1);
+          if(!user || _resumoLido) return;
+          _resumoLido = true;
+          _uidAtual = user.uid;
+          if(novaSessao) abrirSessao(user.uid);
 
-            // primeiroAcesso não pode ser sobrescrito: só grava se ainda não existir
-            ref.get().then(function(d){
-              if(d.exists && d.data().primeiroAcesso) delete patch.primeiroAcesso;
-              try {
-                var perfil = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
-                if(perfil.turma) patch.turma = perfil.turma;
-              } catch(e){}
-              ref.set(patch, { merge:true }).catch(function(){});
-            }).catch(function(){
-              ref.set(patch, { merge:true }).catch(function(){});
-            });
-          }catch(e){}
+          setInterval(function(){ if(ativo()) pendentes += 1; }, MIN);   // relógio
+          setInterval(gravar, FLUSH_MS);                                 // descarga
+
+          // Sair da aba grava o que sobrou (perda máxima: os minutos do ciclo atual)
+          document.addEventListener('visibilitychange', function(){
+            if(document.visibilityState === 'hidden') gravar();
+          });
+          window.addEventListener('pagehide', gravar);
         });
         return true;
       }catch(e){ return false; }
     }
 
-    if(!registrar()){
-      var n = 0, t = setInterval(function(){ if(registrar() || ++n > 80) clearInterval(t); }, 50);
+    if(!iniciar()){
+      var n = 0, t = setInterval(function(){ if(iniciar() || ++n > 80) clearInterval(t); }, 50);
     }
   })();
 
