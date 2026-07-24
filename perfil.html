@@ -965,6 +965,31 @@ body.light .pcl-trophy-txt{ color:#5c6580 }
   50%{ transform:translateY(-3px); }
 }
 
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PERGUNTA INICIAL — novo x já sou aluno (sessão 50.0)
+   ═══════════════════════════════════════════════════════════════════════ */
+.ptipo-card{ max-width:520px }
+.ptipo-btns{ display:flex; flex-direction:column; gap:14px; margin-top:8px }
+.ptipo-opt{
+  display:flex; flex-direction:column; align-items:center; gap:4px;
+  padding:22px 20px; border-radius:16px; cursor:pointer; text-align:center;
+  background:rgba(255,255,255,.03); border:1.5px solid rgba(232,184,75,.22);
+  transition:.18s; font-family:'DM Sans',sans-serif;
+}
+.ptipo-opt:hover{
+  background:rgba(232,184,75,.09); border-color:var(--gold);
+  transform:translateY(-2px); box-shadow:0 10px 28px rgba(232,184,75,.18);
+}
+.ptipo-emoji{ font-size:30px; line-height:1 }
+.ptipo-opt b{ font-size:18px; color:#f2f4f8 }
+.ptipo-opt small{ font-size:13px; color:#9aa5b8; line-height:1.4 }
+.pwl-foot a{ color:#8b95ab; text-decoration:underline; text-underline-offset:2px; transition:color .15s }
+.pwl-foot a:hover{ color:#e8b84b }
+body.light .ptipo-opt{ background:rgba(20,40,80,.03); border-color:rgba(200,148,58,.3) }
+body.light .ptipo-opt b{ color:#0e1626 }
+body.light .ptipo-opt small{ color:#5c6580 }
+
 </style>
 <link rel="stylesheet" href="assets/g20-topbar.css?v=10">
 <link rel="stylesheet" href="assets/g20-sidebar.css?v=10">
@@ -1278,6 +1303,23 @@ if(localStorage.getItem('g20_uid')){
               <option value="4+">4 ou mais</option>
             </select>
             <div class="field-hint">Opcional — ajuda a pensar seu planejamento de longo prazo.</div>
+          </div>
+          <div class="field full" id="field-turma" style="display:none">
+            <label>Qual a sua turma no G20?</label>
+            <select id="f-turma-informada">
+              <option value="">Selecione...</option>
+              <option value="nao-lembro">Não lembro / não sei</option>
+              <optgroup label="Turmas">
+                <option>Turma 1</option><option>Turma 2</option><option>Turma 3</option>
+                <option>Turma 4</option><option>Turma 5</option><option>Turma 6</option>
+                <option>Turma 7</option><option>Turma 8</option><option>Turma 9</option>
+                <option>Turma 10</option><option>Turma 11</option><option>Turma 12</option>
+                <option>Turma 13</option><option>Turma 14</option><option>Turma 15</option>
+                <option>Turma 16</option><option>Turma 17</option><option>Turma 18</option>
+                <option>Turma 19</option><option>Turma 20</option>
+              </optgroup>
+            </select>
+            <div class="field-hint">Não faz mal se não lembrar — é só marcar "não sei" que o Israel confirma depois. (Dá pra ver no grupo do WhatsApp 😉)</div>
           </div>
         </div>
       </div>
@@ -1848,6 +1890,7 @@ function preencherFormulario(data, user) {
   setVal('f-nascimento',    p.nascimento || '');
   setVal('f-genero',        p.genero || '');
   setVal('f-filhos',        p.filhos || '');
+  setVal('f-turma-informada', p.turmaInformada || '');
   setVal('f-cidade',        p.cidade || '');
   setVal('f-estado',        p.estado || '');
   setVal('f-pais',          p.pais || '');
@@ -2291,6 +2334,8 @@ async function salvarPerfil() {
       whatsapp:        getWhatsappE164(),
       genero:          getVal('f-genero'),
       filhos:          getVal('f-filhos'),
+      turmaInformada:  getVal('f-turma-informada'),
+      autodeclarado:   (function(){ try{return localStorage.getItem('g20_user_tipo')||'';}catch(e){return '';} })(),
       cidade:          getVal('f-cidade'),
       estado:          getVal('f-estado'),
       pais:            getVal('f-pais'),
@@ -2694,6 +2739,65 @@ function marcarPerfilWelcome(){
   try { localStorage.setItem(_WELCOME_KEY, '1'); } catch(e){}
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   PERGUNTA INICIAL — novo x já é aluno (sessão 50.0)
+   Uma pergunta de 1 clique que define o TOM da recepção. Não julga nível
+   ("veterano" ficou de fora de propósito): pergunta um fato objetivo.
+   Salva em g20_user_tipo (local) e no perfil (autodeclarado).
+   ═══════════════════════════════════════════════════════════════ */
+var _TIPO_KEY = 'g20_user_tipo';
+function tipoAluno(){
+  try { return localStorage.getItem(_TIPO_KEY) || ''; } catch(e){ return ''; }
+}
+
+/* Campo Turma só aparece pra quem se declarou "já sou aluno" */
+function aplicarCampoTurma(){
+  var f = document.getElementById('field-turma');
+  if(f) f.style.display = (tipoAluno() === 'veterano') ? '' : 'none';
+}
+function setTipoAluno(v){
+  try { localStorage.setItem(_TIPO_KEY, v); } catch(e){}
+  // grava no perfil pra você revisar depois
+  try {
+    if(typeof db !== 'undefined' && _uid){
+      db.collection('users').doc(_uid).set({ autodeclarado: v }, { merge:true }).catch(function(){});
+    }
+  } catch(e){}
+}
+
+function abrirPerguntaTipo(aoResponder){
+  if(document.getElementById('perfilTipo')){ if(aoResponder) aoResponder(tipoAluno()); return; }
+  var ov = document.createElement('div');
+  ov.id = 'perfilTipo';
+  ov.className = 'pwl-overlay';
+  ov.innerHTML =
+    '<div class="pwl-card ptipo-card" role="dialog" aria-modal="true">' +
+      '<img class="pwl-avatar" src="assets/israel-avatar.jpg" alt="Israel Oreano">' +
+      '<div class="pwl-badge">👋 Bem-vindo à nova plataforma</div>' +
+      '<h1 class="pwl-title">Antes de começar…</h1>' +
+      '<p class="pwl-lead">Me conta rapidinho pra eu te receber do jeito certo:</p>' +
+      '<div class="ptipo-btns">' +
+        '<button type="button" class="ptipo-opt" data-tipo="veterano">' +
+          '<span class="ptipo-emoji">🤝</span><b>Já faço parte do G20</b>' +
+          '<small>Você já estudava comigo antes desta plataforma</small></button>' +
+        '<button type="button" class="ptipo-opt" data-tipo="novo">' +
+          '<span class="ptipo-emoji">🚀</span><b>Estou entrando agora</b>' +
+          '<small>Esta é a sua chegada ao G20</small></button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  requestAnimationFrame(function(){ ov.classList.add('is-in'); });
+
+  ov.querySelectorAll('.ptipo-opt').forEach(function(b){
+    b.addEventListener('click', function(){
+      var v = b.dataset.tipo;
+      setTipoAluno(v);
+      ov.classList.remove('is-in');
+      setTimeout(function(){ if(ov.parentNode) ov.parentNode.removeChild(ov); if(aoResponder) aoResponder(v); }, 260);
+    });
+  });
+}
+
 function abrirPerfilWelcome(aoFechar){
   if(document.getElementById('perfilWelcome')){ if(aoFechar) aoFechar(); return; }
   var nome = '';
@@ -2701,7 +2805,31 @@ function abrirPerfilWelcome(aoFechar){
     var p = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
     nome = (p.name || '').trim().split(/\s+/)[0] || '';
   } catch(e){}
-  var ola = nome ? ('Falta pouco, ' + nome + '.') : 'Falta pouco pra você entrar.';
+
+  var veterano = (tipoAluno() === 'veterano');
+  var ola, lead, pontos, nota;
+
+  if(veterano){
+    ola  = nome ? ('Que bom te ver, ' + nome + '.') : 'Que bom te ver de novo.';
+    lead = 'Você não está começando — já faz parte do G20 há um tempo e construiu história com a gente. ' +
+           'O que muda hoje é a <b>casa</b>: esta plataforma nova é o próximo capítulo, feita pra deixar tudo mais completo e mais seu.';
+    pontos =
+      '<div class="pwl-point"><span>🏠</span><div><b>Uma casa nova</b>Tudo o que você já conhecia, agora num só lugar — carteira, aulas, comunidade e muito mais.</div></div>' +
+      '<div class="pwl-point"><span>🎯</span><div><b>Orientação ainda melhor</b>Como você é da família, um perfil completo deixa minhas consultorias e conselhos cada vez mais afiados pro seu momento.</div></div>' +
+      '<div class="pwl-point"><span>📈</span><div><b>Seu retrato de hoje</b>Onde você está agora vira a base pra acompanharmos juntos a sua evolução daqui pra frente.</div></div>';
+    nota = 'Reserve alguns minutos pra preencher seu perfil <b>com calma e com a verdade</b>. ' +
+           'Você me acompanha há tempo — esses dados são o que me permitem cuidar melhor da sua jornada. <b>#nãofoisorte</b>';
+  } else {
+    ola  = nome ? ('Falta pouco, ' + nome + '.') : 'Falta pouco pra você entrar.';
+    lead = 'Antes de liberar a Plataforma G20 completa, o Israel precisa te conhecer de verdade. ' +
+           'São <b>15 campos</b>, uns 3 minutos — e cada resposta tem um motivo.';
+    pontos =
+      '<div class="pwl-point"><span>🎯</span><div><b>Orientação sob medida</b>É o seu perfil que permite ao Israel preparar consultorias e conselhos pensados pra <i>você</i>, não genéricos.</div></div>' +
+      '<div class="pwl-point"><span>🤝</span><div><b>A turma certa</b>Profissão, cidade e área conectam você com os G20s que têm tudo a ver com o seu momento.</div></div>' +
+      '<div class="pwl-point"><span>📈</span><div><b>Seu ponto de partida</b>Onde você está hoje é o que vai medir o quanto você evoluiu lá na frente.</div></div>';
+    nota = 'Preencha com <b>calma e com a verdade</b>. Não é formulário de banco — é o seu retrato dentro do G20. ' +
+           'Quanto mais real, mais a plataforma trabalha a seu favor.';
+  }
 
   var ov = document.createElement('div');
   ov.id = 'perfilWelcome';
@@ -2709,18 +2837,15 @@ function abrirPerfilWelcome(aoFechar){
   ov.innerHTML =
     '<div class="pwl-card" role="dialog" aria-modal="true">' +
       '<img class="pwl-avatar" src="assets/israel-avatar.jpg" alt="Israel Oreano">' +
-      '<div class="pwl-badge">🔒 Acesso a um passo</div>' +
+      '<div class="pwl-badge">' + (veterano ? '🤝 Bem-vindo de volta' : '🔒 Acesso a um passo') + '</div>' +
       '<h1 class="pwl-title">' + ola + '</h1>' +
-      '<p class="pwl-lead">Antes de liberar a Plataforma G20 completa, o Israel precisa te conhecer de verdade. ' +
-        'São <b>15 campos</b>, uns 3 minutos — e cada resposta tem um motivo.</p>' +
-      '<div class="pwl-points">' +
-        '<div class="pwl-point"><span>🎯</span><div><b>Orientação sob medida</b>É o seu perfil que permite ao Israel preparar consultorias e conselhos pensados pra <i>você</i>, não genéricos.</div></div>' +
-        '<div class="pwl-point"><span>🤝</span><div><b>A turma certa</b>Profissão, cidade e área conectam você com os G20s que têm tudo a ver com o seu momento.</div></div>' +
-        '<div class="pwl-point"><span>📈</span><div><b>Seu ponto de partida</b>Onde você está hoje é o que vai medir o quanto você evoluiu lá na frente.</div></div>' +
-      '</div>' +
-      '<p class="pwl-note">Preencha com <b>calma e com a verdade</b>. Não é formulário de banco — é o seu retrato dentro do G20. Quanto mais real, mais a plataforma trabalha a seu favor.</p>' +
-      '<button type="button" class="pwl-btn" id="pwlStart">Bora começar →</button>' +
-      '<div class="pwl-foot">Você só verá isso uma vez</div>' +
+      '<p class="pwl-lead">' + lead + '</p>' +
+      '<div class="pwl-points">' + pontos + '</div>' +
+      '<p class="pwl-note">' + nota + '</p>' +
+      '<button type="button" class="pwl-btn" id="pwlStart">' + (veterano ? 'Vamos lá →' : 'Bora começar →') + '</button>' +
+      '<div class="pwl-foot"><a href="#" id="pwlTrocar">' +
+        (veterano ? 'Na verdade, estou entrando agora' : 'Na verdade, já sou aluno do G20') +
+      '</a></div>' +
     '</div>';
   document.body.appendChild(ov);
   requestAnimationFrame(function(){ ov.classList.add('is-in'); });
@@ -2731,6 +2856,18 @@ function abrirPerfilWelcome(aoFechar){
     setTimeout(function(){ if(ov.parentNode) ov.parentNode.removeChild(ov); if(aoFechar) aoFechar(); }, 260);
   }
   document.getElementById('pwlStart').addEventListener('click', fechar);
+
+  // Link de escape: troca o tipo e reabre a boas-vindas no tom certo
+  var troca = document.getElementById('pwlTrocar');
+  if(troca) troca.addEventListener('click', function(e){
+    e.preventDefault();
+    setTipoAluno(veterano ? 'novo' : 'veterano');
+    ov.classList.remove('is-in');
+    setTimeout(function(){ if(ov.parentNode) ov.parentNode.removeChild(ov); abrirPerfilWelcome(aoFechar); }, 260);
+  });
+
+  // Mostra/esconde o campo Turma conforme o tipo
+  if(typeof aplicarCampoTurma === 'function') aplicarCampoTurma();
 }
 
 var GUIAS = {
@@ -3117,6 +3254,7 @@ setTimeout(function(){
   var dlProf = document.getElementById('dl-profissoes');
   if(dlProf){ var vis={}; SUG_PROFISSOES.forEach(function(pf){ if(vis[pf])return; vis[pf]=1; var o=document.createElement('option'); o.value=pf; dlProf.appendChild(o); }); }
   atualizarTravaConquistas();
+  if(typeof aplicarCampoTurma==='function') aplicarCampoTurma();
   atualizarTabProgress();
   atualizarBannerObrigatorio();
   dicaSobreMim();
@@ -3124,9 +3262,15 @@ setTimeout(function(){
   if(faltam > 0 || _MODO_OBRIGATORIO){
     var ativa = document.querySelector('.perfil-tab.active');
     var primeiraAba = ativa ? ativa.dataset.tab : 'pessoal';
-    // No primeiro acesso, a tela de boas-vindas vem ANTES do guia da aba
+    // Primeiro acesso: pergunta (novo/já aluno) → boas-vindas ramificada → guia
     if(!perfilWelcomeVista()){
-      abrirPerfilWelcome(function(){ guiaDaAba(primeiraAba); });
+      if(!tipoAluno()){
+        abrirPerguntaTipo(function(){
+          abrirPerfilWelcome(function(){ guiaDaAba(primeiraAba); });
+        });
+      } else {
+        abrirPerfilWelcome(function(){ guiaDaAba(primeiraAba); });
+      }
     } else {
       guiaDaAba(primeiraAba);
     }
