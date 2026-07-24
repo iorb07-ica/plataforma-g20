@@ -9017,10 +9017,54 @@ var PAT_RANGE_KEYS = {total:'g20_patSparkRange_total', rf:'g20_patSparkRange_rf'
 function _todayISO(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function _daysBetween(a,b){return Math.round((new Date(b)-new Date(a))/86400000);}
 
+/* ═══════════════════════════════════════════════════════════════
+   PERSISTÊNCIA DOS SNAPSHOTS — com fallback em memória
+
+   CAUSA RAIZ QUE ISTO CORRIGE:
+   A série real reconstruída tem ~2978 pontos (~300 KB). O localStorage
+   desta conta já está na cota — o próprio console avisa "[G20Rent]
+   série não coube no localStorage — usando memória".
+
+   O _patSnapSave antigo era `try{ setItem }catch(e){}`: engolia o erro
+   de cota em silêncio. Resultado: a série NOVA nunca era gravada, o
+   g20_patSnapshots continuava com o histórico ANTIGO (de quando a
+   carteira valia ~347k) e só o último ponto recebia os valores de hoje
+   (~574k). Daí o salto de +58% num dia e o degrau vertical no gráfico:
+   não era mercado, era histórico velho colado em valor novo.
+
+   Agora a série vive em memória de qualquer forma, e a gravação avisa
+   quando falha (liberando caches recriáveis antes de desistir).
+   ═══════════════════════════════════════════════════════════════ */
+window._g20SnapMem = null;
+
 function _patSnapLoad(){
+  // A memória tem prioridade: é sempre a versão mais recente da sessão.
+  if (window._g20SnapMem && window._g20SnapMem.length) return window._g20SnapMem;
   try{var a=JSON.parse(localStorage.getItem(PAT_SNAP_KEY)||'[]');return Array.isArray(a)?a:[];}catch(e){return [];}
 }
-function _patSnapSave(arr){try{localStorage.setItem(PAT_SNAP_KEY,JSON.stringify(arr));}catch(e){}}
+
+function _patSnapSave(arr){
+  window._g20SnapMem = arr;              // memória primeiro, sempre
+  try{
+    localStorage.setItem(PAT_SNAP_KEY,JSON.stringify(arr));
+    return true;
+  }catch(e){
+    // Libera caches recriáveis (benchmarks/CDI) e tenta de novo.
+    try{
+      ['v21_hist_ibov_v3','v21_hist_sp500_v3','v21_hist_ibov_v2','v21_hist_sp500_v2','g20_cdiHist_v1']
+        .forEach(function(k){ try{ localStorage.removeItem(k); }catch(e2){} });
+      localStorage.setItem(PAT_SNAP_KEY,JSON.stringify(arr));
+      console.warn('[snapshots] cota apertada — caches de benchmark descartados para gravar a série');
+      return true;
+    }catch(e2){
+      console.warn('[snapshots] localStorage cheio: série de ' + arr.length +
+                   ' pontos mantida apenas em memória nesta sessão. ' +
+                   'Os cards usam a versão em memória, então os números seguem corretos.');
+      return false;
+    }
+  }
+}
+window._patSnapLoad = _patSnapLoad;
 
 // Fator di rio do CDI (base IND.cdi em % a.a.)
 function _cdiDaily(){var aa=(IND&&IND.cdi)?IND.cdi:10.65;return Math.pow(1+aa/100,1/252);}
@@ -9688,7 +9732,7 @@ window.g20Logout = function() {
     // dados corrompidos de uma versão antiga continuam no localStorage e são exibidos
     // mesmo depois da correção (o usuário via percentuais absurdos que não sumiam).
     try {
-      var _sn = JSON.parse(localStorage.getItem('g20_patSnapshots') || '[]');
+      var _sn = (window._patSnapLoad ? _patSnapLoad() : JSON.parse(localStorage.getItem('g20_patSnapshots') || '[]'));
       var _lastSn = _sn && _sn.length ? _sn[_sn.length-1] : null;
       if (_lastSn && _lastSn.real && _lastSn.sv !== 3) {
         localStorage.removeItem('g20_patSnapshots');
@@ -10468,7 +10512,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
      percentual sair estranho. Chame G20DiagGP() no console. */
   window.G20DiagGP = function(){
     var snap = [];
-    try { snap = JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]'); } catch(e){}
+    try { snap = (window._patSnapLoad ? _patSnapLoad() : JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]')); } catch(e){}
     var bens = _gpBensLiquidos();
     console.log('%c[G20 diag] bens líquidos: R$ ' + Math.round(bens).toLocaleString('pt-BR'),
                 'color:#c9a961;font-weight:bold');
@@ -10498,7 +10542,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   function v21LoadGP() {
     try {
       var snap = [];
-      try { snap = JSON.parse(localStorage.getItem('g20_patSnapshots') || '[]'); } catch(e){}
+      try { snap = (window._patSnapLoad ? _patSnapLoad() : JSON.parse(localStorage.getItem('g20_patSnapshots') || '[]')); } catch(e){}
       if (snap.length === 0) return;
 
       var modo = v21GpMode();
@@ -10564,13 +10608,39 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
         var chgEl = getEl('v21-gp-change');
         if (chgEl) {
-          // Rede de segurança por magnitude: nenhuma carteira diversificada
-          // de RV+RF se move ±25% num único dia. Se isso aparecer, é quase
-          // certo que os dois pontos vêm de bases diferentes (mesmo que
-          // ambos estejam marcados igual). Melhor omitir por um dia do que
-          // mostrar um número errado para o aluno.
-          var LIMITE_DIA = 25;
-          var implausivel = anterior > 0 && Math.abs(pct) > LIMITE_DIA;
+          /* Detecção de variação implausível.
+
+             Um teto fixo não serve: 58% é obviamente artefato, mas 17%
+             passava por um limite de 25% — e 17% num dia também é
+             absurdo para uma carteira diversificada.
+
+             Então comparamos o último movimento com a volatilidade da
+             PRÓPRIA série: se ele for muitas vezes maior que o movimento
+             diário típico, é ruptura de base, não mercado. Isso se adapta
+             a carteiras mais ou menos voláteis. O teto absoluto de 15%
+             fica como rede final. */
+          var LIMITE_ABS = 15;
+          var implausivel = anterior > 0 && Math.abs(pct) > LIMITE_ABS;
+
+          if (!implausivel && anterior > 0 && snap.length >= 8) {
+            var movs = [];
+            for (var mi = Math.max(1, snap.length - 30); mi < snap.length - 1; mi++) {
+              var va = _gpValorDoSnap(snap[mi-1], modo, bens);
+              var vb = _gpValorDoSnap(snap[mi], modo, bens);
+              if (va > 0) movs.push(Math.abs((vb - va) / va * 100));
+            }
+            if (movs.length >= 5) {
+              movs.sort(function(x,y){ return x - y; });
+              var mediana = movs[Math.floor(movs.length/2)];
+              // Piso de 0,05% evita divisão por ~zero em séries muito lisas
+              var tipico = Math.max(mediana, 0.05);
+              if (Math.abs(pct) > tipico * 12) {
+                implausivel = true;
+                console.warn('[v21 GP] movimento ' + Math.round(Math.abs(pct)/tipico) +
+                             'x maior que o típico da série (' + tipico.toFixed(2) + '%/dia)');
+              }
+            }
+          }
 
           if (!basesIguais || implausivel) {
             console.warn('[v21 GP] variação do dia omitida — ' +
@@ -10803,7 +10873,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     if (window._g20DadosProntos === false) return;
     try {
       var snap = [];
-      try { snap = JSON.parse(localStorage.getItem('g20_patSnapshots') || '[]'); } catch(e){}
+      try { snap = (window._patSnapLoad ? _patSnapLoad() : JSON.parse(localStorage.getItem('g20_patSnapshots') || '[]')); } catch(e){}
       if (snap.length < 2) return;
 
       var hojeD = new Date();
@@ -11004,7 +11074,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   function _v21LoadBenchReal() {
     try {
       var snap = [];
-      try { snap = JSON.parse(localStorage.getItem('g20_patSnapshots') || '[]'); } catch(e){}
+      try { snap = (window._patSnapLoad ? _patSnapLoad() : JSON.parse(localStorage.getItem('g20_patSnapshots') || '[]')); } catch(e){}
 
       // Helper declarado cedo pra ser usado antes do early return
       function calcBenchFromHist(series) {
@@ -11484,7 +11554,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     var rvAp = [];
     var apBR = [];
     var precos = {};
-    try { snap = JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]'); } catch(e){}
+    try { snap = (window._patSnapLoad ? _patSnapLoad() : JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]')); } catch(e){}
     try { divs = (window._divsCarregar ? _divsCarregar() : JSON.parse(localStorage.getItem('g20_dividendos')||'[]')); } catch(e){}
     try { rvAp = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){}
     try { apBR = JSON.parse(localStorage.getItem('g20_aportes')||'[]'); } catch(e){}
@@ -11805,7 +11875,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var rvAp = [];
       var apBR = [];
       var precos = {};
-      try { snap = JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]'); } catch(e){}
+      try { snap = (window._patSnapLoad ? _patSnapLoad() : JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]')); } catch(e){}
       try { divs = (window._divsCarregar ? _divsCarregar() : JSON.parse(localStorage.getItem('g20_dividendos')||'[]')); } catch(e){}
       try { rvAp = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){}
       try { apBR = JSON.parse(localStorage.getItem('g20_aportes')||'[]'); } catch(e){}
@@ -12660,7 +12730,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     try {
       if (typeof Chart === 'undefined') return;
       var snap = [];
-      try { snap = JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]'); } catch(e){}
+      try { snap = (window._patSnapLoad ? _patSnapLoad() : JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]')); } catch(e){}
       if (snap.length < 2) return;
 
       var period = V21C.rentPeriod;
@@ -14544,7 +14614,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  window.G20_BUILD = '2026-07-24-R162';
+  window.G20_BUILD = '2026-07-24-R163';
   console.log('%c[G20 v21] BUILD ' + window.G20_BUILD + ' — se este número não mudar após subir um arquivo novo, o Service Worker está servindo cache antigo (F5 normal usa o cache; Ctrl+Shift+R ignora).', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // ════════════════════════════════════════════════════════
@@ -14614,7 +14684,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var aporteMensal = 0;
       try {
         // Patrimônio: último snapshot de g20_patSnapshots (usado pelo dashboard)
-        var snap = JSON.parse(localStorage.getItem('g20_patSnapshots') || '[]');
+        var snap = (window._patSnapLoad ? _patSnapLoad() : JSON.parse(localStorage.getItem('g20_patSnapshots') || '[]'));
         if (snap.length > 0) {
           patAtual = snap[snap.length-1].t || 0;
         }
@@ -15463,7 +15533,7 @@ html body .topbar {
   }
   function _renderGpLocal(modo){
     var snap = [];
-    try { snap = JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]'); } catch(e){}
+    try { snap = (window._patSnapLoad ? _patSnapLoad() : JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]')); } catch(e){}
     if (!snap.length) return false;
 
     var bens = _bensLiqLocal();
