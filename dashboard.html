@@ -9106,12 +9106,39 @@ function _patSnapUpsert(total,rf,rv){
     // (1.518.326 / 735.934 - 1), que contaminava HOJE, MÊS, YTD e Alpha.
     var _uNovo = novo[novo.length-1];
     if (_uNovo && _uNovo.d !== hoje) {
+      // A série termina no último pregão com preços disponíveis. O ponto de
+      // HOJE é uma CÓPIA desse fechamento — não há dado novo de mercado ainda.
+      // Marcamos como cópia para que os cards não anunciem "+0,00% hoje", que
+      // dá a impressão falsa de que o mercado não se moveu.
       novo.push({ d: hoje, t: _uNovo.t, rf: _uNovo.rf, rv: _uNovo.rv,
-                  c: _uNovo.c * cdiD0, real: true, sv: SERIE_VER });
+                  c: _uNovo.c * cdiD0, real: true, sv: SERIE_VER, copia: true });
     }
     _patSnapSave(novo);
     window._g20HistPronto = true;
     console.log('[G20Rent] série aplicada aos painéis: ' + novo.length + ' pontos (v' + SERIE_VER + ')');
+
+    /* ─── CONFERÊNCIA: série reconstruída vs carteira ao vivo ───
+       As duas devem convergir no dia de hoje. Se divergirem muito, uma
+       das fontes está errada — tipicamente a reconstrução incluindo
+       posições já vendidas, usando preço de fonte diferente, ou câmbio
+       distinto nos ativos em dólar. Melhor gritar do que exibir um
+       patrimônio que não corresponde à carteira do aluno. */
+    try {
+      var _rvSerie = (_uNovo && _uNovo.rv) || 0;
+      var _rvVivo  = rv || 0;
+      if (_rvSerie > 0 && _rvVivo > 0) {
+        var _div = Math.abs(_rvSerie - _rvVivo) / _rvVivo * 100;
+        if (_div > 5) {
+          console.warn('%c[G20Rent] ⚠ DIVERGÊNCIA RV: série reconstruída = R$ ' +
+            Math.round(_rvSerie).toLocaleString('pt-BR') + '  vs  carteira ao vivo = R$ ' +
+            Math.round(_rvVivo).toLocaleString('pt-BR') + '  (' + _div.toFixed(1) + '% de diferença). ' +
+            'Uma das duas está incorreta — verificar posições vendidas, fonte de preço e câmbio.',
+            'color:#f87171;font-weight:bold');
+        } else {
+          console.log('[G20Rent] ✓ série e carteira ao vivo convergem (diferença ' + _div.toFixed(1) + '%)');
+        }
+      }
+    } catch(e){}
     return;
   }
 
@@ -9895,11 +9922,23 @@ window.g20Logout = function() {
               }
             }
             if (window.G20Rent && !G20Rent.cache()) {
+              /* ═══════════════════════════════════════════════════════════
+                 APORTES DA CARTEIRA PESSOAL — E SÓ ELA.
+
+                 Antes, quando o usuário era admin, os aportes da CG20
+                 (g20_aportes — carteira educacional, exibida em
+                 "Carteira G20") eram CONCATENADOS aos pessoais
+                 (g20_rvAportes — "Minha Carteira"). A reconstrução somava
+                 as duas carteiras e devolvia RV = R$ 724.884, enquanto a
+                 carteira pessoal real vale R$ 562.670. Os ~R$ 162 mil de
+                 diferença eram a CG20 entrando no patrimônio pessoal.
+
+                 São carteiras distintas por definição do produto: a CG20 é
+                 material didático, não patrimônio do aluno (nem do admin).
+                 O card Gestão Patrimonial tem de bater com Minha Carteira.
+                 ═══════════════════════════════════════════════════════════ */
               var _apReal = [];
-              try { _apReal = _apReal.concat(JSON.parse(localStorage.getItem('g20_rvAportes')||'[]')); } catch(e){}
-              if (_isAdminDash) {
-                try { _apReal = _apReal.concat(JSON.parse(localStorage.getItem('g20_aportes')||'[]')); } catch(e){}
-              }
+              try { _apReal = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){}
               var _rfReal = [];
               try { _rfReal = JSON.parse(localStorage.getItem('g20_rendaFixa')||'[]'); } catch(e){}
               if (_apReal.length || _rfReal.length) {
@@ -10608,6 +10647,17 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
         var chgEl = getEl('v21-gp-change');
         if (chgEl) {
+          /* Sem pregão novo: o ponto de HOJE é cópia do último fechamento
+             (a série só vai até onde há preços). Anunciar "+0,00% hoje"
+             passaria a ideia falsa de mercado parado — melhor dizer de
+             quando é o dado. */
+          var _semPregaoNovo = !!pontoAtu.copia;
+          if (_semPregaoNovo) {
+            var _dF = String(pontoAnt.d || '');
+            var _fech = _dF.length >= 10 ? (_dF.substring(8,10) + '/' + _dF.substring(5,7)) : '—';
+            chgEl.innerHTML = '<span class="v21-change-extra">fechamento de ' + _fech + '</span>';
+          }
+
           /* Detecção de variação implausível.
 
              Um teto fixo não serve: 58% é obviamente artefato, mas 17%
@@ -10642,7 +10692,9 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
             }
           }
 
-          if (!basesIguais || implausivel) {
+          if (_semPregaoNovo) {
+            /* já tratado acima — não sobrescreve */
+          } else if (!basesIguais || implausivel) {
             console.warn('[v21 GP] variação do dia omitida — ' +
               (!basesIguais ? ('bases diferentes (' + tipoAnt + ' → ' + tipoAtu + ')')
                             : ('variação implausível: ' + pct.toFixed(2) + '% num dia')));
@@ -14614,7 +14666,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  window.G20_BUILD = '2026-07-24-R163';
+  window.G20_BUILD = '2026-07-24-R165';
   console.log('%c[G20 v21] BUILD ' + window.G20_BUILD + ' — se este número não mudar após subir um arquivo novo, o Service Worker está servindo cache antigo (F5 normal usa o cache; Ctrl+Shift+R ignora).', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // ════════════════════════════════════════════════════════
