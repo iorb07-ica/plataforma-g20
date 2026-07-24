@@ -10503,6 +10503,43 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
       var modo = v21GpMode();
       var bens = _gpBensLiquidos();   // offset constante, só usado no modo 'total'
+
+      /* ─── CORRIDA ENTRE A SÉRIE REAL E OS VALORES AO VIVO ───
+         Em carga fria (Ctrl+Shift+R), as cotações vêm da rede e o
+         G20Rent demora a reconstruir. Nesse intervalo os snapshots
+         ainda são sintéticos, e renderizar com eles faz o valor e o
+         gráfico "pularem" quando a série real chega — foi o que
+         apareceu como número errado e gráfico deformado.
+
+         Se existem aportes, uma série real É esperada: aguardamos.
+         Com um teto de tentativas, para não travar quem realmente
+         não tem histórico reconstruível. */
+      var temAportes = false;
+      try {
+        temAportes = (JSON.parse(localStorage.getItem('g20_rvAportes')||'[]').length +
+                      JSON.parse(localStorage.getItem('g20_aportes')||'[]').length) > 0;
+      } catch(e){}
+
+      var serieRealPronta = false;
+      try { serieRealPronta = !!(window.G20Rent && G20Rent.cache() && G20Rent.cache().length >= 2); } catch(e){}
+
+      var ultimoEhReal = !!(snap[snap.length-1] && snap[snap.length-1].real);
+
+      if (temAportes && !serieRealPronta && !ultimoEhReal) {
+        window._v21GpEspera = (window._v21GpEspera || 0) + 1;
+        if (window._v21GpEspera <= 40) {          // ~20s de teto
+          var gpValW = getEl('v21-gp-value');
+          if (gpValW && !/\d/.test(gpValW.textContent)) gpValW.textContent = 'R$ —';
+          var chgW = getEl('v21-gp-change');
+          if (chgW) chgW.innerHTML = '<span class="v21-change-extra">reconstruindo histórico…</span>';
+          setTimeout(v21LoadGP, 500);
+          return;
+        }
+        // Teto atingido: segue com o que há (aluno sem histórico reconstruível)
+        console.warn('[v21 GP] série real não ficou pronta — exibindo estimativa');
+      }
+      window._v21GpEspera = 0;
+
       var ultimo = snap[snap.length - 1];
       var valor = _gpValorDoSnap(ultimo, modo, bens);
       var gpVal = getEl('v21-gp-value');
