@@ -845,6 +845,51 @@ body.light .pwl-point{ background:rgba(20,40,80,.03); border-color:rgba(200,148,
 body.light .pwl-point b{ color:#0e1626 }
 body.light .pwl-point div{ color:#5c6580 }
 
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MAIS RESPIRO — aproveitar o espaço do desktop (sessão 50.0)
+   O formulário sobrava à direita e embaixo num monitor. Aqui os campos
+   crescem em altura, a tipografia sobe um degrau, o espaço entre linhas
+   aumenta e o "Sobre mim" ganha altura de verdade. Nada de fonte miúda a
+   100% de zoom.
+   ═══════════════════════════════════════════════════════════════════════ */
+.perfil-tab-content{ max-width:1180px; margin:0 auto; }
+
+.field label{ font-size:12.5px; letter-spacing:1.2px; }
+.field{ gap:9px; }
+.fields-grid{ gap:22px 26px; }
+
+.field input,
+.field select,
+.field textarea{
+  min-height:52px; padding:14px 18px; font-size:15.5px; border-radius:11px;
+}
+.field textarea{ min-height:130px; padding:16px 18px; line-height:1.7; font-size:15.5px; }
+
+.section-body{ padding:0 26px 26px; }
+.perfil-tab-content{ padding:26px 32px; }
+
+/* "Sobre mim" ocupa a largura toda e respira */
+#f-sobre{ min-height:150px; }
+.field-dica{ font-size:13px; padding:10px 14px; margin-top:8px; line-height:1.55; }
+
+/* Redes sociais um pouco mais altas, alinhadas ao novo padrão */
+.social-row{ min-height:54px; padding:0 16px; }
+.srow-input{ font-size:15px; padding:14px 0; }
+.srow-name{ font-size:14px; }
+
+/* Notificações: linhas mais generosas */
+.notif-row, .notif-item{ padding:16px 18px; }
+
+@media(min-width:1180px){
+  .fields-grid{ grid-template-columns:repeat(3, 1fr); }
+  .field.full{ grid-column:1/-1; }
+}
+@media(max-width:768px){
+  .field input, .field select, .field textarea, .srow-input{ font-size:16px; }
+  .field textarea{ min-height:120px; }
+}
+
 </style>
 <link rel="stylesheet" href="assets/g20-topbar.css?v=10">
 <link rel="stylesheet" href="assets/g20-sidebar.css?v=10">
@@ -1617,7 +1662,7 @@ if(localStorage.getItem('g20_uid')){
       </div>
       <div class="perfil-tab-nav">
         <button class="btn-tab-nav" onclick="switchTab('hobbies')">← Hobbies</button>
-        <button class="btn-tab-nav primary" onclick="salvarNotifPrefs()">💾 Salvar preferências</button>
+        <button class="btn-tab-nav primary" onclick="salvarPerfil()">💾 Salvar Perfil</button>
       </div>
     </div><!-- /panel-notificacoes -->
 
@@ -2275,6 +2320,8 @@ async function salvarPerfil() {
 
     _dirty = false;
     _userData.perfil = perfil;
+    // As preferências de notificação são salvas junto — um botão só na tela
+    try { if (typeof gravarNotifPrefs === 'function') gravarNotifPrefs(false); } catch(e){}
     // Selo de liberação lido pelo guard do g20-sidebar.js em todas as páginas
     try {
       if (perfilCompleto) localStorage.setItem('g20_perfil_ok','1');
@@ -2846,7 +2893,53 @@ function carregarNotifPrefs(){
   }catch(e){}
 }
 
-function salvarNotifPrefs(){
+/* Grava as preferências de notificação. Silencioso por padrão (chamado junto
+   do Salvar Perfil); com status visível quando o próprio botão da aba chama. */
+function gravarNotifPrefs(comStatus){
+  var status = document.getElementById('notifPrefsStatus');
+  var prefs  = {};
+  _notifPrefsCategories.forEach(function(cat){
+    var el = document.getElementById('notifPref-'+cat);
+    prefs[cat] = el ? el.checked : true;
+  });
+  try{
+    localStorage.setItem('g20_notifPrefs', JSON.stringify(prefs));
+    if(typeof db !== 'undefined' && _uid){
+      var p = db.collection('users').doc(_uid).collection('config').doc('notifPrefs').set(prefs);
+      if(comStatus && status){
+        status.style.color = 'rgba(255,255,255,.4)';
+        status.textContent = 'Salvando...';
+        p.then(function(){
+          status.style.color = '#00e676';
+          status.textContent = '✅ Preferências salvas!';
+          setTimeout(function(){ status.textContent=''; }, 3000);
+        }).catch(function(e){
+          status.style.color = '#ff1744';
+          status.textContent = 'Erro: ' + e.message;
+        });
+      }
+      return p;
+    }
+  }catch(e){
+    if(comStatus && status){ status.style.color = '#ff1744'; status.textContent = 'Erro: ' + e.message; }
+  }
+  return Promise.resolve();
+}
+
+function salvarNotifPrefs(){ return gravarNotifPrefs(true); }
+
+/* Mexer num toggle de notificação agora conta como alteração do perfil:
+   assim o único "Salvar Perfil" cobre tudo e o aviso de sair-sem-salvar dispara. */
+(function(){
+  _notifPrefsCategories.forEach(function(cat){
+    var el = document.getElementById('notifPref-'+cat);
+    if(el) el.addEventListener('change', function(){
+      if(typeof onFieldChange === 'function') onFieldChange();
+    });
+  });
+})();
+
+function _salvarNotifPrefs_ORIG(){
   var status = document.getElementById('notifPrefsStatus');
   var prefs  = {};
   _notifPrefsCategories.forEach(function(cat){
