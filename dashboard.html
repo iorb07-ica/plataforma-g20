@@ -4788,16 +4788,16 @@ body.pat-hidden .v21-change-extra::after{
   }
 
   .v21-help-tip {
-    position: absolute;
-    top: 32px;
-    right: 0;
+    position: fixed;
+    top: 0;
+    left: 0;
     width: 268px;
-    max-width: 78vw;
+    max-width: calc(100vw - 24px);
     background: #171b23;
     border: 1px solid rgba(232,184,75,0.25);
     border-radius: 12px;
     padding: 12px 14px;
-    box-shadow: 0 14px 34px rgba(0,0,0,0.55), 0 4px 12px rgba(0,0,0,0.35);
+    box-shadow: 0 14px 34px rgba(0,0,0,0.65), 0 4px 12px rgba(0,0,0,0.45);
     font-family: 'DM Sans', sans-serif;
     font-size: 12.5px;
     line-height: 1.5;
@@ -4809,14 +4809,14 @@ body.pat-hidden .v21-change-extra::after{
     visibility: hidden;
     transform: translateY(-6px);
     transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
-    z-index: 60;
+    z-index: 9998;
     pointer-events: none;
   }
-  .v21-help-dot:hover + .v21-help-tip,
   .v21-help-tip.is-open {
     opacity: 1;
     visibility: visible;
     transform: translateY(0);
+    pointer-events: auto;
   }
   .v21-help-tip strong { color: #e8b84b; font-weight: 700; }
   .v21-help-tip p { margin: 0 0 8px 0; }
@@ -4830,7 +4830,7 @@ body.pat-hidden .v21-change-extra::after{
   .light .v21-help-tip strong { color: #a67c22; }
 
   @media (max-width: 640px) {
-    .v21-help-tip { right: -6px; width: 240px; font-size: 12px; }
+    .v21-help-tip { width: 240px; font-size: 12px; }
   }
 
   .v21-kpi-sub {
@@ -10159,6 +10159,53 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     return { abs: delta, pct: pct };
   }
 
+  /* ─────────────────────────────────────────────────────────────
+     CURVA TWR ACUMULADA (mapa data → % acumulado desde inicioStr)
+
+     O gráfico de Rentabilidade desenhava a linha "Você" a partir de
+     g20_patSnapshots com ((snap.t / baseT) - 1) * 100 — patrimônio
+     BRUTO. Isso conta aporte como se fosse lucro: no dia em que entra
+     R$ 10k novos, a linha sobe, mesmo sem o mercado ter andado.
+     Resultado: a linha do gráfico (e o tooltip, que lê a linha)
+     divergia do header, que já usava o TWR real do G20Rent.
+
+     Esta função devolve a MESMA métrica do header, mas ponto a ponto,
+     pra que gráfico, tooltip e header sejam a mesma fonte.
+     ───────────────────────────────────────────────────────────── */
+  window._v21TwrCurva = _v21TwrCurva;
+  function _v21TwrCurva(serie, inicioStr) {
+    if (!serie || serie.length < 2) return null;
+    var corte = serie.filter(function(p){ return p.d >= inicioStr; });
+    if (corte.length < 2) return null;
+    var mapa = Object.create(null);
+    var fator = 1;
+    mapa[corte[0].d] = 0;
+    for (var i = 1; i < corte.length; i++) {
+      var vIni = corte[i-1].patrimonio, vFim = corte[i].patrimonio;
+      var fluxo = corte[i].fluxo || 0;
+      if (vIni > 0) {
+        var r = (vFim - fluxo - vIni) / vIni;
+        if (isFinite(r)) fator *= (1 + r);
+      }
+      mapa[corte[i].d] = (fator - 1) * 100;
+    }
+    return { mapa: mapa, primeiraData: corte[0].d };
+  }
+
+  /* Último valor da curva TWR em data <= d (a série é diária; em fim de
+     semana/feriado não há ponto, então repete o último pregão). */
+  window._v21TwrEm = _v21TwrEm;
+  function _v21TwrEm(curva, datasOrdenadas, d) {
+    if (!curva || d < curva.primeiraData) return null;
+    if (curva.mapa[d] !== undefined) return curva.mapa[d];
+    var achado = null;
+    for (var i = 0; i < datasOrdenadas.length; i++) {
+      if (datasOrdenadas[i] > d) break;
+      achado = curva.mapa[datasOrdenadas[i]];
+    }
+    return achado;
+  }
+
   /* TWR da série real a partir de uma data (desconta aportes/resgates). */
   window._v21TwrDesde = _v21TwrDesde;   // exposto: usado por blocos <script> distintos
   function _v21TwrDesde(serie, inicioStr) {
@@ -11972,10 +12019,26 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var serieIbov = [];
       var serieSp500 = [];
 
+      // ── FONTE ÚNICA DA LINHA "VOCÊ": curva TWR do motor real ──
+      // Sem isso a linha vinha do patrimônio bruto (aporte virava "lucro")
+      // e divergia do header/tooltip. Se o motor não estiver pronto,
+      // cai no fallback antigo por snapshots.
+      var _twrCurva = null, _twrDatas = null;
+      try {
+        if (window.G20Rent && G20Rent.cache() && typeof _v21TwrCurva === 'function') {
+          _twrCurva = _v21TwrCurva(G20Rent.cache(), inicioStr);
+          if (_twrCurva) _twrDatas = Object.keys(_twrCurva.mapa).sort();
+        }
+      } catch(e){}
+
       eixoDatas.forEach(function(d){
-        // Você: só preenche se tem snap nessa data
         var vVoce = null;
         var vCdi = null;
+
+        if (_twrCurva) {
+          vVoce = _v21TwrEm(_twrCurva, _twrDatas, d);
+        }
+
         if (baseT && d >= dataBaseVoce) {
           // Acha último snap com data <= d
           var snapAtual = null;
@@ -11983,7 +12046,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
             if (snap[j].d <= d) { snapAtual = snap[j]; break; }
           }
           if (snapAtual) {
-            if (snapAtual.t > 0 && baseT > 0) vVoce = ((snapAtual.t / baseT) - 1) * 100;
+            // Fallback do "Você" apenas se o motor real não respondeu
+            if (!_twrCurva && snapAtual.t > 0 && baseT > 0) vVoce = ((snapAtual.t / baseT) - 1) * 100;
             if (snapAtual.c > 0 && baseC > 0) vCdi = ((snapAtual.c / baseC) - 1) * 100;
           }
         }
@@ -12010,16 +12074,20 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       // ───────────────────────────────────────────────────────────
       // 6) FORMATA EIXO X (mostra mês/ano em intervalos)
       // ───────────────────────────────────────────────────────────
+      // Em 1M/6M o rótulo era só o nome do mês, então o eixo repetia
+      // "Jun, Jun, Jul, Jul, Jul..." sem dizer QUAL dia — inútil pra ler
+      // o gráfico. Agora janelas curtas mostram dia/mês.
       var meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
       var labelsFmt = eixoDatas.map(function(d){
         if (!d) return '';
         var data = new Date(d + 'T12:00:00');
-        // Pra períodos >= 1A, inclui ano abreviado (ex: "Mar/24")
+        var dia = String(data.getDate()).padStart(2,'0');
+        // Períodos >= 1A: mês + ano abreviado (ex: "Mar'24")
         if (period === '5a' || period === 'max' || period === '1a') {
-          var anoStr = "'" + String(data.getFullYear()).substring(2);
-          return meses[data.getMonth()] + anoStr;
+          return meses[data.getMonth()] + "'" + String(data.getFullYear()).substring(2);
         }
-        return meses[data.getMonth()];
+        // Janelas curtas: dia + mês (ex: "23/Jul")
+        return dia + '/' + meses[data.getMonth()];
       });
 
       // ───────────────────────────────────────────────────────────
@@ -12031,15 +12099,20 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         }
         return null;
       }
+      // O header lê o ÚLTIMO PONTO DA PRÓPRIA LINHA desenhada. Antes ele
+      // chamava _v21TwrDesde por fora, enquanto a linha vinha dos snapshots:
+      // duas fontes distintas, daí o header dizer +1,35% e o tooltip +6,13%.
+      // Agora ambos saem de serieVoce — impossível divergirem.
       var finVoce = ultimoValido(serieVoce);
-      // Série real (TWR do período selecionado) tem prioridade — sem isso o painel
-      // mostrava sempre o mesmo valor, independentemente do filtro 1M/6M/YTD/1A/5A.
-      try {
-        if (window.G20Rent && G20Rent.cache() && window._v21TwrDesde) {
-          var _rv = window._v21TwrDesde(G20Rent.cache(), inicioStr);
-          if (_rv !== null && isFinite(_rv)) finVoce = _rv;
-        }
-      } catch(e){}
+      // Sem o motor real (fallback por snapshots), ainda tenta o TWR direto.
+      if (!_twrCurva) {
+        try {
+          if (window.G20Rent && G20Rent.cache() && window._v21TwrDesde) {
+            var _rv = window._v21TwrDesde(G20Rent.cache(), inicioStr);
+            if (_rv !== null && isFinite(_rv)) finVoce = _rv;
+          }
+        } catch(e){}
+      }
       var finCdi = ultimoValido(serieCdi);
       var finIbov = ultimoValido(serieIbov);
       var finSp500 = ultimoValido(serieSp500);
@@ -12160,7 +12233,20 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
               caretSize: 8,
               caretPadding: 10,
               callbacks: {
-                label: function(ctx){ return ctx.dataset.label + ': ' + _v21FmtPct(ctx.parsed.y); }
+                // Título com a data REAL do ponto (eixoDatas), não o label
+                // abreviado — assim dá pra conferir exatamente qual dia
+                // está sendo lido.
+                title: function(items){
+                  try {
+                    var d = eixoDatas[items[0].dataIndex];
+                    if (!d) return '';
+                    return d.substring(8,10) + '/' + d.substring(5,7) + '/' + d.substring(0,4);
+                  } catch(e){ return ''; }
+                },
+                label: function(ctx){
+                  if (ctx.parsed.y === null || ctx.parsed.y === undefined) return null;
+                  return ctx.dataset.label + ': ' + _v21FmtPct(ctx.parsed.y);
+                }
               }
             }
           },
@@ -14372,49 +14458,127 @@ html body .topbar {
 })();
 </script>
 <!-- ═══════════════════════════════════════════════
-     TOOLTIPS DE AJUDA (bolinha "?") — toque no mobile
-     Hover no desktop é 100% CSS. Aqui só o tap/click.
-     Delegado no document: funciona mesmo se o card
-     for re-renderizado depois.
+     TOOLTIPS DE AJUDA (bolinha "?")
+
+     O tooltip usa position:fixed e é posicionado por JS.
+     Motivo: com position:absolute ele ficava preso ao
+     stacking context do card (que tem transform/box-shadow),
+     então cards vizinhos passavam por cima mesmo com
+     z-index alto. Com fixed ele sai do fluxo e fica sempre
+     na frente.
+
+     Cobre hover (desktop) e tap (mobile). Delegado no
+     document: funciona mesmo se o card for re-renderizado.
 ═══════════════════════════════════════════════ -->
 <script>
 (function(){
   'use strict';
+
+  var GAP = 8;       // distância da bolinha
+  var MARGEM = 12;   // respiro mínimo da borda da viewport
+
+  function posicionar(dot, tip){
+    // Mede com o tooltip já visível (visibility:hidden mede 0)
+    var prevVis = tip.style.visibility;
+    var prevOpa = tip.style.opacity;
+    tip.style.visibility = 'hidden';
+    tip.style.opacity = '0';
+    tip.classList.add('is-open');
+
+    var r = dot.getBoundingClientRect();
+    var tw = tip.offsetWidth;
+    var th = tip.offsetHeight;
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+
+    // Alinha a borda direita do tooltip com a da bolinha
+    var left = r.right - tw;
+    if (left < MARGEM) left = MARGEM;
+    if (left + tw > vw - MARGEM) left = Math.max(MARGEM, vw - MARGEM - tw);
+
+    // Abaixo da bolinha; se não couber, vai pra cima
+    var top = r.bottom + GAP;
+    if (top + th > vh - MARGEM) {
+      var acima = r.top - GAP - th;
+      top = (acima >= MARGEM) ? acima : Math.max(MARGEM, vh - MARGEM - th);
+    }
+
+    tip.style.left = Math.round(left) + 'px';
+    tip.style.top  = Math.round(top) + 'px';
+
+    tip.style.visibility = prevVis;
+    tip.style.opacity = prevOpa;
+  }
+
+  function abrir(dot, tip){
+    fecharTodos(tip);
+    posicionar(dot, tip);
+    tip.classList.add('is-open');
+    dot.classList.add('is-open');
+    dot.setAttribute('aria-expanded','true');
+  }
+
+  function fechar(tip){
+    if (!tip) return;
+    tip.classList.remove('is-open');
+    var d = tip.previousElementSibling;
+    if (d && d.classList.contains('v21-help-dot')) {
+      d.classList.remove('is-open');
+      d.setAttribute('aria-expanded','false');
+    }
+  }
+
   function fecharTodos(exceto){
     document.querySelectorAll('.v21-help-tip.is-open').forEach(function(t){
-      if (t === exceto) return;
-      t.classList.remove('is-open');
-      var d = t.previousElementSibling;
-      if (d && d.classList.contains('v21-help-dot')) {
-        d.classList.remove('is-open');
-        d.setAttribute('aria-expanded','false');
-      }
+      if (t !== exceto) fechar(t);
     });
   }
 
-  document.addEventListener('click', function(ev){
-    var dot = ev.target.closest ? ev.target.closest('.v21-help-dot') : null;
+  function tipDe(dot){
+    var t = dot.nextElementSibling;
+    return (t && t.classList.contains('v21-help-tip')) ? t : null;
+  }
 
+  // ── Hover (desktop) ──
+  document.addEventListener('mouseover', function(ev){
+    var dot = ev.target.closest && ev.target.closest('.v21-help-dot');
+    if (!dot) return;
+    var tip = tipDe(dot);
+    if (tip) abrir(dot, tip);
+  });
+
+  document.addEventListener('mouseout', function(ev){
+    var dot = ev.target.closest && ev.target.closest('.v21-help-dot');
+    if (!dot) return;
+    // Não fecha se o ponteiro foi pro próprio tooltip
+    var indo = ev.relatedTarget;
+    if (indo && indo.closest && indo.closest('.v21-help-tip')) return;
+    var tip = tipDe(dot);
+    if (tip) fechar(tip);
+  });
+
+  // ── Tap / clique (mobile) ──
+  document.addEventListener('click', function(ev){
+    var dot = ev.target.closest && ev.target.closest('.v21-help-dot');
     if (dot) {
       ev.preventDefault();
       ev.stopPropagation();
-      var tip = dot.nextElementSibling;
-      if (!tip || !tip.classList.contains('v21-help-tip')) return;
-      var abrir = !tip.classList.contains('is-open');
-      fecharTodos(tip);
-      tip.classList.toggle('is-open', abrir);
-      dot.classList.toggle('is-open', abrir);
-      dot.setAttribute('aria-expanded', abrir ? 'true' : 'false');
+      var tip = tipDe(dot);
+      if (!tip) return;
+      if (tip.classList.contains('is-open')) fechar(tip);
+      else abrir(dot, tip);
       return;
     }
-
-    // clique fora e fora do próprio tooltip → fecha
     if (!(ev.target.closest && ev.target.closest('.v21-help-tip'))) fecharTodos(null);
   }, true);
 
   document.addEventListener('keydown', function(ev){
     if (ev.key === 'Escape') fecharTodos(null);
   });
+
+  // Reposiciona/fecha em scroll e resize (fixed não acompanha o card)
+  window.addEventListener('scroll', function(){ fecharTodos(null); }, true);
+  window.addEventListener('resize', function(){ fecharTodos(null); });
 })();
 </script>
 
