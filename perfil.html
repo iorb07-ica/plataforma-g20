@@ -694,7 +694,7 @@ body.light .netpub-toggle-txt small{ color:#4a5468 }
   display:flex; align-items:center; gap:7px;
 }
 .chips-grupo:first-of-type{ margin-top:4px }
-.chips{ display:flex; flex-wrap:wrap; gap:10px; margin-bottom:6px }
+.chips{ display:flex; flex-wrap:wrap; gap:12px 14px; margin-bottom:6px }
 .chip{
   font-family:'DM Sans',sans-serif; font-size:14px; font-weight:500;
   padding:10px 18px; border-radius:24px; cursor:pointer;
@@ -1322,9 +1322,10 @@ if(localStorage.getItem('g20_uid')){
               <option value="EX">🌍 Moro no exterior</option>
             </select>
           </div>
-          <div class="field" id="wrap-cidade">
+          <div class="field" id="wrap-cidade" style="position:relative">
             <label>Cidade <span class="req">★</span></label>
-            <input type="text" id="f-cidade" placeholder="Sua cidade">
+            <input type="text" id="f-cidade" autocomplete="off" placeholder="Sua cidade">
+            <div class="prof-drop" id="cidadeDrop"></div>
           </div>
           <div class="field" id="wrap-pais" style="display:none">
             <label>País <span class="req" id="pais-req">★</span></label>
@@ -1490,8 +1491,8 @@ if(localStorage.getItem('g20_uid')){
             <div class="field-hint">Pode marcar mais de um. Saber o que te preocupa ajuda o Israel a te orientar melhor.</div>
           </div>
           <div class="field full">
-            <label>Por que entrou no G20? <span class="req">★</span></label>
-            <textarea id="f-porqueg20" placeholder="O que te motivou a buscar a mentoria com Israel? Qual é o seu principal desafio?"></textarea>
+            <label>O que você espera dessa jornada no G20? <span class="req">★</span></label>
+            <textarea id="f-porqueg20" placeholder="Conte o que te motivou a buscar a mentoria com o Israel e qual é o seu principal objetivo ou desafio hoje."></textarea>
           </div>
         </div>
       </div>
@@ -2176,7 +2177,7 @@ var REQ_REGRAS = (window.G20Perfil && window.G20Perfil.REQ) || [
   {k:'meta',campo:'f-meta',aba:'financeiro',rotulo:'Meta financeira principal',min:25},
   {k:'objetivo',campo:'f-objetivo',aba:'financeiro',rotulo:'Objetivo principal no G20'},
   {k:'disponibilidade',campo:'f-disponibilidade',aba:'financeiro',rotulo:'Disponibilidade semanal'},
-  {k:'porqueG20',campo:'f-porqueg20',aba:'financeiro',rotulo:'Por que entrou no G20',min:60},
+  {k:'porqueG20',campo:'f-porqueg20',aba:'financeiro',rotulo:'O que você espera da jornada no G20',min:60},
   {k:'profissao',campo:'f-profissao',aba:'profissao',rotulo:'Profissão',min:3},
   {k:'area',campo:'f-area',aba:'profissao',rotulo:'Área de atuação'},
   {k:'whatsapp',campo:'f-whatsapp',aba:'redes',rotulo:'WhatsApp',tipo:'whats'}
@@ -3082,15 +3083,31 @@ var CIDADES_UF = {
     sel.addEventListener('change', function(){ paisHidden.value = sel.value; if(typeof onFieldChange==='function') onFieldChange(); });
   }
 
-  // Autocomplete de cidade via datalist (leve)
+  // Autocomplete de cidade com dropdown próprio (temático, mesmo estilo da profissão)
   var cidadeInput = document.getElementById('f-cidade');
-  var dl = document.createElement('datalist'); dl.id = 'dl-cidades';
-  if(cidadeInput){ cidadeInput.setAttribute('list','dl-cidades'); cidadeInput.parentNode.appendChild(dl); }
-  function atualizaCidades(){
-    if(!dl || !estado) return;
-    dl.innerHTML='';
-    var lista = CIDADES_UF[estado.value] || [];
-    lista.forEach(function(c){ var o=document.createElement('option'); o.value=c; dl.appendChild(o); });
+  var cidadeDrop = document.getElementById('cidadeDrop');
+  function cidadesDoEstado(){ return (estado && CIDADES_UF[estado.value]) || []; }
+  function renderCidades(filtro){
+    if(!cidadeDrop) return;
+    var f = (filtro||'').trim().toLowerCase();
+    var lista = cidadesDoEstado().filter(function(c){ return !f || c.toLowerCase().indexOf(f) >= 0; });
+    if(!lista.length){ cidadeDrop.classList.remove('open'); return; }
+    cidadeDrop.innerHTML = lista.map(function(c){ return '<div class="prof-item">'+c+'</div>'; }).join('');
+    cidadeDrop.classList.add('open');
+    cidadeDrop.querySelectorAll('.prof-item').forEach(function(it){
+      it.addEventListener('mousedown', function(e){
+        e.preventDefault();
+        cidadeInput.value = it.textContent;
+        cidadeDrop.classList.remove('open');
+        if(typeof onFieldChange==='function') onFieldChange();
+      });
+    });
+  }
+  function atualizaCidades(){ /* dropdown é gerado sob demanda no foco/input */ }
+  if(cidadeInput && cidadeDrop){
+    cidadeInput.addEventListener('focus', function(){ renderCidades(cidadeInput.value); });
+    cidadeInput.addEventListener('input', function(){ renderCidades(cidadeInput.value); });
+    cidadeInput.addEventListener('blur', function(){ setTimeout(function(){ cidadeDrop.classList.remove('open'); }, 150); });
   }
 
   // Aplica ao carregar (perfil já preenchido)
