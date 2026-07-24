@@ -6872,10 +6872,12 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
         </div>
       </div>
 
-      <!-- CARD 2: RENTABILIDADE -->
+      <!-- CARD 2: DESEMPENHO (valores em R$ por período)
+           Renomeado de "Rentabilidade" para não colidir com o gráfico
+           comparativo mais abaixo, que também se chamava Rentabilidade. -->
       <div class="v21-card">
         <div class="v21-card-label">
-          <i data-lucide="line-chart"></i>Rentabilidade
+          <i data-lucide="line-chart"></i>Desempenho
         </div>
         <div class="v21-rent-list" id="v21-rent-list">
           <div class="v21-rent-row">
@@ -9243,7 +9245,14 @@ function _patSnapUpsert(total,rf,rv){
          foi avaliada a mercado (rv > 0). Gravar só o RF ao vivo faria o
          card comparar RF de agora com RV de ontem — outra mistura de
          bases, do mesmo tipo que já nos custou horas hoje. */
-      if (rv > 0) { _pontoHoje.rvVivo = rv; _pontoHoje.rfVivo = (rf > 0 ? rf : _uNovo.rf); }
+      /* Só a RV recebe cotação ao vivo. A RF NÃO:
+         a série usa rfLiquido() (desconta IR e IOF) e o cálculo ao vivo usa
+         _calcBrutoRF() (bruto, sem impostos). São métricas diferentes — o
+         bruto sobre a série líquida criava um salto de ~4% no último dia,
+         que é justamente a mordida tributária, não rendimento.
+         A RF também não tem preço intradiário: seu retorno do dia é a
+         apropriação entre dois pregões, que a própria série já calcula. */
+      if (rv > 0) { _pontoHoje.rvVivo = rv; _pontoHoje.rfVivo = _uNovo.rf; }
       novo.push(_pontoHoje);
     }
     _patSnapSave(novo);
@@ -9484,8 +9493,9 @@ function _patRenderCard(card){
   // dos aportes com preços históricos. Os snapshots podem conter resíduos (degraus no
   // último dia) que deformavam a curva com um salto vertical no fim.
   try {
-    if (window.G20Rent && G20Rent.cache()) {
-      var _sr = G20Rent.cache();
+    var _srComVivo = (typeof _v21SerieComVivo === 'function') ? _v21SerieComVivo() : null;
+    if (_srComVivo && _srComVivo.length >= 2) {
+      var _sr = _srComVivo;
       var _cdiD = _cdiDaily(), _acc = 100;
       arr = _sr.map(function(p, i){
         if (i > 0) _acc *= Math.pow(_cdiD, Math.max(1, _daysBetween(_sr[i-1].d, p.d)));
@@ -10714,6 +10724,31 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   /* Diagnóstico: imprime a cauda da série com a base de cada ponto.
      Serve pra identificar rapidamente mistura de bases quando algum
      percentual sair estranho. Chame G20DiagGP() no console. */
+  /* Reconciliação com a página "Minha Carteira".
+     Rode G20Total() no console para ver a composição exata do total. */
+  window.G20Total = function(){
+    var snap = [];
+    try { snap = (window._patSnapLoad ? _patSnapLoad() : JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]')); } catch(e){}
+    if (!snap.length) { console.warn('[G20Total] sem snapshots'); return; }
+    var u = snap[snap.length-1];
+    var bens = _gpBensLiquidos();
+    var rv = (u.rvVivo > 0) ? u.rvVivo : (u.rv||0);
+    var rf = (u.rvVivo > 0 && u.rfVivo > 0) ? u.rfVivo : (u.rf||0);
+    function f(x){ return 'R$ ' + Number(x).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+    console.log('%c[G20Total] composição do patrimônio', 'color:#c9a961;font-weight:bold');
+    console.log('  Renda Variável (a mercado) : ' + f(rv) + (u.rvVivo > 0 ? '   [cotação de agora]' : '   [último fechamento]'));
+    console.log('  Renda Fixa (LÍQUIDA)       : ' + f(rf) + '   [já com IR/IOF descontados]');
+    console.log('  Bens patrimoniais          : ' + f(bens) + '   [valor − dívida]');
+    console.log('  ─────────────────────────────────────────────');
+    console.log('  TOTAL                      : ' + f(rv + rf + bens));
+    console.log('');
+    console.log('  Compare com o total da página "Minha Carteira".');
+    console.log('  Obs.: o card "Renda Fixa" da Minha Carteira exibe o valor BRUTO');
+    console.log('        (sem IR/IOF), mas o TOTAL dela usa o líquido — por isso a');
+    console.log('        soma visual dos três cards de lá não fecha com o total de lá.');
+    return { rv: rv, rf: rf, bens: bens, total: rv + rf + bens };
+  };
+
   window.G20DiagGP = function(){
     var snap = [];
     try { snap = (window._patSnapLoad ? _patSnapLoad() : JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]')); } catch(e){}
@@ -10814,6 +10849,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         var pontoAnt = snap[snap.length - 2];
 
         var _vivoCompleto = (pontoAtu.rvVivo > 0 && pontoAtu.rfVivo > 0);
+        /* RF não tem cotação intradiária: seu retorno do dia é a apropriação
+           entre dois pregões. Então neste modo sempre recuamos para o último
+           par REAL, mesmo havendo cotação de RV ao vivo. */
+        if (modo === 'rf') _vivoCompleto = false;
         if (pontoAtu.copia && !_vivoCompleto) {
           // Sem avaliação nova hoje: recua para o último par de pregões reais.
           var _i = snap.length - 1;
@@ -10978,6 +11017,45 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
   // Calcula rentabilidade de um período por DATA REAL (não por slots do array)
   // Retorna { abs: delta R$, pct: rentabilidade % }
+  /* ═══════════════════════════════════════════════════════════════
+     SÉRIE DO MOTOR + PONTO AO VIVO
+
+     G20Rent.cache() termina no último pregão com preços (ex.: 22/07).
+     O valor de AGORA (cotações ao vivo) vive só nos snapshots, no campo
+     rvVivo. Por isso o card Gestão Patrimonial mostrava "+R$ 140 hoje"
+     e o card Rentabilidade mostrava "0,00%": fontes diferentes.
+
+     Esta função devolve a série do motor com o ponto de hoje anexado
+     quando há cotação ao vivo — assim TODOS os cards passam a ler a
+     mesma coisa.
+     ═══════════════════════════════════════════════════════════════ */
+  function _v21SerieComVivo() {
+    var serie = null;
+    try { serie = (window.G20Rent && G20Rent.cache()) ? G20Rent.cache() : null; } catch(e){}
+    if (!serie || serie.length < 2) return serie;
+
+    var snap = [];
+    try { snap = (window._patSnapLoad ? _patSnapLoad() : []); } catch(e){}
+    if (!snap.length) return serie;
+
+    var u = snap[snap.length-1];
+    if (!(u && u.rvVivo > 0)) return serie;          // sem cotação ao vivo
+
+    var ultSerie = serie[serie.length-1];
+    var rfUsar = (u.rfVivo > 0) ? u.rfVivo : (ultSerie.rf || 0);
+    var patVivo = u.rvVivo + rfUsar;
+    if (!(patVivo > 0)) return serie;
+
+    // Mesmo dia? substitui. Dia novo? anexa.
+    var copia = serie.slice();
+    var pontoVivo = { d: u.d, patrimonio: patVivo, fluxo: 0,
+                      rv: u.rvVivo, rf: rfUsar, aoVivo: true };
+    if (ultSerie.d === u.d) copia[copia.length-1] = pontoVivo;
+    else copia.push(pontoVivo);
+    return copia;
+  }
+  window._v21SerieComVivo = _v21SerieComVivo;
+
   function _v21CalcRentPorData(snap, inicioStr) {
     // ── CAMINHO DIRETO: quando existe a série real do motor, ela é a ÚNICA fonte.
     // Os snapshots (g20_patSnapshots) são ignorados por completo aqui — eles são gravados
@@ -10985,8 +11063,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     // patrimônio total anexado sobre a série real gerava "+106% hoje"). Calculando direto
     // da série, nenhum desses efeitos colaterais alcança os percentuais.
     try {
-      if (window.G20Rent && G20Rent.cache()) {
-        var _serie = G20Rent.cache();
+      var _serie = _v21SerieComVivo();
+      if (_serie && _serie.length >= 2) {
         var _pct = _v21TwrDesde(_serie, inicioStr);
         if (_pct !== null && isFinite(_pct)) {
           // Variação absoluta em R$, coerente com a mesma série
@@ -11161,8 +11239,9 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var totPct = inicioTot.t > 0 ? (totAbs / inicioTot.t) * 100 : 0;
       // Série real (TWR desde o início) tem prioridade
       try {
-        if (window.G20Rent && G20Rent.cache() && typeof _v21TwrDesde === 'function') {
-          var _sT = G20Rent.cache();
+        var _sTv = (typeof _v21SerieComVivo === 'function') ? _v21SerieComVivo() : null;
+        if (_sTv && _sTv.length >= 2 && typeof _v21TwrDesde === 'function') {
+          var _sT = _sTv;
           var _rt = _v21TwrDesde(_sT, _sT[0].d);
           if (_rt !== null && isFinite(_rt)) totPct = _rt;
         }
@@ -11206,8 +11285,9 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   function calcRentRange(snap, period) {
     // CAMINHO DIRETO: série real do motor é a única fonte (mesma lógica de _v21CalcRentPorData).
     try {
-      if (window.G20Rent && G20Rent.cache() && typeof _v21TwrDesde === 'function') {
-        var _sr = G20Rent.cache();
+      var _srv = (typeof _v21SerieComVivo === 'function') ? _v21SerieComVivo() : null;
+      if (_srv && _srv.length >= 2 && typeof _v21TwrDesde === 'function') {
+        var _sr = _srv;
         var _hj = new Date();
         var _ini = new Date(_hj);
         if (period === '1m') _ini.setMonth(_ini.getMonth() - 1);
@@ -14871,7 +14951,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   console.log('%c[G20 v21] Topbar DEFINITIVO — margin-left: auto no .topbar-right', 'color:#c9a961;font-weight:bold;font-size:14px');
-  window.G20_BUILD = '2026-07-24-R172';
+  window.G20_BUILD = '2026-07-24-R175';
   console.log('%c[G20 v21] BUILD ' + window.G20_BUILD + ' — se este número não mudar após subir um arquivo novo, o Service Worker está servindo cache antigo (F5 normal usa o cache; Ctrl+Shift+R ignora).', 'color:#4ade80;font-weight:bold;font-size:13px');
 
   // ════════════════════════════════════════════════════════
