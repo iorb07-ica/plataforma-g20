@@ -6773,7 +6773,7 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
     <div class="v21-hero-row">
 
       <!-- CARD 1: GESTÃO PATRIMONIAL (com sparkline) -->
-      <div class="v21-card v21-card-gp" id="v21CardGP" onclick="if(!event.target.closest('.v21-gp-filter')) window.location.href='gestao-patrimonial.html'" style="cursor:pointer">
+      <div class="v21-card v21-card-gp" id="v21CardGP">
         <div class="v21-card-label" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
           <span style="display:flex;align-items:center;gap:6px"><i data-lucide="briefcase"></i>Gestão Patrimonial</span>
 
@@ -9023,6 +9023,13 @@ function _patSnapUpsert(total,rf,rv){
   // ── SEM SÉRIE REAL: mantém a estimativa (congelada na sessão) ──────────────
   if (window._g20HistPronto && arr.length >= 2) {
     var _ultimo = arr[arr.length-1];
+    // BLINDAGEM (mesma do bloco abaixo, que faltava aqui):
+    // Se o último ponto veio da série REAL, ele NÃO pode ser sobrescrito com os
+    // valores ao vivo. O `total` recebido aqui inclui bens patrimoniais, enquanto
+    // a série real é só RV+RF. Gravar um em cima do outro deixa o último ponto
+    // numa base diferente de todos os anteriores — era isso que criava o "risco"
+    // vertical no fim do sparkline e a variação absurda de "hoje".
+    if (_ultimo && _ultimo.real) return;
     if (_ultimo && _ultimo.d === hoje) { _ultimo.t = total; _ultimo.rf = rf; _ultimo.rv = rv; }
     else arr.push({ d: hoje, t: total, rf: rf, rv: rv,
                     c: (_ultimo ? _ultimo.c * _cdiDaily() : 100) });
@@ -10238,17 +10245,18 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   }
 
   // ==================== CARD 1 — GP + SPARKLINE ====================
-  function v21DrawSparkline(snapshots, modo) {
+  function v21DrawSparkline(snapshots, modo, bens) {
     var container = getEl('v21-gp-sparkline');
     if (!container || !snapshots || snapshots.length < 2) return;
 
     if (!modo) { try { modo = v21GpMode(); } catch(e){ modo = 'rvrf'; } }
+    if (bens === undefined) { try { bens = _gpBensLiquidos(); } catch(e){ bens = 0; } }
 
     // Pega últimos 60 pontos (ou todos se menos)
     var pts = snapshots.slice(-Math.min(snapshots.length, 60));
     // Usa a MESMA composição do valor exibido — senão o gráfico conta
     // uma história diferente do número logo acima dele.
-    var vals = pts.map(function(s){ return _gpValorDoSnap(s, modo); }).filter(function(v){ return v > 0; });
+    var vals = pts.map(function(s){ return _gpValorDoSnap(s, modo, bens); }).filter(function(v){ return v > 0; });
     if (vals.length < 2) return;
 
     var minV = Math.min.apply(null, vals);
@@ -10323,20 +10331,33 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   // qualquer outro escopo precisam poder redesenhar o card GP.
   window.v21LoadGP = v21LoadGP;
 
+  /* Bens patrimoniais LÍQUIDOS (valor − dívida), valor atual.
+     A série histórica reconstruída (G20Rent) cobre apenas RV+RF — um
+     imóvel não tem cotação diária. Então os bens entram como um offset
+     constante no modo "total", em vez de virem do snapshot. Isso mantém
+     todos os quatro modos na MESMA base e elimina a descontinuidade que
+     aparecia como um salto vertical no fim do gráfico. */
+  function _gpBensLiquidos(){
+    try {
+      var b = JSON.parse(localStorage.getItem('g20_patrimonioBens')||'[]');
+      if (!Array.isArray(b)) return 0;
+      return b.reduce(function(s,x){ return s + (parseFloat(x.valor)||0) - (parseFloat(x.divida)||0); }, 0);
+    } catch(e){ return 0; }
+  }
+
   /* Extrai o valor do snapshot conforme o modo.
-     O snapshot guarda t (total), rv e rf — bens = t - rv - rf. */
-  function _gpValorDoSnap(s, modo){
+     Sempre parte de rv/rf (base consistente em toda a série). O campo t
+     só é usado como último recurso, para snapshots antigos sem rv/rf. */
+  function _gpValorDoSnap(s, modo, bens){
     if (!s) return 0;
     var t  = s.t  || 0;
     var rv = s.rv || 0;
     var rf = s.rf || 0;
     if (modo === 'rv') return rv;
     if (modo === 'rf') return rf;
-    if (modo === 'total') return t;
-    // rvrf (padrão): se a série real já é só RV+RF, rv+rf ≈ t.
-    // Somar os componentes é mais seguro que subtrair bens do total.
-    var soma = rv + rf;
-    return soma > 0 ? soma : t;
+    var base = (rv + rf) > 0 ? (rv + rf) : t;
+    if (modo === 'total') return base + (bens || 0);
+    return base;   // rvrf (padrão)
   }
 
   function v21LoadGP() {
@@ -10346,14 +10367,15 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       if (snap.length === 0) return;
 
       var modo = v21GpMode();
+      var bens = _gpBensLiquidos();   // offset constante, só usado no modo 'total'
       var ultimo = snap[snap.length - 1];
-      var valor = _gpValorDoSnap(ultimo, modo);
+      var valor = _gpValorDoSnap(ultimo, modo, bens);
       var gpVal = getEl('v21-gp-value');
       if (gpVal) gpVal.textContent = fmtBRL(valor);
 
       // Variação hoje (mesma composição, pra não misturar bases)
       if (snap.length >= 2) {
-        var anterior = _gpValorDoSnap(snap[snap.length - 2], modo) || valor;
+        var anterior = _gpValorDoSnap(snap[snap.length - 2], modo, bens) || valor;
         var delta = valor - anterior;
         var pct = anterior > 0 ? (delta / anterior) * 100 : 0;
         var pillHTML = '';
@@ -10391,7 +10413,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       setText('v21-gp-composition', compParts.join(' + ') || GP_MODES[modo].sub);
 
       // Sparkline na mesma composição
-      v21DrawSparkline(snap, modo);
+      v21DrawSparkline(snap, modo, bens);
 
     } catch(e) { console.warn('[v21] GP:', e); }
   }
@@ -15215,26 +15237,36 @@ html body .topbar {
     try { return 'R$ ' + Number(v).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0}); }
     catch(e){ return 'R$ ' + Math.round(v); }
   }
-  function _valorDoSnap(s, modo){
+  function _bensLiqLocal(){
+    try {
+      var b = JSON.parse(localStorage.getItem('g20_patrimonioBens')||'[]');
+      if (!Array.isArray(b)) return 0;
+      return b.reduce(function(s,x){ return s + (parseFloat(x.valor)||0) - (parseFloat(x.divida)||0); }, 0);
+    } catch(e){ return 0; }
+  }
+  // Mesma base do renderizador principal: parte sempre de rv/rf e soma
+  // os bens como offset constante no modo 'total'.
+  function _valorDoSnap(s, modo, bens){
     if (!s) return 0;
     var t = s.t||0, rv = s.rv||0, rf = s.rf||0;
     if (modo === 'rv') return rv;
     if (modo === 'rf') return rf;
-    if (modo === 'total') return t;
-    var soma = rv + rf;
-    return soma > 0 ? soma : t;
+    var base = (rv + rf) > 0 ? (rv + rf) : t;
+    if (modo === 'total') return base + (bens||0);
+    return base;
   }
   function _renderGpLocal(modo){
     var snap = [];
     try { snap = JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]'); } catch(e){}
     if (!snap.length) return false;
 
-    var valor = _valorDoSnap(snap[snap.length-1], modo);
+    var bens = _bensLiqLocal();
+    var valor = _valorDoSnap(snap[snap.length-1], modo, bens);
     var el = document.getElementById('v21-gp-value');
     if (el) el.textContent = _fmtBRLlocal(valor);
 
     if (snap.length >= 2) {
-      var ant = _valorDoSnap(snap[snap.length-2], modo) || valor;
+      var ant = _valorDoSnap(snap[snap.length-2], modo, bens) || valor;
       var delta = valor - ant;
       var pct = ant > 0 ? (delta/ant)*100 : 0;
       var chg = document.getElementById('v21-gp-change');
