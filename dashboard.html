@@ -9979,66 +9979,27 @@ window.g20Logout = function() {
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function() {
         /* ═══════════════════════════════════════════════════════════
-           REGISTRO DO SERVICE WORKER — com atualização forçada
+           REGISTRO DO SERVICE WORKER
 
-           PROBLEMA QUE ISTO RESOLVE:
-           O registro anterior era "registre e esqueça". O SW instalado
-           continuava servindo a versão em cache indefinidamente, então
-           um reload normal (F5) entregava o dashboard ANTIGO, enquanto
-           Ctrl+Shift+R (que ignora o SW) entregava o novo. Daí números
-           e gráficos diferentes entre um e outro.
+           O sw.js desta plataforma é TRANSPARENTE: não tem listener de
+           'fetch', portanto não intercepta nem armazena nada. Ele existe
+           só para viabilizar o PWA. Consequência importante: ele NÃO
+           pode servir versão antiga do dashboard — se a página parecer
+           desatualizada, a causa está no cache HTTP do navegador ou no
+           CDN do GitHub Pages, não aqui.
 
-           Agora: o sw.js nunca vem do cache HTTP, checamos atualização
-           a cada carga, e quando uma versão nova é detectada pedimos
-           que ela assuma imediatamente e recarregamos a página uma vez.
+           Por isso este registro é deliberadamente simples. Em especial,
+           NÃO se recarrega a página em 'controllerchange': como o sw.js
+           faz skipWaiting() + clients.claim(), o controlador troca já na
+           primeira instalação, e recarregar ali provocaria um reload
+           inesperado a cada visita nova.
            ═══════════════════════════════════════════════════════════ */
         navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
           .then(function(reg) {
             console.log('SW registrado:', reg.scope);
-
-            // Força checagem de nova versão a cada carregamento
             try { reg.update(); } catch(e){}
-
-            function assumir(sw){
-              if (!sw) return;
-              // Pede ao SW novo que pule a fase "waiting". Só funciona se o
-              // sw.js tratar esta mensagem — se não tratar, ele assume quando
-              // todas as abas forem fechadas.
-              try { sw.postMessage({ type: 'SKIP_WAITING' }); } catch(e){}
-              try { sw.postMessage('SKIP_WAITING'); } catch(e){}
-            }
-
-            // Já existe uma versão nova parada esperando?
-            if (reg.waiting) {
-              console.log('%c[SW] versão nova aguardando — ativando', 'color:#e8b84b;font-weight:bold');
-              assumir(reg.waiting);
-            }
-
-            reg.addEventListener('updatefound', function(){
-              var novoSW = reg.installing;
-              if (!novoSW) return;
-              novoSW.addEventListener('statechange', function(){
-                if (novoSW.state === 'installed' && navigator.serviceWorker.controller) {
-                  console.log('%c[SW] nova versão instalada — ativando', 'color:#e8b84b;font-weight:bold');
-                  assumir(novoSW);
-                }
-              });
-            });
-
-            // Revalida periodicamente (aba aberta por muito tempo)
-            setInterval(function(){ try { reg.update(); } catch(e){} }, 15 * 60 * 1000);
           })
           .catch(function(e) { console.warn('SW erro:', e); });
-
-        // Quando o SW novo assume o controle, recarrega UMA vez para que a
-        // página passe a rodar os arquivos da versão nova.
-        var _swRecarregando = false;
-        navigator.serviceWorker.addEventListener('controllerchange', function(){
-          if (_swRecarregando) return;
-          _swRecarregando = true;
-          console.log('%c[SW] novo controlador ativo — recarregando', 'color:#4ade80;font-weight:bold');
-          window.location.reload();
-        });
       });
     }
   </script>
