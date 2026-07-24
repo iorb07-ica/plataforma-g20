@@ -644,6 +644,60 @@ body.light .netpub-toggle{ background:#fff; border-color:rgba(20,40,80,.16) }
 body.light .netpub-toggle-txt strong{ color:#0e1626 }
 body.light .netpub-toggle-txt small{ color:#4a5468 }
 
+
+/* ═══════════════════════════════════════════════════════════════════════
+   FIM DO SCROLL — sessão 50.0
+   Causa raiz: um <div style="height:80px"> herdado do layout mobile (folga
+   para a barra de salvar fixa) continuava valendo no desktop. Somado ao
+   .content com height:calc(100vh - 57px), o total passava da viewport e o
+   navegador criava barra de rolagem em TODAS as abas.
+   Aqui ele some no desktop, junto com o aviso duplicado do topo — o banner
+   dourado já diz a mesma coisa, com mais informação.
+   ═══════════════════════════════════════════════════════════════════════ */
+@media(min-width:768px){
+  .mobile-save-spacer{ display:none }
+  .required-notice{ display:none }
+  html, body{ overflow:hidden }
+  .perfil-hero-sticky{ padding:10px 32px }
+  .perfil-hero-sticky .avatar-big{ width:68px; height:68px }
+  .perfil-hero-sticky .avatar-wrap{ flex-shrink:0 }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   NEGÓCIO + CATEGORIA — mesma largura, mesmo topo
+   ═══════════════════════════════════════════════════════════════════════ */
+.netpub-fields{ grid-template-columns:1fr 1fr; gap:20px; align-items:start }
+.netpub-fields .field{ min-width:0 }
+.netpub-fields .field textarea{ min-height:88px }
+.netpub-fields .field select{ width:100% }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   CHIPS DE SUGESTÃO — Hobbies e Leituras
+   Clicar preenche o campo de texto abaixo. O texto continua editável:
+   os chips só acendem conforme o que estiver escrito.
+   ═══════════════════════════════════════════════════════════════════════ */
+.chips{ display:flex; flex-wrap:wrap; gap:7px; margin-bottom:2px }
+.chip{
+  font-family:'DM Sans',sans-serif; font-size:12.5px; font-weight:500;
+  padding:7px 13px; border-radius:20px; cursor:pointer;
+  background:#1e1d26; color:#b8c2d4;
+  border:1px solid rgba(232,184,75,.18);
+  transition:background .15s, border-color .15s, color .15s, transform .12s;
+  line-height:1.2;
+}
+.chip:hover{ background:#282734; border-color:rgba(232,184,75,.45); color:#f2f4f8 }
+.chip:active{ transform:scale(.97) }
+.chip.on{
+  background:linear-gradient(135deg, rgba(232,184,75,.22), rgba(200,148,58,.14));
+  border-color:var(--gold); color:#f6e3b4; font-weight:600;
+}
+.chip.on::before{ content:'✓ '; color:var(--gold); font-weight:700 }
+.chip:focus-visible{ outline:2px solid var(--gold); outline-offset:2px }
+
+body.light .chip{ background:#fff; color:#3d465c; border-color:rgba(20,40,80,.16) }
+body.light .chip:hover{ background:#fdfdfe; border-color:rgba(200,148,58,.55); color:#0e1626 }
+body.light .chip.on{ background:rgba(200,148,58,.14); border-color:#c8943a; color:#7a5a12 }
+
 </style>
 <link rel="stylesheet" href="assets/g20-topbar.css?v=10">
 <link rel="stylesheet" href="assets/g20-sidebar.css?v=10">
@@ -1326,11 +1380,15 @@ if(localStorage.getItem('g20_uid')){
         <div class="fields-grid">
           <div class="field full">
             <label>Hobbies e atividades favoritas</label>
-            <input type="text" id="f-hobbies" placeholder="Ex: Corrida, leitura, viagens, culinária, esportes...">
+            <div class="chips" id="chipsHobbies"></div>
+            <input type="text" id="f-hobbies" placeholder="Clique nas sugestões acima ou escreva as suas, separadas por vírgula">
+            <div class="field-hint">Escolha quantas quiser. O que não estiver na lista, é só digitar aqui.</div>
           </div>
           <div class="field full">
             <label>Livros / podcasts / cursos favoritos</label>
-            <input type="text" id="f-favoritos" placeholder="Ex: Pai Rico Pai Pobre, How I Built This, Curso de opções...">
+            <div class="chips" id="chipsFavoritos"></div>
+            <input type="text" id="f-favoritos" placeholder="Clique nas sugestões acima ou escreva os seus, separados por vírgula">
+            <div class="field-hint">Vale livro, podcast, curso ou canal. Some os seus aos da lista.</div>
           </div>
         </div>
       </div>
@@ -1450,7 +1508,7 @@ if(localStorage.getItem('g20_uid')){
 
     </div><!-- /perfil-tab-content -->
 
-    <div style="height:80px"></div>
+    <div class="mobile-save-spacer" style="height:80px"></div>
   </div>
 </div>
 
@@ -2324,8 +2382,71 @@ function dicaSobreMim(){
   }
 })();
 
+/* ═══════════════════════════════════════════════════════════════
+   SUGESTÕES CLICÁVEIS — Hobbies e Leituras (sessão 50.0)
+   O campo de texto continua sendo a única fonte da verdade: os chips
+   apenas somam ou removem termos da lista separada por vírgula. Assim
+   o salvamento e o carregamento não mudaram uma linha — e quem preferir
+   digitar do zero continua livre pra isso.
+   ═══════════════════════════════════════════════════════════════ */
+var SUG_HOBBIES = [
+  'Corrida','Musculação','Ciclismo','Futebol','Surf','Trilha e natureza',
+  'Leitura','Viagens','Culinária','Música','Games','Fotografia','Pesca','Poker'
+];
+var SUG_FAVORITOS = [
+  'G20Cast','Pai Rico, Pai Pobre','O Investidor Inteligente','Psicologia Financeira',
+  'Os Axiomas de Zurique','O Homem Mais Rico da Babilônia','Um Passo à Frente do Mercado',
+  'Ações Comuns, Lucros Extraordinários','O Jeito Warren Buffett de Investir',
+  'Do Mil ao Milhão','Segredos da Mente Milionária','Investindo em Ações no Longo Prazo'
+];
+
+/* Lê o campo como lista */
+function _lista(input){
+  return (input.value || '').split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+}
+/* Escreve a lista de volta no campo */
+function _gravaLista(input, arr){
+  input.value = arr.join(', ');
+  input.dispatchEvent(new Event('input', {bubbles:true}));
+}
+/* Marca visualmente os chips que já estão no texto */
+function _syncChips(box, input){
+  var atuais = _lista(input).map(function(s){ return s.toLowerCase(); });
+  box.querySelectorAll('.chip').forEach(function(c){
+    c.classList.toggle('on', atuais.indexOf(c.dataset.v.toLowerCase()) >= 0);
+  });
+}
+
+function montarChips(boxId, inputId, sugestoes){
+  var box = document.getElementById(boxId);
+  var input = document.getElementById(inputId);
+  if(!box || !input) return;
+
+  box.innerHTML = '';
+  sugestoes.forEach(function(txt){
+    var c = document.createElement('button');
+    c.type = 'button';
+    c.className = 'chip';
+    c.dataset.v = txt;
+    c.textContent = txt;
+    c.addEventListener('click', function(){
+      var arr = _lista(input);
+      var i = arr.map(function(s){ return s.toLowerCase(); }).indexOf(txt.toLowerCase());
+      if(i >= 0) arr.splice(i, 1); else arr.push(txt);
+      _gravaLista(input, arr);
+      _syncChips(box, input);
+    });
+    box.appendChild(c);
+  });
+
+  input.addEventListener('input', function(){ _syncChips(box, input); });
+  _syncChips(box, input);
+}
+
 /* Boot: banner + primeiro guia, depois que os dados do perfil carregarem */
 setTimeout(function(){
+  montarChips('chipsHobbies',   'f-hobbies',   SUG_HOBBIES);
+  montarChips('chipsFavoritos', 'f-favoritos', SUG_FAVORITOS);
   atualizarTabProgress();
   atualizarBannerObrigatorio();
   dicaSobreMim();
