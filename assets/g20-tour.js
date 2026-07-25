@@ -270,7 +270,21 @@
       e.hole.style.height = '0px';
     } else {
       var pad = (typeof p.pad === 'number') ? p.pad : 8;
-      var r = S.alvo.getBoundingClientRect();
+      var r;
+      if (S.alvosMulti && S.alvosMulti.length > 1) {
+        // Retângulo que engloba todos os alvos (ex.: os 3 gráficos)
+        var top = Infinity, left = Infinity, right = -Infinity, bottom = -Infinity;
+        S.alvosMulti.forEach(function(el){
+          var b = el.getBoundingClientRect();
+          if (b.top < top) top = b.top;
+          if (b.left < left) left = b.left;
+          if (b.right > right) right = b.right;
+          if (b.bottom > bottom) bottom = b.bottom;
+        });
+        r = { top: top, left: left, width: right - left, height: bottom - top };
+      } else {
+        r = S.alvo.getBoundingClientRect();
+      }
       e.hole.classList.remove('is-empty');
       e.hole.style.top = (r.top - pad) + 'px';
       e.hole.style.left = (r.left - pad) + 'px';
@@ -361,6 +375,13 @@
 
     var p = S.steps[i], e = S.els;
     S.alvo = p.el ? q(p.el) : null;
+    // Suporte a múltiplos alvos: p.els = ['#a','#b','#c'] ilumina o retângulo
+    // que engloba todos (ex.: os 3 gráficos juntos, sem pegar o vizinho).
+    S.alvosMulti = null;
+    if (p.els && p.els.length) {
+      var _els = p.els.map(function(sel){ return q(sel); }).filter(Boolean);
+      if (_els.length) { S.alvosMulti = _els; S.alvo = _els[0]; }
+    }
     var passoUnico = (S.steps.length === 1);
 
     // Reset imediato do spotlight: evita que o buraco do passo anterior

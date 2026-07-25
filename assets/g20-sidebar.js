@@ -726,12 +726,12 @@
       { href: 'atlas.html',              ico: '🌍', lucide: 'globe',            label: 'Atlas G20',      id: 'tut-atlas'  }
     ]},
     { section: 'Planejamento', cls: 'nav-section--planejamento', items: [
-      { href: 'gestao-financeira.html', ico: '🧾', lucide: 'wallet',           label: 'Gestão Financeira', id: '' }
+      { href: 'gestao-financeira.html', ico: '🧾', lucide: 'wallet',           label: 'Gestão Financeira', id: 'tut-gestao-fin' }
     ]},
     { section: 'Comunidade', cls: 'nav-section--comunidade', items: [
-      { href: 'consultoria.html',         ico: '👨\u200d💻', lucide: 'user-round',   label: 'Consultoria',    id: '' },
+      { href: 'consultoria.html',         ico: '👨\u200d💻', lucide: 'user-round',   label: 'Consultoria',    id: 'tut-consultoria' },
       { href: 'arena.html',               ico: '💬', lucide: 'message-circle',  label: 'Arena G20',      id: 'tut-arena' },
-      { href: 'networking.html',          ico: '🤝', lucide: 'users',           label: 'Networking',     id: '' }
+      { href: 'networking.html',          ico: '🤝', lucide: 'users',           label: 'Networking',     id: 'tut-networking' }
     ]}
   ];
 
