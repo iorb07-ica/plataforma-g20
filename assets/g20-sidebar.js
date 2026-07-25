@@ -730,7 +730,7 @@
     ]},
     { section: 'Comunidade', cls: 'nav-section--comunidade', items: [
       { href: 'consultoria.html',         ico: '👨\u200d💻', lucide: 'user-round',   label: 'Consultoria',    id: '' },
-      { href: 'arena.html',               ico: '💬', lucide: 'message-circle',  label: 'Arena G20',      id: '' },
+      { href: 'arena.html',               ico: '💬', lucide: 'message-circle',  label: 'Arena G20',      id: 'tut-arena' },
       { href: 'networking.html',          ico: '🤝', lucide: 'users',           label: 'Networking',     id: '' }
     ]}
   ];

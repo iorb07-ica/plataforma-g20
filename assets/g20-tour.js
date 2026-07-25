@@ -389,10 +389,22 @@
     e.count.style.display = passoUnico ? 'none' : '';
     e.bar.parentNode.style.display = passoUnico ? 'none' : '';
 
-    e.count.textContent = 'Passo ' + (i + 1) + ' de ' + S.steps.length;
+    // Passos marcados intro:true (boas-vindas) NÃO entram na contagem.
+    // "Passo X de Y" conta apenas os passos reais.
+    var totalReais = S.steps.filter(function(s){ return !s.intro; }).length;
+    if (p.intro) {
+      e.count.style.display = 'none';
+      e.bar.style.width = '0%';
+    } else {
+      e.count.style.display = passoUnico ? 'none' : '';
+      // posição do passo atual dentro dos passos reais
+      var posReal = 0;
+      for (var _j = 0; _j <= i; _j++) { if (!S.steps[_j].intro) posReal++; }
+      e.count.textContent = 'Passo ' + posReal + ' de ' + totalReais;
+      e.bar.style.width = Math.round((posReal / totalReais) * 100) + '%';
+    }
     e.titulo.textContent = p.titulo || '';
     e.texto.innerHTML = p.texto || '';
-    e.bar.style.width = Math.round(((i + 1) / S.steps.length) * 100) + '%';
     e.back.style.display = (i === 0) ? 'none' : '';
     e.next.textContent = (i === S.steps.length - 1) ? 'Começar' : 'Próximo';
     e.skip.style.display = (i === S.steps.length - 1) ? 'none' : '';
@@ -512,7 +524,13 @@
     // 3) Confere no Firestore — cobre troca de dispositivo/navegador.
     lerRemoto(cfg.id).then(function (remoto) {
       if (remoto >= v) { gravarLocal(cfg.id, remoto); return; }
-      esperarPronto(function () { start(cfg); }, cfg.atraso);
+      esperarPronto(function () {
+        // Grava "já viu" ASSIM QUE ABRE (não só ao concluir): se o aluno der
+        // F5 no meio do tour, ele não volta a aparecer. O botão "?" rever tudo.
+        gravarLocal(cfg.id, v);
+        gravarRemoto(cfg.id, v);
+        start(cfg);
+      }, cfg.atraso);
     });
   }
 
