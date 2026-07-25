@@ -20,6 +20,7 @@
 <link rel="stylesheet" href="assets/g20-scrollbar.css?v=10">
 <link rel="stylesheet" href="assets/g20-search.css?v=10">
 <link rel="stylesheet" href="assets/g20-topbar-v21.css?v=13">
+<script src="assets/g20-store.js?v=1"></script>
 <script src="assets/g20-notifications.js?v=10"></script>
 <script>
 
@@ -9152,9 +9153,13 @@ function loadPatStrip(){
         // silenciosamente. Sem isso, cache() devolvia null e TODOS os painéis caíam no
         // cálculo antigo (via snapshots), exibindo percentuais errados.
         API._serieMem = serie;
+        // A série é o maior consumidor de cota — vai pro IndexedDB (centenas
+        // de MB) em vez do localStorage (~5MB). A memória cobre o uso síncrono
+        // desta sessão; o IndexedDB persiste para as próximas sem estourar.
         try {
-          localStorage.setItem(SERIE_KEY, JSON.stringify({ at: Date.now(), serie: serie }));
-        } catch (e) { console.warn('[G20Rent] série não coube no localStorage — usando memória'); }
+          if (window.G20Store) G20Store.set(SERIE_KEY, { at: Date.now(), serie: serie });
+          else localStorage.setItem(SERIE_KEY, JSON.stringify({ at: Date.now(), serie: serie }));
+        } catch (e) { console.warn('[G20Rent] série: falha ao persistir — usando memória'); }
         return serie;
       });
     },
@@ -9227,6 +9232,7 @@ function loadPatStrip(){
     invalidar: function () {
       API._serieMem = null;
       try { localStorage.removeItem(SERIE_KEY); } catch (e) {}
+      try { if (window.G20Store) G20Store.del(SERIE_KEY); } catch (e) {}
       try { window._g20HistPronto = false; } catch (e) {}
       console.log('[G20Rent] cache da série invalidado — será reconstruída.');
     },
@@ -9245,6 +9251,18 @@ function loadPatStrip(){
   };
 
   global.G20Rent = API;
+
+  // Pré-carrega a série do IndexedDB para a memória, assim o código síncrono
+  // (cache()) já a encontra sem depender do localStorage. Roda uma vez no boot.
+  try {
+    if (window.G20Store) {
+      G20Store.get(SERIE_KEY).then(function (c) {
+        if (c && c.at && (Date.now() - c.at) < SERIE_TTL && c.serie && c.serie.length >= 2) {
+          if (!API._serieMem) { API._serieMem = c.serie; try { window._g20HistPronto = true; } catch(e){} }
+        }
+      }).catch(function(){});
+    }
+  } catch (e) {}
 })(typeof window !== 'undefined' ? window : this);
 
 
@@ -16261,8 +16279,9 @@ html body .topbar {
 <script>
 (function(){
   var PASSOS = [
-    // ─── Abertura ───
+    // ─── Abertura (não numerada) ───
     {
+      intro: true,
       titulo: 'Bem-vindo à Plataforma G20',
       texto: 'Você completou seu perfil — agora a plataforma é toda sua. ' +
              'Em 20 passos eu te mostro o essencial. Pode pular e rever depois no ícone <b>?</b> lá em cima.'
@@ -16346,6 +16365,12 @@ html body .topbar {
       texto: 'Consultoria individual comigo, com agendamento por aqui, e o <b>Networking</b> pra se conectar com a turma.'
     },
     {
+      el: '#tut-arena', pos: 'right', skipMobile: true,
+      titulo: 'Arena G20',
+      texto: 'O fórum da comunidade: debata ideias, tire dúvidas, compartilhe análises e interaja com a turma toda. ' +
+             'É onde a conversa acontece o dia inteiro — pergunte à vontade, ninguém aprende sozinho.'
+    },
+    {
       el: '.btn-menu', pos: 'bottom', mobileOnly: true,
       titulo: 'O menu fica aqui',
       texto: 'No celular, todas as seções ficam dentro deste botão: aulas, vídeos, podcast, carteiras e comunidade.'
@@ -16378,7 +16403,8 @@ html body .topbar {
       titulo: 'Seu perfil, sempre vivo',
       texto: 'Aqui você <b>edita e mantém tudo atualizado</b> — dados, empresa, o que oferece. ' +
              'É o que te conecta a amizades e negócios no Networking, e o que me permite te orientar de forma mais certeira. ' +
-             'Volte sempre que algo mudar. <b>#nãofoisorte</b>'
+             'Este tour fica guardado no <b>?</b> lá no topo — clique quando quiser rever. ' +
+             'Agora é com você. <b>#nãofoisorte</b>'
     }
   ];
 
