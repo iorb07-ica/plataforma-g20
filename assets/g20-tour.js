@@ -70,7 +70,7 @@
       'body.light .g20t-hole{box-shadow:0 0 0 9999px rgba(10,16,30,.62),0 0 0 2px rgba(200,148,58,.9),0 0 34px rgba(232,184,75,.25)}',
       'body.light .g20t-hole.is-empty{box-shadow:0 0 0 9999px rgba(10,16,30,.7)}',
 
-      '.g20t-tip{position:fixed;z-index:99992;width:360px;max-width:calc(100vw - 28px);',
+      '.g20t-tip{position:fixed;z-index:99992;width:396px;max-width:calc(100vw - 28px);',
       'background:var(--surface,#171b23);border:1px solid rgba(232,184,75,.30);border-radius:16px;',
       'box-shadow:0 28px 70px rgba(0,0,0,.62),0 2px 0 rgba(255,255,255,.04) inset;',
       'padding:0;overflow:hidden;opacity:0;transform:translateY(8px);',
@@ -82,8 +82,8 @@
       '.g20t-bar i{display:block;height:100%;background:linear-gradient(90deg,#c8943a,#e8b84b);transition:width .3s ease}',
       '.g20t-body{padding:18px 20px 6px}',
       '.g20t-count{font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:#c9a961;margin-bottom:8px}',
-      '.g20t-titulo{font-family:"Bebas Neue","DM Sans",sans-serif;font-size:24px;letter-spacing:.8px;line-height:1.05;color:var(--text,#eef0f4);margin-bottom:8px}',
-      '.g20t-texto{font-size:13.5px;line-height:1.58;color:var(--text2,#9aa5b8)}',
+      '.g20t-titulo{font-family:"Bebas Neue","DM Sans",sans-serif;font-size:26px;letter-spacing:.8px;line-height:1.05;color:var(--text,#eef0f4);margin-bottom:9px}',
+      '.g20t-texto{font-size:14.5px;line-height:1.6;color:var(--text2,#9aa5b8)}',
       '.g20t-texto b,.g20t-texto strong{color:var(--text,#eef0f4);font-weight:600}',
 
       '.g20t-foot{display:flex;align-items:center;gap:8px;padding:14px 20px 18px}',
@@ -373,9 +373,11 @@
     e.tip.classList.remove('is-in');
     e.arrow.classList.remove('is-in');
 
-    // Modo "grande" com foto do autor (usado nos guias do perfil)
+    // Modo "grande": usado nos guias do perfil (cfg.grande) e no passo de
+    // boas-vindas (intro:true), pra dar impacto na abertura.
     var temAvatar = !!(S.cfg && S.cfg.avatar);
-    e.tip.classList.toggle('g20t-tip--grande', !!(S.cfg && S.cfg.grande));
+    var ehGrande = !!(S.cfg && S.cfg.grande) || !!p.intro;
+    e.tip.classList.toggle('g20t-tip--grande', ehGrande);
     e.tip.classList.toggle('g20t-tip--autor', temAvatar);
     if (temAvatar) {
       e.avatar.src = S.cfg.avatar;
