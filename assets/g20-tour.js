@@ -115,20 +115,20 @@
       '.g20t-help{display:inline-flex;align-items:center;justify-content:center}',
 
       /* ── Modo GRANDE com foto do autor (guias do perfil) ── */
-      '.g20t-author{display:none;align-items:center;gap:11px;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid rgba(232,184,75,.16)}',
-      '.g20t-avatar{width:52px;height:52px;border-radius:50%;object-fit:cover;border:2px solid #e8b84b;box-shadow:0 4px 14px rgba(232,184,75,.28);flex-shrink:0}',
-      '.g20t-author-name{font-family:"DM Sans",sans-serif;font-size:15px;font-weight:700;color:var(--text,#eef0f4)}',
-      '.g20t-author-name::after{content:" · G20 Masterclass";font-weight:500;color:#c9a961;font-size:12.5px}',
+      '.g20t-author{display:none;align-items:center;gap:13px;margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid rgba(232,184,75,.16)}',
+      '.g20t-avatar{width:60px;height:60px;border-radius:50%;object-fit:cover;border:2px solid #e8b84b;box-shadow:0 4px 14px rgba(232,184,75,.28);flex-shrink:0}',
+      '.g20t-author-name{font-family:"DM Sans",sans-serif;font-size:16px;font-weight:700;color:var(--text,#eef0f4)}',
+      '.g20t-author-name::after{content:" · G20 Masterclass";font-weight:500;color:#c9a961;font-size:13px}',
       '.g20t-tip--autor .g20t-author{display:flex}',
 
-      '.g20t-tip--grande{width:480px}',
-      '.g20t-tip--grande .g20t-body{padding:22px 26px 8px}',
-      '.g20t-tip--grande .g20t-titulo{font-size:30px;margin-bottom:12px}',
-      '.g20t-tip--grande .g20t-texto{font-size:16px;line-height:1.65}',
-      '.g20t-tip--grande .g20t-foot{padding:16px 26px 22px}',
-      '.g20t-tip--grande .g20t-next{font-size:15px;padding:12px 26px}',
+      '.g20t-tip--grande{width:540px}',
+      '.g20t-tip--grande .g20t-body{padding:26px 30px 10px}',
+      '.g20t-tip--grande .g20t-titulo{font-size:34px;margin-bottom:14px}',
+      '.g20t-tip--grande .g20t-texto{font-size:17px;line-height:1.7}',
+      '.g20t-tip--grande .g20t-foot{padding:18px 30px 24px}',
+      '.g20t-tip--grande .g20t-next{font-size:16px;padding:14px 30px}',
       '.g20t-tip--grande .g20t-skip{font-size:14px}',
-      '@media(max-width:768px){.g20t-tip--grande{width:auto}.g20t-tip--grande .g20t-titulo{font-size:26px}.g20t-tip--grande .g20t-texto{font-size:15px}}',
+      '@media(max-width:768px){.g20t-tip--grande{width:auto}.g20t-tip--grande .g20t-titulo{font-size:27px}.g20t-tip--grande .g20t-texto{font-size:16px}}',
 
       '@media(prefers-reduced-motion:reduce){.g20t-hole,.g20t-tip,.g20t-arrow{transition:none!important}}'
     ].join('');
@@ -362,6 +362,13 @@
     var p = S.steps[i], e = S.els;
     S.alvo = p.el ? q(p.el) : null;
     var passoUnico = (S.steps.length === 1);
+
+    // Reset imediato do spotlight: evita que o buraco do passo anterior
+    // "escorregue" e apareça sob o balão do passo atual (bug do 1º disparo).
+    if (!S.alvo && e.hole) {
+      e.hole.classList.add('is-empty');
+      e.hole.style.width = '0px'; e.hole.style.height = '0px';
+    }
 
     e.tip.classList.remove('is-in');
     e.arrow.classList.remove('is-in');
