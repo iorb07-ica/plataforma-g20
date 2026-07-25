@@ -2673,10 +2673,22 @@ body.pat-hidden .v21-change-extra::after{
     flex-direction: column;
     justify-content: center;
     min-width: 0;
-    /* R53: max-width 520px limita frases muito longas mas NÃO estica. Spacer do grid absorve sobra. */
-    max-width: 520px;
+    /* R51 (sessão 51.0): a coluna estava em 520px e quebrava frases famosas em
+       ponto ruim — a do Buffett ("...nunca se esqueça da regra nº 1.") deixava
+       um "1." órfão sozinho na 2ª linha. Agora a coluna cresce até 760px em
+       telas largas, com piso de 520px, e só cai pra 2ª linha quando realmente
+       precisa. O spacer 1fr do grid continua absorvendo a sobra. */
+    max-width: clamp(520px, 42vw, 760px);
     overflow: hidden;
     padding: 4px 0;
+  }
+  /* Em telas muito largas (>1700px) dá pra soltar mais ainda sem encostar nas pills */
+  @media (min-width: 1700px) {
+    .v21-page-quote-block { max-width: 880px; }
+  }
+  /* Entre 1100 e 1400px o espaço é curto: reduz um pouco a fonte em vez de cortar */
+  @media (max-width: 1400px) {
+    .v21-page-quote-block .v21-quote-text { font-size: 14px; }
   }
   .v21-page-quote-block .v21-quote-text {
     color: #d4cdbf;
@@ -2684,6 +2696,9 @@ body.pat-hidden .v21-change-extra::after{
     font-size: 15px;
     font-style: italic;
     line-height: 1.45;
+    /* R51: distribui o texto entre as linhas em vez de encher a 1ª e sobrar
+       uma palavra/número sozinho na 2ª. Onde não houver suporte, ignora. */
+    text-wrap: balance;
     overflow: hidden;
     text-overflow: ellipsis;
     display: -webkit-box;
@@ -2709,6 +2724,51 @@ body.pat-hidden .v21-change-extra::after{
     color: #7d6637;
     font-size: 12px;
     font-weight: 400;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     R51 — A FRASE GANHA LINHA PRÓPRIA ATÉ 1750px
+
+     Medido com navegador real (Chromium + DM Sans de verdade) em 11
+     resoluções. Descoberta: a coluna da frase NUNCA respeitava o max-width.
+     Ela dividia a linha com a saudação e as duas pills de mercado, e o grid
+     a espremia sem dó:
+
+       1366px (notebook 14")  -> coluna de apenas 259px -> 27 frases CORTADAS
+       1440px (MacBook Air)   -> 296px                  -> 19 frases CORTADAS
+       1512px (MacBook Pro)   -> 358px                  ->  7 frases CORTADAS
+       1600px                 -> 446px                  ->  1 frase  CORTADA
+
+     Mexer no max-width não resolvia nada nesses monitores — e é justamente
+     onde está a maior parte dos alunos. A solução não é apertar mais: é dar
+     uma linha só pra ela. Até 1750px a frase desce para a segunda linha do
+     header e ocupa a largura toda, com uma barra dourada à esquerda no lugar
+     do divider vertical. Acima de 1750px continua inline ao lado da saudação,
+     como no desenho original.
+
+     ESTE BLOCO PRECISA VIR DEPOIS das regras de max-width acima: media query
+     não aumenta especificidade, então a regra que vier por último é a que
+     vale. Se alguém mover isto pra cima, o max-width:none para de funcionar.
+     ══════════════════════════════════════════════════════════════════════ */
+  @media (min-width: 769px) and (max-width: 1750px) {
+    .v21-page-header {
+      grid-template-columns: auto 1fr auto;
+      row-gap: 14px;
+    }
+    .v21-page-divider-tall { display: none; }
+    .v21-page-title-group   { grid-column: 1; grid-row: 1; }
+    .v21-page-header-spacer { grid-column: 2; grid-row: 1; }
+    .v21-market-pills       { grid-column: 3; grid-row: 1; }
+    .v21-page-quote-block {
+      display: flex;
+      grid-column: 1 / -1;
+      grid-row: 2;
+      max-width: none;
+      border-left: 2px solid rgba(201,169,97,0.38);
+      padding: 2px 0 2px 14px;
+    }
+    /* Com a linha inteira disponível, não precisa reduzir a fonte */
+    .v21-page-quote-block .v21-quote-text { font-size: 15px; }
   }
   /* Media queries do page-header estão no bloco .v21-page-header acima */
 
@@ -6407,7 +6467,11 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
 <!-- ISOLAMENTO NO BOOT: limpa o cache patrimonial SÓ quando ele pertence a OUTRA conta
      (troca de usuário no mesmo navegador). Para o mesmo usuário, mantém o cache pra tudo
      renderizar na hora. O login.html já limpa tudo no login (isolamento primário); isto aqui
-     é a rede de segurança pra quem chega ao dashboard sem passar pelo login. -->
+     é a rede de segurança pra quem chega ao dashboard sem passar pelo login.
+
+     SESSÃO 51.0: passa a limpar o IndexedDB também. A série histórica (g20_serieReal)
+     mora lá desde a migração, e removeItem() do localStorage não a alcançava — ela
+     atravessava a troca de conta e vazava o patrimônio do dono anterior. -->
 <script>
 (function(){
   try {
@@ -6415,8 +6479,17 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
     var _owner = localStorage.getItem('g20_dados_owner');
     if (_owner && _uid && _owner !== _uid) {
       ['rvAportes','aportes','rendaFixa','patrimonioBens','patrimonioSnaps','dividendos',
-       'patSnapshots','lastRVTotal','carteiraMeta','splits','rvColsVis','metaIF']
+       'rvDividendos','patSnapshots','lastRVTotal','carteiraMeta','splits','rvColsVis',
+       'metaIF','precos','dashRVCot_cache','serieReal']
         .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
+      try {
+        Object.keys(localStorage).forEach(function(k){
+          if (k.indexOf('g20_histpx_') === 0) localStorage.removeItem(k);
+        });
+      } catch(e){}
+      // IndexedDB: onde a série histórica realmente mora.
+      try { if (window.G20Store) G20Store.del('g20_serieReal'); } catch(e){}
+      console.log('[G20] cache da conta anterior descartado (localStorage + IndexedDB).');
     }
   } catch(e){}
 })();
@@ -9115,12 +9188,14 @@ function loadPatStrip(){
         // silenciosamente. Sem isso, cache() devolvia null e TODOS os painéis caíam no
         // cálculo antigo (via snapshots), exibindo percentuais errados.
         API._serieMem = serie;
+        API._serieUid = API._uidDono || null;   // carimbo de dono (isolamento)
         // A série é o maior consumidor de cota — vai pro IndexedDB (centenas
         // de MB) em vez do localStorage (~5MB). A memória cobre o uso síncrono
         // desta sessão; o IndexedDB persiste para as próximas sem estourar.
         try {
-          if (window.G20Store) G20Store.set(SERIE_KEY, { at: Date.now(), serie: serie });
-          else localStorage.setItem(SERIE_KEY, JSON.stringify({ at: Date.now(), serie: serie }));
+          var _payload = { at: Date.now(), uid: (API._uidDono || null), serie: serie };
+          if (window.G20Store) G20Store.set(SERIE_KEY, _payload);
+          else localStorage.setItem(SERIE_KEY, JSON.stringify(_payload));
         } catch (e) { console.warn('[G20Rent] série: falha ao persistir — usando memória'); }
         return serie;
       });
@@ -9163,6 +9238,20 @@ function loadPatStrip(){
       try {
         var c = JSON.parse(localStorage.getItem(SERIE_KEY) || 'null');
         if (c && c.at && (Date.now() - c.at) < SERIE_TTL && c.serie && c.serie.length >= 2) {
+          /* ═══════════════════════════════════════════════════════════════
+             ISOLAMENTO POR USUÁRIO (sessão 51.0)
+             A série carrega o patrimônio inteiro de quem a montou. Se o dono
+             carimbado não for o usuário logado, ela NÃO pode ser usada — foi
+             exatamente assim que o dashboard de um aluno novo apareceu com o
+             patrimônio do admin. Série sem carimbo é de versão anterior a
+             esta correção: descarta por precaução.
+             ═══════════════════════════════════════════════════════════════ */
+          if (!API._uidDono || !c.uid || c.uid !== API._uidDono) {
+            console.warn('[G20Rent] série de OUTRO usuário (ou sem dono) — descartada.');
+            try { localStorage.removeItem(SERIE_KEY); } catch(e){}
+            try { if (window.G20Store) G20Store.del(SERIE_KEY); } catch(e){}
+            return null;
+          }
           /* A série vale enquanto os APORTES não mudarem. Se algum preço foi
              corrigido DEPOIS que ela foi montada, ela carrega os números
              velhos — descarta e reconstrói. */
@@ -9180,12 +9269,61 @@ function loadPatStrip(){
             return null;
           }
           API._serieMem = c.serie;
+          API._serieUid = c.uid;
           return c.serie;
         }
       } catch (e) {}
       return null;
     },
     _serieMem: null,
+    _serieUid: null,       // uid do dono da série que está em _serieMem
+    _uidDono: null,        // uid confirmado pelo Firebase Auth
+    _serieQuarentena: null,// série lida do IndexedDB ANTES do auth resolver
+
+    /* ═══════════════════════════════════════════════════════════════════
+       definirDono(uid) — chamada pelo onAuthStateChanged
+
+       POR QUE ISTO EXISTE
+       O pré-carregamento da série do IndexedDB dispara no boot do script,
+       muito antes do Firebase Auth dizer quem está logado. Sem esta trava,
+       a série de quem usou o navegador antes já estava em memória quando o
+       aluno novo chegava — e todos os painéis (patrimônio, desempenho,
+       benchmarks, rentabilidade, proventos, KPIs) mostravam os números da
+       outra pessoa. Os cards que liam g20_rvAportes apareciam zerados, o
+       que mascarava o problema e fazia parecer que o isolamento funcionava.
+
+       Agora a série pré-carregada fica em QUARENTENA e só é promovida a
+       memória depois que o auth confirma que o dono bate.
+       ═══════════════════════════════════════════════════════════════════ */
+    definirDono: function (uid) {
+      API._uidDono = uid || null;
+
+      // 1) Série já em memória de outro dono? Fora.
+      if (API._serieMem && API._serieUid !== API._uidDono) {
+        console.warn('[G20Rent] série em memória era de outro usuário — descartada.');
+        API._serieMem = null;
+        API._serieUid = null;
+        try { window._g20HistPronto = false; } catch (e) {}
+        try { localStorage.removeItem(SERIE_KEY); } catch (e) {}
+        try { if (window.G20Store) G20Store.del(SERIE_KEY); } catch (e) {}
+      }
+
+      // 2) Promove (ou descarta) o que veio do IndexedDB antes do auth.
+      var q = API._serieQuarentena;
+      API._serieQuarentena = null;
+      if (q) {
+        if (q.uid && q.uid === API._uidDono && q.serie && q.serie.length >= 2) {
+          API._serieMem = q.serie;
+          API._serieUid = q.uid;
+          try { window._g20HistPronto = true; } catch (e) {}
+          console.log('[G20Rent] série do próprio usuário liberada da quarentena.');
+        } else {
+          console.warn('[G20Rent] série em quarentena não pertence a este usuário — descartada.');
+          try { if (window.G20Store) G20Store.del(SERIE_KEY); } catch (e) {}
+        }
+      }
+      return API._uidDono;
+    },
 
     /* Invalida a série reconstruída. Necessário quando os APORTES mudam
        (correção de preço por desdobramento, novo aporte, edição): a série
@@ -9193,6 +9331,8 @@ function loadPatStrip(){
        velhos até o TTL expirar. */
     invalidar: function () {
       API._serieMem = null;
+      API._serieUid = null;
+      API._serieQuarentena = null;
       try { localStorage.removeItem(SERIE_KEY); } catch (e) {}
       try { if (window.G20Store) G20Store.del(SERIE_KEY); } catch (e) {}
       try { window._g20HistPronto = false; } catch (e) {}
@@ -9214,13 +9354,35 @@ function loadPatStrip(){
 
   global.G20Rent = API;
 
-  // Pré-carrega a série do IndexedDB para a memória, assim o código síncrono
-  // (cache()) já a encontra sem depender do localStorage. Roda uma vez no boot.
+  /* Pré-carrega a série do IndexedDB, mas NÃO a coloca em uso ainda.
+
+     ATENÇÃO: este trecho roda no boot do script, antes do Firebase Auth
+     dizer quem está logado. Se a série for promovida aqui, ela vaza para
+     a próxima conta que abrir o dashboard neste navegador — foi assim que
+     o aluno de teste viu o patrimônio do admin.
+
+     A série fica em QUARENTENA. Quem libera é G20Rent.definirDono(uid),
+     chamada pelo onAuthStateChanged, e só se o carimbo de dono bater. */
   try {
     if (window.G20Store) {
       G20Store.get(SERIE_KEY).then(function (c) {
         if (c && c.at && (Date.now() - c.at) < SERIE_TTL && c.serie && c.serie.length >= 2) {
-          if (!API._serieMem) { API._serieMem = c.serie; try { window._g20HistPronto = true; } catch(e){} }
+          if (API._uidDono) {
+            // Auth já resolveu antes do IndexedDB responder: decide na hora.
+            if (c.uid && c.uid === API._uidDono) {
+              if (!API._serieMem) {
+                API._serieMem = c.serie;
+                API._serieUid = c.uid;
+                try { window._g20HistPronto = true; } catch(e){}
+              }
+            } else {
+              console.warn('[G20Rent] série do IndexedDB é de outro usuário — descartada.');
+              try { G20Store.del(SERIE_KEY); } catch(e){}
+            }
+          } else {
+            // Auth ainda não resolveu: guarda sem usar.
+            API._serieQuarentena = { uid: (c.uid || null), serie: c.serie, at: c.at };
+          }
         }
       }).catch(function(){});
     }
@@ -10044,15 +10206,36 @@ window.g20Logout = function() {
     // ISOLAMENTO POR USUÁRIO: se o dono dos dados em cache mudou (outra conta logou antes
     // neste navegador/aba), limpa o cache patrimonial pra NÃO vazar dados de outra pessoa.
     // Sem isso, um aluno novo podia ver o patrimônio de quem logou antes no mesmo navegador.
+    //
+    // SESSÃO 51.0 — CORREÇÃO CRÍTICA
+    // Esta lista só apagava chaves do localStorage. Depois que a série histórica
+    // (g20_serieReal) migrou para o IndexedDB, removeItem() deixou de alcançá-la:
+    // ela sobrevivia à troca de conta e alimentava patrimônio, desempenho,
+    // benchmarks, rentabilidade, proventos 12m e os KPIs com os números do dono
+    // anterior. Os cards que liam g20_rvAportes zeravam corretamente, o que
+    // escondia o problema. Agora limpamos IndexedDB e memória também.
     try {
       var _prevOwner = localStorage.getItem('g20_dados_owner');
       if (_prevOwner && _prevOwner !== user.uid) {
-        ['rvAportes','rendaFixa','patrimonioBens','patrimonioSnaps','dividendos',
-         'patSnapshots','lastRVTotal','carteiraMeta','splits','rvColsVis']
+        ['rvAportes','aportes','rendaFixa','patrimonioBens','patrimonioSnaps','dividendos',
+         'rvDividendos','patSnapshots','lastRVTotal','carteiraMeta','splits','rvColsVis',
+         'metaIF','precos','dashRVCot_cache','serieReal']
           .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
+        // Preços históricos por ticker: revelam a composição da carteira anterior.
+        try {
+          Object.keys(localStorage).forEach(function(k){
+            if (k.indexOf('g20_histpx_') === 0) localStorage.removeItem(k);
+          });
+        } catch(e){}
+        // IndexedDB + memória do motor de rentabilidade
+        try { if (window.G20Rent) G20Rent.invalidar(); } catch(e){}
       }
       localStorage.setItem('g20_dados_owner', user.uid);
     } catch(e){}
+
+    // Confirma o dono da série ANTES de qualquer painel renderizar. É esta chamada
+    // que libera (ou descarta) o que o IndexedDB pré-carregou durante o boot.
+    try { if (window.G20Rent) G20Rent.definirDono(user.uid); } catch(e){}
 
     // Polling: re-verifica aprova  o a cada 3s (resolve aprova  o ap s login)
     function verificarAcesso(tentativa) {
@@ -10141,8 +10324,11 @@ window.g20Logout = function() {
           var _owner = localStorage.getItem('g20_dados_owner');
           var _switched = (_owner && _owner !== user.uid);
           if (_switched) {
-            ['rvAportes','rendaFixa','patrimonioBens','splits','carteiraMeta','dividendos','lastRVTotal','patSnapshots','aportes','metaIF']
+            ['rvAportes','rendaFixa','patrimonioBens','patrimonioSnaps','splits','carteiraMeta',
+             'dividendos','rvDividendos','lastRVTotal','patSnapshots','aportes','metaIF',
+             'precos','dashRVCot_cache','serieReal']
               .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
+            try { if (window.G20Rent) G20Rent.invalidar(); } catch(e){}
           }
           snap.forEach(function(doc) {
             // A Carteira G20 curada (aportes) é do ADMIN. Não carrega no cache do aluno,
@@ -10433,6 +10619,105 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   function getEl(id) { return document.getElementById(id); }
   function setText(id, text) { var el = getEl(id); if (el) el.textContent = text; }
 
+  /* ═══════════════════════════════════════════════════════════════════════
+     FRASE DO DIA EM 2 LINHAS EQUILIBRADAS (sessão 51.0)
+
+     O bloco da esquerda tem duas linhas (data em cima, saudação embaixo).
+     A frase fica mais harmônica quando acompanha esse mesmo ritmo de duas
+     linhas, em vez de esticar numa linha só e sobrar espaço vazio.
+
+     COMO FUNCIONA
+     1. Mede a frase numa linha só, com a fonte real, num span invisível.
+     2. Frase curta (abaixo de FRASE_MIN_1L) fica em uma linha — forçar duas
+        deixaria a segunda com duas ou três palavras, que é justamente o que
+        queremos evitar.
+     3. Frase longa: estreita o bloco para pouco mais da metade da largura
+        natural. Com text-wrap:balance, o navegador distribui as palavras
+        entre as duas linhas em vez de encher a primeira e largar o resto.
+     4. Nunca ultrapassa a largura disponível do bloco.
+
+     Roda ao definir a frase e ao redimensionar a janela (com debounce).
+     ═══════════════════════════════════════════════════════════════════════ */
+  var FRASE_MIN_1L = 340;   // px: abaixo disso, uma linha fica melhor
+  var FRASE_FOLGA  = 26;    // px de folga pro balance respirar
+
+  function _v21AjustarFrase() {
+    var box = getEl('v21-quote-box');
+    var el  = getEl('v21-quote-text');
+    if (!box || !el) return;
+
+    // Se o bloco está escondido (telas estreitas), não faz nada.
+    var csBox = window.getComputedStyle(box);
+    if (csBox.display === 'none' || csBox.visibility === 'hidden') return;
+
+    // Zera qualquer largura anterior pra medir o espaço real disponível.
+    box.style.width = '';
+    var disponivel = box.getBoundingClientRect().width;
+    if (!(disponivel > 0)) return;
+
+    // Mede a frase numa linha só, com a mesma tipografia.
+    var cs = window.getComputedStyle(el);
+    var probe = document.createElement('span');
+    probe.style.position   = 'absolute';
+    probe.style.left       = '-99999px';
+    probe.style.top        = '0';
+    probe.style.visibility = 'hidden';
+    probe.style.whiteSpace = 'nowrap';
+    probe.style.fontFamily    = cs.fontFamily;
+    probe.style.fontSize      = cs.fontSize;
+    probe.style.fontStyle     = cs.fontStyle;
+    probe.style.fontWeight    = cs.fontWeight;
+    probe.style.letterSpacing = cs.letterSpacing;
+    probe.textContent = el.textContent || '';
+    document.body.appendChild(probe);
+    var natural = probe.getBoundingClientRect().width;
+    if (probe.parentNode) probe.parentNode.removeChild(probe);
+
+    if (!(natural > 0)) return;
+
+    // Frase curta: deixa em uma linha.
+    if (natural <= FRASE_MIN_1L) { box.style.width = ''; return; }
+
+    // Ponto de partida: pouco mais da metade da largura natural.
+    var alvo = Math.ceil(natural / 2) + FRASE_FOLGA;
+    if (alvo < FRASE_MIN_1L) alvo = FRASE_MIN_1L;
+    if (alvo > disponivel) alvo = disponivel;
+
+    // Quantas linhas o texto ocupa com uma dada largura.
+    function linhasCom(px) {
+      box.style.width = Math.round(px) + 'px';
+      var cs2 = window.getComputedStyle(el);
+      var lh  = parseFloat(cs2.lineHeight) || (parseFloat(cs2.fontSize) * 1.45);
+      return Math.round(el.scrollHeight / lh);
+    }
+
+    /* Metade da largura natural quase sempre dá 2 linhas, mas nem sempre:
+       uma palavra longa perto do meio pode empurrar para 3. Como o bloco tem
+       line-clamp de 2, a terceira linha viraria "..." e comeria o final da
+       frase. Então alargamos de 6% em 6% até caber em 2 linhas, sem nunca
+       passar do espaço disponível. */
+    var linhas = linhasCom(alvo);
+    var guarda = 0;
+    while (linhas > 2 && alvo < disponivel && guarda < 40) {
+      alvo = Math.min(alvo * 1.06, disponivel);
+      linhas = linhasCom(alvo);
+      guarda++;
+    }
+
+    // Se nem na largura toda cabe em 2 linhas, solta o bloco: melhor a frase
+    // inteira em uma linha longa do que cortada com reticências.
+    if (linhas > 2) box.style.width = '';
+  }
+  window._v21AjustarFrase = _v21AjustarFrase;
+
+  (function(){
+    var t = null;
+    window.addEventListener('resize', function(){
+      if (t) clearTimeout(t);
+      t = setTimeout(function(){ try { _v21AjustarFrase(); } catch(e){} }, 160);
+    });
+  })();
+
   // ==================== PAGE HEADER + FRASE DO DIA ====================
   function v21LoadHeader() {
     try {
@@ -10482,6 +10767,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
               if (wrap) wrap.style.display = 'inline';
               setText('v21-quote-context', '· ' + f.contexto);
             }
+            try { _v21AjustarFrase(); } catch(e) {}
           }
         } catch(e) { console.warn('[v21] frase:', e); }
       }
@@ -16199,9 +16485,10 @@ html body .topbar {
     {
       el: '#tut-atlas', pos: 'right', skipMobile: true,
       titulo: 'Atlas G20',
-      texto: 'Um globo 3D com a Carteira G20 alocada pelo mundo: veja onde cada ativo está, ' +
-             'a composição do portfólio em cada continente e — o meu favorito — a <b>tese de cada posição explicada em áudio</b>, ' +
-             'na minha voz. É investir vendo o mapa inteiro.'
+      texto: 'Um globo 3D que mostra onde o seu dinheiro está no mundo. No filtro lá em cima você alterna entre a ' +
+             '<b>Carteira G20</b> e a <b>Sua Carteira</b>: veja a alocação por país e continente, a composição de cada ' +
+             'região e — o meu favorito — a <b>tese de cada posição explicada em áudio</b>, na minha voz. ' +
+             'É investir enxergando o mapa inteiro.'
     },
     {
       el: '#tut-gestao-fin', pos: 'right', skipMobile: true,
@@ -16214,27 +16501,33 @@ html body .topbar {
       els: ['#tut-consultoria', '#tut-arena', '#tut-networking'], pos: 'right', skipMobile: true, grande: true,
       titulo: 'Você não caminha sozinho',
       texto: 'Aqui mora a força da comunidade G20. Na <b>Consultoria individual</b>, você marca um horário e a gente ' +
-             'senta pra olhar a sua carteira e o seu momento, só nós dois. No <b>Arena G20</b>, o fórum vivo da turma, ' +
+             'olha juntos a sua carteira e o seu momento, só nós dois. No <b>Arena G20</b>, o fórum vivo da turma: ' +
              'você debate ideias, tira dúvidas e aprende com quem está na mesma jornada — ninguém aprende sozinho. ' +
              'E no <b>Networking</b>, você encontra os outros G20s por profissão e interesse, pra criar amizades e negócios. ' +
-             'Aqui você tem amparo, gente do seu lado e uma turma que caminha junto. <b>#nãofoisorte</b>'
+             'Aqui você tem amparo, gente do seu lado e uma turma que caminha junto.'
     },
     // ─── O topo ───
     {
       el: '.g20-tabs', pos: 'bottom', skipMobile: true,
-      titulo: 'Seus painéis rápidos',
+      titulo: 'Torre de Controle',
       texto: 'Bem no topo, três atalhos que valem ouro: um painel que reúne seus indicadores num lugar só, ' +
              'a sua evolução dentro do G20 ao longo do tempo, e as notícias e datas que importam pro seu bolso.'
     },
     {
       el: '#tickerTapeWrap', pos: 'bottom', pad: 4,
       titulo: 'O mercado em tempo real',
-      texto: 'Selic, CDI, IPCA, bitcoin, índices e câmbio ao vivo. Não precisa abrir outra aba.'
+      texto: 'A fita que corre aqui em cima é o mercado passando na sua frente: Selic, CDI, IPCA, índices, câmbio, ' +
+             'bitcoin e as ações que importam, cada um com a variação do dia em verde ou vermelho. ' +
+             'E ela obedece você — <b>arraste para os lados, com o dedo ou o mouse</b>, e ache na hora o ativo que quer ' +
+             'olhar, sem esperar a fita dar a volta. Um giro de olhos e você já sabe como está o dia, sem abrir outra aba.'
     },
     {
       el: '.btn-gsearch', pos: 'bottom', skipMobile: true,
       titulo: 'Busca rápida',
-      texto: 'Aperte <b>Ctrl + K</b> de qualquer lugar. Acha ativo, notícia ou página em dois segundos.'
+      texto: 'Quer achar uma LIVE especial? Uma aula, um livro da biblioteca, um ativo, uma notícia, um termo que ' +
+             'você não conhece ou um profissional aqui dentro? Está tudo ao alcance em poucos segundos. ' +
+             'Aperte <b>Ctrl + K</b> de qualquer lugar, digite, e a busca varre a plataforma inteira e te leva direto ao ponto. ' +
+             'É o atalho pra quando você lembra do assunto, mas não lembra onde estava.'
     },
     {
       el: '.btn-menu', pos: 'bottom', mobileOnly: true,
@@ -16246,8 +16539,10 @@ html body .topbar {
       el: '#sidebarUserBlock', pos: 'right', skipMobile: true, grande: true,
       titulo: 'Seu perfil, sempre vivo',
       texto: 'Aqui você <b>edita e mantém tudo atualizado</b> — dados, empresa, o que oferece. ' +
-             'É o que te conecta a amizades e negócios no Networking, e o que me permite te orientar de forma mais certeira. ' +
-             'Este tour fica guardado no <b>?</b> lá no topo — clique quando quiser rever. ' +
+             'É o que te conecta a amizades e negócios no Networking, e o que me permite te orientar de forma mais certeira.<br><br>' +
+             'E não precisa decorar nada disso hoje: este tour fica guardado no <b>?</b> lá no topo — ' +
+             'ele mora <b>aqui no dashboard</b>. Bateu dúvida daqui a uma semana, um mês, um ano? ' +
+             'Volta pra cá, clica no <b>?</b> e a gente roda tudo de novo, quantas vezes você quiser.<br><br>' +
              'Agora é com você. <b>#nãofoisorte</b>'
     }
   ];
