@@ -151,6 +151,11 @@ body.is-admin .btn-preview{display:inline-flex}
   .cmn-grid{grid-template-columns:1fr 1fr}
 }
 @media(max-width:460px){ .cmn-grid{grid-template-columns:1fr} }
+
+.mp-hobbies{margin-top:14px}
+.mp-hobbies-lbl{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#c9a961;margin-bottom:8px}
+.mp-hobbies-chips{display:flex;flex-wrap:wrap;gap:7px}
+.mp-hobby{font-size:12.5px;padding:6px 12px;border-radius:16px;background:rgba(232,184,75,.1);border:1px solid rgba(232,184,75,.22);color:#d6ddea}
 </style>
 </head>
 <body>
@@ -288,19 +293,28 @@ var _alunos=[];        // lista carregada (real ou preview)
 var _catFiltro='';     // '' = todas
 var _previewOn=false;
 
-// Categorias de negócio — MESMA lista que o perfil.html deve oferecer
+// Áreas de atuação — MESMA lista do perfil.html (campo obrigatório f-area)
 var CATEGORIAS=[
-  {id:'tecnologia',  label:'Tecnologia',                icon:'cpu'},
-  {id:'saude',       label:'Saúde & Bem-estar',         icon:'heart-pulse'},
-  {id:'financas',    label:'Finanças & Contabilidade',  icon:'calculator'},
-  {id:'design',      label:'Design & Marketing',        icon:'palette'},
-  {id:'educacao',    label:'Educação',                  icon:'graduation-cap'},
-  {id:'juridico',    label:'Jurídico',                  icon:'scale'},
-  {id:'imobiliario', label:'Imobiliário',               icon:'building'},
-  {id:'comercio',    label:'Comércio & Varejo',         icon:'shopping-bag'},
-  {id:'alimentacao', label:'Alimentação',               icon:'utensils-crossed'},
-  {id:'servicos',    label:'Serviços em geral',         icon:'briefcase'},
-  {id:'outros',      label:'Outros',                    icon:'more-horizontal'}
+  {id:'Administração / Gestão',            label:'Administração / Gestão',        icon:'briefcase'},
+  {id:'Agronegócio',                       label:'Agronegócio',                   icon:'wheat'},
+  {id:'Arte / Cultura / Entretenimento',   label:'Arte / Cultura',                icon:'palette'},
+  {id:'Comércio / Varejo',                 label:'Comércio / Varejo',             icon:'shopping-bag'},
+  {id:'Construção / Imobiliário',          label:'Construção / Imobiliário',      icon:'building'},
+  {id:'Educação',                          label:'Educação',                      icon:'graduation-cap'},
+  {id:'Engenharia',                        label:'Engenharia',                    icon:'ruler'},
+  {id:'Esporte / Fitness / Bem-estar',     label:'Esporte / Bem-estar',           icon:'heart-pulse'},
+  {id:'Finanças / Contabilidade',          label:'Finanças / Contabilidade',      icon:'calculator'},
+  {id:'Indústria',                         label:'Indústria',                     icon:'factory'},
+  {id:'Jurídico / Direito',                label:'Jurídico / Direito',            icon:'scale'},
+  {id:'Marketing / Comunicação',           label:'Marketing / Comunicação',       icon:'megaphone'},
+  {id:'Saúde',                             label:'Saúde',                         icon:'stethoscope'},
+  {id:'Setor Público',                     label:'Setor Público',                 icon:'landmark'},
+  {id:'Tecnologia / TI',                   label:'Tecnologia / TI',               icon:'cpu'},
+  {id:'Transporte / Logística',            label:'Transporte / Logística',        icon:'truck'},
+  {id:'Aposentado / Vive de renda',        label:'Vive de renda',                 icon:'palmtree'},
+  {id:'Estudante',                         label:'Estudante',                     icon:'book-open'},
+  {id:'Em transição de carreira',          label:'Em transição',                  icon:'repeat'},
+  {id:'Outros',                            label:'Outros',                        icon:'more-horizontal'}
 ];
 function catInfo(id){
   for(var i=0;i<CATEGORIAS.length;i++) if(CATEGORIAS[i].id===id) return CATEGORIAS[i];
@@ -391,11 +405,10 @@ function initComunidade(){
 
 function montarAluno(uid,d,p){
   var nome=p.nome||d.name||'Aluno G20';
-  var cat=p.negocioCategoria||'';
-  if(!catInfo(cat) || cat==='') cat='outros';
-  // garante que a categoria existe na lista
+  var cat=p.area||'';
+  // garante que a área existe na lista; senão cai em Outros
   var ok=false; for(var i=0;i<CATEGORIAS.length;i++){ if(CATEGORIAS[i].id===cat) ok=true; }
-  if(!ok) cat='outros';
+  if(!ok) cat='Outros';
   return {
     uid:uid, nome:nome,
     foto:p.foto||d.photo||'',
@@ -403,6 +416,8 @@ function montarAluno(uid,d,p){
     empresa:p.empresa||'',
     negocio:p.negocio||'',
     categoria:cat,
+    subarea:p.subarea||'',
+    hobbies:p.hobbies||'',
     cidade:p.cidade||'', estado:p.estado||'',
     turma:d.turma||'G20',
     infinite:d.infinite===true,
@@ -562,9 +577,14 @@ function abrirMiniPerfil(uid){
   var locLine=(local||a.turma)
     ? '<div class="mp-loc"><i data-lucide="map-pin"></i>'+esc([local,a.turma].filter(Boolean).join('  ·  '))+'</div>' : '';
   var negBox=a.negocio
-    ? '<div class="mp-neg-box"><div class="mp-neg-lbl"><i data-lucide="briefcase"></i> Negócio · '+esc(catInfo(a.categoria).label)+'</div>'
+    ? '<div class="mp-neg-box"><div class="mp-neg-lbl"><i data-lucide="briefcase"></i> '+esc(catInfo(a.categoria).label)+'</div>'
       +'<div class="mp-neg-txt">'+esc(a.negocio)+'</div></div>' : '';
   var sobre=a.sobre?'<div class="mp-sobre">'+esc(a.sobre)+'</div>':'';
+  var hobbies = a.hobbies
+    ? '<div class="mp-hobbies"><div class="mp-hobbies-lbl">Interesses</div><div class="mp-hobbies-chips">'
+      + a.hobbies.split(',').map(function(x){return x.trim();}).filter(Boolean).map(function(x){
+          return '<span class="mp-hobby">'+esc(x)+'</span>'; }).join('')
+      + '</div></div>' : '';
   var vb=a.visib||{};
   var soc=''
     +mpSoc(a.instagram && vb.instagram!==false,'instagram',linkUrl(a.instagram?'instagram.com/'+a.instagram.replace(/^@/,'').replace(/^https?:\/\/(www\.)?instagram\.com\//i,''):''))
@@ -576,7 +596,7 @@ function abrirMiniPerfil(uid){
     +'<div class="mp-body">'+av
     +'<div class="mp-name">'+esc(a.nome)+(a.infinite?' <span class="inf">∞</span>':'')+'</div>'
     +(meta?'<div class="mp-meta">'+esc(meta)+'</div>':'')
-    +locLine+negBox+sobre
+    +locLine+negBox+sobre+hobbies
     +'<div class="mp-soc-row">'+soc+'</div>'
     +'</div>';
   document.getElementById('mpOverlay').classList.add('open');
@@ -616,17 +636,17 @@ function demoAlunos(){
   // colunas: nome, profissao, empresa, negocio, categoria, cidade, estado, infinite,
   //          instagram, linkedin, site, whatsapp  — variados de propósito p/ pré-visualização
   var D=[
-    ['Marina Albuquerque','Arquiteta','Estúdio Albuquerque','Projetos residenciais de alto padrão','imobiliario','Florianópolis','SC',true,  '@marina.arq','in/marina-albuquerque','estudioalbuquerque.com.br','5548999990001'],
-    ['Rafael Tavares','Dev Full-Stack','Freelancer','Sites e sistemas para pequenos negócios','tecnologia','Curitiba','PR',false,         '@rafatavares.dev','in/rafael-tavares','rafatavares.dev',''],
-    ['Camila Fontes','Designer','Fontes Studio','Identidade visual e social media','design','Recife','PE',false,                          '@camifontes.design','in/camila-fontes','fontesstudio.com','5581999990002'],
-    ['Júlia Bernardes','Nutricionista','Clínica Vida Leve','Consultoria nutricional e planos online','saude','São Paulo','SP',true,        '@ju.nutri','','','5511999990003'],
-    ['Gustavo Peixoto','Personal Trainer','GP Performance','Treino presencial e consultoria online','saude','Florianópolis','SC',false,    '','','','5548999990004'],
-    ['Diego Nogueira','Contador','Nogueira Contabilidade','Contabilidade e IR para investidores','financas','Porto Alegre','RS',false,     '','in/diego-nogueira','nogueiracontabil.com.br',''],
-    ['Patrícia Lemos','Advogada','Lemos Advocacia','Direito tributário e sucessório','juridico','Belo Horizonte','MG',true,               '@patricialemos.adv','in/patricia-lemos','lemosadv.com.br','5531999990005'],
-    ['Bruno Carvalho','Professor','Mentoria Carvalho','Aulas particulares de matemática financeira','educacao','Salvador','BA',false,      '','','',''],
-    ['Renata Vasconcelos','Confeiteira','Doce Renata','Bolos e doces para eventos','alimentacao','Fortaleza','CE',false,                   '@docerenata','','',''],
-    ['Felipe Drummond','Consultor','Drummond Consultoria','Consultoria de gestão para pequenas empresas','servicos','Vitória','ES',true,   '','','drummondconsult.com.br','5527999990006'],
-    ['Larissa Coelho','Lojista','Ateliê Larissa','Loja de roupas femininas autorais','comercio','Goiânia','GO',false,                      '','','','']
+    ['Marina Albuquerque','Arquiteta','Estúdio Albuquerque','Projetos residenciais de alto padrão','Construção / Imobiliário','Florianópolis','SC',true,  '@marina.arq','in/marina-albuquerque','estudioalbuquerque.com.br','5548999990001'],
+    ['Rafael Tavares','Dev Full-Stack','Freelancer','Sites e sistemas para pequenos negócios','Tecnologia / TI','Curitiba','PR',false,         '@rafatavares.dev','in/rafael-tavares','rafatavares.dev',''],
+    ['Camila Fontes','Designer','Fontes Studio','Identidade visual e social media','Marketing / Comunicação','Recife','PE',false,                          '@camifontes.design','in/camila-fontes','fontesstudio.com','5581999990002'],
+    ['Júlia Bernardes','Nutricionista','Clínica Vida Leve','Consultoria nutricional e planos online','Saúde','São Paulo','SP',true,        '@ju.nutri','','','5511999990003'],
+    ['Gustavo Peixoto','Personal Trainer','GP Performance','Treino presencial e consultoria online','Saúde','Florianópolis','SC',false,    '','','','5548999990004'],
+    ['Diego Nogueira','Contador','Nogueira Contabilidade','Contabilidade e IR para investidores','Finanças / Contabilidade','Porto Alegre','RS',false,     '','in/diego-nogueira','nogueiracontabil.com.br',''],
+    ['Patrícia Lemos','Advogada','Lemos Advocacia','Direito tributário e sucessório','Jurídico / Direito','Belo Horizonte','MG',true,               '@patricialemos.adv','in/patricia-lemos','lemosadv.com.br','5531999990005'],
+    ['Bruno Carvalho','Professor','Mentoria Carvalho','Aulas particulares de matemática financeira','Educação','Salvador','BA',false,      '','','',''],
+    ['Renata Vasconcelos','Confeiteira','Doce Renata','Bolos e doces para eventos','Comércio / Varejo','Fortaleza','CE',false,                   '@docerenata','','',''],
+    ['Felipe Drummond','Consultor','Drummond Consultoria','Consultoria de gestão para pequenas empresas','Administração / Gestão','Vitória','ES',true,   '','','drummondconsult.com.br','5527999990006'],
+    ['Larissa Coelho','Lojista','Ateliê Larissa','Loja de roupas femininas autorais','Comércio / Varejo','Goiânia','GO',false,                      '','','','']
   ];
   return D.map(function(r,i){
     return {
