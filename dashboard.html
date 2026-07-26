@@ -9198,20 +9198,12 @@ function loadPatStrip(){
           'color:#e8b84b;font-weight:bold');
       }
 
-      /* Publica o que o card vai EXIBIR, para a Composição fechar no mesmo
-         número. Com cotação completa, ambos somam mercado e batem sozinhos.
-         Sem cotação completa, o card mostra o fechamento da série e a
-         Composição precisa saber disso para acompanhar. */
-      try {
-        if (_av.completo && rvMercado > 0) {
-          window._g20RVExibida = { valor: rvMercado, fonte: 'mercado' };
-        } else {
-          var _serie = (window.G20Rent && G20Rent.cache) ? G20Rent.cache() : null;
-          var _ult = (_serie && _serie.length) ? _serie[_serie.length - 1] : null;
-          var _rvFech = _ult ? (parseFloat(_ult.rv) || 0) : 0;
-          window._g20RVExibida = { valor: _rvFech, fonte: 'fechamento' };
-        }
-      } catch(e){}
+      /* R51: quem publica window._g20RVExibida é o v21LoadGP, no momento em
+         que o número é escrito na tela — não aqui. O valor calculado neste
+         ponto ainda passa pelas regras de _gpValorDoSnap() antes de virar
+         o que o aluno lê, e ancorar a Composição no cálculo em vez de no
+         exibido foi o que produziu R$ 562.973 no card contra R$ 561,8k na
+         Composição. */
     } catch(e){ rvMercado = 0; }
 
     /* Só entrega valor ao vivo se a carteira inteira foi avaliada.
@@ -12012,6 +12004,39 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var valor = _gpValorDoSnap(ultimo, modo, bens);
       var gpVal = getEl('v21-gp-value');
       if (gpVal) gpVal.textContent = fmtBRL(valor);
+
+      /* ═══════════════════════════════════════════════════════════════
+         PUBLICA O QUE ESTÁ NA TELA — R51
+
+         Antes, quem publicava a referência para a Composição era o
+         loadPatStrip, no fim do CÁLCULO. Só que o card não exibe o que o
+         loadPatStrip calcula: ele exibe o que _gpValorDoSnap() devolve, e
+         essa função tem regras próprias — só aceita cotação ao vivo se
+         rvVivo e rfVivo existirem em par, senão volta para o fechamento.
+
+         Resultado: o card mostrava R$ 562.973 (fechamento de 25/07) e a
+         Composição mostrava R$ 561,8k (mercado de agora), porque cada um
+         estava ancorado num momento diferente do mesmo dado.
+
+         Agora a referência sai daqui, do próprio ponto em que o número é
+         escrito na tela. O que o aluno lê no card é, literalmente, o que
+         a Composição soma. */
+      try {
+        var _rvNaTela = (modo === 'rv') ? valor : _gpValorDoSnap(ultimo, 'rv', bens);
+        if (_rvNaTela > 0) {
+          var _antes = (window._g20RVExibida && window._g20RVExibida.valor) || 0;
+          window._g20RVExibida = {
+            valor: _rvNaTela,
+            fonte: (ultimo && ultimo.rvVivo > 0 && ultimo.rfVivo > 0) ? 'mercado' : 'fechamento'
+          };
+          /* O card roda cedo e volta a rodar quando as cotações chegam. Se o
+             número mudou, a Composição precisa ser redesenhada — senão ela
+             fica ancorada num valor que já não está mais na tela. */
+          if (Math.abs(_rvNaTela - _antes) > 0.5 && typeof v21LoadCompChart === 'function') {
+            setTimeout(function(){ try { v21LoadCompChart(); } catch(e){} }, 0);
+          }
+        }
+      } catch(e){}
 
       var _pctDia = null;   // variação do dia, usada também para colorir a sparkline
 
