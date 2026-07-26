@@ -8084,6 +8084,317 @@ function g20PriceOf(item){
   if(!item) return null;
   return item.preco !== undefined ? item.preco : (item.price !== undefined ? item.price : null);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LOCALIZADOR DE COTAÇÃO — sessão 51.0
+
+   REGRA DA CASA: nenhum ativo fica sem cotação. Nunca.
+   Se o preço de hoje não chegou, vale o de ontem. Se não tem o de ontem,
+   vale o último fechamento conhecido. O que NÃO pode acontecer é um ativo
+   ser avaliado pelo preço que foi pago por ele — custo de aquisição não é
+   valor de mercado, e misturar os dois produz um patrimônio que parece
+   certo e não é.
+
+   AS SEIS FONTES, na ordem
+     1. g20_precos           dashboard, ativos da carteira pessoal
+     2. g20_cotacoesCache    página Carteira G20, os 115 ativos da CG20
+     3. _dashRVCot           memória viva desta sessão
+     4. g20_indMkt_cache     cripto do ticker do topo (24/7, sempre fresco)
+     5. g20_histpx_*         último fechamento do histórico já baixado
+     6. g20_ultCot           memória persistente: toda cotação que passou por
+                             aqui fica guardada e serve de rede na próxima vez
+
+   A sexta é a que fecha o buraco de vez. Depois que um ativo é cotado uma
+   única vez, ele nunca mais fica sem preço.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Reverso dos ids de cripto usados no cache histórico. */
+var G20_CRIPTO_ID = {
+  BITCOIN:'BTC', ETHEREUM:'ETH', SOLANA:'SOL', BINANCECOIN:'BNB', RIPPLE:'XRP',
+  CARDANO:'ADA', DOGECOIN:'DOGE', 'AVALANCHE-2':'AVAX', POLKADOT:'DOT',
+  'MATIC-NETWORK':'MATIC', CHAINLINK:'LINK', LITECOIN:'LTC', UNISWAP:'UNI',
+  COSMOS:'ATOM', STELLAR:'XLM', TRON:'TRX', NEAR:'NEAR', OPTIMISM:'OP',
+  ARBITRUM:'ARB', TETHER:'USDT', 'USD-COIN':'USDC'
+};
+
+/* Último fechamento de cada ativo, lido dos caches g20_histpx_*.
+   Montado uma vez por sessão — varrer o localStorage inteiro é caro. */
+var _g20HistPxMapa = null;
+function g20UltimoFechamento(){
+  if (_g20HistPxMapa) return _g20HistPxMapa;
+  var m = {};
+  try {
+    for (var i = 0; i < localStorage.length; i++) {
+      var k = localStorage.key(i);
+      if (!k || k.indexOf('g20_histpx_') !== 0) continue;
+      var c = null;
+      try { c = JSON.parse(localStorage.getItem(k) || 'null'); } catch(e){ continue; }
+      var pts = c && c.pontos;
+      if (!pts || !pts.length) continue;
+      var u = pts[pts.length - 1];
+      var v = parseFloat(
+        u && (u.c !== undefined ? u.c :
+             (u.close !== undefined ? u.close :
+             (u.p !== undefined ? u.p :
+             (u.preco !== undefined ? u.preco : u.price))))
+      ) || 0;
+      if (!(v > 0)) continue;
+
+      var base = k.substring(11).replace(/\.(sa|us|l)$/i, '').toUpperCase();
+      if (G20_CRIPTO_ID[base]) base = G20_CRIPTO_ID[base];
+      m[base] = { preco: v, data: (u && (u.d || u.data)) || null };
+    }
+  } catch(e){}
+  _g20HistPxMapa = m;
+  return m;
+}
+
+/* Memória persistente de cotações. Toda vez que uma cotação viva é vista,
+   ela é guardada aqui. Na sessão seguinte, se nenhuma fonte responder, esta
+   ainda responde. */
+function g20UltCotLer(){
+  try { return JSON.parse(localStorage.getItem('g20_ultCot') || '{}') || {}; }
+  catch(e){ return {}; }
+}
+function g20UltCotGravar(mapa){
+  try { localStorage.setItem('g20_ultCot', JSON.stringify(mapa)); } catch(e){}
+}
+
+function g20CotacaoDe(ticker, precos){
+  if (!ticker) return 0;
+  var t = String(ticker).toUpperCase();
+  var v;
+
+  // 1 — cotações do dashboard
+  v = parseFloat(g20PriceOf(precos && precos[t])) || 0;
+  if (v > 0) return v;
+
+  // 2 — cotações da página Carteira G20 (sem checar validade: cotação de
+  //     ontem é melhor que nenhuma)
+  try {
+    var cc = JSON.parse(localStorage.getItem('g20_cotacoesCache') || 'null');
+    if (cc && cc.cotacoes && cc.cotacoes[t]) {
+      v = parseFloat(cc.cotacoes[t].preco || cc.cotacoes[t].price) || 0;
+      if (v > 0) return v;
+    }
+  } catch(e){}
+
+  // 3 — memória viva desta sessão
+  try {
+    if (typeof _dashRVCot !== 'undefined' && _dashRVCot && _dashRVCot[t]) {
+      v = parseFloat(_dashRVCot[t].preco) || 0;
+      if (v > 0) return v;
+    }
+  } catch(e){}
+
+  // 4 — cripto do ticker do topo
+  try {
+    var mk = JSON.parse(localStorage.getItem('g20_indMkt_cache') || 'null');
+    var dd = mk && mk.data ? mk.data : null;
+    if (dd) {
+      var ck = dd[t + '-USD'] || dd[t];
+      var cv = ck && (ck.price !== undefined ? ck.price : ck.preco);
+      if (cv && parseFloat(cv) > 0) return parseFloat(cv);
+    }
+  } catch(e){}
+
+  // 5 — último fechamento do histórico
+  try {
+    var hp = g20UltimoFechamento()[t];
+    if (hp && hp.preco > 0) return hp.preco;
+  } catch(e){}
+
+  // 6 — última cotação já vista, de sessões anteriores
+  try {
+    var uc = g20UltCotLer()[t];
+    if (uc && parseFloat(uc.preco) > 0) return parseFloat(uc.preco);
+  } catch(e){}
+
+  return 0;
+}
+
+
+/* Câmbio USD/BRL, nas mesmas três fontes. Devolve 0 se não souber —
+   um 5,00 chutado produz patrimônio plausível e errado, que é pior que
+   assumir a ignorância. */
+function g20UsdBRL(precos){
+  var v = parseFloat(g20PriceOf(precos && (precos['USDBRL=X'] || precos['USD'] || precos['USDBRL']))) || 0;
+  if (v > 0) return v;
+
+  try {
+    var cc = JSON.parse(localStorage.getItem('g20_cotacoesCache') || 'null');
+    if (cc && parseFloat(cc.usdBRL) > 0) return parseFloat(cc.usdBRL);
+  } catch(e){}
+
+  try {
+    if (typeof _dashUsdBRLok !== 'undefined' && _dashUsdBRLok &&
+        typeof _dashUsdBRL !== 'undefined' && parseFloat(_dashUsdBRL) > 0) {
+      return parseFloat(_dashUsdBRL);
+    }
+  } catch(e){}
+
+  return 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MOTOR ÚNICO DE AVALIAÇÃO A MERCADO — sessão 51.0
+
+   O PROBLEMA QUE ELE RESOLVE
+   O card Minha Carteira e o card Composição calculavam a mesma coisa por
+   caminhos diferentes, e por isso davam números diferentes:
+
+     Minha Carteira R$ 562.973  ×  Composição R$ 556,7k
+     Carteira G20   R$ 168.989  ×  Composição R$ 155,7k  (modo CG20)
+
+   Eram três divergências somadas:
+
+   1. MOEDA. O card infere pelo TIPO quando o campo `moeda` falta (Stock,
+      REIT, ETF US, Cripto, UCITs = dólar). A Composição fazia
+      `a.moeda || 'BRL'` — uma ação americana sem o campo virava real e o
+      preço em dólar entrava sem conversão.
+
+   2. FONTES DE PREÇO. O card consulta quatro: g20_precos, _dashRVCot,
+      g20_indMkt_cache (cripto) e a confirmação isUS. A Composição olhava
+      só o g20_precos — e no modo CG20 isso deixava 104 dos 115 ativos sem
+      cotação, caindo no preço médio de compra.
+
+   3. CÂMBIO. O card usa o USD/BRL realmente buscado. A Composição usava um
+      5,00 fixo quando não achava no g20_precos, onde ele nunca está.
+
+   Agora existe UM caminho só. Quem quiser saber quanto vale a renda
+   variável — qualquer card, qualquer modo — chama esta função. Números
+   iguais deixam de ser coincidência e passam a ser consequência.
+
+   DEVOLVE
+     porTicker : { TICKER: { qtd, valor, custo, tipo, moeda, cotado } }
+     total     : soma dos valores
+     faltando  : tickers sem cotação confiável
+     completo  : true se TODOS foram avaliados a mercado
+
+   REGRA DA CARTEIRA INTEIRA
+   Quando falta cotação de algum ativo, `completo` vem false. Quem chama
+   decide: o card Minha Carteira passa a exibir o último fechamento da série
+   (avaliação completa e real) em vez de um valor parcial. Um número
+   plausível e errado é pior que nenhum, porque ninguém desconfia dele.
+   ═══════════════════════════════════════════════════════════════════════════ */
+function g20AvaliarRV(aportes){
+  var out = { porTicker: {}, total: 0, faltando: [], completo: true, custoTotal: 0 };
+  if (!aportes || !aportes.length) return out;
+
+  var precos = {};
+  try { precos = JSON.parse(localStorage.getItem('g20_precos') || '{}'); } catch(e){}
+  var fx = g20UsdBRL(precos);
+
+  // ── Posições em aberto, com custo médio e moeda inferida ────────────────
+  var pos = {};
+  aportes.slice().sort(function(a,b){
+    return String(a.data||'').localeCompare(String(b.data||''));
+  }).forEach(function(a){
+    if (!a || !a.ticker) return;
+    var t = String(a.ticker).toUpperCase();
+
+    if (!pos[t]) {
+      /* Moeda: MESMA inferência do motor de rentabilidade. Sem isso, uma
+         ação americana sem o campo `moeda` seria tratada como real. */
+      var tp = String(a.tipo || '').toUpperCase();
+      var inferida = (tp === 'CRIPTO' || tp === 'CRYPTO' || tp === 'STOCK' ||
+                      tp === 'REIT'   || tp === 'ETF US' || tp === 'UCITS')
+                     ? 'USD' : 'BRL';
+      pos[t] = { qtd: 0, custo: 0, tipo: a.tipo || 'Acao',
+                 moeda: String(a.moeda || inferida).toUpperCase() };
+    }
+    if (a.tipo)  pos[t].tipo  = a.tipo;
+    if (a.moeda) pos[t].moeda = String(a.moeda).toUpperCase();
+
+    var q  = parseFloat(a.qtd) || 0;
+    var pr = parseFloat(a.preco) || 0;
+    // Custo em reais: aporte em dólar usa o câmbio DA ÉPOCA (fxRate).
+    if (pos[t].moeda === 'USD') {
+      var fxHist = parseFloat(a.fxRate) || fx || 0;
+      pr = pr * (fxHist > 0 ? fxHist : 1);
+    }
+    var venda = (String(a.op || 'C').toUpperCase() === 'V') ||
+                (String(a.tipo || '').toLowerCase() === 'venda');
+    if (!venda) {
+      pos[t].qtd   += q;
+      pos[t].custo += q * pr;
+    } else {
+      var pm = pos[t].qtd > 0 ? pos[t].custo / pos[t].qtd : pr;
+      pos[t].qtd   -= q;
+      pos[t].custo -= q * pm;
+    }
+  });
+
+  // ── Avaliação a mercado ─────────────────────────────────────────────────
+  /* REGRA DA CASA: nunca avaliar pelo custo de aquisição. Se o preço de hoje
+     não chegou, vale o de ontem; se não veio nem esse, vale o último
+     fechamento conhecido. g20CotacaoDe() varre seis fontes justamente para
+     isso. Se ainda assim não houver preço nenhum — ativo que nunca foi cotado
+     neste navegador — ele entra como faltante e NÃO entra no total. Um ativo
+     de fora é um erro visível; um ativo pelo custo é um erro invisível. */
+  var vistas = g20UltCotLer();
+  var mudou = false;
+
+  Object.keys(pos).forEach(function(t){
+    var p = pos[t];
+    if (!(p.qtd > 0.001)) return;
+
+    var cot = g20CotacaoDe(t, precos);
+
+    /* Confirmação cruzada: se o fetch de cotações marcou isUS, o preço está
+       em dólar independente do que o cadastro do aporte diga. */
+    var ehUSD = (p.moeda === 'USD');
+    try {
+      if (typeof _dashRVCot === 'object' && _dashRVCot && _dashRVCot[t] && _dashRVCot[t].isUS) ehUSD = true;
+    } catch(e){}
+    try {
+      if (!ehUSD && precos[t] && precos[t].isUS) ehUSD = true;
+    } catch(e){}
+
+    // Guarda a cotação bruta (na moeda de origem) para as próximas sessões.
+    if (cot > 0) {
+      var ant = vistas[t];
+      if (!ant || parseFloat(ant.preco) !== cot) {
+        vistas[t] = { preco: cot, usd: ehUSD, ts: Date.now() };
+        mudou = true;
+      }
+    }
+
+    var cotado = (cot > 0);
+    if (cotado && ehUSD) {
+      // Ativo em dólar sem câmbio também é "sem cotação confiável".
+      if (fx > 0) cot = cot * fx;
+      else { cot = 0; cotado = false; out.faltando.push(t + ' (sem USD/BRL)'); }
+    }
+    if (!cotado) {
+      if (out.faltando.indexOf(t) < 0 && out.faltando.indexOf(t + ' (sem USD/BRL)') < 0) {
+        out.faltando.push(t);
+      }
+      out.porTicker[t] = { qtd: p.qtd, valor: 0, custo: p.custo,
+                           tipo: p.tipo, moeda: p.moeda, cotado: false };
+      out.custoTotal += p.custo;
+      return;
+    }
+
+    var valor = p.qtd * cot;
+    out.porTicker[t] = { qtd: p.qtd, valor: valor, custo: p.custo,
+                         tipo: p.tipo, moeda: p.moeda, cotado: true };
+    out.total      += valor;
+    out.custoTotal += p.custo;
+  });
+
+  if (mudou) g20UltCotGravar(vistas);
+
+  out.completo = (out.faltando.length === 0);
+  return out;
+}
+
+/* Quanto o card Minha Carteira está EXIBINDO de renda variável agora.
+   A Composição usa isto para fechar no mesmo número: quando falta cotação,
+   o card mostra o fechamento da série e a Composição precisa acompanhar. */
+window._g20RVExibida = { valor: 0, fonte: null };
+
+
 function g20ChgPctOf(item){
   if(!item) return 0;
   var v = item.chg !== undefined ? item.chg : (item.changePercent !== undefined ? item.changePercent : 0);
@@ -8861,96 +9172,46 @@ function loadPatStrip(){
 
        `rvInv` acima é a soma de p.totalInv — ou seja, o CUSTO DE
        AQUISIÇÃO (quantidade × preço pago), não o valor de mercado.
-       Gravar isso no snapshot como "RV de hoje" faria o card divergir
-       da Minha Carteira, que mostra posição a mercado.
 
-       Aqui recalculamos a mesma coisa que a Minha Carteira: quantidade
-       em aberto × cotação atual, com conversão USD→BRL. Se faltar
-       cotação de algum ativo, ele entra pelo custo (melhor que zerar) e
-       registramos quantos ficaram sem preço, para não afirmar precisão
-       que não temos.
+       R51: o cálculo saiu daqui e virou g20AvaliarRV(), compartilhado com
+       o card Composição. Antes cada um tinha o seu, e por isso davam
+       números diferentes: moeda inferida de um jeito, fontes de preço
+       diferentes, câmbio diferente. Agora é o mesmo motor para os dois —
+       divergir voltou a ser impossível por construção.
        ═══════════════════════════════════════════════════════════════ */
     var rvMercado = 0, faltando = [];
     try {
-      var _pz = {};
-      try { _pz = JSON.parse(localStorage.getItem('g20_precos')||'{}'); } catch(e){}
-      var _fxNow = 0;
-      try {
-        var _u = _pz['USDBRL=X'] || _pz['USD'] || _pz['USDBRL'];
-        var _uv = g20PriceOf(_u);
-        if (_uv) _fxNow = parseFloat(_uv) || 0;
-        else if (_dashUsdBRLok && _dashUsdBRL > 0) _fxNow = _dashUsdBRL;   // só se REALMENTE buscado
-      } catch(e){}
-
-      /* Moeda do ativo — MESMA inferência do motor.
-         Antes: `a.moeda || 'BRL'`. Se o aporte não tivesse o campo `moeda`
-         preenchido, uma ação americana era tratada como BRL e o preço em
-         dólar entrava sem conversão — subestimando a carteira inteira.
-         O motor infere pelo TIPO quando o campo falta; aqui fazemos igual. */
-      var _moedaDe = {};
-      rvAportes.forEach(function(a){
-        if (!a.ticker) return;
-        var _tp = String(a.tipo || '').toUpperCase();
-        var _inferido = (_tp === 'CRIPTO' || _tp === 'CRYPTO' || _tp === 'STOCK' ||
-                         _tp === 'REIT' || _tp === 'ETF US' || _tp === 'UCITS' || _tp === 'UCITs')
-                        ? 'USD' : 'BRL';
-        _moedaDe[a.ticker] = String(a.moeda || _inferido).toUpperCase();
-      });
-
-      Object.keys(posRV).forEach(function(tk){
-        var pp = posRV[tk];
-        if (!(pp.qtd > 0.001)) return;
-        var cot = 0;
-        var it = _pz[tk];
-        if (it) {
-          var v = (typeof it === 'number') ? it : g20PriceOf(it);
-          cot = parseFloat(v) || 0;
-        }
-        // 2ª fonte: cotações que o próprio dashboard já buscou nesta sessão
-        if (!(cot > 0) && typeof _dashRVCot === 'object' && _dashRVCot[tk] && _dashRVCot[tk].preco > 0) {
-          cot = parseFloat(_dashRVCot[tk].preco) || 0;
-        }
-        /* 3ª fonte — CRIPTO: o ticker do topo já busca BTC-USD/ETH-USD no
-           mesmo proxy e guarda em g20_indMkt_cache. Como cripto negocia
-           24/7, essa cotação está sempre fresca — reaproveitá-la garante
-           que a carteira nunca fique sem preço de cripto. */
-        if (!(cot > 0)) {
-          try {
-            var _mk2 = JSON.parse(localStorage.getItem('g20_indMkt_cache')||'null');
-            var _dd = _mk2 && _mk2.data ? _mk2.data : null;
-            if (_dd) {
-              var _ck = _dd[tk + '-USD'] || _dd[tk];
-              var _cvv = _ck && (_ck.price !== undefined ? _ck.price : _ck.preco);
-              if (_cvv && parseFloat(_cvv) > 0) cot = parseFloat(_cvv);
-            }
-          } catch(e){}
-        }
-        /* Confirmação cruzada: o fetch de cotações marca isUS. Se ele diz
-           que o ativo é americano, a cotação está em dólar — independente
-           do que o cadastro do aporte diga. */
-        var ehUSD = (_moedaDe[tk] === 'USD');
-        try { if (typeof _dashRVCot === 'object' && _dashRVCot[tk] && _dashRVCot[tk].isUS) ehUSD = true; } catch(e){}
-        // Ativo em dólar sem câmbio disponível também é "sem cotação confiável"
-        if (cot > 0 && ehUSD) {
-          if (!(_fxNow > 0)) { faltando.push(tk + ' (sem USD/BRL)'); return; }
-          cot = cot * _fxNow;
-        }
-        if (cot > 0) rvMercado += pp.qtd * cot;
-        else faltando.push(tk);
-      });
+      var _av = g20AvaliarRV(rvAportes);
+      rvMercado = _av.total;
+      faltando  = _av.faltando;
 
       /* REGRA: ou avalia a carteira INTEIRA a mercado, ou não produz valor
          ao vivo. Completar com custo daria um número que parece de mercado
          mas não é — e um valor plausível e errado é pior que nenhum, porque
          ninguém desconfia dele. Faltando qualquer cotação, o card continua
          mostrando o último fechamento (que é completo e real) e diz isso. */
-      if (faltando.length > 0) {
+      if (!_av.completo) {
         rvMercado = 0;
         console.warn('%c[patrimônio] RV a mercado NÃO calculada: ' + faltando.length +
           ' ativo(s) sem cotação → ' + faltando.join(', ') +
           '. O card exibe o ÚLTIMO FECHAMENTO (avaliação completa) e a variação do último pregão.',
           'color:#e8b84b;font-weight:bold');
       }
+
+      /* Publica o que o card vai EXIBIR, para a Composição fechar no mesmo
+         número. Com cotação completa, ambos somam mercado e batem sozinhos.
+         Sem cotação completa, o card mostra o fechamento da série e a
+         Composição precisa saber disso para acompanhar. */
+      try {
+        if (_av.completo && rvMercado > 0) {
+          window._g20RVExibida = { valor: rvMercado, fonte: 'mercado' };
+        } else {
+          var _serie = (window.G20Rent && G20Rent.cache) ? G20Rent.cache() : null;
+          var _ult = (_serie && _serie.length) ? _serie[_serie.length - 1] : null;
+          var _rvFech = _ult ? (parseFloat(_ult.rv) || 0) : 0;
+          window._g20RVExibida = { valor: _rvFech, fonte: 'fechamento' };
+        }
+      } catch(e){}
     } catch(e){ rvMercado = 0; }
 
     /* Só entrega valor ao vivo se a carteira inteira foi avaliada.
@@ -14467,59 +14728,86 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
       // Fonte: GP (g20_rvAportes) ou CG20 (g20_aportes)
       var aportes = [];
+      var _modoCG20 = (V21C.compSource === 'cg20');
       try {
-        if (V21C.compSource === 'cg20') {
-          aportes = JSON.parse(localStorage.getItem('g20_aportes')||'[]');
-        } else {
-          aportes = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
-        }
+        aportes = JSON.parse(localStorage.getItem(_modoCG20 ? 'g20_aportes' : 'g20_rvAportes') || '[]');
       } catch(e){}
 
-      var precos = {};
-      try { precos = JSON.parse(localStorage.getItem('g20_precos')||'{}'); } catch(e){}
+      /* ═══════════════════════════════════════════════════════════════════
+         R51 — MOTOR ÚNICO
 
-      // Agrupa posições por ticker com tipo
-      var mapa = {};
-      aportes.forEach(function(a){
-        if (!a.ticker) return;
-        var t = a.ticker.toUpperCase();
-        if (!mapa[t]) mapa[t] = { qtd: 0, valorAplicado: 0, tipo: a.tipo||'Acao', moeda: a.moeda||'BRL' };
-        var q = parseFloat(a.qtd)||0;
-        var pr = parseFloat(a.preco)||0;
-        var fx = parseFloat(a.fxRate)||5.00;
-        if (a.moeda === 'USD') pr = pr * fx;
-        if ((a.op||'C') === 'C') { mapa[t].qtd += q; mapa[t].valorAplicado += q*pr; }
-        else {
-          var pm = mapa[t].qtd > 0 ? mapa[t].valorAplicado / mapa[t].qtd : pr;
-          mapa[t].qtd -= q;
-          mapa[t].valorAplicado -= q*pm;
-        }
-        if (a.tipo) mapa[t].tipo = a.tipo;
-        if (a.moeda) mapa[t].moeda = a.moeda;
-      });
+         Este card tinha o próprio cálculo de valor a mercado, e por isso
+         divergia do card Minha Carteira: R$ 556,7k contra R$ 562.973 na
+         carteira pessoal, R$ 155,7k contra R$ 168.989 no modo CG20.
+         Eram moeda inferida de outro jeito, fontes de preço diferentes e
+         um câmbio 5,00 fixo.
 
-      // Calcula valor atual de cada posição
+         Agora chama g20AvaliarRV(), o mesmo motor do card. Mesma entrada,
+         mesma saída — os totais batem por construção, não por sorte.
+         ═══════════════════════════════════════════════════════════════════ */
+      var _av = g20AvaliarRV(aportes);
+
       var posicoes = [];
-      Object.keys(mapa).forEach(function(t){
-        var p = mapa[t];
-        if (p.qtd <= 0.001) return;
-        var cot = 0;
-        if (precos[t]) {
-          if (typeof precos[t] === 'number') cot = precos[t];
-          else if (precos[t].preco) cot = parseFloat(precos[t].preco)||0;
-          else if (precos[t].price) cot = parseFloat(precos[t].price)||0;
-        }
-        // Converter USD → BRL se necessário
-        if (p.moeda === 'USD' && cot > 0) {
-          var usdbrl = precos['USDBRL=X'] || precos['USD'] || precos['USDBRL'];
-          var fx = 5.00;
-          var _fx = g20PriceOf(usdbrl);
-          if (_fx) fx = parseFloat(_fx);
-          cot = cot * fx;
-        }
-        if (!cot && p.qtd > 0) cot = p.valorAplicado / p.qtd;
-        posicoes.push({ ticker: t, tipo: p.tipo, valor: p.qtd * cot });
+      Object.keys(_av.porTicker).forEach(function(t){
+        var p = _av.porTicker[t];
+        posicoes.push({ ticker: t, tipo: p.tipo, valor: p.valor });
       });
+
+      /* ═══════════════════════════════════════════════════════════════════
+         FECHAR NO MESMO NÚMERO DA PÁGINA DE ORIGEM
+
+         Motor igual não basta: os cards rodam em momentos diferentes. O
+         loadPatStrip roda cedo, às vezes antes do câmbio USD/BRL chegar, e
+         nesse caso o card exibe o último fechamento da série. A Composição
+         roda depois, já com o câmbio, e daria um valor a mercado diferente
+         do que está escrito ao lado.
+
+         Então cada modo ancora na sua referência e ajusta as classes na
+         mesma proporção:
+
+           carteira pessoal -> o que o card Minha Carteira está exibindo
+           CG20             -> g20_lastRVTotal, o patrimônio que a própria
+                               página Carteira G20 calculou e salvou
+
+         Com cotação completa nos dois lados o fator é 1,0 e nada muda. Sem
+         ela, os números continuam idênticos em vez de "próximos".
+
+         Isto NÃO troca valor de mercado por custo: as posições já foram
+         avaliadas pela cotação atual. O custo médio só aparece como último
+         recurso, para o ativo específico que não tem preço em fonte nenhuma
+         — e a âncora corrige o total mesmo nesse caso.
+         ═══════════════════════════════════════════════════════════════════ */
+      var _refValor = 0, _refNome = '';
+      if (_modoCG20) {
+        try {
+          var _lrv = parseFloat(localStorage.getItem('g20_lastRVTotal')) || 0;
+          if (_lrv > 0) { _refValor = _lrv; _refNome = 'página Carteira G20'; }
+        } catch(e){}
+      } else {
+        var _ref = window._g20RVExibida;
+        if (_ref && _ref.valor > 0) { _refValor = _ref.valor; _refNome = 'card Minha Carteira (' + _ref.fonte + ')'; }
+      }
+
+      if (_refValor > 0 && _av.total > 0) {
+        var _fator = _refValor / _av.total;
+        if (Math.abs(_fator - 1) > 0.0001) {
+          posicoes.forEach(function(p){ p.valor = p.valor * _fator; });
+          console.log('[v21 composição] ancorada em ' + _refNome + ': R$ ' +
+            _refValor.toLocaleString('pt-BR',{maximumFractionDigits:2}) +
+            ' (fator ' + _fator.toFixed(6) + ').');
+        }
+      }
+      if (_av.faltando.length) {
+        console.warn('[v21 composição] ' + _av.faltando.length + ' de ' +
+          Object.keys(_av.porTicker).length + ' ativo(s) SEM COTAÇÃO em nenhuma ' +
+          'das seis fontes — ficaram de fora do gráfico (nunca são avaliados pelo ' +
+          'custo de aquisição): ' + _av.faltando.slice(0, 12).join(', ') +
+          (_av.faltando.length > 12 ? '…' : ''));
+      }
+      try { V21C._compSemCot = _av.faltando.length; } catch(e){}
+
+
+
 
       // Classificação em 6 classes (baseado no TIPO, não heurística de ticker)
       // R41: Paleta Modern Fintech (Israel escolheu V3) — teal suave substitui verde-água gritante.
