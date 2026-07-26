@@ -12662,6 +12662,123 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
      Use isto para checar o que você mesmo apontou: se R$ 169 mil de ganho
      valem 97%, R$ 209 mil não podem valer 404%.
      ═══════════════════════════════════════════════════════════════════════ */
+  /* ═══════════════════════════════════════════════════════════════════════
+     G20DiagAtivos(ano) — abre um período e mostra QUEM produziu o retorno
+
+     A tabela por ano diz que 2020 rendeu +54,35%. Esta função responde a
+     pergunta seguinte: qual ativo fez isso? Para cada papel em carteira no
+     período, mostra quantidade, preço nas duas pontas, valor em cada ponta
+     e quanto contribuiu para o ganho.
+
+     Serve especialmente para flagrar desdobramento: um papel cujo PREÇO
+     multiplica por 2, 4 ou 10 de um dia para o outro sem que a quantidade
+     acompanhe é split não tratado — e vira "rentabilidade" que nunca
+     existiu. A coluna `suspeita` aponta os candidatos.
+
+     Use:  G20DiagAtivos('2020')
+           G20DiagAtivos('2018','2021')   -> intervalo
+     ═══════════════════════════════════════════════════════════════════════ */
+  window.G20DiagAtivos = function(anoIni, anoFim){
+    anoIni = String(anoIni || new Date().getFullYear());
+    anoFim = String(anoFim || anoIni);
+    var ini = anoIni + '-01-01', fim = anoFim + '-12-31';
+    var hojeStr = new Date().toISOString().substring(0,10);
+    if (fim > hojeStr) fim = hojeStr;
+
+    var precos = window._g20Precos;
+    if (!precos) {
+      console.warn('[G20DiagAtivos] as séries de preço ainda não estão em memória. ' +
+                   'Espere o dashboard carregar por completo e rode de novo.');
+      return;
+    }
+    var cambio = window._g20Cambio;
+
+    var aportes = [];
+    try { aportes = JSON.parse(localStorage.getItem('g20_rvAportes') || '[]'); } catch(e){}
+    if (!aportes.length) { console.warn('[G20DiagAtivos] sem aportes'); return; }
+
+    function posEm(dataStr){
+      var p = {};
+      aportes.slice().sort(function(a,b){ return String(a.data||'').localeCompare(String(b.data||'')); })
+        .forEach(function(a){
+          if (!a.ticker || String(a.data||'').substring(0,10) > dataStr) return;
+          var t = String(a.ticker).toUpperCase().split('-')[0];
+          var q = parseFloat(a.qtd) || 0;
+          var venda = String(a.op||'C').toUpperCase() === 'V' ||
+                      String(a.tipo||'').toLowerCase() === 'venda';
+          p[t] = (p[t] || 0) + (venda ? -q : q);
+        });
+      return p;
+    }
+    var pIni = posEm(ini), pFim = posEm(fim);
+
+    var moedaDe = {};
+    aportes.forEach(function(a){
+      if (!a.ticker) return;
+      var t = String(a.ticker).toUpperCase().split('-')[0];
+      var tp = String(a.tipo||'').toUpperCase();
+      var inf = (tp==='CRIPTO'||tp==='STOCK'||tp==='REIT'||tp==='ETF'||tp==='ETF US'||tp==='UCITS') ? 'USD':'BRL';
+      moedaDe[t] = String(a.moeda || inf).toUpperCase();
+    });
+
+    var fxIni = cambio ? cambio.em(ini) : null;
+    var fxFim = cambio ? cambio.em(fim) : null;
+
+    var linhas = [];
+    Object.keys(precos).forEach(function(t){
+      var qi = pIni[t] || 0, qf = pFim[t] || 0;
+      if (!(qi > 0.001) && !(qf > 0.001)) return;
+      var pi = precos[t].em(ini), pf = precos[t].em(fim);
+      if (pi == null || pf == null) {
+        linhas.push({ ticker:t, qtdIni:+qi.toFixed(4), qtdFim:+qf.toFixed(4),
+                      precoIni:pi, precoFim:pf, suspeita:'sem série de preço' });
+        return;
+      }
+      var usd = (moedaDe[t] === 'USD');
+      var ci = (usd && fxIni) ? fxIni : 1, cf = (usd && fxFim) ? fxFim : 1;
+      var vi = qi * pi * ci, vf = qf * pf * cf;
+      var varPx = (pf/pi - 1) * 100;
+
+      /* Splits comuns: 2:1, 3:1, 4:1, 5:1, 10:1, 20:1 e os inversos. Preço
+         que multiplica ou divide por um desses sem a quantidade acompanhar
+         é candidato forte a desdobramento não tratado. */
+      var razao = pf / pi, susp = '';
+      [2,3,4,5,10,20].forEach(function(n){
+        if (Math.abs(razao - n)   < 0.12) susp = 'preço x' + n + ' — split?';
+        if (Math.abs(razao - 1/n) < 0.03) susp = 'preço /' + n + ' — split?';
+      });
+      if (!susp && Math.abs(varPx) > 200) susp = 'variação extrema';
+
+      linhas.push({
+        ticker: t, moeda: moedaDe[t] || '?',
+        qtdIni: +qi.toFixed(4), qtdFim: +qf.toFixed(4),
+        precoIni: +pi.toFixed(2), precoFim: +pf.toFixed(2),
+        variacaoPreco: +varPx.toFixed(1),
+        valorIni: Math.round(vi), valorFim: Math.round(vf),
+        deltaRS: Math.round(vf - vi),
+        suspeita: susp
+      });
+    });
+    linhas.sort(function(a,b){ return (b.deltaRS||0) - (a.deltaRS||0); });
+
+    console.log('%c[G20DiagAtivos] ' + ini + ' -> ' + fim, 'color:#c9a961;font-weight:bold');
+    if (fxIni && fxFim) {
+      console.log('  câmbio USD/BRL: ' + fxIni.toFixed(4) + ' -> ' + fxFim.toFixed(4) +
+                  '  (' + ((fxFim/fxIni-1)*100).toFixed(1) + '%)');
+    }
+    console.table(linhas);
+    var sus = linhas.filter(function(l){ return l.suspeita; });
+    if (sus.length) {
+      console.warn('%c  ' + sus.length + ' ativo(s) suspeito(s):', 'color:#f87171;font-weight:bold');
+      sus.forEach(function(l){
+        console.warn('   ' + l.ticker + ': ' + l.precoIni + ' -> ' + l.precoFim + '  (' + l.suspeita + ')');
+      });
+    } else {
+      console.log('  nenhum preço com cara de split não tratado neste período.');
+    }
+    return linhas;
+  };
+
   window.G20DiagAnos = function(){
     var s = (typeof _v21SerieComVivo === 'function') ? _v21SerieComVivo() : null;
     if (!s || s.length < 2) { console.warn('[G20DiagAnos] sem série'); return; }
