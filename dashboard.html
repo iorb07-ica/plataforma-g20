@@ -11456,8 +11456,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
          não tem histórico reconstruível. */
       var temAportes = false;
       try {
-        temAportes = (JSON.parse(localStorage.getItem('g20_rvAportes')||'[]').length +
-                      JSON.parse(localStorage.getItem('g20_aportes')||'[]').length) > 0;
+        // SESSÃO 51.0: "tem aportes" = tem carteira PESSOAL. Antes a CG20
+        // contava, e o aluno que só visitou a Carteira G20 era tratado como
+        // se já tivesse carteira montada.
+        temAportes = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]').length > 0;
       } catch(e){}
 
       var serieRealPronta = false;
@@ -11623,7 +11625,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
       // Composição: descreve o que está sendo somado no modo atual
       var temRv = false, temRf = false, temBens = false;
-      try { temRv = (JSON.parse(localStorage.getItem('g20_rvAportes')||'[]').length + JSON.parse(localStorage.getItem('g20_aportes')||'[]').length) > 0; } catch(e){}
+      try { temRv = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]').length > 0; } catch(e){}  // SESSÃO 51.0: sem CG20
       try { temRf = JSON.parse(localStorage.getItem('g20_rendaFixa')||'[]').length > 0; } catch(e){}
       try { temBens = JSON.parse(localStorage.getItem('g20_patrimonioBens')||'[]').length > 0; } catch(e){}
 
@@ -12335,21 +12337,26 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   var _qtdCache = null;
   function _buildQtdCache() {
     _qtdCache = {};
+    /* ═══════════════════════════════════════════════════════════════════
+       SÓ A CARTEIRA PESSOAL (sessão 51.0)
+
+       Este trecho vinha do modelo de dados ANTIGO, quando as ações BR
+       ficavam em g20_aportes e os stocks em g20_rvAportes — as duas metades
+       de uma mesma carteira. Depois que a CG20 virou carteira educacional
+       separada, g20_aportes deixou de ser patrimônio de alguém, mas a soma
+       continuou aqui.
+
+       Efeito no aluno novo: ele abre a Carteira G20 (que grava g20_aportes
+       no navegador dele), volta ao dashboard e vê Proventos do Mês, Aportes
+       do Ano e Renda Passiva preenchidos — com números da CG20 — enquanto
+       Minha Carteira mostra R$ 0. Painéis do mesmo bloco discordando.
+
+       Mesma regra já aplicada ao motor da série: a CG20 é material didático,
+       não patrimônio. Quem quiser vê-la usa os toggles Cart/CG20.
+       ═══════════════════════════════════════════════════════════════════ */
     try {
-      // Stocks US (g20_rvAportes — aportes de stocks)
       var rvAp = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
       rvAp.forEach(function(a){
-        if (!a.ticker) return;
-        var qtd = parseFloat(a.qtd) || 0;
-        var tipo = (a.tipo||'').toLowerCase();
-        if (tipo === 'venda') qtd = -qtd;
-        _qtdCache[a.ticker] = (_qtdCache[a.ticker]||0) + qtd;
-      });
-    } catch(e){}
-    try {
-      // Ações BR (g20_aportes — aportes tradicionais BR)
-      var apBR = JSON.parse(localStorage.getItem('g20_aportes')||'[]');
-      apBR.forEach(function(a){
         if (!a.ticker) return;
         var qtd = parseFloat(a.qtd) || 0;
         var tipo = (a.tipo||'').toLowerCase();
@@ -12708,9 +12715,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     });
 
     // ===== Composição (top posição e top3) =====
-    // Calcula a partir de rvAportes + aportes usando preço atual
+    // SESSÃO 51.0: só a carteira pessoal (g20_rvAportes). A CG20 é material
+    // didático e não deve gerar insights sobre "a sua carteira".
     var posicoes = {};
-    rvAp.concat(apBR).forEach(function(a){
+    rvAp.forEach(function(a){
       if (!a.ticker) return;
       var qtd = parseFloat(a.qtd)||0;
       if ((a.tipo||'').toLowerCase() === 'venda') qtd = -qtd;
@@ -12737,7 +12745,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     d.num_ativos_total = posList.length;
 
     // ===== Aportes =====
-    var aportes12m = rvAp.concat(apBR).filter(function(a){
+    var aportes12m = rvAp.filter(function(a){
       return a.data && a.data.substring(0,10) >= mes12Str;
     });
     var totalAportes12m = aportes12m.reduce(function(s,a){
@@ -12754,8 +12762,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     d.meses_aportados_12m = Object.keys(mesesAp).length;
 
     // Dias desde último aporte
-    if (rvAp.length + apBR.length > 0) {
-      var todos = rvAp.concat(apBR).filter(function(a){return a.data;});
+    if (rvAp.length > 0) {
+      var todos = rvAp.filter(function(a){return a.data;});
       todos.sort(function(a,b){return b.data.localeCompare(a.data);});
       if (todos[0]) {
         var dUlt = new Date(todos[0].data);
@@ -13035,8 +13043,11 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
                parseFloat(d.amount) || parseFloat(d.rate) || 0;
       }
       // Constrói mapa de qtdCarteira por ticker a partir dos aportes
+      // SESSÃO 51.0: só a carteira pessoal. A CG20 (apBR) é material didático
+      // e não entra nos números de "Minha Carteira" — mesma regra do motor da
+      // série. Ver comentário completo em _buildQtdCache().
       var qtdMap = {};
-      rvAp.concat(apBR).forEach(function(a){
+      rvAp.forEach(function(a){
         if (!a.ticker) return;
         var t = a.ticker.toUpperCase();
         var q = parseFloat(a.qtd)||0;
@@ -13098,7 +13109,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       // Valor total = qtd × preco (op='C' soma, op='V' subtrai)
       var aportesAno = 0;
       var mesesAno = {};
-      rvAp.concat(apBR).forEach(function(a){
+      // SESSÃO 51.0: aportes do ano = só carteira pessoal (sem CG20).
+      rvAp.forEach(function(a){
         var dataStr = (a.data||'').substring(0,10);
         if (!dataStr.startsWith(anoAtual)) return;
         var q = parseFloat(a.qtd)||0;
@@ -14419,8 +14431,11 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       if (_p) cotUSD = parseFloat(_p);
 
       // Mapa de qtd carteira
+      // SESSÃO 51.0: só a carteira pessoal. A CG20 (apBR) é material didático
+      // e não entra nos números de "Minha Carteira" — mesma regra do motor da
+      // série. Ver comentário completo em _buildQtdCache().
       var qtdMap = {};
-      rvAp.concat(apBR).forEach(function(a){
+      rvAp.forEach(function(a){
         if (!a.ticker) return;
         var t = a.ticker.toUpperCase();
         var q = parseFloat(a.qtd)||0;
