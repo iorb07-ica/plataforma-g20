@@ -72,7 +72,7 @@ function _divsSalvar(lista){
     }
     // Tenta liberar espaço descartando caches recriáveis
     try {
-      ['v21_hist_ibov_v6','v21_hist_sp500_v6','v21_hist_ibov_v5','v21_hist_sp500_v5','v21_hist_ibov_v4','v21_hist_sp500_v4','v21_hist_ibov_v3','v21_hist_sp500_v3','g20_cdiHist_v1'].forEach(function(k){
+      ['g20_cdiHist_v2','v21_hist_ibov_v6','v21_hist_sp500_v6','v21_hist_ibov_v5','v21_hist_sp500_v5','v21_hist_ibov_v4','v21_hist_sp500_v4','v21_hist_ibov_v3','v21_hist_sp500_v3','g20_cdiHist_v1'].forEach(function(k){
         localStorage.removeItem(k);
       });
       localStorage.setItem('g20_dividendos', JSON.stringify(lista));
@@ -10022,7 +10022,7 @@ function _patSnapSave(arr){
   }catch(e){
     // Libera caches recriáveis (benchmarks/CDI) e tenta de novo.
     try{
-      ['v21_hist_ibov_v6','v21_hist_sp500_v6','v21_hist_ibov_v5','v21_hist_sp500_v5','v21_hist_ibov_v4','v21_hist_sp500_v4','v21_hist_ibov_v3','v21_hist_sp500_v3','v21_hist_ibov_v2','v21_hist_sp500_v2','g20_cdiHist_v1']
+      ['g20_cdiHist_v2','v21_hist_ibov_v6','v21_hist_sp500_v6','v21_hist_ibov_v5','v21_hist_sp500_v5','v21_hist_ibov_v4','v21_hist_sp500_v4','v21_hist_ibov_v3','v21_hist_sp500_v3','v21_hist_ibov_v2','v21_hist_sp500_v2','g20_cdiHist_v1']
         .forEach(function(k){ try{ localStorage.removeItem(k); }catch(e2){} });
       localStorage.setItem(PAT_SNAP_KEY,JSON.stringify(arr));
       console.warn('[snapshots] cota apertada — caches de benchmark descartados para gravar a série');
@@ -12376,12 +12376,34 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     });
     if (faltou) return null;
 
+    /* ═══════════════════════════════════════════════════════════════════
+       O CDI TAMBÉM CONTA — R51
+
+       O alinhamento olhava só IBOV e S&P e esquecia o CDI, que vem do BCB
+       com série mais curta (73 pontos mensais ≈ 6 anos). Com "Max" partindo
+       de 2018, v21CdiRentabilidade não tinha dado e devolvia null: o card
+       Rentabilidade mostrava CDI "—" e, pior, deixava o "Alpha vs CDI"
+       congelado no valor do período anterior (+20,28 pp, que era do 5A).
+       Número velho ao lado de números novos é pior que número ausente.
+
+       Agora o CDI entra na conta da janela comum. Se ele for o mais curto,
+       "Max" começa onde ele começa — e as quatro linhas passam a comparar
+       exatamente o mesmo intervalo.
+       ═══════════════════════════════════════════════════════════════════ */
+    try {
+      var cdiPts = (window.G20Cdi && G20Cdi.pontos) ? G20Cdi.pontos : null;
+      if (cdiPts && cdiPts.length) {
+        var d0c = cdiPts[0] && (cdiPts[0].d || cdiPts[0].data);
+        if (d0c) partidas.push(String(d0c).substring(0,10));
+      }
+    } catch(e){}
+
     partidas.sort();
     var comum = partidas[partidas.length - 1];   // o início mais recente
     if (!window._g20AvisouMax) {
       window._g20AvisouMax = true;
       console.log('[v21] "Max" alinhado em ' + comum +
-                  ' — janela comum entre a carteira e os índices.');
+                  ' — janela comum entre a carteira, os índices e o CDI.');
     }
     return comum;
   }
@@ -12466,11 +12488,16 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     var fator = 1;
     mapa[corte[0].d] = 0;
     for (var i = 1; i < corte.length; i++) {
-      var vIni = corte[i-1].patrimonio, vFim = corte[i].patrimonio;
+      /* Mesma regra do _v21TwrDesde: dia com movimentação não gera retorno.
+         Sem isso a LINHA do gráfico contaria uma história e o NÚMERO no
+         cabeçalho outra — e era a linha que produzia os degraus de +500%. */
       var fluxo = corte[i].fluxo || 0;
-      if (vIni > 0) {
-        var r = (vFim - fluxo - vIni) / vIni;
-        if (isFinite(r)) fator *= (1 + r);
+      if (Math.abs(fluxo) < 0.01) {
+        var vIni = corte[i-1].patrimonio, vFim = corte[i].patrimonio;
+        if (vIni > TWR_SALDO_MIN) {
+          var r = (vFim - vIni) / vIni;
+          if (isFinite(r) && Math.abs(r) <= TWR_TETO_DIA) fator *= (1 + r);
+        }
       }
       mapa[corte[i].d] = (fator - 1) * 100;
     }
@@ -12496,30 +12523,42 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   /* ═══════════════════════════════════════════════════════════════════════
      TWR — RETORNO PONDERADO NO TEMPO
 
-     A conta em si é a padrão: para cada dia, retorno = (valor − aporte −
-     valor_anterior) / valor_anterior, e os retornos diários são encadeados.
+     ┌─ O BUG QUE INFLAVA (E DEPRIMIA) A RENTABILIDADE ────────────────────┐
+     │ A fórmula de cada dia é                                             │
+     │     retorno = (valor_hoje − aporte_hoje − valor_ontem) / valor_ontem│
+     │                                                                     │
+     │ Ela só funciona se o `valor_hoje` já contiver o ativo comprado hoje.│
+     │ Na série reconstruída isso NÃO acontece de forma consistente: o     │
+     │ aporte entra inteiro no campo `fluxo`, mas o patrimônio do dia nem  │
+     │ sempre reflete a posição nova pelo mesmo preço.                     │
+     │                                                                     │
+     │ Medido na série real da Carteira G20, 1.826 dias:                   │
+     │     retorno médio em dias SEM aporte : +0,0022%                     │
+     │     retorno médio em dias COM aporte : −0,5507%   (78 dias)         │
+     │                                                                     │
+     │ Meio ponto percentual de viés a cada aporte. Composto por 78        │
+     │ aportes, sozinho responde por quase todo o desvio:                  │
+     │     TWR com os dias de aporte : −37,85%                             │
+     │     TWR sem os dias de aporte :  −3,19%                             │
+     │     ganho real da carteira    :  −0,06%   ← a referência            │
+     │                                                                     │
+     │ Ou seja: os dias de aporte não descrevem mercado, descrevem um      │
+     │ descasamento de registro. Numa carteira em que os aportes calham    │
+     │ em dias de alta, o mesmo mecanismo INFLA — foi o que produziu os    │
+     │ +453,92% na carteira pessoal.                                       │
+     └─────────────────────────────────────────────────────────────────────┘
 
-     A FRAGILIDADE, e por que ela precisa de trava
-     A fórmula divide pelo saldo do dia anterior. Nos primeiros meses de uma
-     carteira esse saldo é pequeno, então qualquer entrada de dinheiro que
-     NÃO tenha sido registrada em `fluxo` vira um retorno gigante naquele dia
-     — e como os dias são multiplicados, um único dia ruim contamina o
-     acumulado de anos. Um aporte de R$ 5.000 sobre um saldo de R$ 200 sem
-     fluxo registrado marca +2400% num dia só.
+     A CORREÇÃO
+     Dia com movimentação não gera retorno. É a prática padrão quando não se
+     sabe se o aporte entrou antes ou depois da precificação do dia: o TWR
+     encadeia os subperíodos ENTRE os fluxos. Perde-se o movimento de
+     mercado de um único dia por aporte — irrelevante — e some o viés.
 
-     Foi o que apareceu num TOTAL de +453,92% ao lado de um ganho real de
-     R$ 199 mil sobre aportes de ~R$ 375 mil — números que não conversam.
-
-     DUAS TRAVAS
-     1. Saldo mínimo: dias em que o saldo anterior é irrisório não entram.
-        Percentual sobre base minúscula não descreve rentabilidade.
-     2. Teto diário: variação além de ±40% num dia é tratada como artefato
-        (aporte não registrado, desdobramento não ajustado, preço furado) e
-        é descartada, não zerada — descartar preserva o resto da série.
-
-     Os dias descartados ficam guardados em window._g20TwrDescartes. Rode
-     G20DiagTWR() no console para ver quais foram e decidir se é dado ruim
-     ou volatilidade de verdade.
+     As duas travas seguintes continuam, para dados corrompidos:
+       · saldo anterior irrisório → percentual sobre base minúscula não
+         descreve rentabilidade;
+       · variação diária além de ±40% → artefato (desdobramento não
+         ajustado, preço furado), descartado e registrado.
      ═══════════════════════════════════════════════════════════════════════ */
   var TWR_SALDO_MIN = 500;    // R$ — abaixo disso o percentual não tem sentido
   var TWR_TETO_DIA  = 0.40;   // 40% num único dia
@@ -12532,15 +12571,15 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     var fator = 1;
     var descartes = [];
     for (var i = 1; i < corte.length; i++) {
-      var vIni = corte[i-1].patrimonio, vFim = corte[i].patrimonio;
       var fluxo = corte[i].fluxo || 0;
+      if (Math.abs(fluxo) > 0.01) continue;      // dia de aporte/resgate: não pontua
+      var vIni = corte[i-1].patrimonio, vFim = corte[i].patrimonio;
       if (!(vIni > TWR_SALDO_MIN)) continue;
-      var r = (vFim - fluxo - vIni) / vIni;
+      var r = (vFim - vIni) / vIni;
       if (!isFinite(r)) continue;
       if (Math.abs(r) > TWR_TETO_DIA) {
         descartes.push({ d: corte[i].d, pct: +(r*100).toFixed(1),
-                         de: Math.round(vIni), para: Math.round(vFim),
-                         fluxo: Math.round(fluxo) });
+                         de: Math.round(vIni), para: Math.round(vFim) });
         continue;
       }
       fator *= (1 + r);
@@ -12552,7 +12591,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         window._g20AvisouTwr = true;
         console.warn('[G20Rent] ' + descartes.length + ' dia(s) com variação acima de ' +
           (TWR_TETO_DIA*100) + '% foram descartados do cálculo de rentabilidade — ' +
-          'provável aporte sem registro ou desdobramento não ajustado. ' +
+          'provável desdobramento não ajustado ou preço furado. ' +
           'Rode G20DiagTWR() para ver quais.');
       }
     } catch(e){}
@@ -12755,10 +12794,24 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           var _you = _v21TwrDesde(_sr, _iniStr);
           if (_you !== null && isFinite(_you)) {
             var _cdiPct = null;
-            // PRIORIDADE: série real do BCB (4391). O snap.c é sintético —
-            // projeta a taxa de UM dia sobre todo o período, inflando o
-            // acumulado (era o que fazia o CDI YTD marcar 11,25% quando o
-            // real é ~7,75%).
+            /* ═══════════════════════════════════════════════════════════
+               CDI: SÉRIE REAL DO BCB, OU NADA — R51
+
+               Havia aqui um fallback que, quando a série do BCB não cobria
+               o período, calculava o CDI a partir do campo `c` dos
+               snapshots. Esse campo é sintético: projeta a taxa de UM dia
+               sobre todo o intervalo. O próprio comentário acima registrava
+               que ele inflava o YTD (11,25% contra 7,75% reais).
+
+               No "Max" o estrago era muito maior: a série do BCB só ia até
+               6 anos atrás, a janela chegava a 2018, o fallback assumia e
+               produzia +378,27% de CDI em oito anos. O real fica perto de
+               90%. Ao lado dele, o Alpha vs CDI também saía errado.
+
+               Agora, sem CDI real, `cdi` volta null e a interface mostra
+               "—". Buscamos 12 anos de série (v21FetchCdiHistorico), então
+               isso só acontece se o BCB estiver fora do ar.
+               ═══════════════════════════════════════════════════════════ */
             try {
               var _hojeStr = new Date().toISOString().substring(0,10);
               if (typeof v21CdiRentabilidade === 'function') {
@@ -12766,15 +12819,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
                 if (_cr !== null && isFinite(_cr)) _cdiPct = _cr;
               }
             } catch(e){}
-            // Fallback: snapshots, só se o BCB não respondeu
-            if (_cdiPct === null) {
-              try {
-                var _sn2 = snap || [];
-                var _f2 = _v21SnapFromDate(_sn2, _iniStr);
-                var _i2 = _f2 ? _f2.snap : _sn2[0];
-                var _fm2 = _sn2[_sn2.length-1];
-                if (_i2 && _fm2 && _i2.c > 0) _cdiPct = ((_fm2.c / _i2.c) - 1) * 100;
-              } catch(e){}
+            if (_cdiPct === null && !window._g20AvisouCdi) {
+              window._g20AvisouCdi = true;
+              console.warn('[v21] CDI real indisponível para o período iniciado em ' +
+                _iniStr + ' — o card mostra "—" em vez de estimar.');
             }
             return { you: _you, cdi: _cdiPct, ibov: null };
           }
@@ -13045,10 +13093,15 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         setTimeout(function(){ if (V21C.histCache.sp500) v21LoadBench(); }, 2500);
       }
 
-      // Alpha vs CDI
-      var alpha = r.you - r.cdi;
+      // Alpha vs CDI — sem CDI real não há alpha. R51: antes calculava
+      // `r.you - null`, que em JavaScript vira `r.you - 0` e imprimia a
+      // rentabilidade da carteira inteira disfarçada de alpha.
       var alphaEl = getEl('v21-bench-alpha');
-      if (alphaEl) {
+      if (alphaEl && (r.cdi === null || r.cdi === undefined || isNaN(r.cdi))) {
+        alphaEl.textContent = '—';
+        alphaEl.className = 'v21-bench-alpha-val';
+      } else if (alphaEl) {
+        var alpha = r.you - r.cdi;
         alphaEl.textContent = fmtPP(alpha);
         alphaEl.className = 'v21-bench-alpha-val ' + (alpha >= 0 ? 'up' : 'down');
       }
@@ -14170,7 +14223,12 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
   window.G20Cdi = G20Cdi;
 
-  function _cdiCacheKey(){ return 'g20_cdiHist_v1'; }
+  /* v2 (R51): a janela passou de 6 para 12 anos. Sem o bump, o cache de
+     6 anos sobreviveria e o "Max" continuaria sem CDI real. */
+  function _cdiCacheKey(){
+    try { localStorage.removeItem('g20_cdiHist_v1'); } catch(e){}
+    return 'g20_cdiHist_v2';
+  }
 
   function v21FetchCdiHistorico(callback){
     if (G20Cdi.pontos) { callback && callback(G20Cdi.pontos); return; }
@@ -14189,8 +14247,15 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
     G20Cdi.loading = true;
 
-    // 6 anos cobre a janela 5A com folga
-    var ini = new Date(); ini.setFullYear(ini.getFullYear()-6);
+    /* R51: 12 anos em vez de 6.
+
+       Com 6 anos, qualquer janela mais longa que isso ficava sem CDI real.
+       O "Max" da carteira chega a 2018, e aí o cálculo caía num fallback
+       sintético que inflava o número — foi ele que produziu um CDI de
+       +378,27% em oito anos, quando o real fica na casa de 90%.
+
+       A série 4391 é mensal: 12 anos são ~144 pontos, alguns KB. */
+    var ini = new Date(); ini.setFullYear(ini.getFullYear()-12);
     var dIni = String(ini.getDate()).padStart(2,'0')+'/'+String(ini.getMonth()+1).padStart(2,'0')+'/'+ini.getFullYear();
     var urlMensal = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.4391/dados?formato=json&dataInicial=' + dIni;
 
@@ -14625,6 +14690,22 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         var _im = (typeof _v21InicioMax === 'function') ? _v21InicioMax() : null;
         if (_im) {
           inicioStr = _im;
+          /* ═══════════════════════════════════════════════════════════════
+             R51 — O EIXO X IGNORAVA O ALINHAMENTO
+
+             Corrigi `inicioStr` e esqueci que o eixo X é montado a partir de
+             `inicioD`, a variável Date, algumas linhas abaixo:
+
+                 var cursor = new Date(inicioD);
+
+             Com inicioStr em 2018 e inicioD ainda em −5 anos, o cálculo
+             usava 2018 mas o desenho começava em 2021. Era exatamente o que
+             se via: card vs Benchmarks marcando 2018-05-29 no console e o
+             gráfico com o eixo começando em Jul'21.
+
+             As duas variáveis precisam andar juntas. */
+          var _p = _im.split('-');
+          inicioD = new Date(+_p[0], (+_p[1]) - 1, +_p[2]);
         } else {
           if (!window._v21RentChartRetry) window._v21RentChartRetry = 0;
           if (window._v21RentChartRetry < 20) {
@@ -14847,11 +14928,22 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         if (finSp500 === null) { elSp500.textContent = '—'; }
         else { elSp500.textContent = _v21FmtPct(finSp500); _v21SetPosNeg(elSp500, finSp500); }
       }
-      if (elAlpha && finVoce !== null && finCdi !== null) {
-        var alpha = finVoce - finCdi;
-        elAlpha.textContent = _v21FmtPP(alpha);
-        elAlpha.classList.remove('is-pos','is-neg');
-        elAlpha.classList.add('is-gold');  // ALPHA sempre dourado 18px
+      if (elAlpha) {
+        /* R51: quando o CDI não existe para o período, o Alpha era
+           SIMPLESMENTE NÃO ATUALIZADO — e ficava na tela o valor do período
+           anterior. Foi o que apareceu no "Max": Carteira +453,92%, CDI "—",
+           e um Alpha de +20,28 pp que era do 5A. Número velho ao lado de
+           números novos engana mais que número ausente. */
+        if (finVoce !== null && finCdi !== null) {
+          var alpha = finVoce - finCdi;
+          elAlpha.textContent = _v21FmtPP(alpha);
+          elAlpha.classList.remove('is-pos','is-neg');
+          elAlpha.classList.add('is-gold');  // ALPHA sempre dourado 18px
+        } else {
+          elAlpha.textContent = '—';
+          elAlpha.classList.remove('is-pos','is-neg');
+          elAlpha.classList.add('is-gold');
+        }
       }
 
       // Desenha chart
