@@ -72,7 +72,7 @@ function _divsSalvar(lista){
     }
     // Tenta liberar espaço descartando caches recriáveis
     try {
-      ['v21_hist_ibov_v3','v21_hist_sp500_v3','g20_cdiHist_v1'].forEach(function(k){
+      ['v21_hist_ibov_v4','v21_hist_sp500_v4','v21_hist_ibov_v3','v21_hist_sp500_v3','g20_cdiHist_v1'].forEach(function(k){
         localStorage.removeItem(k);
       });
       localStorage.setItem('g20_dividendos', JSON.stringify(lista));
@@ -9956,7 +9956,7 @@ function _patSnapSave(arr){
   }catch(e){
     // Libera caches recriáveis (benchmarks/CDI) e tenta de novo.
     try{
-      ['v21_hist_ibov_v3','v21_hist_sp500_v3','v21_hist_ibov_v2','v21_hist_sp500_v2','g20_cdiHist_v1']
+      ['v21_hist_ibov_v4','v21_hist_sp500_v4','v21_hist_ibov_v3','v21_hist_sp500_v3','v21_hist_ibov_v2','v21_hist_sp500_v2','g20_cdiHist_v1']
         .forEach(function(k){ try{ localStorage.removeItem(k); }catch(e2){} });
       localStorage.setItem(PAT_SNAP_KEY,JSON.stringify(arr));
       console.warn('[snapshots] cota apertada — caches de benchmark descartados para gravar a série');
@@ -12445,21 +12445,35 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var cincoAAlvo = new Date(hojeD); cincoAAlvo.setFullYear(cincoAAlvo.getFullYear() - 5);
       var cincoA = _v21CalcRentPorData(snap, cincoAAlvo.toISOString().substring(0,10));
 
-      // TOTAL (desde o primeiro snap disponível)
-      var inicioTot = snap[0];
-      var fimTot = snap[snap.length - 1];
-      var totAbs = (fimTot.t || 0) - (inicioTot.t || 0);
-      var totPct = inicioTot.t > 0 ? (totAbs / inicioTot.t) * 100 : 0;
-      // Série real (TWR desde o início) tem prioridade
+      /* ═══════════════════════════════════════════════════════════════
+         TOTAL — R51: os dois números vinham de fontes diferentes.
+
+         Estava assim:
+           abs = snap[último].t − snap[primeiro].t     (snapshots)
+           pct = TWR da série real                     (motor)
+
+         Duas contas, dois universos, uma linha só na tela. Os snapshots
+         são gravados por várias funções em momentos diferentes do boot e
+         o primeiro deles costuma ser um registro parcial — daí um "TOTAL"
+         em reais que não conversava com o percentual ao lado.
+
+         Agora o TOTAL usa _v21CalcRentPorData() a partir da primeira data
+         da série, exatamente como as linhas HOJE, SEMANA, MÊS, YTD e 5A.
+         Mesma função, mesma fonte, mesma régua.
+         ═══════════════════════════════════════════════════════════════ */
+      var total = { abs: 0, pct: 0 };
       try {
         var _sTv = (typeof _v21SerieComVivo === 'function') ? _v21SerieComVivo() : null;
-        if (_sTv && _sTv.length >= 2 && typeof _v21TwrDesde === 'function') {
-          var _sT = _sTv;
-          var _rt = _v21TwrDesde(_sT, _sT[0].d);
-          if (_rt !== null && isFinite(_rt)) totPct = _rt;
+        if (_sTv && _sTv.length >= 2) {
+          total = _v21CalcRentPorData(snap, _sTv[0].d);
+        } else {
+          // Sem série real: cai nos snapshots, mas aí os DOIS números vêm dali.
+          var inicioTot = snap[0];
+          var fimTot = snap[snap.length - 1];
+          var totAbs = (fimTot.t || 0) - (inicioTot.t || 0);
+          total = { abs: totAbs, pct: inicioTot.t > 0 ? (totAbs / inicioTot.t) * 100 : 0 };
         }
       } catch(e){}
-      var total = { abs: totAbs, pct: totPct };
 
       function setRow(id, r) {
         var absEl = getEl('v21-rent-' + id + '-abs');
@@ -12512,15 +12526,17 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         var _iniStr = _ini ? _ini.toISOString().substring(0,10) : _sr[0].d;
 
         /* ─── "MAX" PRECISA SER O MESMO MAX PARA TODOS ───
-           A série da carteira começa no primeiro aporte (2018). Os índices
-           são baixados com range=5y, então só existem a partir de ~2021.
-           Usar o início da série para a carteira e 5 anos para os índices
-           comparava 8 anos seus contra 5 anos do IBOV — daí a carteira
-           aparecer com +595% ao lado de um IBOV de +38%.
+           A série da carteira começa no primeiro aporte. Os índices vêm do
+           Yahoo com janela fixa — eram 5 anos, agora são 10 (R51). Usar o
+           início da série para a carteira e a janela do índice para o resto
+           compararia 8 anos seus contra 5 anos de IBOV, e a carteira
+           apareceria com +595% ao lado de um IBOV de +38%.
 
-           Em "max", o ponto de partida passa a ser o mais RECENTE entre a
-           série e os benchmarks: a janela mais longa em que todos existem.
-           Assim a comparação é honesta. */
+           Em "max", o ponto de partida é o mais RECENTE entre a série e os
+           benchmarks: a janela mais longa em que todos existem. Com 10 anos
+           de índice, essa janela passou a ser o início da própria carteira,
+           e o "Max" deixou de ser um clone do "5A". A trava continua aqui
+           para o dia em que alguém tiver carteira mais antiga que isso. */
         if (!_ini) {
           var _partidas = [_sr[0].d];
           try {
@@ -14087,11 +14103,13 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
     // Cache localStorage 24h
     // v3: invalida cache com instrumento antigo do S&P (spy.us ETF → ^spx índice).
-    // Sem o bump, o dado do ETF sobreviveria 24h e a correção não apareceria.
-    var cacheKey = 'v21_hist_' + series + '_v3';
+    // v4 (R51): o histórico passou de 5 para 10 anos. Sem o bump, o cache de
+    //   5 anos sobreviveria 24h e o botão "Max" continuaria igual ao "5A".
+    var cacheKey = 'v21_hist_' + series + '_v4';
     try {
       localStorage.removeItem('v21_hist_' + series);
       localStorage.removeItem('v21_hist_' + series + '_v2');
+      localStorage.removeItem('v21_hist_' + series + '_v3');
     } catch(e){}
     try {
       var cached = JSON.parse(localStorage.getItem(cacheKey)||'null');
@@ -14203,7 +14221,17 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
     // ───── TENTATIVA 2: Yahoo via corsproxy.io (mais rápido e estável que allOrigins) ─────
     function tentarYahooCorsproxy() {
-      var yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(cfg.yahooSymbol) + '?range=5y&interval=1d';
+      /* R51: range=10y em vez de 5y.
+
+         Com 5 anos de índice, o "Max" era obrigado a se alinhar em ~2021 para
+         não comparar 8 anos de carteira contra 5 anos de IBOV — e o resultado
+         era o botão "Max" mostrando exatamente o mesmo número do botão "5A".
+         Dois botões, um resultado, nenhuma explicação na tela.
+
+         Com 10 anos, a janela comum passa a ser o início da carteira (2018) e
+         o "Max" volta a significar o que promete. O alinhamento continua lá:
+         se algum dia a carteira for mais antiga que 10 anos, ele age de novo. */
+      var yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(cfg.yahooSymbol) + '?range=10y&interval=1d';
       var url = 'https://corsproxy.io/?' + encodeURIComponent(yahooUrl);      return fetchComTimeout(url)
         .then(function(r){
           if (!r.ok) throw new Error('HTTP ' + r.status);
