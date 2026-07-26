@@ -6717,6 +6717,45 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
     var t = document.getElementById('g20DemoTarja');
     if (t && t.parentNode) t.parentNode.removeChild(t);
   };
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     VÉU DE TRANSIÇÃO
+
+     Entre o splash sumir e o tour abrir havia uma janela de quase um segundo
+     em que o aluno via o dashboard inteiro preenchido com a Carteira G20,
+     parado, sem explicação nenhuma. Ruim: a primeira coisa que ele enxerga
+     deveria ser o tour, não uma carteira que não é dele.
+
+     Este véu usa o mesmo fundo do splash, entra assim que o modo liga e sai
+     no instante em que o tour aparece. Emenda uma tela na outra.
+
+     Ele se remove sozinho depois de 15s aconteça o que acontecer — véu preso
+     na tela seria pior que o problema que ele resolve.
+     ═══════════════════════════════════════════════════════════════════════ */
+  var VEU_ID = 'g20DemoVeu';
+  window.G20Demo.porVeu = function(){
+    if (document.getElementById(VEU_ID) || !document.body) return;
+    var v = document.createElement('div');
+    v.id = VEU_ID;
+    /* Camadas: dashboard < véu (99985) < tour (99990–99992) < splash (99999).
+       Se o véu subisse acima de 99990 ele cobriria o próprio tour. */
+    v.style.cssText =
+      'position:fixed;inset:0;z-index:99985;' +
+      'background:radial-gradient(ellipse at center,#1a191e 0%,#0b0a0d 100%);' +
+      'opacity:1;transition:opacity .32s ease;pointer-events:none';
+    document.body.appendChild(v);
+    setTimeout(window.G20Demo.tirarVeu, 15000);   // trava de segurança
+  };
+  window.G20Demo.tirarVeu = function(){
+    var v = document.getElementById(VEU_ID);
+    if (!v) return;
+    v.style.opacity = '0';
+    setTimeout(function(){ if (v.parentNode) v.parentNode.removeChild(v); }, 340);
+  };
+
+  // Sobe o véu assim que o body existir — antes de qualquer card pintar.
+  if (document.body) window.G20Demo.porVeu();
+  else document.addEventListener('DOMContentLoaded', window.G20Demo.porVeu);
 })();
 </script>
 
@@ -16825,8 +16864,11 @@ html body .topbar {
        cheio e nenhum tour rodando. */
     var aberto = false;
     try { aberto = !!(G20Tour.ativo && G20Tour.ativo()); } catch(e){}
-    if (aberto && window.G20Demo && G20Demo.ativo) {
-      try { G20Demo.mostrarTarja(); } catch(e){}
+    if (window.G20Demo && G20Demo.ativo) {
+      if (aberto) { try { G20Demo.mostrarTarja(); } catch(e){} }
+      // O véu sai junto com a abertura do tour: o aluno passa do splash
+      // direto para o tour, sem ver a carteira parada no meio do caminho.
+      try { G20Demo.tirarVeu(); } catch(e){}
     }
   }
 
@@ -16839,11 +16881,16 @@ html body .topbar {
      — o tour posiciona o holofote sobre cards que precisam estar na tela. */
   function quandoPronto(cb){
     var limite = Date.now() + 20000;
+    /* Em modo demonstração o véu já cobre a tela, então não há motivo pra
+       esperar quase um segundo depois do splash: o tour entra assim que os
+       cards estiverem montados. Na carga normal a folga maior evita o
+       holofote apontar pra um card que ainda está se posicionando. */
+    var folga = (window.G20Demo && G20Demo.ativo) ? 260 : 900;
     (function checa(){
       var ov = document.getElementById('g20LoadingOverlay');
       var splashFora = !ov || ov.style.display === 'none' || ov.classList.contains('is-hiding');
       var dadosOk = (window._g20DadosProntos !== false);
-      if ((splashFora && dadosOk) || Date.now() > limite) { setTimeout(cb, 900); return; }
+      if ((splashFora && dadosOk) || Date.now() > limite) { setTimeout(cb, folga); return; }
       setTimeout(checa, 200);
     })();
   }
