@@ -6494,6 +6494,231 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
   } catch(e){}
 })();
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     MODO DEMONSTRAÇÃO DO TOUR  —  sessão 51.0
+
+     PARA QUE SERVE
+     Aluno novo abre o dashboard com a carteira vazia. O tour ilumina cards
+     escritos "aguardando dados…" e promete coisas que a tela não mostra.
+     Neste modo, os cards são preenchidos com um retrato ESTÁTICO da Carteira
+     G20 (assets/cg20-demo.json) enquanto o tour roda. Acabou o tour, a página
+     recarrega e o aluno vê a carteira dele, vazia, esperando o primeiro aporte.
+
+     QUANDO LIGA
+     Só quando a carteira pessoal está VAZIA — sem RV, sem RF, sem bens. Quem
+     já tem carteira montada faz o tour em cima dos próprios números; seria
+     assustador ver o próprio patrimônio virar outro no meio da explicação.
+     Vale tanto no primeiro acesso quanto ao clicar no "?".
+
+     COMO FUNCIONA
+     Quem decide é o gatilho do tour (lá embaixo): se precisa de demo, grava
+     um sinalizador em sessionStorage e recarrega. Este bloco roda no boot,
+     ANTES de qualquer card renderizar, e:
+       1. lê o pacote (XHR síncrono — a tela está no splash mesmo)
+       2. intercepta as LEITURAS do localStorage das chaves patrimoniais
+       3. bloqueia as GRAVAÇÕES dessas chaves, no navegador e no Firestore
+       4. faz o G20Rent devolver a série do pacote
+
+     POR QUE O BLOQUEIO DE GRAVAÇÃO É OBRIGATÓRIO
+     Vários pontos do dashboard não só leem como SALVAM o que calcularam —
+     g20_patSnapshots, g20_lastRVTotal, a série no IndexedDB. E há um caso
+     pior: _g20SalvarAportes() corrige desdobramentos e escreve g20_rvAportes
+     direto no Firestore do aluno. Sem trava, os 719 aportes da Carteira G20
+     virariam a carteira pessoal dele, de verdade e para sempre.
+
+     NADA AQUI É GRAVADO. O pacote vive só em memória e some no reload.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script>
+(function(){
+  'use strict';
+
+  var SINAL = 'g20_tourDemo';
+  var marca = null;
+  try { marca = sessionStorage.getItem(SINAL); } catch(e){}
+  var ativo = (marca === '1' || marca === '2');
+
+  window.G20Demo = {
+    ativo: false,
+    dados: null,
+    // 'auto'  = primeiro acesso (o tour ainda precisa ser marcado como visto)
+    // 'rever' = clique no "?" (já foi visto; abre direto)
+    motivo: null,
+
+    /* Chamado pelo gatilho do tour: liga o modo e recarrega. */
+    entrar: function(motivo){
+      try { sessionStorage.setItem(SINAL, motivo === 'rever' ? '2' : '1'); } catch(e){}
+      location.reload();
+    },
+
+    /* O tour do dashboard já foi visto neste navegador? */
+    tourJaVisto: function(){
+      try { return (parseInt(localStorage.getItem('g20_tour_dashboard') || '0', 10) || 0) >= 1; }
+      catch(e){ return false; }
+    },
+
+    /* Chamado quando o tour fecha: desliga e recarrega limpo. */
+    sair: function(){
+      try { sessionStorage.removeItem(SINAL); } catch(e){}
+      location.reload();
+    },
+
+    /* A carteira pessoal está vazia? */
+    carteiraVazia: function(){
+      try {
+        var rv   = JSON.parse(localStorage.getItem('g20_rvAportes')      || '[]');
+        var rf   = JSON.parse(localStorage.getItem('g20_rendaFixa')      || '[]');
+        var bens = JSON.parse(localStorage.getItem('g20_patrimonioBens') || '[]');
+        return (rv.length + rf.length + bens.length) === 0;
+      } catch(e){ return false; }
+    }
+  };
+
+  if (!ativo) return;
+
+  // ── 1. Carrega o pacote ────────────────────────────────────────────────
+  var D = null;
+  try {
+    var xhr = new XMLHttpRequest();
+    // Síncrono de propósito: o splash está na tela e nada pode renderizar
+    // antes do pacote chegar. É o único jeito de evitar re-render de tudo.
+    xhr.open('GET', 'assets/cg20-demo.json', false);
+    xhr.send(null);
+    if (xhr.status >= 200 && xhr.status < 300) D = JSON.parse(xhr.responseText);
+  } catch(e){
+    console.warn('[G20Demo] falha ao ler cg20-demo.json:', e && e.message);
+  }
+
+  if (!D || !D.serie || !D.serie.length) {
+    console.warn('[G20Demo] pacote ausente ou inválido — tour roda sem demonstração.');
+    try { sessionStorage.removeItem(SINAL); } catch(e){}
+    return;
+  }
+
+  window.G20Demo.ativo  = true;
+  window.G20Demo.dados  = D;
+  window.G20Demo.motivo = (marca === '2') ? 'rever' : 'auto';
+  window._g20TourDemo = true;
+  console.log('%c[G20Demo] modo demonstração ATIVO — ' + D.serie.length +
+              ' dias, ' + (D.aportes||[]).length + ' aportes, ' +
+              Object.keys(D.precos||{}).length + ' preços. Nada será gravado.',
+              'color:#e8b84b;font-weight:bold');
+
+  // ── 2. Leituras: as chaves patrimoniais passam a devolver a CG20 ───────
+  var LEITURAS = {
+    'g20_rvAportes':      function(){ return JSON.stringify(D.aportes    || []); },
+    'g20_aportes':        function(){ return JSON.stringify(D.aportes    || []); },
+    'g20_dividendos':     function(){ return JSON.stringify(D.dividendos || []); },
+    'g20_rvDividendos':   function(){ return JSON.stringify(D.dividendos || []); },
+    'g20_precos':         function(){ return JSON.stringify(D.precos     || {}); },
+    'g20_rendaFixa':      function(){ return '[]'; },
+    'g20_patrimonioBens': function(){ return '[]'; },
+    'g20_patSnapshots':   function(){ return '[]'; },
+    // Meta de R$ 300 mil sobre ~R$ 155 mil de patrimônio: o velocímetro da
+    // Independência Financeira aparece por volta de 52%, que mostra bem o card.
+    'g20_metaIF':         function(){ return '300000'; }
+  };
+
+  var _get = localStorage.getItem.bind(localStorage);
+  localStorage.getItem = function(k){
+    if (window.G20Demo.ativo && LEITURAS[k]) { try { return LEITURAS[k](); } catch(e){} }
+    return _get(k);
+  };
+
+  // ── 3. Gravações: bloqueadas ──────────────────────────────────────────
+  var BLOQUEADAS = {
+    'g20_rvAportes':1, 'g20_aportes':1, 'g20_dividendos':1, 'g20_rvDividendos':1,
+    'g20_precos':1, 'g20_rendaFixa':1, 'g20_patrimonioBens':1, 'g20_patSnapshots':1,
+    'g20_lastRVTotal':1, 'g20_serieReal':1, 'g20_metaIF':1, 'g20_dashRVCot_cache':1,
+    'g20_cotacoesCache':1
+  };
+
+  var _set = localStorage.setItem.bind(localStorage);
+  localStorage.setItem = function(k, v){
+    if (window.G20Demo.ativo && (BLOQUEADAS[k] || String(k).indexOf('g20_histpx_') === 0)) {
+      return;   // silencioso: o dashboard não precisa saber
+    }
+    return _set(k, v);
+  };
+
+  var _rem = localStorage.removeItem.bind(localStorage);
+  localStorage.removeItem = function(k){
+    if (window.G20Demo.ativo && BLOQUEADAS[k]) return;
+    return _rem(k);
+  };
+
+  if (window.G20Store && typeof G20Store.set === 'function') {
+    G20Store.set = function(){ return Promise.resolve(true); };
+  }
+
+  // ── 4. Módulos que só existem mais adiante na página ──────────────────
+  var pendentes = { rent: false, salvar: false, store: false };
+
+  function aplicarPatches(){
+    // G20Rent: devolve a série do pacote e nunca recalcula nem invalida.
+    if (!pendentes.rent && window.G20Rent) {
+      G20Rent.cache        = function(){ return D.serie; };
+      G20Rent.calcular     = function(){ return Promise.resolve(D.serie); };
+      G20Rent.invalidar    = function(){};
+      G20Rent.definirDono  = function(){ return null; };
+      G20Rent._serieMem    = D.serie;
+      try { window._g20HistPronto = true; } catch(e){}
+      pendentes.rent = true;
+    }
+    // Correção de desdobramento: escreve g20_rvAportes NO FIRESTORE.
+    // É a gravação mais perigosa da página em modo demo.
+    if (!pendentes.salvar && typeof window._g20SalvarAportes === 'function') {
+      window._g20SalvarAportes = function(){
+        console.log('[G20Demo] gravação de aportes bloqueada (modo demonstração).');
+      };
+      pendentes.salvar = true;
+    }
+    // G20Store pode ser carregado depois deste bloco em alguma variação.
+    if (!pendentes.store && window.G20Store && typeof G20Store.set === 'function') {
+      G20Store.set = function(){ return Promise.resolve(true); };
+      pendentes.store = true;
+    }
+    return pendentes.rent && pendentes.salvar;
+  }
+
+  aplicarPatches();
+  var t0 = Date.now();
+  var timer = setInterval(function(){
+    if (aplicarPatches() || Date.now() - t0 > 15000) clearInterval(timer);
+  }, 20);
+
+  // ── 5. Tarja de aviso ─────────────────────────────────────────────────
+  // Um indicador só, no topo. Não é selo por card (poluiria) — é o mínimo
+  // pro aluno não achar que aqueles números são dele.
+  window.G20Demo.mostrarTarja = function(){
+    if (document.getElementById('g20DemoTarja')) return;
+    var css = document.createElement('style');
+    css.textContent =
+      '#g20DemoTarja{position:fixed;top:0;left:0;right:0;z-index:2147483000;' +
+      'display:flex;align-items:center;justify-content:center;gap:9px;' +
+      'padding:7px 14px;background:linear-gradient(90deg,#1a1408,#2a2010,#1a1408);' +
+      'border-bottom:1px solid rgba(232,184,75,.42);' +
+      'font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:1.5px;' +
+      'text-transform:uppercase;color:#e8b84b;pointer-events:none;' +
+      'box-shadow:0 2px 18px rgba(0,0,0,.55)}' +
+      '#g20DemoTarja .pt{width:7px;height:7px;border-radius:50%;background:#e8b84b;' +
+      'box-shadow:0 0 9px rgba(232,184,75,.85);animation:g20DemoPulso 1.9s ease-in-out infinite}' +
+      '@keyframes g20DemoPulso{0%,100%{opacity:1}50%{opacity:.32}}' +
+      '@media(max-width:640px){#g20DemoTarja{font-size:9.5px;letter-spacing:1px;padding:6px 10px}}';
+    document.head.appendChild(css);
+
+    var t = document.createElement('div');
+    t.id = 'g20DemoTarja';
+    t.innerHTML = '<span class="pt"></span><span>Modo demonstração · dados da Carteira G20</span>';
+    document.body.appendChild(t);
+  };
+  window.G20Demo.esconderTarja = function(){
+    var t = document.getElementById('g20DemoTarja');
+    if (t && t.parentNode) t.parentNode.removeChild(t);
+  };
+})();
+</script>
+
 <!-- G20 Loader Elegante — visível no boot + acionável em operações >1s -->
 <div id="g20LoadingOverlay" class="g20-loader-overlay">
   <div class="g20-loader-box">
@@ -16562,21 +16787,106 @@ html body .topbar {
     }
   ];
 
-  // Botão "rever tour" da topbar
-  window.v21ReverTour = function(){
-    if (window.G20Tour) G20Tour.start({ id:'dashboard', versao:1, avatar:'assets/israel-avatar.jpg', autor:'Israel', steps: PASSOS });
-  };
+  /* ═══════════════════════════════════════════════════════════════════
+     GATILHO DO TOUR + MODO DEMONSTRAÇÃO
 
-  // Primeiro acesso: dispara sozinho depois do splash, uma única vez
-  function agendar(){
-    if (!window.G20Tour) return setTimeout(agendar, 300);
-    G20Tour.auto({
+     Regra: se a carteira pessoal está vazia, o tour roda sobre um retrato
+     da Carteira G20 (assets/cg20-demo.json). Se o aluno já tem carteira,
+     roda sobre os números dele — ver o próprio patrimônio virar outro no
+     meio da explicação seria assustador.
+
+     Ligar o modo exige recarregar: os cards precisam nascer com os dados
+     de demonstração, senão seria preciso re-renderizar o dashboard inteiro
+     no meio do caminho. O sinalizador vive em sessionStorage e o bloco lá
+     em cima o lê no boot. Sair do tour recarrega de novo, limpo.
+     ═══════════════════════════════════════════════════════════════════ */
+  function cfgTour(){
+    return {
       id: 'dashboard',
       versao: 1,
-      atraso: 1100,
       avatar: 'assets/israel-avatar.jpg',
       autor: 'Israel',
-      steps: PASSOS
+      steps: PASSOS,
+      aoFechar: function(){
+        if (window.G20Demo && G20Demo.ativo) {
+          try { G20Demo.esconderTarja(); } catch(e){}
+          G20Demo.sair();      // recarrega sem demonstração
+        }
+      }
+    };
+  }
+
+  function abrirTour(){
+    if (!window.G20Tour) return;
+    if (window.G20Demo && G20Demo.ativo) {
+      try { G20Demo.mostrarTarja(); } catch(e){}
+    }
+    G20Tour.start(cfgTour());
+  }
+
+  /* Espera o splash sumir e os dados chegarem.
+
+     Duas coisas dependem disso:
+     — a carteira pessoal só é confiável DEPOIS que o Firestore responde.
+       Antes disso ela parece vazia mesmo para quem tem carteira montada
+       (navegador novo, cache limpo), e o modo demonstração ligaria errado.
+     — o tour posiciona o holofote sobre cards que precisam estar na tela. */
+  function quandoPronto(cb){
+    var limite = Date.now() + 20000;
+    (function checa(){
+      var ov = document.getElementById('g20LoadingOverlay');
+      var splashFora = !ov || ov.style.display === 'none' || ov.classList.contains('is-hiding');
+      var dadosOk = (window._g20DadosProntos !== false);
+      if ((splashFora && dadosOk) || Date.now() > limite) { setTimeout(cb, 900); return; }
+      setTimeout(checa, 200);
+    })();
+  }
+
+  // Botão "rever tour" da topbar (o "?")
+  window.v21ReverTour = function(){
+    if (!window.G20Tour) return;
+    // Já está em demonstração? Só abre.
+    if (window.G20Demo && G20Demo.ativo) return abrirTour();
+    // Carteira vazia? Liga a demonstração e recarrega — o tour reabre na volta.
+    if (window.G20Demo && G20Demo.carteiraVazia()) return G20Demo.entrar('rever');
+    abrirTour();
+  };
+
+  function agendar(){
+    if (!window.G20Tour) return setTimeout(agendar, 300);
+
+    /* CASO 1 — já veio de um reload em modo demonstração. */
+    if (window.G20Demo && G20Demo.ativo) {
+      quandoPronto(function(){
+        if (G20Demo.motivo === 'rever') {
+          /* Clique no "?": o tour já foi visto, então G20Tour.auto() desistiria.
+             Abre direto. */
+          abrirTour();
+        } else {
+          /* Primeiro acesso: usa auto(), que marca o tour como visto (aqui e no
+             Firestore) antes de abrir. Sem essa marcação, ao fechar o tour a
+             página recarrega, a carteira continua vazia, o modo liga de novo e
+             o tour reabre — um laço sem fim. */
+          try { G20Demo.mostrarTarja(); } catch(e){}
+          var cfgA = cfgTour();
+          cfgA.atraso = 0;
+          G20Tour.auto(cfgA);
+        }
+      });
+      return;
+    }
+
+    /* CASO 2 — carga normal. A decisão fica aqui, e não no guard do
+       G20Tour.auto(), porque o guard roda antes do Firestore responder: a
+       carteira pareceria vazia mesmo para quem tem carteira montada. */
+    quandoPronto(function(){
+      if (window.G20Demo && !G20Demo.tourJaVisto() && G20Demo.carteiraVazia()) {
+        G20Demo.entrar('auto');
+        return;
+      }
+      var cfg = cfgTour();
+      cfg.atraso = 0;
+      G20Tour.auto(cfg);
     });
   }
 
