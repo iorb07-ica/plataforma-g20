@@ -9604,7 +9604,125 @@ function loadPatStrip(){
     var tab = [96,93,90,86,83,80,76,73,70,66,63,60,56,53,50,46,43,40,36,33,30,26,23,20,16,13,10,6,3,0];
     return tab[Math.max(0, Math.min(29, dias - 1))] || 0;
   }
-  function diasUteisEstimados(dc) { return dc * (252 / 365); }
+  /* ═══════════════════════════════════════════════════════════════════════
+     DIAS ÚTEIS — R51
+
+     Antes: `dc * (252/365)`, uma estimativa que espalha os 252 dias úteis do
+     ano por igual entre os 365 corridos. Cada dia virava 0,69 dia útil,
+     inclusive sábado e domingo — e o CDB "rendia" no fim de semana. O card
+     no modo "Apenas RF" mostrava +0,03% no domingo e o gráfico de 60 dias
+     era uma reta perfeita, sem nenhum degrau.
+
+     Agora contamos dia útil de verdade: fora sábados, domingos E feriados
+     nacionais, incluindo os móveis. O CDI é apropriado exatamente assim —
+     sexta paga o fim de semana, e a véspera de feriado paga o feriado.
+
+     Os móveis dependem da Páscoa, que muda todo ano. Usamos o algoritmo de
+     Meeus/Butcher para calculá-la e derivar carnaval (segunda e terça),
+     Sexta-feira Santa e Corpus Christi.
+
+     Incluímos também 24/12 e 31/12: não são feriados civis, mas o mercado
+     financeiro não opera e não há apuração de CDI nessas datas.
+     ═══════════════════════════════════════════════════════════════════════ */
+  function _pascoa(ano) {
+    // Meeus/Butcher — calendário gregoriano
+    var a = ano % 19, b = Math.floor(ano / 100), c = ano % 100;
+    var d = Math.floor(b / 4), e = b % 4;
+    var f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+    var h = (19 * a + b - d - g + 15) % 30;
+    var i = Math.floor(c / 4), k = c % 4;
+    var l = (32 + 2 * e + 2 * i - h - k) % 7;
+    var m = Math.floor((a + 11 * h + 22 * l) / 451);
+    var mes = Math.floor((h + l - 7 * m + 114) / 31);
+    var dia = ((h + l - 7 * m + 114) % 31) + 1;
+    return new Date(ano, mes - 1, dia);
+  }
+
+  var _feriadosCache = {};
+  function _feriadosDoAno(ano) {
+    if (_feriadosCache[ano]) return _feriadosCache[ano];
+    function fmt(dt) {
+      return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') +
+             '-' + String(dt.getDate()).padStart(2, '0');
+    }
+    function mais(dt, n) { var x = new Date(dt); x.setDate(x.getDate() + n); return x; }
+
+    var p = _pascoa(ano);
+    var set = {};
+    [
+      ano + '-01-01',            // Confraternização Universal
+      ano + '-04-21',            // Tiradentes
+      ano + '-05-01',            // Dia do Trabalho
+      ano + '-09-07',            // Independência
+      ano + '-10-12',            // Nossa Senhora Aparecida
+      ano + '-11-02',            // Finados
+      ano + '-11-15',            // Proclamação da República
+      ano + '-11-20',            // Consciência Negra (nacional desde 2024)
+      ano + '-12-24',            // véspera de Natal — mercado fechado
+      ano + '-12-25',            // Natal
+      ano + '-12-31',            // véspera de Ano-Novo — mercado fechado
+      fmt(mais(p, -48)),         // segunda de carnaval
+      fmt(mais(p, -47)),         // terça de carnaval
+      fmt(mais(p, -2)),          // Sexta-feira Santa
+      fmt(mais(p, 60))           // Corpus Christi
+    ].forEach(function (d) { set[d] = 1; });
+
+    _feriadosCache[ano] = set;
+    return set;
+  }
+
+  function _ehDiaUtil(dt) {
+    var dw = dt.getDay();
+    if (dw === 0 || dw === 6) return false;
+    var s = dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') +
+            '-' + String(dt.getDate()).padStart(2, '0');
+    return !_feriadosDoAno(dt.getFullYear())[s];
+  }
+
+  function diasUteisEstimados(dc) { return dc * (252 / 365); }   // legado
+
+  /* Dias úteis entre duas datas (exclusivo no início, inclusivo no fim).
+
+     Percorre semana a semana e desconta os feriados que caem em dia de
+     semana — varrer dia a dia 8 anos de série, para cada papel e cada
+     ponto, custaria caro demais. */
+  var _duCache = {};
+  function _diasUteisAte(iniISO, fimISO) {
+    var ck = iniISO + '|' + fimISO;
+    if (_duCache[ck] !== undefined) return _duCache[ck];
+
+    var a = new Date(iniISO + 'T12:00:00'), b = new Date(fimISO + 'T12:00:00');
+    if (!(b > a)) { _duCache[ck] = 0; return 0; }
+
+    var ms = 86400000;
+    var total = Math.round((b - a) / ms);
+    var semanas = Math.floor(total / 7);
+    var uteis = semanas * 5;
+    var cur = new Date(a);
+    cur.setDate(cur.getDate() + semanas * 7);
+    var resto = total - semanas * 7;
+    for (var i = 0; i < resto; i++) {
+      cur.setDate(cur.getDate() + 1);
+      var dw = cur.getDay();
+      if (dw !== 0 && dw !== 6) uteis++;
+    }
+
+    // Desconta os feriados em dia de semana dentro da janela
+    var y0 = a.getFullYear(), y1 = b.getFullYear();
+    for (var y = y0; y <= y1; y++) {
+      var fer = _feriadosDoAno(y);
+      for (var ds in fer) {
+        if (ds <= iniISO || ds > fimISO) continue;
+        var fd = new Date(ds + 'T12:00:00');
+        var w = fd.getDay();
+        if (w !== 0 && w !== 6) uteis--;
+      }
+    }
+
+    if (uteis < 0) uteis = 0;
+    _duCache[ck] = uteis;
+    return uteis;
+  }
 
   function rfBruto(rf, dataRefISO, idx) {
     var vi = parseFloat(rf.valorInv || rf.valor || 0);
@@ -9618,10 +9736,14 @@ function loadPatStrip(){
 
     var ix = String(rf.indexador || 'CDI').toUpperCase();
     var fator = 1;
+    /* CDI e Selic são apropriados por DIA ÚTIL — sexta paga o fim de semana
+       inteiro, e o pagamento aparece na segunda. IPCA, IGP-M e prefixado são
+       por dia corrido (base 365), então continuam com `dc`. */
+    var du = _diasUteisAte(ini, dataRefISO);
     if (ix === 'CDI') {
-      fator = Math.pow(1 + (idx.cdi || 0) / 100, t * diasUteisEstimados(dc) / 252);
+      fator = Math.pow(1 + (idx.cdi || 0) / 100, t * du / 252);
     } else if (ix === 'SELIC') {
-      fator = Math.pow(1 + (idx.selic || 0) / 100 + t, diasUteisEstimados(dc) / 252);
+      fator = Math.pow(1 + (idx.selic || 0) / 100 + t, du / 252);
     } else if (ix === 'IPCA' || ix === 'IPCA+') {
       fator = Math.pow(1 + (idx.ipca || 0) / 100 + t, dc / 365);
     } else if (ix === 'IGPM' || ix === 'IGP-M') {
@@ -10181,6 +10303,84 @@ function _patSnapSave(arr){
    window._g20DadosProntos.
    ═══════════════════════════════════════════════════════════════════════════ */
 window._patSnapLoad = _patSnapLoad;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MUDANÇA DOS BACKUPS PARA O IndexedDB — R51
+
+   A página Carteira G20 guarda as 3 últimas versões de cada chave crítica
+   (proventos, aportes, renda fixa) como rede de segurança contra perda de
+   dado. A intenção é boa; o custo é alto: o G20DiagStorage mediu
+
+       g20_backup_dividendos ... 2.814 KB  (29% de tudo)
+
+   Três cópias completas dos proventos, num localStorage de ~5 MB que também
+   precisa guardar preços, cotações e a carteira em si. Era o segundo maior
+   consumidor depois dos históricos por ativo.
+
+   Aqui os backups são MOVIDOS para o IndexedDB — não apagados. O conteúdo
+   continua inteiro e recuperável; só sai da cota apertada para a folgada.
+   Roda uma vez por sessão, no boot.
+
+   A Carteira G20 continua gravando no localStorage (é outro arquivo); a cada
+   carga do dashboard, o que ela gravou é transferido de novo. Quando aquela
+   página for atualizada, ela passa a gravar direto no lugar certo.
+   ═══════════════════════════════════════════════════════════════════════════ */
+(function moverBackupsPesados(){
+  try {
+    if (!window.G20Store) return;
+    var achados = [];
+    for (var i = 0; i < localStorage.length; i++) {
+      var k = localStorage.key(i);
+      if (k && k.indexOf('g20_backup_') === 0) achados.push(k);
+    }
+    if (!achados.length) return;
+
+    var movidos = 0, kb = 0;
+    achados.forEach(function(k){
+      var raw = null;
+      try { raw = localStorage.getItem(k); } catch(e){ return; }
+      if (!raw) return;
+      var tamanho = raw.length * 2 / 1024;
+      var val = null;
+      try { val = JSON.parse(raw); } catch(e){ return; }
+      G20Store.set(k, val).then(function(){
+        // Só remove do localStorage DEPOIS que a gravação confirmou.
+        try { localStorage.removeItem(k); } catch(e){}
+      }).catch(function(){});
+      movidos++; kb += tamanho;
+    });
+
+    if (movidos) {
+      console.log('%c[G20] ' + movidos + ' backup(s) movidos para o IndexedDB — ' +
+                  Math.round(kb) + ' KB liberados no localStorage. ' +
+                  'O conteúdo continua inteiro.', 'color:#4ade80;font-weight:bold');
+    }
+  } catch(e){}
+})();
+
+/* Lista e recupera os backups, agora do IndexedDB.
+   Uso:  G20Backups()                  -> o que existe
+         G20Backups('dividendos')      -> as versões guardadas dessa chave */
+window.G20Backups = function(chave){
+  if (!window.G20Store) { console.warn('[G20Backups] IndexedDB indisponível.'); return; }
+  if (!chave) {
+    return G20Store.list('g20_backup_').then(function(r){
+      var ks = (r && r.keys) || [];
+      if (!ks.length) { console.log('[G20Backups] nenhum backup guardado.'); return []; }
+      console.log('%c[G20Backups] disponíveis:', 'color:#c9a961;font-weight:bold');
+      ks.forEach(function(k){ console.log('   ' + k.replace('g20_backup_','')); });
+      console.log('Use G20Backups("dividendos") para ver as versões.');
+      return ks;
+    });
+  }
+  return G20Store.get('g20_backup_' + chave).then(function(arr){
+    if (!Array.isArray(arr) || !arr.length) { console.warn('[G20Backups] nada para "' + chave + '".'); return []; }
+    console.log('%c[G20Backups] ' + chave, 'color:#c9a961;font-weight:bold');
+    console.table(arr.map(function(b,i){ return { indice:i, quando:b.ts, registros:b.count }; }));
+    return arr;
+  });
+};
+
 
 /* Pré-carrega os snapshots do IndexedDB para a memória, uma vez por sessão. */
 (function(){
@@ -11173,8 +11373,16 @@ window.g20Logout = function() {
             // senão os valores dela vazam pros KPIs pessoais (APORTES, composição) como se
             // fossem do próprio aluno. O aluno vê só a carteira dele (rvAportes).
             if (!_isAdminDash && doc.id === 'aportes') return;
-            try { localStorage.setItem('g20_' + doc.id, JSON.stringify(doc.data().value)); } catch(e) {}
+            /* R51: se o documento no Firestore já se chama "g20_aportes",
+               concatenar o prefixo produzia a chave órfã `g20_g20_aportes` —
+               283 KB de dado morto que ninguém lê e que ocupava a cota.
+               Normaliza antes de gravar. */
+            var _id = String(doc.id).replace(/^g20_/, '');
+            if (!_isAdminDash && _id === 'aportes') return;
+            try { localStorage.setItem('g20_' + _id, JSON.stringify(doc.data().value)); } catch(e) {}
           });
+          // Remove a chave órfã de versões anteriores, se existir.
+          try { localStorage.removeItem('g20_g20_aportes'); } catch(e){}
           try { localStorage.setItem('g20_dados_owner', user.uid); } catch(e){}
           // Snapshots reais do usuário já estão no localStorage: libera os painéis.
           window._g20DadosProntos = true;
@@ -14423,7 +14631,17 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
             if (_rm !== null && isFinite(_rm)) rentMes = _rm;
           }
         } catch(e){}
-        if (inicio30 && fim && inicio30.c > 0 && fim.c > 0) {
+        /* CDI do mês — mesma correção do Alpha YTD: série real do BCB em vez
+           do campo `c` sintético dos snapshots, que projeta a taxa de um dia
+           sobre todo o intervalo e infla o acumulado. */
+        try {
+          if (typeof v21CdiRentabilidade === 'function') {
+            var _hj1 = new Date().toISOString().substring(0,10);
+            var _cm = v21CdiRentabilidade(_mesAlvoStr, _hj1);
+            if (_cm !== null && isFinite(_cm)) cdiMes = _cm;
+          }
+        } catch(e){}
+        if (cdiMes === null && inicio30 && fim && inicio30.c > 0 && fim.c > 0) {
           cdiMes = ((fim.c / inicio30.c) - 1) * 100;
         }
       }
@@ -14463,9 +14681,30 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
             if (_ry !== null && isFinite(_ry)) rentYtd = _ry;
           }
         } catch(e){}
-        if (inicioYTD && fimYTD && inicioYTD.c > 0) {
-          cdiYtd = ((fimYTD.c / inicioYTD.c) - 1) * 100;
-        }
+        /* ═══════════════════════════════════════════════════════════════
+           CDI DO ANO — R51: série real do BCB, não o campo `c`
+
+           Estava assim:  cdiYtd = (fimYTD.c / inicioYTD.c - 1) * 100
+
+           O campo `c` dos snapshots é sintético: projeta a taxa de UM dia
+           sobre todo o intervalo. Ele marcava +11,43% no ano contra os
+           +7,79% reais — e o dashboard exibia DOIS CDI YTD diferentes ao
+           mesmo tempo, um aqui e outro no card Rentabilidade.
+
+           Como o Alpha é carteira menos CDI, um CDI inflado em 3,6 pontos
+           virava um Alpha negativo que não existe: −3,19 pp aqui contra
+           +0,44 pp no card ao lado, para o mesmo período.
+
+           Agora vem de v21CdiRentabilidade(), a série 4391 do Banco
+           Central. Sem ela, o Alpha mostra "—" em vez de estimar.
+           ═══════════════════════════════════════════════════════════════ */
+        try {
+          if (typeof v21CdiRentabilidade === 'function') {
+            var _hojeCdi = new Date().toISOString().substring(0,10);
+            var _cr = v21CdiRentabilidade(anoAtual + '-01-01', _hojeCdi);
+            if (_cr !== null && isFinite(_cr)) cdiYtd = _cr;
+          }
+        } catch(e){}
         if (rentYtd !== null && cdiYtd !== null) {
           alphaYtd = rentYtd - cdiYtd;
         }
