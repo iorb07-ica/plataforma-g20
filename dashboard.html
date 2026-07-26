@@ -7567,12 +7567,12 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
 
               <div class="v21-metaif-edit-body">
                 <div class="v21-metaif-field-group">
-                  <div class="v21-metaif-field-lbl">Meta de Patrimônio</div>
+                  <div class="v21-metaif-field-lbl">Meta de Investimentos</div>
                   <div class="v21-metaif-field-wrap">
                     <span class="v21-metaif-field-prefix">R$</span>
                     <input type="text" class="v21-metaif-field-input" id="v21-metaif-input-meta" inputmode="numeric" autocomplete="off">
                   </div>
-                  <div class="v21-metaif-field-hint">Patrimônio total que você busca atingir para sua IF</div>
+                  <div class="v21-metaif-field-hint">Soma de renda variável e renda fixa que você busca atingir. Não inclui imóveis, veículos e outros bens.</div>
                 </div>
 
                 <div class="v21-metaif-field-group">
@@ -7586,11 +7586,11 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
 
                 <div class="v21-metaif-edit-info">
                   <div class="v21-metaif-info-row">
-                    <span class="v21-metaif-info-lbl">📊 Patrimônio atual</span>
+                    <span class="v21-metaif-info-lbl">📊 Investido hoje</span>
                     <span class="v21-metaif-info-val" id="v21-metaif-info-atual">R$ —</span>
                   </div>
                   <div class="v21-metaif-info-row">
-                    <span class="v21-metaif-info-lbl">💰 Aporte médio</span>
+                    <span class="v21-metaif-info-lbl">💰 Aporte médio (12m)</span>
                     <span class="v21-metaif-info-val" id="v21-metaif-info-aporte">R$ —/mês</span>
                   </div>
                 </div>
@@ -14386,26 +14386,68 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     });
 
     // ===== Composição (top posição e top3) =====
-    // SESSÃO 51.0: só a carteira pessoal (g20_rvAportes). A CG20 é material
-    // didático e não deve gerar insights sobre "a sua carteira".
-    var posicoes = {};
-    rvAp.forEach(function(a){
-      if (!a.ticker) return;
-      var qtd = parseFloat(a.qtd)||0;
-      if ((a.tipo||'').toLowerCase() === 'venda') qtd = -qtd;
-      posicoes[a.ticker] = (posicoes[a.ticker]||0) + qtd;
-    });
+    /* ═══════════════════════════════════════════════════════════════════
+       R51 — A CONCENTRAÇÃO ESTAVA QUASE DOBRADA
+
+       Estava assim:  valor = qtd × g20PriceOf(precos[ticker])
+
+       O preço vem na moeda de origem e não era convertido. Numa carteira
+       57% dolarizada, o denominador encolhia: os ativos em dólar entravam
+       valendo um quinto do que valem, e a fatia dos brasileiros inflava.
+
+       O sintoma foi exato: o card dizia "39,59% em PRIO3" enquanto a
+       Minha Carteira mostrava 20%. Refazendo a conta sem converter dólar
+       dá 39,59% — ao centésimo. Com conversão, 20,94%.
+
+       Um insight de concentração errado é pior que insight nenhum: manda
+       o aluno rebalancear uma posição que está no tamanho certo.
+
+       Agora usa g20AvaliarRV(), o mesmo motor do card Minha Carteira e da
+       Composição. Preço em seis fontes, câmbio real, moeda inferida pelo
+       tipo quando o cadastro não diz.
+       ═══════════════════════════════════════════════════════════════════ */
     var posList = [];
     var totalCarteira = 0;
-    Object.keys(posicoes).forEach(function(t){
-      var qtd = posicoes[t];
-      if (qtd <= 0) return;
-      var preco = parseFloat(g20PriceOf(precos[t])) || 0;
-      if (!preco) return;
-      var valor = qtd * preco;
-      posList.push({ticker: t, valor: valor});
-      totalCarteira += valor;
-    });
+    try {
+      var _avIns = (typeof g20AvaliarRV === 'function') ? g20AvaliarRV(rvAp) : null;
+      if (_avIns && _avIns.total > 0) {
+        Object.keys(_avIns.porTicker).forEach(function(t){
+          var p = _avIns.porTicker[t];
+          if (!(p.valor > 0)) return;
+          posList.push({ ticker: t, valor: p.valor });
+        });
+        totalCarteira = _avIns.total;
+      }
+    } catch(e){}
+
+    // Reserva: se o motor não respondeu, ao menos converte o dólar.
+    if (!(totalCarteira > 0)) {
+      var posicoes = {};
+      rvAp.forEach(function(a){
+        if (!a.ticker) return;
+        var qtd = parseFloat(a.qtd)||0;
+        if ((a.tipo||'').toLowerCase() === 'venda') qtd = -qtd;
+        posicoes[a.ticker] = (posicoes[a.ticker]||0) + qtd;
+      });
+      var _fxIns = (typeof g20UsdBRL === 'function') ? g20UsdBRL(precos) : 0;
+      var _tipoIns = {};
+      rvAp.forEach(function(a){ if (a && a.ticker) _tipoIns[a.ticker] = a.tipo || ''; });
+      Object.keys(posicoes).forEach(function(t){
+        var qtd = posicoes[t];
+        if (qtd <= 0) return;
+        var preco = parseFloat(g20PriceOf(precos[t])) || 0;
+        if (!preco) return;
+        var tp = String(_tipoIns[t]||'').toUpperCase();
+        var ehUSD = (tp==='STOCK'||tp==='REIT'||tp==='ETF'||tp==='ETF US'||tp==='UCITS'||tp==='CRIPTO');
+        if (ehUSD) {
+          if (!(_fxIns > 0)) return;
+          preco = preco * _fxIns;
+        }
+        var valor = qtd * preco;
+        posList.push({ticker: t, valor: valor});
+        totalCarteira += valor;
+      });
+    }
     if (totalCarteira > 0) {
       posList.sort(function(a,b){return b.valor-a.valor;});
       posList.forEach(function(p){ p.pct = (p.valor/totalCarteira)*100; });
@@ -17726,45 +17768,62 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           patAtual = snap[snap.length-1].t || 0;
         }
 
-        // Aporte mensal: média dos aportes do ano atual (mesmo cálculo do KPI Aportes Ano)
+        /* ═══════════════════════════════════════════════════════════════
+           APORTE MÉDIO — R51: estava sempre R$ 0
+
+           O código procurava os campos `valor`, `valorTotal` ou `total` no
+           aporte. Nenhum deles existe: a estrutura real é
+           {ticker, data, qtd, preco, op, tipo, moeda}. Como nada casava,
+           `totalAno` ficava zerado e o card mostrava "R$ 0/mês".
+
+           E o efeito ia além do rótulo: a projeção da Independência
+           Financeira usa esse número. Com aporte zero, ela calculava
+           quanto tempo o patrimônio levaria para chegar ao milhão SÓ com
+           rendimento — 9 anos e 7 meses. Contando os aportes reais, o
+           prazo cai bastante.
+
+           Agora é qtd × preço, com conversão de dólar, descontando vendas
+           e sobre 12 meses móveis. A janela de 12 meses evita o efeito de
+           janeiro, quando "o ano" tem um mês só e a média fica sem sentido.
+           ═══════════════════════════════════════════════════════════════ */
         var aportes = JSON.parse(localStorage.getItem('g20_rvAportes') || '[]');
-        var hoje = new Date();
-        var anoAtual = hoje.getFullYear();
-        var mesAtual = hoje.getMonth() + 1;
-        var totalAno = 0;
-        var mesesAtivos = {};
+        var _precosMI = {};
+        try { _precosMI = JSON.parse(localStorage.getItem('g20_precos') || '{}'); } catch(e){}
+        var _fxMI = (typeof g20UsdBRL === 'function') ? g20UsdBRL(_precosMI) : 0;
+
+        var _corte12 = new Date();
+        _corte12.setMonth(_corte12.getMonth() - 11);
+        var _c12Str = _corte12.getFullYear() + '-' +
+                      String(_corte12.getMonth() + 1).padStart(2, '0') + '-01';
+
+        var total12m = 0;
         aportes.forEach(function(ap){
-          var dt = ap.data || ap.dataAporte || ap.dt;
-          if (!dt) return;
-          var d = new Date(dt);
-          if (d.getFullYear() !== anoAtual) return;
-          var valor = parseFloat(ap.valor || ap.valorTotal || ap.total || 0);
-          if (!isFinite(valor) || valor <= 0) return;
-          totalAno += valor;
-          mesesAtivos[d.getMonth()] = true;
+          var dt = String(ap.data || ap.dataAporte || ap.dt || '').substring(0,10);
+          if (!dt || dt < _c12Str) return;
+
+          var q = parseFloat(ap.qtd) || 0;
+          var p = parseFloat(ap.preco) || 0;
+          var valor = (q > 0 && p > 0) ? (q * p) : 0;
+          // Estruturas antigas podiam trazer o total pronto
+          if (!(valor > 0)) valor = parseFloat(ap.valor || ap.valorTotal || ap.total || 0) || 0;
+          if (!(valor > 0)) return;
+
+          var tp = String(ap.tipo || '').toUpperCase();
+          var inf = (tp==='CRIPTO'||tp==='CRYPTO'||tp==='STOCK'||tp==='REIT'||
+                     tp==='ETF'||tp==='ETF US'||tp==='UCITS') ? 'USD' : 'BRL';
+          if (String(ap.moeda || inf).toUpperCase() === 'USD') {
+            var fxh = parseFloat(ap.fxRate) || _fxMI || 0;
+            if (!(fxh > 0)) return;
+            valor = valor * fxh;
+          }
+
+          var venda = String(ap.op || 'C').toUpperCase() === 'V' ||
+                      String(ap.tipo || '').toLowerCase() === 'venda';
+          total12m += venda ? -valor : valor;
         });
-        var qtdMeses = Object.keys(mesesAtivos).length;
-        // Se nada no ano, pega média dos últimos 12m rolling
-        if (qtdMeses === 0) {
-          var umAnoAtras = new Date();
-          umAnoAtras.setFullYear(umAnoAtras.getFullYear() - 1);
-          var total12m = 0;
-          var meses12m = {};
-          aportes.forEach(function(ap){
-            var dt = ap.data || ap.dataAporte || ap.dt;
-            if (!dt) return;
-            var d = new Date(dt);
-            if (d < umAnoAtras) return;
-            var v = parseFloat(ap.valor || ap.valorTotal || ap.total || 0);
-            if (!isFinite(v) || v <= 0) return;
-            total12m += v;
-            meses12m[d.getFullYear() + '-' + d.getMonth()] = true;
-          });
-          var qtd12 = Object.keys(meses12m).length;
-          aporteMensal = qtd12 > 0 ? total12m / qtd12 : 0;
-        } else {
-          aporteMensal = totalAno / qtdMeses;
-        }
+
+        // Divide por 12: é o ritmo mensal real, contando os meses parados.
+        aporteMensal = total12m > 0 ? total12m / 12 : 0;
       } catch(e) { console.warn('[v21 metaIF] erro lendo dados:', e); }
       return { patAtual: patAtual, aporteMensal: aporteMensal };
     }
