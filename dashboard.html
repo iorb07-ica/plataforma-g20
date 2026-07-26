@@ -10966,10 +10966,36 @@ window.g20Logout = function() {
                 console.log('[G20Rent] ✓ usando histórico real em cache: ' + _cacheSerie.length + ' dias');
                 try {
                   window._g20HistPronto = false;
-                  var _tAtual = 0;
-                  try { _tAtual = parseFloat(localStorage.getItem('g20_lastRVTotal')||'0') || 0; } catch(e){}
-                  if (!(_tAtual > 0)) _tAtual = _cacheSerie[_cacheSerie.length-1].patrimonio;
-                  _patSnapUpsert(_tAtual, 0, _tAtual);
+                  /* ═══════════════════════════════════════════════════════
+                     R51 — AQUI ENTRAVA A CARTEIRA G20 NO LUGAR DA PESSOAL
+
+                     Estava assim:
+                         _tAtual = localStorage.getItem('g20_lastRVTotal')
+                         _patSnapUpsert(_tAtual, 0, _tAtual);
+
+                     g20_lastRVTotal é gravado pela página CARTEIRA G20 — é o
+                     patrimônio da carteira educacional, não do aluno. O
+                     snapshot de hoje passava a dizer que a renda variável
+                     pessoal valia R$ 168.994, quando vale R$ 562.973.
+
+                     Era a origem do aviso que aparecia em toda carga:
+                       "⚠ cotação ao vivo DESCARTADA: RV ao vivo R$ 168.994
+                        vs série R$ 562.973 (70,0% de desvio)"
+
+                     A trava dos 70% barrava o número antes da tela, mas o
+                     efeito colateral ficava: o card nunca conseguia mostrar
+                     a variação do dia e ficava preso em "+0,00% em 25/07",
+                     e a Composição precisava de âncora para não divergir.
+
+                     O valor certo é o último ponto da própria série — que é
+                     a carteira do usuário, reconstruída a partir dos
+                     lançamentos dele.
+                     ═══════════════════════════════════════════════════════ */
+                  var _ult = _cacheSerie[_cacheSerie.length-1];
+                  var _rvSerie = parseFloat(_ult.rv);
+                  if (!(_rvSerie > 0)) _rvSerie = parseFloat(_ult.patrimonio) || 0;
+                  var _rfSerie = parseFloat(_ult.rf) || 0;
+                  if (_rvSerie > 0) _patSnapUpsert(_rvSerie + _rfSerie, _rfSerie, _rvSerie);
                 } catch(e){}
                 ['v21LoadRent','v21LoadRentChart','v21LoadBench','v21LoadKpis'].forEach(function(fn){
                   try { if (typeof window[fn] === 'function') window[fn](); } catch(e){}
