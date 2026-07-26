@@ -12325,11 +12325,31 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       if (_serie && _serie.length >= 2) {
         var _pct = _v21TwrDesde(_serie, inicioStr);
         if (_pct !== null && isFinite(_pct)) {
-          // Variação absoluta em R$, coerente com a mesma série
+          /* ═══════════════════════════════════════════════════════════════
+             O "R$" É GANHO, NÃO CRESCIMENTO DE SALDO — R51
+
+             Estava assim:  abs = patrimônio[fim] − patrimônio[início]
+
+             Isso é o quanto o saldo cresceu, e o saldo cresce também quando
+             o aluno deposita. Numa linha de DESEMPENHO, ao lado de um
+             percentual de rentabilidade, isso mente: dá a entender que todo
+             aquele dinheiro foi lucro.
+
+             O sintoma que denunciou: 5A marcava +R$ 493.858 enquanto o TOTAL
+             marcava +R$ 199.419. Ganho de cinco anos maior que o de sempre é
+             impossível — eram duas definições diferentes na mesma tabela.
+
+             Ganho = variação do saldo − aportes líquidos do período. A série
+             guarda cada movimentação no campo `fluxo`.
+             ═══════════════════════════════════════════════════════════════ */
           var _corte = _serie.filter(function(p){ return p.d >= inicioStr; });
           var _abs = 0;
           if (_corte.length >= 2) {
-            _abs = _corte[_corte.length-1].patrimonio - _corte[0].patrimonio;
+            var _fluxo = 0;
+            // O fluxo do primeiro ponto do corte já está embutido no saldo
+            // inicial — contar de novo subtrairia duas vezes.
+            for (var _k = 1; _k < _corte.length; _k++) _fluxo += (parseFloat(_corte[_k].fluxo) || 0);
+            _abs = (_corte[_corte.length-1].patrimonio - _corte[0].patrimonio) - _fluxo;
           }
           return { abs: _abs, pct: _pct };
         }
@@ -12399,20 +12419,85 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
   /* TWR da série real a partir de uma data (desconta aportes/resgates). */
   window._v21TwrDesde = _v21TwrDesde;   // exposto: usado por blocos <script> distintos
+  /* ═══════════════════════════════════════════════════════════════════════
+     TWR — RETORNO PONDERADO NO TEMPO
+
+     A conta em si é a padrão: para cada dia, retorno = (valor − aporte −
+     valor_anterior) / valor_anterior, e os retornos diários são encadeados.
+
+     A FRAGILIDADE, e por que ela precisa de trava
+     A fórmula divide pelo saldo do dia anterior. Nos primeiros meses de uma
+     carteira esse saldo é pequeno, então qualquer entrada de dinheiro que
+     NÃO tenha sido registrada em `fluxo` vira um retorno gigante naquele dia
+     — e como os dias são multiplicados, um único dia ruim contamina o
+     acumulado de anos. Um aporte de R$ 5.000 sobre um saldo de R$ 200 sem
+     fluxo registrado marca +2400% num dia só.
+
+     Foi o que apareceu num TOTAL de +453,92% ao lado de um ganho real de
+     R$ 199 mil sobre aportes de ~R$ 375 mil — números que não conversam.
+
+     DUAS TRAVAS
+     1. Saldo mínimo: dias em que o saldo anterior é irrisório não entram.
+        Percentual sobre base minúscula não descreve rentabilidade.
+     2. Teto diário: variação além de ±40% num dia é tratada como artefato
+        (aporte não registrado, desdobramento não ajustado, preço furado) e
+        é descartada, não zerada — descartar preserva o resto da série.
+
+     Os dias descartados ficam guardados em window._g20TwrDescartes. Rode
+     G20DiagTWR() no console para ver quais foram e decidir se é dado ruim
+     ou volatilidade de verdade.
+     ═══════════════════════════════════════════════════════════════════════ */
+  var TWR_SALDO_MIN = 500;    // R$ — abaixo disso o percentual não tem sentido
+  var TWR_TETO_DIA  = 0.40;   // 40% num único dia
+
   function _v21TwrDesde(serie, inicioStr) {
     if (!serie || serie.length < 2) return null;
     var corte = serie.filter(function(p){ return p.d >= inicioStr; });
     if (corte.length < 2) return null;
+
     var fator = 1;
+    var descartes = [];
     for (var i = 1; i < corte.length; i++) {
       var vIni = corte[i-1].patrimonio, vFim = corte[i].patrimonio;
       var fluxo = corte[i].fluxo || 0;
-      if (!(vIni > 0)) continue;
+      if (!(vIni > TWR_SALDO_MIN)) continue;
       var r = (vFim - fluxo - vIni) / vIni;
-      if (isFinite(r)) fator *= (1 + r);
+      if (!isFinite(r)) continue;
+      if (Math.abs(r) > TWR_TETO_DIA) {
+        descartes.push({ d: corte[i].d, pct: +(r*100).toFixed(1),
+                         de: Math.round(vIni), para: Math.round(vFim),
+                         fluxo: Math.round(fluxo) });
+        continue;
+      }
+      fator *= (1 + r);
     }
+
+    try {
+      window._g20TwrDescartes = descartes;
+      if (descartes.length && !window._g20AvisouTwr) {
+        window._g20AvisouTwr = true;
+        console.warn('[G20Rent] ' + descartes.length + ' dia(s) com variação acima de ' +
+          (TWR_TETO_DIA*100) + '% foram descartados do cálculo de rentabilidade — ' +
+          'provável aporte sem registro ou desdobramento não ajustado. ' +
+          'Rode G20DiagTWR() para ver quais.');
+      }
+    } catch(e){}
+
     return (fator - 1) * 100;
   }
+
+  /* Mostra os dias que o TWR descartou, para você julgar se é dado ruim. */
+  window.G20DiagTWR = function(){
+    var d = window._g20TwrDescartes || [];
+    if (!d.length) { console.log('[G20DiagTWR] nenhum dia descartado.'); return d; }
+    console.log('%c[G20DiagTWR] dias com variação acima de ' + (TWR_TETO_DIA*100) +
+                '% (descartados do cálculo)', 'color:#e8b84b;font-weight:bold');
+    console.table(d);
+    console.log('Se algum destes for aporte real não registrado, corrija o lançamento ' +
+                'na Minha Carteira — a rentabilidade volta a fechar sozinha.');
+    return d;
+  };
+
 
   // R51: Desenha sparkline SVG do slice snap[fromIdx..toIdx].
   // pct é a variação do período (vermelho se negativo, verde se positivo).
@@ -12518,37 +12603,16 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var cincoAAlvo = new Date(hojeD); cincoAAlvo.setFullYear(cincoAAlvo.getFullYear() - 5);
       var cincoA = _v21CalcRentPorData(snap, cincoAAlvo.toISOString().substring(0,10));
 
-      /* ═══════════════════════════════════════════════════════════════
-         TOTAL — R51: duas correções.
-
-         1) FONTES DIFERENTES NA MESMA LINHA. Estava assim:
-              abs = snap[último].t − snap[primeiro].t   (snapshots)
-              pct = TWR da série real                   (motor)
-            Os snapshots são gravados por várias funções em momentos
-            diferentes do boot, e o primeiro costuma ser um registro
-            parcial. Agora os dois saem da série.
-
-         2) O "R$" NÃO ERA GANHO, ERA CRESCIMENTO DO SALDO. Nas linhas
-            curtas (hoje, semana) a diferença é irrelevante: quase não há
-            aporte no meio. No TOTAL ela é tudo. Mostrar "+R$ 564.383" ao
-            lado de "+453,92%" dava a entender que aquilo tudo foi lucro,
-            quando a maior parte é dinheiro que você depositou.
-
-            Ganho de verdade = patrimônio final − patrimônio inicial −
-            aportes líquidos do período. A série guarda cada aporte no
-            campo `fluxo`, então basta somá-los e descontar.
-         ═══════════════════════════════════════════════════════════════ */
+      /* TOTAL — R51: usa exatamente a mesma função das outras linhas,
+         a partir da primeira data da série. Ela já devolve ganho (com os
+         aportes descontados) e TWR. Ter um cálculo próprio aqui foi o que
+         produziu um TOTAL menor que o 5A. */
       var total = { abs: 0, pct: 0 };
       try {
         var _sTv = (typeof _v21SerieComVivo === 'function') ? _v21SerieComVivo() : null;
         if (_sTv && _sTv.length >= 2) {
           total = _v21CalcRentPorData(snap, _sTv[0].d);
-          var _fluxo = 0;
-          for (var _i = 0; _i < _sTv.length; _i++) _fluxo += (parseFloat(_sTv[_i].fluxo) || 0);
-          var _ganho = (_sTv[_sTv.length-1].patrimonio - _sTv[0].patrimonio) - _fluxo;
-          if (isFinite(_ganho)) total.abs = _ganho;
         } else {
-          // Sem série real: cai nos snapshots, mas aí os DOIS números vêm dali.
           var inicioTot = snap[0];
           var fimTot = snap[snap.length - 1];
           var totAbs = (fimTot.t || 0) - (inicioTot.t || 0);
