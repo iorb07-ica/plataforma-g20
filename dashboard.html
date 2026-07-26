@@ -6487,8 +6487,20 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
           if (k.indexOf('g20_histpx_') === 0) localStorage.removeItem(k);
         });
       } catch(e){}
-      // IndexedDB: onde a série histórica realmente mora.
-      try { if (window.G20Store) G20Store.del('g20_serieReal'); } catch(e){}
+      // IndexedDB: onde os dados pesados realmente moram desde a R51.
+      // localStorage.removeItem não os alcança — foi assim que a série
+      // atravessou a troca de conta e vazou o patrimônio do dono anterior.
+      try {
+        if (window.G20Store) {
+          G20Store.del('g20_serieReal');
+          G20Store.del('g20_patSnapshots');
+          if (G20Store.list) {
+            G20Store.list('g20_histpx_').then(function(r){
+              ((r && r.keys) || []).forEach(function(k){ G20Store.del(k); });
+            }).catch(function(){});
+          }
+        }
+      } catch(e){}
       console.log('[G20] cache da conta anterior descartado (localStorage + IndexedDB).');
     }
   } catch(e){}
@@ -8123,28 +8135,41 @@ var _g20HistPxMapa = null;
 function g20UltimoFechamento(){
   if (_g20HistPxMapa) return _g20HistPxMapa;
   var m = {};
+
+  function absorver(chave, c){
+    var pts = c && c.pontos;
+    if (!pts || !pts.length) return;
+    var u = pts[pts.length - 1];
+    var v = parseFloat(
+      u && (u.c !== undefined ? u.c :
+           (u.close !== undefined ? u.close :
+           (u.p !== undefined ? u.p :
+           (u.preco !== undefined ? u.preco : u.price))))
+    ) || 0;
+    if (!(v > 0)) return;
+    var base = String(chave).substring(11).replace(/\.(sa|us|l)$/i, '').toUpperCase();
+    if (G20_CRIPTO_ID[base]) base = G20_CRIPTO_ID[base];
+    m[base] = { preco: v, data: (u && (u.d || u.data)) || null };
+  }
+
+  /* R51: os históricos migraram para o IndexedDB, com espelho síncrono em
+     window._g20HistMem. Lemos os dois — o espelho para o que já migrou e o
+     localStorage para o que ficou de versões anteriores. */
+  try {
+    var mem = window._g20HistMem || {};
+    Object.keys(mem).forEach(function(k){ absorver(k, mem[k]); });
+  } catch(e){}
+
   try {
     for (var i = 0; i < localStorage.length; i++) {
       var k = localStorage.key(i);
       if (!k || k.indexOf('g20_histpx_') !== 0) continue;
       var c = null;
       try { c = JSON.parse(localStorage.getItem(k) || 'null'); } catch(e){ continue; }
-      var pts = c && c.pontos;
-      if (!pts || !pts.length) continue;
-      var u = pts[pts.length - 1];
-      var v = parseFloat(
-        u && (u.c !== undefined ? u.c :
-             (u.close !== undefined ? u.close :
-             (u.p !== undefined ? u.p :
-             (u.preco !== undefined ? u.preco : u.price))))
-      ) || 0;
-      if (!(v > 0)) continue;
-
-      var base = k.substring(11).replace(/\.(sa|us|l)$/i, '').toUpperCase();
-      if (G20_CRIPTO_ID[base]) base = G20_CRIPTO_ID[base];
-      m[base] = { preco: v, data: (u && (u.d || u.data)) || null };
+      absorver(k, c);
     }
   } catch(e){}
+
   _g20HistPxMapa = m;
   return m;
 }
@@ -9356,19 +9381,77 @@ function loadPatStrip(){
   }
 
   /* ------------------------------------------------------------------ cache */
+  /* ═══════════════════════════════════════════════════════════════════════
+     CACHE DE HISTÓRICO POR ATIVO — IndexedDB (R51)
+
+     Cada ativo guarda ~2.500 pontos diários. Numa carteira de 40 papéis são
+     dezenas de chaves g20_histpx_* somando vários MB — sozinhas estouravam
+     o localStorage e empurravam as outras gravações para o erro silencioso.
+
+     Agora a persistência é no IndexedDB. Como as leituras aqui precisam ser
+     síncronas (a reconstrução consulta o cache antes de decidir se busca na
+     rede), mantemos um espelho em memória preenchido por uma pré-carga
+     única no boot. Cache não encontrado significa apenas uma ida à rede a
+     mais — nunca um número errado.
+     ═══════════════════════════════════════════════════════════════════════ */
+  var _histMem = {};              // espelho síncrono do IndexedDB
+  var _histMemPronto = false;
+
+  function _histIdxKey(chave){ return CACHE_PREFIX + chave; }
+
   function lerCache(chave) {
+    var k = _histIdxKey(chave);
+    // 1) espelho em memória (preenchido pela pré-carga)
+    var m = _histMem[k];
+    if (m && m.loadedAt && (Date.now() - m.loadedAt) < CACHE_TTL && m.pontos) return m.pontos;
+    // 2) localStorage — versões anteriores gravavam aqui
     try {
-      var c = JSON.parse(localStorage.getItem(CACHE_PREFIX + chave) || 'null');
-      if (c && c.loadedAt && (Date.now() - c.loadedAt) < CACHE_TTL && c.pontos) return c.pontos;
+      var c = JSON.parse(localStorage.getItem(k) || 'null');
+      if (c && c.loadedAt && (Date.now() - c.loadedAt) < CACHE_TTL && c.pontos) {
+        _histMem[k] = c;                       // promove para a memória
+        return c.pontos;
+      }
     } catch (e) {}
     return null;
   }
+
   function gravarCache(chave, pontos) {
-    try {
-      localStorage.setItem(CACHE_PREFIX + chave,
-        JSON.stringify({ loadedAt: Date.now(), pontos: pontos }));
-    } catch (e) {}
+    var k = _histIdxKey(chave);
+    var payload = { loadedAt: Date.now(), pontos: pontos };
+    _histMem[k] = payload;
+    if (window.G20Store) {
+      try {
+        G20Store.set(k, payload).catch(function(){});
+        try { localStorage.removeItem(k); } catch(e){}   // libera a cota antiga
+        return;
+      } catch (e) {}
+    }
+    try { localStorage.setItem(k, JSON.stringify(payload)); } catch (e) {}
   }
+
+  /* Pré-carga: traz do IndexedDB para o espelho em memória, uma vez.
+     Roda no boot, antes de a reconstrução precisar dos preços. */
+  (function preCarregarHist(){
+    try {
+      if (!window.G20Store || typeof G20Store.list !== 'function') { _histMemPronto = true; return; }
+      G20Store.list(CACHE_PREFIX).then(function(res){
+        var chaves = (res && res.keys) || [];
+        if (!chaves.length) { _histMemPronto = true; return; }
+        return Promise.all(chaves.map(function(k){
+          return G20Store.get(k).then(function(v){ if (v && v.pontos) _histMem[k] = v; })
+                               .catch(function(){});
+        })).then(function(){
+          _histMemPronto = true;
+          console.log('[G20Rent] ' + Object.keys(_histMem).length +
+                      ' históricos de preço recuperados do IndexedDB.');
+        });
+      }).catch(function(){ _histMemPronto = true; });
+    } catch(e){ _histMemPronto = true; }
+  })();
+
+  /* Exposto para o G20DiagAtivos, que monta o índice de preços a partir
+     daqui quando a reconstrução não rodou nesta sessão. */
+  try { window._g20HistMem = _histMem; } catch(e){}
   function comTimeout(promise, ms) {
     return Promise.race([
       promise,
@@ -10035,6 +10118,22 @@ function _patSnapLoad(){
 
 function _patSnapSave(arr){
   window._g20SnapMem = arr;              // memória primeiro, sempre
+
+  /* R51: a persistência é no IndexedDB. Ver o bloco de comentário logo
+     abaixo de _patSnapLoad para o motivo. Em resumo: ~3.000 pontos passam
+     de 1 MB e o localStorage inteiro tem ~5 MB, então esta gravação
+     falhava em toda carga e ainda espremia as outras chaves. */
+  if (window.G20Store) {
+    try {
+      G20Store.set(PAT_SNAP_KEY, arr).catch(function(){});
+      // Remove a versão antiga do localStorage: ela não é mais lida e só
+      // ocupa a cota que as outras chaves precisam.
+      try { localStorage.removeItem(PAT_SNAP_KEY); } catch(e){}
+      return true;
+    } catch(e){}
+  }
+
+  // Sem IndexedDB (navegador antigo, modo restrito): tenta o localStorage.
   try{
     localStorage.setItem(PAT_SNAP_KEY,JSON.stringify(arr));
     return true;
@@ -10047,14 +10146,131 @@ function _patSnapSave(arr){
       console.warn('[snapshots] cota apertada — caches de benchmark descartados para gravar a série');
       return true;
     }catch(e2){
-      console.warn('[snapshots] localStorage cheio: série de ' + arr.length +
-                   ' pontos mantida apenas em memória nesta sessão. ' +
-                   'Os cards usam a versão em memória, então os números seguem corretos.');
+      console.warn('[snapshots] sem IndexedDB e localStorage cheio: série de ' + arr.length +
+                   ' pontos mantida apenas em memória nesta sessão.');
       return false;
     }
   }
 }
+/* ═══════════════════════════════════════════════════════════════════════════
+   SNAPSHOTS PATRIMONIAIS — memória + IndexedDB
+
+   O PROBLEMA
+   Uma série de ~3.000 pontos passa de 1 MB em JSON. O localStorage tem ~5 MB
+   no total, e o dashboard também guarda ali preços, proventos, históricos por
+   ativo e caches de benchmark. A gravação falhava em toda carga:
+
+       [snapshots] localStorage cheio: série de 2981 pontos mantida
+       apenas em memória nesta sessão.
+
+   Os cards funcionavam (a memória cobria a sessão), mas a cada F5 tudo era
+   reconstruído do zero — e outras gravações passavam a falhar em silêncio,
+   sem aviso nenhum.
+
+   A SOLUÇÃO
+   IndexedDB, que tem centenas de MB. O acesso é assíncrono e o código lê os
+   snapshots de forma síncrona em dezenas de lugares, então a memória continua
+   sendo a fonte de leitura da sessão — como já era. O que muda é a
+   persistência: vai para o IndexedDB e o localStorage deixa de ser tentado
+   para esta chave.
+
+   PRÉ-CARGA
+   No boot, lê do IndexedDB e devolve para a memória. Enquanto essa leitura
+   não chega, _patSnapLoad cai no localStorage (que pode ter uma versão
+   antiga) ou devolve vazio — e os painéis já sabem esperar por
+   window._g20DadosProntos.
+   ═══════════════════════════════════════════════════════════════════════════ */
 window._patSnapLoad = _patSnapLoad;
+
+/* Pré-carrega os snapshots do IndexedDB para a memória, uma vez por sessão. */
+(function(){
+  try {
+    if (!window.G20Store) return;
+    G20Store.get(PAT_SNAP_KEY).then(function(arr){
+      if (!Array.isArray(arr) || !arr.length) return;
+      // Só assume se a memória ainda não tiver algo mais novo.
+      var mem = window._g20SnapMem;
+      if (!mem || !mem.length || arr.length > mem.length) {
+        window._g20SnapMem = arr;
+        console.log('[snapshots] ' + arr.length + ' pontos recuperados do IndexedDB.');
+        try { if (typeof _patRenderAllSparks === 'function') _patRenderAllSparks(); } catch(e){}
+      }
+    }).catch(function(){});
+  } catch(e){}
+})();
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   G20DiagStorage() — onde o localStorage está sendo gasto
+
+   Antes de migrar qualquer coisa para o IndexedDB é preciso saber o que
+   ocupa espaço. Esta função lista todas as chaves por tamanho, agrupa as
+   famílias (os g20_histpx_* são dezenas de chaves pequenas que somadas
+   pesam), e estima quanto falta para a cota.
+
+   O limite típico é 5 MB por origem, contando os CARACTERES — e como o
+   navegador guarda em UTF-16, cada caractere custa 2 bytes. É por isso que
+   uma série de 2.981 pontos, que parece pequena, não cabe.
+   ═══════════════════════════════════════════════════════════════════════════ */
+window.G20DiagStorage = function(){
+  var itens = [], total = 0;
+  var familias = {};
+  try {
+    for (var i = 0; i < localStorage.length; i++) {
+      var k = localStorage.key(i);
+      var v = localStorage.getItem(k) || '';
+      var bytes = (k.length + v.length) * 2;      // UTF-16
+      total += bytes;
+      itens.push({ chave: k, KB: +(bytes/1024).toFixed(1) });
+
+      // Agrupa famílias de chaves repetidas
+      var fam = k.replace(/^(g20_histpx_).*/, '$1*')
+                 .replace(/^(v21_hist_).*/, '$1*')
+                 .replace(/^(g20_tour_).*/, '$1*');
+      if (!familias[fam]) familias[fam] = { n: 0, bytes: 0 };
+      familias[fam].n++; familias[fam].bytes += bytes;
+    }
+  } catch(e){ console.warn('[G20DiagStorage] erro:', e); return; }
+
+  itens.sort(function(a,b){ return b.KB - a.KB; });
+  var fams = Object.keys(familias).map(function(f){
+    return { familia: f, chaves: familias[f].n, KB: +(familias[f].bytes/1024).toFixed(1),
+             pct: +(familias[f].bytes/total*100).toFixed(1) };
+  }).sort(function(a,b){ return b.KB - a.KB; });
+
+  console.log('%c[G20DiagStorage] total em uso: ' + (total/1024/1024).toFixed(2) +
+              ' MB em ' + itens.length + ' chaves', 'color:#c9a961;font-weight:bold');
+  console.log('  (o limite costuma ser ~5 MB por site; o navegador conta em UTF-16, 2 bytes por caractere)');
+  console.log('%c  POR FAMÍLIA DE CHAVE', 'color:#e8b84b;font-weight:bold');
+  console.table(fams);
+  console.log('%c  AS 15 MAIORES', 'color:#e8b84b;font-weight:bold');
+  console.table(itens.slice(0, 15));
+
+  // Teste real de quanto ainda cabe
+  var livre = 0;
+  try {
+    var bloco = new Array(50 * 1024).join('x');   // ~100 KB em UTF-16
+    var n = 0;
+    while (n < 60) {
+      localStorage.setItem('__g20_probe_' + n, bloco);
+      n++;
+    }
+  } catch(e){}
+  try {
+    for (var j = 0; j < 60; j++) {
+      var p = localStorage.getItem('__g20_probe_' + j);
+      if (p != null) { livre += (p.length * 2); localStorage.removeItem('__g20_probe_' + j); }
+    }
+  } catch(e){}
+  console.log('  espaço ainda disponível: ~' + (livre/1024).toFixed(0) + ' KB');
+  if (livre < 300 * 1024) {
+    console.warn('%c  COTA APERTADA — gravações estão falhando em silêncio.',
+                 'color:#f87171;font-weight:bold');
+  }
+  return { totalMB: +(total/1024/1024).toFixed(2), livreKB: +(livre/1024).toFixed(0),
+           familias: fams, maiores: itens.slice(0, 15) };
+};
+
 
 // Fator di rio do CDI (base IND.cdi em % a.a.)
 function _cdiDaily(){var aa=(IND&&IND.cdi)?IND.cdi:10.65;return Math.pow(1+aa/100,1/252);}
@@ -10837,6 +11053,17 @@ window.g20Logout = function() {
           Object.keys(localStorage).forEach(function(k){
             if (k.indexOf('g20_histpx_') === 0) localStorage.removeItem(k);
           });
+        } catch(e){}
+        /* R51: os históricos migraram para o IndexedDB. Sem esta varredura,
+           os preços da conta anterior sobreviveriam à troca de usuário —
+           o mesmo mecanismo do vazamento da série que corrigimos hoje. */
+        try {
+          if (window.G20Store && G20Store.list) {
+            G20Store.list('g20_histpx_').then(function(r){
+              ((r && r.keys) || []).forEach(function(k){ G20Store.del(k); });
+            }).catch(function(){});
+          }
+          if (window._g20HistMem) Object.keys(window._g20HistMem).forEach(function(k){ delete window._g20HistMem[k]; });
         } catch(e){}
         // IndexedDB + memória do motor de rentabilidade
         try { if (window.G20Rent) G20Rent.invalidar(); } catch(e){}
@@ -12788,20 +13015,34 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
     function lerDoCache(){
       var out = {}, fx = null, achados = 0;
+
+      function absorver(chave, c){
+        if (!c || !c.pontos || !c.pontos.length) return;
+        var sym = String(chave).substring(11);           // 'AAPL', 'PRIO3.SA', 'USDBRL=X'
+        var base = sym.replace(/\.(SA|US|L)$/i, '').replace(/-USD$/i, '').toUpperCase();
+        if (base === 'USDBRL=X' || base === 'USDBRL') { fx = indexarPontos(c.pontos); return; }
+        if (out[base]) return;
+        out[base] = indexarPontos(c.pontos);
+        achados++;
+      }
+
+      // R51: espelho em memória do IndexedDB (para onde os históricos migraram)
+      try {
+        var mem = window._g20HistMem || {};
+        Object.keys(mem).forEach(function(k){ absorver(k, mem[k]); });
+      } catch(e){}
+
+      // E o que restou no localStorage de versões anteriores
       try {
         for (var i = 0; i < localStorage.length; i++) {
           var k = localStorage.key(i);
           if (!k || k.indexOf('g20_histpx_') !== 0) continue;
           var c = null;
           try { c = JSON.parse(localStorage.getItem(k) || 'null'); } catch(e){ continue; }
-          if (!c || !c.pontos || !c.pontos.length) continue;
-          var sym = k.substring(11);                       // 'AAPL', 'PRIO3.SA', 'USDBRL=X'
-          var base = sym.replace(/\.(SA|US|L)$/i, '').replace(/-USD$/i, '').toUpperCase();
-          if (base === 'USDBRL=X' || base === 'USDBRL') { fx = indexarPontos(c.pontos); continue; }
-          out[base] = indexarPontos(c.pontos);
-          achados++;
+          absorver(k, c);
         }
       } catch(e){}
+
       return { precos: out, cambio: fx, n: achados };
     }
 
