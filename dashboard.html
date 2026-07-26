@@ -72,7 +72,7 @@ function _divsSalvar(lista){
     }
     // Tenta liberar espaço descartando caches recriáveis
     try {
-      ['v21_hist_ibov_v5','v21_hist_sp500_v5','v21_hist_ibov_v4','v21_hist_sp500_v4','v21_hist_ibov_v3','v21_hist_sp500_v3','g20_cdiHist_v1'].forEach(function(k){
+      ['v21_hist_ibov_v6','v21_hist_sp500_v6','v21_hist_ibov_v5','v21_hist_sp500_v5','v21_hist_ibov_v4','v21_hist_sp500_v4','v21_hist_ibov_v3','v21_hist_sp500_v3','g20_cdiHist_v1'].forEach(function(k){
         localStorage.removeItem(k);
       });
       localStorage.setItem('g20_dividendos', JSON.stringify(lista));
@@ -9948,7 +9948,7 @@ function _patSnapSave(arr){
   }catch(e){
     // Libera caches recriáveis (benchmarks/CDI) e tenta de novo.
     try{
-      ['v21_hist_ibov_v5','v21_hist_sp500_v5','v21_hist_ibov_v4','v21_hist_sp500_v4','v21_hist_ibov_v3','v21_hist_sp500_v3','v21_hist_ibov_v2','v21_hist_sp500_v2','g20_cdiHist_v1']
+      ['v21_hist_ibov_v6','v21_hist_sp500_v6','v21_hist_ibov_v5','v21_hist_sp500_v5','v21_hist_ibov_v4','v21_hist_sp500_v4','v21_hist_ibov_v3','v21_hist_sp500_v3','v21_hist_ibov_v2','v21_hist_sp500_v2','g20_cdiHist_v1']
         .forEach(function(k){ try{ localStorage.removeItem(k); }catch(e2){} });
       localStorage.setItem(PAT_SNAP_KEY,JSON.stringify(arr));
       console.warn('[snapshots] cota apertada — caches de benchmark descartados para gravar a série');
@@ -12266,6 +12266,54 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   }
   window._v21SerieComVivo = _v21SerieComVivo;
 
+  /* ═══════════════════════════════════════════════════════════════════════
+     DATA DE INÍCIO DO PERÍODO "MAX" — uma regra só para todos os cards
+
+     "Max" é a janela mais longa em que a carteira E os índices existem.
+     Sem isso, comparar 8 anos de carteira contra 5 anos de IBOV produzia
+     "Carteira +595% × IBOV +38%" — comparação que não quer dizer nada.
+
+     DEVOLVE null ENQUANTO OS ÍNDICES NÃO CHEGAREM.
+     Este é o ponto que me escapou na primeira tentativa: os históricos de
+     IBOV e S&P vêm por fetch assíncrono. Enquanto o cache estava salvo no
+     localStorage eles chegavam de imediato e ninguém percebia a corrida.
+     Ao trocar a janela, o cache foi invalidado, o cálculo rodou antes do
+     fetch, o alinhamento não encontrou índice nenhum e caiu no início da
+     série — voltando exatamente ao defeito que existia para evitar.
+
+     Devolvendo null, quem chama sabe que ainda não dá para desenhar "Max" e
+     tenta de novo daqui a pouco. Melhor um instante de espera que um
+     percentual errado na tela.
+     ═══════════════════════════════════════════════════════════════════════ */
+  function _v21InicioMax(){
+    var s = (typeof _v21SerieComVivo === 'function') ? _v21SerieComVivo() : null;
+    if (!s || !s.length) return null;
+
+    var partidas = [String(s[0].d).substring(0,10)];
+    var faltou = false;
+    ['ibov','sp500'].forEach(function(k){
+      var c = window.V21C && V21C.histCache && V21C.histCache[k];
+      var p = c && c.pontos;
+      if (p && p.length) {
+        var d0 = p[0] && (p[0].d || p[0].data || p[0][0]);
+        if (d0) { partidas.push(String(d0).substring(0,10)); return; }
+      }
+      faltou = true;
+    });
+    if (faltou) return null;
+
+    partidas.sort();
+    var comum = partidas[partidas.length - 1];   // o início mais recente
+    if (!window._g20AvisouMax) {
+      window._g20AvisouMax = true;
+      console.log('[v21] "Max" alinhado em ' + comum +
+                  ' — janela comum entre a carteira e os índices.');
+    }
+    return comum;
+  }
+  window._v21InicioMax = _v21InicioMax;
+
+
   function _v21CalcRentPorData(snap, inicioStr) {
     // ── CAMINHO DIRETO: quando existe a série real do motor, ela é a ÚNICA fonte.
     // Os snapshots (g20_patSnapshots) são ignorados por completo aqui — eles são gravados
@@ -12556,43 +12604,16 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         else if (period === '1a') _ini.setFullYear(_ini.getFullYear() - 1);
         else if (period === '5a') _ini.setFullYear(_ini.getFullYear() - 5);
         else _ini = null;   // max
-        var _iniStr = _ini ? _ini.toISOString().substring(0,10) : _sr[0].d;
+        var _iniStr = _ini ? _ini.toISOString().substring(0,10) : null;
 
-        /* ─── "MAX" PRECISA SER O MESMO MAX PARA TODOS ───
-           A série da carteira começa no primeiro aporte. Os índices vêm do
-           Yahoo com janela fixa — eram 5 anos, agora são 10 (R51). Usar o
-           início da série para a carteira e a janela do índice para o resto
-           compararia 8 anos seus contra 5 anos de IBOV, e a carteira
-           apareceria com +595% ao lado de um IBOV de +38%.
-
-           Em "max", o ponto de partida é o mais RECENTE entre a série e os
-           benchmarks: a janela mais longa em que todos existem. Com 10 anos
-           de índice, essa janela passou a ser o início da própria carteira,
-           e o "Max" deixou de ser um clone do "5A". A trava continua aqui
-           para o dia em que alguém tiver carteira mais antiga que isso. */
+        /* "Max": janela comum a todos. Devolve null enquanto os índices não
+           chegarem — nesse caso não renderiza nada e tenta de novo depois. */
         if (!_ini) {
-          var _partidas = [_sr[0].d];
-          try {
-            ['ibov','sp500'].forEach(function(_s){
-              var _c = window.V21C && V21C.histCache && V21C.histCache[_s];
-              var _pts = _c && _c.pontos;
-              if (_pts && _pts.length) {
-                var _d0 = _pts[0] && (_pts[0].d || _pts[0].data || _pts[0][0]);
-                if (_d0) _partidas.push(String(_d0).substring(0,10));
-              }
-            });
-          } catch(e){}
-          _partidas.sort();
-          var _comum = _partidas[_partidas.length - 1];   // o mais recente
-          if (_comum && _comum > _iniStr) {
-            _iniStr = _comum;
-            if (!window._g20AvisouMax) {
-              window._g20AvisouMax = true;
-              console.log('[v21 bench] "Max" alinhado em ' + _iniStr +
-                          ' — janela comum entre a carteira e os índices.');
-            }
-          }
+          _iniStr = _v21InicioMax();
+          if (!_iniStr) { window._v21MaxAguardando = true; return null; }
+          window._v21MaxAguardando = false;
         }
+
           var _you = _v21TwrDesde(_sr, _iniStr);
           if (_you !== null && isFinite(_you)) {
             var _cdiPct = null;
@@ -12829,9 +12850,25 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
       var r = calcRentRange(snap, V21.benchPeriod);
       if (!r) {
-        console.log('  ⚠️ calcRentRange retornou null');
+        /* Em "Max", calcRentRange devolve null enquanto os históricos de
+           IBOV e S&P não chegam — é a trava que impede comparar 8 anos de
+           carteira contra 5 anos de índice. Aqui só esperamos e tentamos
+           de novo; os fetches disparam logo abaixo. */
+        if (window._v21MaxAguardando) {
+          if (!window._v21BenchMaxRetry) window._v21BenchMaxRetry = 0;
+          if (window._v21BenchMaxRetry < 25) {
+            window._v21BenchMaxRetry++;
+            setTimeout(v21LoadBench, 600);
+          } else {
+            console.warn('[v21 bench] "Max" desistiu de esperar os índices.');
+          }
+        } else {
+          console.log('  ⚠️ calcRentRange retornou null');
+        }
         return;
-      }      // Calcula escala única considerando TODOS os 4 valores
+      }
+      window._v21BenchMaxRetry = 0;
+      // Calcula escala única considerando TODOS os 4 valores
       var vals = [r.you, r.cdi, ibovRent, spRent].filter(function(v){ return v !== null && !isNaN(v); });
       var maxAbs = vals.length ? Math.max.apply(null, vals.map(Math.abs)) : 1;
       if (maxAbs < 1) maxAbs = 1;
@@ -14136,12 +14173,12 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
     // Cache localStorage 24h
     // v3: invalida cache com instrumento antigo do S&P (spy.us ETF → ^spx índice).
-    // v5 (R51): a tentativa de 10 anos foi revertida. O bump continua para
-    //   descartar o cache de 10y que ficou salvo em quem já abriu a versão
-    //   anterior — senão aquele dado sobrevive 24h e o erro persiste.
-    var cacheKey = 'v21_hist_' + series + '_v5';
+    // v6 (R51): histórico de 5 para 10 anos, agora com o alinhamento do
+    //   "Max" à prova de corrida. Sem o bump, o cache de 5 anos sobreviveria
+    //   24h e a mudança não apareceria.
+    var cacheKey = 'v21_hist_' + series + '_v6';
     try {
-      ['', '_v2', '_v3', '_v4'].forEach(function(sfx){
+      ['', '_v2', '_v3', '_v4', '_v5'].forEach(function(sfx){
         localStorage.removeItem('v21_hist_' + series + sfx);
       });
     } catch(e){}
@@ -14255,22 +14292,18 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
     // ───── TENTATIVA 2: Yahoo via corsproxy.io (mais rápido e estável que allOrigins) ─────
     function tentarYahooCorsproxy() {
-      /* R51 — TENTATIVA REVERTIDA: cheguei a trocar para range=10y para que o
-         botão "Max" deixasse de ser um clone do "5A". Quebrou.
+      /* R51: janela de 10 anos.
 
-         O alinhamento do "Max" lê V21C.histCache para descobrir onde os
-         índices começam. Esse cache é preenchido por fetch assíncrono. Com o
-         cache de 5 anos já no localStorage, ele estava pronto na hora — o
-         alinhamento funcionava. Ao trocar a janela, o cache foi invalidado, o
-         cálculo passou a rodar ANTES do fetch chegar, o alinhamento não
-         encontrou os índices e comparou 8 anos de carteira contra 5 anos de
-         IBOV: Carteira +453,92% ao lado de IBOV +38,12%. Exatamente o defeito
-         que o alinhamento existia para evitar.
+         Cinco anos não cobriam a realidade: há aportes de 2018 na carteira
+         pessoal e de 2019 na Carteira G20, e alunos das primeiras turmas
+         começaram na mesma época. Com índice de 5 anos, o "Max" era obrigado
+         a se alinhar em ~2021 e virava um clone do "5A".
 
-         O caminho certo passa por tornar o alinhamento à prova de corrida —
-         não renderizar "Max" enquanto os índices não chegarem — e só depois
-         ampliar a janela. Uma coisa de cada vez. */
-      var yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(cfg.yahooSymbol) + '?range=5y&interval=1d';
+         A primeira tentativa desta troca quebrou o card: o alinhamento lê o
+         V21C.histCache, que chega por fetch assíncrono, e passou a rodar
+         antes dele. Agora _v21InicioMax() devolve null enquanto os índices
+         não chegam e ninguém desenha "Max" fora de hora — a troca é segura. */
+      var yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(cfg.yahooSymbol) + '?range=10y&interval=1d';
       var url = 'https://corsproxy.io/?' + encodeURIComponent(yahooUrl);      return fetchComTimeout(url)
         .then(function(r){
           if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -14413,36 +14446,38 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       else if (period === 'ytd') inicioD = new Date(hoje.getFullYear(), 0, 1);
       else if (period === '1a') inicioD.setFullYear(inicioD.getFullYear() - 1);
       else if (period === '5a') inicioD.setFullYear(inicioD.getFullYear() - 5);
-      else { // max
-        inicioD.setFullYear(inicioD.getFullYear() - 5);
-      }
+      else inicioD.setFullYear(inicioD.getFullYear() - 5);   // max: só um piso
       var inicioStr = inicioD.toISOString().substring(0,10);
 
-      /* "MAX" IGUAL AO DO CARD vs BENCHMARKS.
-         O card alinha o Max na janela comum entre a carteira e os índices
-         (o mais recente dos três inícios). Aqui usava sempre -5 anos fixos,
-         o que dava uma data alguns dias diferente e um percentual diferente
-         para a mesma janela. Agora os dois usam a mesma regra. */
+      /* ═══════════════════════════════════════════════════════════════════
+         "MAX" IGUAL AO DO CARD vs BENCHMARKS
+
+         Aqui havia um defeito além do alinhamento: em "max" o início era
+         fixado em −5 anos e a regra seguinte só podia EMPURRAR a data para
+         frente (`if (_comum > inicioStr)`). Ou seja, mesmo com dez anos de
+         índice disponíveis, o gráfico jamais passaria de cinco — o botão
+         "Max" continuaria desenhando exatamente o mesmo que o "5A".
+
+         Agora o início vem de _v21InicioMax(), que devolve a janela comum
+         entre a carteira e os índices, seja ela mais curta OU mais longa que
+         cinco anos. Enquanto os índices não chegam, a função devolve null e
+         o gráfico é redesenhado quando eles chegarem.
+         ═══════════════════════════════════════════════════════════════════ */
       if (period === 'max') {
-        try {
-          var _pt = [];
-          var _sm = (typeof _v21SerieComVivo === 'function') ? _v21SerieComVivo() : null;
-          if (_sm && _sm.length) _pt.push(String(_sm[0].d).substring(0,10));
-          ['ibov','sp500'].forEach(function(_s){
-            var _c = window.V21C && V21C.histCache && V21C.histCache[_s];
-            var _p = _c && _c.pontos;
-            if (_p && _p.length) {
-              var _d0 = _p[0] && (_p[0].d || _p[0].data || _p[0][0]);
-              if (_d0) _pt.push(String(_d0).substring(0,10));
-            }
-          });
-          if (_pt.length) {
-            _pt.sort();
-            var _comum = _pt[_pt.length - 1];
-            if (_comum && _comum > inicioStr) inicioStr = _comum;
+        var _im = (typeof _v21InicioMax === 'function') ? _v21InicioMax() : null;
+        if (_im) {
+          inicioStr = _im;
+        } else {
+          if (!window._v21RentChartRetry) window._v21RentChartRetry = 0;
+          if (window._v21RentChartRetry < 20) {
+            window._v21RentChartRetry++;
+            setTimeout(function(){ try { v21LoadRentChart(); } catch(e){} }, 600);
+            return;   // não desenha "Max" com janela desalinhada
           }
-        } catch(e){}
+        }
       }
+      window._v21RentChartRetry = 0;
+
 
       // ───────────────────────────────────────────────────────────
       // 2) Históricos IBOV e S&P500 (buscados via Stooq)
