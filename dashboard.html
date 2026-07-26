@@ -12189,10 +12189,45 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
            entre dois pregões. Então neste modo sempre recuamos para o último
            par REAL, mesmo havendo cotação de RV ao vivo. */
         if (modo === 'rf') _vivoCompleto = false;
-        if (pontoAtu.copia && !_vivoCompleto) {
-          // Sem avaliação nova hoje: recua para o último par de pregões reais.
+        if (!_vivoCompleto) {
+          /* ═══════════════════════════════════════════════════════════════
+             RECUAR ATÉ O ÚLTIMO MOVIMENTO DE VERDADE — R51
+
+             Antes este trecho pulava apenas os pontos marcados `copia`, que
+             são os "de hoje" sintéticos. Não bastava: a série reconstruída
+             avança DIA A DIA, incluindo sábados e domingos. Nesses dias o
+             preço usado é o do último pregão, então o patrimônio se repete
+             e a variação dá exatamente 0,00%.
+
+             Era o que o card mostrava todo fim de semana: hoje é domingo
+             26/07, o card recuava até sábado 25/07 e comparava com sexta
+             24/07 — mesmos preços, "+0,00%".
+
+             Agora recua enquanto o valor não mudar. Fim de semana, feriado
+             e cópia caem na mesma regra: sem preço novo, não há variação a
+             mostrar, então procuramos o último par que teve.
+
+             O LIMITE PRECISA SER MINÚSCULO. A regra aqui é "houve
+             precificação nova?", não "o movimento foi grande?". Quando não
+             há pregão, os preços se repetem e a diferença é exatamente
+             zero. Um limite folgado (0,5%, por exemplo) descartaria dias
+             legítimos: quem tem cripto — que negocia 24/7 — pode ter
+             movimento de 0,1% no domingo, e esse dia é real. Comparamos
+             contra o ruído de ponto flutuante e nada mais.
+             ═══════════════════════════════════════════════════════════════ */
           var _i = snap.length - 1;
-          while (_i > 0 && snap[_i].copia) _i--;          // pula cópias
+          var _lim = 0;
+          while (_i > 0 && _lim < 15) {
+            var _a = _gpValorDoSnap(snap[_i], modo, bens);
+            var _b = _gpValorDoSnap(snap[_i - 1], modo, bens);
+            var _fl = (modo === 'rv') ? (snap[_i].fluxoRV || 0)
+                    : (modo === 'rf') ? (snap[_i].fluxoRF || 0)
+                    : ((snap[_i].fluxoRV || 0) + (snap[_i].fluxoRF || 0));
+            // Houve precificação nova? Repetição de preço dá diferença zero.
+            var _eps = Math.max(0.01, _b * 1e-6);
+            if (_b > 0 && Math.abs((_a - _fl) - _b) > _eps) break;
+            _i--; _lim++;
+          }
           if (_i >= 1) { pontoAtu = snap[_i]; pontoAnt = snap[_i - 1]; }
         }
 
@@ -13010,7 +13045,46 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
       // HOJE: 1 dia atrás (ou snap anterior disponível)
       var hojeAlvo = new Date(hojeD); hojeAlvo.setDate(hojeAlvo.getDate() - 1);
-      var hoje = _v21CalcRentPorData(snap, hojeAlvo.toISOString().substring(0,10));
+      /* ═══════════════════════════════════════════════════════════════════
+         "HOJE" — R51: a série avança dia a dia, inclusive fim de semana.
+
+         Comparar simplesmente ontem com hoje dá 0,00% em todo sábado,
+         domingo e feriado, porque nesses dias o preço usado é o do último
+         pregão e o patrimônio se repete. Era o mesmo defeito do card
+         Minha Carteira.
+
+         Aqui recuamos até o último dia em que a série de fato mudou de
+         valor, e é dele que sai a variação — que passa a ser "do último
+         pregão" quando o mercado está fechado.
+
+         O limite é minúsculo de propósito: a pergunta é "houve preço novo?",
+         não "o movimento foi grande?". Quem tem cripto, que negocia 24/7,
+         tem movimento real no fim de semana — às vezes de 0,1% no total da
+         carteira — e esse dia não pode ser descartado.
+         ═══════════════════════════════════════════════════════════════════ */
+      var hoje = { abs: 0, pct: 0 };
+      try {
+        var _sH = (typeof _v21SerieComVivo === 'function') ? _v21SerieComVivo() : null;
+        if (_sH && _sH.length >= 2) {
+          var _j = _sH.length - 1, _g = 0;
+          while (_j > 0 && _g < 15) {
+            var _va = _sH[_j].patrimonio, _vb = _sH[_j-1].patrimonio;
+            var _fx2 = parseFloat(_sH[_j].fluxo) || 0;
+            var _eps2 = Math.max(0.01, _vb * 1e-6);
+            if (_vb > 0 && Math.abs((_va - _fx2) - _vb) > _eps2) break;
+            _j--; _g++;
+          }
+          if (_j >= 1) {
+            var _ini = _sH[_j-1].patrimonio;
+            var _fim = _sH[_j].patrimonio;
+            var _flx = parseFloat(_sH[_j].fluxo) || 0;
+            var _dl = _fim - _flx - _ini;
+            hoje = { abs: _dl, pct: _ini > 0 ? (_dl / _ini) * 100 : 0 };
+          }
+        } else {
+          hoje = _v21CalcRentPorData(snap, hojeAlvo.toISOString().substring(0,10));
+        }
+      } catch(e){ hoje = { abs: 0, pct: 0 }; }
 
       // SEMANA: 7 dias atrás
       var semAlvo = new Date(hojeD); semAlvo.setDate(semAlvo.getDate() - 7);
