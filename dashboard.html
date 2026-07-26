@@ -8394,6 +8394,80 @@ function g20AvaliarRV(aportes){
    o card mostra o fechamento da série e a Composição precisa acompanhar. */
 window._g20RVExibida = { valor: 0, fonte: null };
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   G20DiagRV() — abre o motor de avaliação, ativo por ativo
+
+   Existe porque um número agregado errado não diz onde está o erro. Esta
+   função mostra, para cada posição: quantidade, cotação encontrada, de qual
+   das seis fontes ela veio, se foi convertida de dólar, e quanto entrou no
+   total. Uma linha fora do lugar salta aos olhos.
+
+   Use:  G20DiagRV()          -> carteira pessoal (g20_rvAportes)
+         G20DiagRV('cg20')    -> Carteira G20    (g20_aportes)
+   ═══════════════════════════════════════════════════════════════════════════ */
+window.G20DiagRV = function(fonte){
+  var chave = (fonte === 'cg20') ? 'g20_aportes' : 'g20_rvAportes';
+  var aportes = [];
+  try { aportes = JSON.parse(localStorage.getItem(chave) || '[]'); } catch(e){}
+  if (!aportes.length) { console.warn('[G20DiagRV] sem aportes em ' + chave); return; }
+
+  var precos = {};
+  try { precos = JSON.parse(localStorage.getItem('g20_precos') || '{}'); } catch(e){}
+  var fx = g20UsdBRL(precos);
+
+  // De qual fonte veio a cotação de cada ticker
+  function origem(t){
+    if (parseFloat(g20PriceOf(precos && precos[t])) > 0) return '1 g20_precos';
+    try {
+      var cc = JSON.parse(localStorage.getItem('g20_cotacoesCache') || 'null');
+      if (cc && cc.cotacoes && cc.cotacoes[t] && parseFloat(cc.cotacoes[t].preco) > 0) return '2 cotacoesCache';
+    } catch(e){}
+    try { if (typeof _dashRVCot === 'object' && _dashRVCot && _dashRVCot[t] && _dashRVCot[t].preco > 0) return '3 _dashRVCot'; } catch(e){}
+    try {
+      var mk = JSON.parse(localStorage.getItem('g20_indMkt_cache') || 'null');
+      var dd = mk && mk.data ? mk.data : null;
+      if (dd && (dd[t + '-USD'] || dd[t])) return '4 indMkt (cripto)';
+    } catch(e){}
+    try { if (g20UltimoFechamento()[t]) return '5 último fechamento'; } catch(e){}
+    try { if (g20UltCotLer()[t]) return '6 memória'; } catch(e){}
+    return '— NENHUMA';
+  }
+
+  var av = g20AvaliarRV(aportes);
+  var linhas = [];
+  Object.keys(av.porTicker).forEach(function(t){
+    var p = av.porTicker[t];
+    var bruta = g20CotacaoDe(t, precos);
+    linhas.push({
+      ticker: t,
+      tipo: p.tipo,
+      moeda: p.moeda,
+      qtd: +p.qtd.toFixed(6),
+      cotacao: +bruta.toFixed(4),
+      fonte: origem(t),
+      convertido: (p.moeda === 'USD') ? ('× ' + fx.toFixed(4)) : '—',
+      valorBRL: Math.round(p.valor),
+      custoBRL: Math.round(p.custo),
+      cotado: p.cotado
+    });
+  });
+  linhas.sort(function(a,b){ return b.valorBRL - a.valorBRL; });
+
+  var f = function(x){ return 'R$ ' + Number(x).toLocaleString('pt-BR',{maximumFractionDigits:2}); };
+  console.log('%c[G20DiagRV] ' + chave + ' — ' + linhas.length + ' posições', 'color:#c9a961;font-weight:bold');
+  console.log('  câmbio USD/BRL usado : ' + (fx > 0 ? fx.toFixed(4) : 'NÃO ENCONTRADO'));
+  console.table(linhas);
+  console.log('  TOTAL a mercado : ' + f(av.total));
+  console.log('  TOTAL a custo   : ' + f(av.custoTotal));
+  console.log('  sem cotação     : ' + av.faltando.length + (av.faltando.length ? ' → ' + av.faltando.join(', ') : ''));
+  console.log('');
+  console.log('  Compare o TOTAL a mercado com a página Minha Carteira.');
+  console.log('  Se divergir, procure na tabela: cotação estranha, moeda errada,');
+  console.log('  ou "convertido: —" num ativo americano.');
+  return { total: av.total, linhas: linhas, fx: fx };
+};
+
+
 
 function g20ChgPctOf(item){
   if(!item) return 0;
@@ -12805,13 +12879,33 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           var hoje = new Date();
           var inicioD = new Date(hoje);
           var p = V21.benchPeriod;
+          var inicioStr = null;
           if (p === '1m') inicioD.setMonth(inicioD.getMonth()-1);
           else if (p === '6m') inicioD.setMonth(inicioD.getMonth()-6);
           else if (p === 'ytd') inicioD = new Date(hoje.getFullYear(),0,1);
           else if (p === '1a') inicioD.setFullYear(inicioD.getFullYear()-1);
           else if (p === '5a') inicioD.setFullYear(inicioD.getFullYear()-5);
-          else inicioD.setFullYear(inicioD.getFullYear()-5);
-          var inicioStr = inicioD.toISOString().substring(0,10);
+          else {
+            /* ═══════════════════════════════════════════════════════════
+               R51 — TERCEIRO LUGAR COM LÓGICA PRÓPRIA DE "MAX"
+
+               Aqui estava `inicioD.setFullYear(-5)`: as barras de IBOV e
+               S&P sempre calculavam cinco anos, mesmo quando a barra da
+               carteira ao lado usava a janela inteira. O log denunciou:
+
+                 [v21] "Max" alinhado em 2018-05-29
+                 [v21 bench ibov] ✓ max (2021-07-26 → ...) = 38,12%
+
+               Carteira desde 2018, índice desde 2021, lado a lado, como se
+               fosse a mesma janela. Daí "+453,92% × +38,12%".
+
+               Agora usa _v21InicioMax(), a mesma função da carteira e do
+               gráfico. Três cards, uma regra só.
+               ═══════════════════════════════════════════════════════════ */
+            inicioStr = (typeof _v21InicioMax === 'function') ? _v21InicioMax() : null;
+            if (!inicioStr) return null;   // índices ainda não chegaram
+          }
+          if (!inicioStr) inicioStr = inicioD.toISOString().substring(0,10);
           var inicio = null;
           for (var i=0; i<pontos.length; i++) {
             if (pontos[i].d >= inicioStr) { inicio = pontos[i]; break; }
