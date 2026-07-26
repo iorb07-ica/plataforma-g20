@@ -16819,10 +16819,15 @@ html body .topbar {
 
   function abrirTour(){
     if (!window.G20Tour) return;
-    if (window.G20Demo && G20Demo.ativo) {
+    G20Tour.start(cfgTour());
+    /* A tarja só entra se o tour realmente abriu. Antes ela era mostrada
+       antes do start(), e num teste ficou sozinha na tela com o dashboard
+       cheio e nenhum tour rodando. */
+    var aberto = false;
+    try { aberto = !!(G20Tour.ativo && G20Tour.ativo()); } catch(e){}
+    if (aberto && window.G20Demo && G20Demo.ativo) {
       try { G20Demo.mostrarTarja(); } catch(e){}
     }
-    G20Tour.start(cfgTour());
   }
 
   /* Espera o splash sumir e os dados chegarem.
@@ -16856,23 +16861,32 @@ html body .topbar {
   function agendar(){
     if (!window.G20Tour) return setTimeout(agendar, 300);
 
-    /* CASO 1 — já veio de um reload em modo demonstração. */
+    /* CASO 1 — já veio de um reload em modo demonstração.
+
+       Aqui NUNCA usamos G20Tour.auto(). Ele consulta o Firestore e desiste
+       se o tour já foi visto — foi o que aconteceu no primeiro teste: o modo
+       demonstração ligava, os dados apareciam, e o tour não abria. O
+       dashboard ficava parado exibindo a Carteira G20.
+
+       Abrimos direto com start(), marcando "já viu" antes. Sem essa marca,
+       ao fechar o tour a página recarrega, a carteira continua vazia, o modo
+       liga de novo e o tour reabre — um laço sem fim. */
     if (window.G20Demo && G20Demo.ativo) {
       quandoPronto(function(){
-        if (G20Demo.motivo === 'rever') {
-          /* Clique no "?": o tour já foi visto, então G20Tour.auto() desistiria.
-             Abre direto. */
-          abrirTour();
-        } else {
-          /* Primeiro acesso: usa auto(), que marca o tour como visto (aqui e no
-             Firestore) antes de abrir. Sem essa marcação, ao fechar o tour a
-             página recarrega, a carteira continua vazia, o modo liga de novo e
-             o tour reabre — um laço sem fim. */
-          try { G20Demo.mostrarTarja(); } catch(e){}
-          var cfgA = cfgTour();
-          cfgA.atraso = 0;
-          G20Tour.auto(cfgA);
-        }
+        try { localStorage.setItem('g20_tour_dashboard', '1'); } catch(e){}
+        abrirTour();
+
+        /* Rede de segurança: se o tour não abrir por qualquer motivo, o
+           dashboard não pode ficar preso mostrando dados de demonstração.
+           Sai sozinho e volta ao normal. */
+        setTimeout(function(){
+          var aberto = false;
+          try { aberto = !!(window.G20Tour.ativo && G20Tour.ativo()); } catch(e){}
+          if (!aberto && window.G20Demo && G20Demo.ativo) {
+            console.warn('[G20Demo] o tour não abriu — encerrando o modo demonstração.');
+            G20Demo.sair();
+          }
+        }, 4000);
       });
       return;
     }
