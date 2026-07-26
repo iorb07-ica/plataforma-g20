@@ -9764,6 +9764,25 @@ function loadPatStrip(){
           var patrimonio = valRV + valRF;
           var cobertura = totalAtivos ? (avaliados / totalAtivos) : 1;
 
+          /* ═══════════════════════════════════════════════════════════════
+             COBERTURA — quantos dos ativos em carteira tinham preço no dia.
+
+             Um ponto com cobertura 0,5 significa que METADE da carteira não
+             foi avaliada: o patrimônio daquele dia sai pela metade. No dia
+             seguinte, se o preço aparece, ele "dobra" — e o TWR lê isso como
+             +100% de mercado.
+
+             É o que acontece nos primeiros anos: os históricos vêm do Yahoo
+             com janela limitada, então ativos comprados em 2018 só têm preço
+             a partir de ~2021. A série existe (patrimônio > 0), mas está
+             subavaliada, e a recuperação da cobertura vira retorno fantasma.
+
+             Foi isso que produziu +404% no "Max" contra +97% no 5A, com um
+             ganho em dinheiro de apenas R$ 209 mil. Os três anos iniciais
+             não descreviam mercado; descreviam preços chegando.
+
+             Marcamos o ponto para que o TWR saiba ignorar as transições.
+             ═══════════════════════════════════════════════════════════════ */
           if (patrimonio > 0 && (totalAtivos === 0 || cobertura >= 0.5)) {
             try { window._g20FxDiag.semNada = _fxSemNada; } catch(e){}
           serie.push({
@@ -12488,11 +12507,16 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     var fator = 1;
     mapa[corte[0].d] = 0;
     for (var i = 1; i < corte.length; i++) {
-      /* Mesma regra do _v21TwrDesde: dia com movimentação não gera retorno.
-         Sem isso a LINHA do gráfico contaria uma história e o NÚMERO no
-         cabeçalho outra — e era a linha que produzia os degraus de +500%. */
+      /* Mesmas regras do _v21TwrDesde: dia com movimentação ou com mudança
+         de cobertura de preços não gera retorno. Sem isso a LINHA do gráfico
+         contaria uma história e o NÚMERO no cabeçalho outra — e era a linha
+         que produzia os degraus subindo até +450%. */
       var fluxo = corte[i].fluxo || 0;
-      if (Math.abs(fluxo) < 0.01) {
+      var cAnt = (corte[i-1].cobertura === undefined) ? 1 : corte[i-1].cobertura;
+      var cAtu = (corte[i].cobertura   === undefined) ? 1 : corte[i].cobertura;
+      var valeu = (Math.abs(fluxo) < 0.01) &&
+                  (Math.abs(cAtu - cAnt) <= 0.001) && (cAtu >= 0.98);
+      if (valeu) {
         var vIni = corte[i-1].patrimonio, vFim = corte[i].patrimonio;
         if (vIni > TWR_SALDO_MIN) {
           var r = (vFim - vIni) / vIni;
@@ -12573,6 +12597,24 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     for (var i = 1; i < corte.length; i++) {
       var fluxo = corte[i].fluxo || 0;
       if (Math.abs(fluxo) > 0.01) continue;      // dia de aporte/resgate: não pontua
+
+      /* ═══════════════════════════════════════════════════════════════
+         COBERTURA DE PREÇOS — a segunda fonte de retorno fantasma
+
+         `cobertura` é a fração dos ativos em carteira que tinha preço no
+         dia. Nos primeiros anos ela é baixa: o histórico do Yahoo não
+         alcança 2018 para todos os papéis, então parte da carteira entra
+         valendo zero. Quando o preço finalmente aparece, o patrimônio dá
+         um salto que NÃO é mercado — é dado chegando.
+
+         Comparar dois dias com coberturas diferentes é comparar carteiras
+         diferentes. Esses dias saem do cálculo.
+         ═══════════════════════════════════════════════════════════════ */
+      var cAnt = (corte[i-1].cobertura === undefined) ? 1 : corte[i-1].cobertura;
+      var cAtu = (corte[i].cobertura   === undefined) ? 1 : corte[i].cobertura;
+      if (Math.abs(cAtu - cAnt) > 0.001) continue;
+      if (cAtu < 0.98) continue;   // carteira incompleta não descreve rentabilidade
+
       var vIni = corte[i-1].patrimonio, vFim = corte[i].patrimonio;
       if (!(vIni > TWR_SALDO_MIN)) continue;
       var r = (vFim - vIni) / vIni;
@@ -12606,10 +12648,65 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     console.log('%c[G20DiagTWR] dias com variação acima de ' + (TWR_TETO_DIA*100) +
                 '% (descartados do cálculo)', 'color:#e8b84b;font-weight:bold');
     console.table(d);
-    console.log('Se algum destes for aporte real não registrado, corrija o lançamento ' +
-                'na Minha Carteira — a rentabilidade volta a fechar sozinha.');
     return d;
   };
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     G20DiagAnos() — a régua de coerência
+
+     Para cada ano: quanto a carteira valia, quanto entrou de aporte, quanto
+     foi ganho de verdade, qual o TWR e — o mais importante — a COBERTURA de
+     preços. Cobertura baixa marca o período em que a série está subavaliada
+     porque o histórico do Yahoo não alcança aquelas datas.
+
+     Use isto para checar o que você mesmo apontou: se R$ 169 mil de ganho
+     valem 97%, R$ 209 mil não podem valer 404%.
+     ═══════════════════════════════════════════════════════════════════════ */
+  window.G20DiagAnos = function(){
+    var s = (typeof _v21SerieComVivo === 'function') ? _v21SerieComVivo() : null;
+    if (!s || s.length < 2) { console.warn('[G20DiagAnos] sem série'); return; }
+
+    var porAno = {};
+    for (var i = 1; i < s.length; i++) {
+      var ano = s[i].d.substring(0,4);
+      if (!porAno[ano]) porAno[ano] = { fator: 1, aportes: 0, cobMin: 1, cobSoma: 0, n: 0,
+                                        ini: s[i-1].patrimonio, fim: 0, pulados: 0 };
+      var a = porAno[ano];
+      a.fim = s[i].patrimonio;
+      a.aportes += (parseFloat(s[i].fluxo) || 0);
+      var c = (s[i].cobertura === undefined) ? 1 : s[i].cobertura;
+      a.cobSoma += c; a.n++; if (c < a.cobMin) a.cobMin = c;
+
+      var cAnt = (s[i-1].cobertura === undefined) ? 1 : s[i-1].cobertura;
+      var vale = Math.abs(parseFloat(s[i].fluxo)||0) < 0.01 &&
+                 Math.abs(c - cAnt) <= 0.001 && c >= 0.98 &&
+                 s[i-1].patrimonio > TWR_SALDO_MIN;
+      if (!vale) { a.pulados++; continue; }
+      var r = (s[i].patrimonio - s[i-1].patrimonio) / s[i-1].patrimonio;
+      if (isFinite(r) && Math.abs(r) <= TWR_TETO_DIA) a.fator *= (1 + r);
+    }
+
+    var linhas = Object.keys(porAno).sort().map(function(ano){
+      var a = porAno[ano];
+      var ganho = a.fim - a.ini - a.aportes;
+      return {
+        ano: ano,
+        patrimonioFim: Math.round(a.fim),
+        aportes: Math.round(a.aportes),
+        ganhoRS: Math.round(ganho),
+        TWR: +( (a.fator-1)*100 ).toFixed(2),
+        coberturaMedia: +( a.cobSoma/a.n*100 ).toFixed(1),
+        coberturaMin: +( a.cobMin*100 ).toFixed(1),
+        diasPulados: a.pulados
+      };
+    });
+    console.log('%c[G20DiagAnos] a série ano a ano', 'color:#c9a961;font-weight:bold');
+    console.table(linhas);
+    console.log('coberturaMin abaixo de 100% = havia ativo sem preço naquele ano.');
+    console.log('Quanto menor a cobertura, menos confiável é o TWR daquele período.');
+    return linhas;
+  };
+
 
 
   // R51: Desenha sparkline SVG do slice snap[fromIdx..toIdx].
