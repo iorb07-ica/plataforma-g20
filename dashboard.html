@@ -14131,17 +14131,23 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         // v2.6: aceitar se tem valorCota OU total
         if (!valorCota && !total) return;
 
-        // v2.6: converter USD pra BRL no summary (cotação do g20_precos ou fallback 5.00)
+        // R51: câmbio de g20UsdBRL(), que varre g20_precos, o cache da
+        // Carteira G20 e a memória viva. O 5,00 fixo dava erro de 14%
+        // quando o dólar estava a 5,80.
         var moedaD = detectarMoeda(d.ticker, d.fonte);
         var totalBRL = total;
         if (moedaD === 'USD') {
-          var cotUSD = 5.00;
+          var cotUSD = 0;
           try {
             var precos = JSON.parse(localStorage.getItem('g20_precos')||'{}');
-            var usdbrl = precos['USDBRL=X'] || precos['USD'] || precos['USDBRL'] || null;
-            var _p = g20PriceOf(usdbrl);
-            if (_p) cotUSD = parseFloat(_p);
+            cotUSD = (typeof g20UsdBRL === 'function') ? g20UsdBRL(precos) : 0;
+            if (!(cotUSD > 0)) {
+              var usdbrl = precos['USDBRL=X'] || precos['USD'] || precos['USDBRL'] || null;
+              var _p = g20PriceOf(usdbrl);
+              if (_p) cotUSD = parseFloat(_p) || 0;
+            }
           } catch(e){}
+          if (!(cotUSD > 0)) return;      // sem câmbio, não entra
           totalBRL = total * cotUSD;
         }
 
@@ -14653,17 +14659,42 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           cdiMes = ((fim.c / inicio30.c) - 1) * 100;
         }
       }
+      /* ═══════════════════════════════════════════════════════════════════
+         R51 — O CARD PROMETE UMA COMPARAÇÃO E MOSTRAVA UM NÚMERO SÓ
+
+         O título é "RENT. MÊS VS CDI", mas o destaque trazia só a
+         rentabilidade da carteira (+1,09%). E o rodapé estava com rótulo
+         trocado: escrevia "Carteira +0,07 pp" quando +0,07 pp é a
+         DIFERENÇA, não a carteira. Quem lesse rápido entendia que a
+         carteira rendeu 0,07%.
+
+         Agora o destaque é a diferença — que é o que o título promete — e
+         o rodapé mostra os dois números que a produziram, cada um com seu
+         nome. Combina com o card ALPHA YTD ao lado: um é o alpha do mês,
+         o outro o do ano.
+         ═══════════════════════════════════════════════════════════════════ */
       var kpi1Val = document.getElementById('v21Kpi1Val');
       var kpi1Sub = document.getElementById('v21Kpi1Sub');
-      if (kpi1Val && rentMes !== null) {
-        _v21SetVal(kpi1Val, fmtPct(rentMes));
-        setValClass(kpi1Val, rentMes);
+      var _diffMes = (cdiMes !== null && rentMes !== null) ? (rentMes - cdiMes) : null;
+
+      if (kpi1Val) {
+        if (_diffMes !== null) {
+          _v21SetVal(kpi1Val, fmtPP(_diffMes));
+          setValClass(kpi1Val, _diffMes);
+        } else if (rentMes !== null) {
+          // Sem CDI não há comparação: mostra a carteira e avisa no rodapé.
+          _v21SetVal(kpi1Val, fmtPct(rentMes));
+          setValClass(kpi1Val, rentMes);
+        }
       }
       if (kpi1Sub) {
-        if (cdiMes !== null && rentMes !== null) {
-          var diff = rentMes - cdiMes;
-          var diffClass = diff >= 0 ? 'v21-kpi-sub-pos' : 'v21-kpi-sub-neg';
-          kpi1Sub.innerHTML = 'CDI: <span class="v21-kpi-sub-strong">' + fmtPct(cdiMes) + '</span> • Carteira <span class="' + diffClass + '">' + fmtPP(diff) + '</span>';
+        if (_diffMes !== null) {
+          kpi1Sub.innerHTML =
+            'Carteira <span class="v21-kpi-sub-strong">' + fmtPct(rentMes) + '</span>' +
+            ' • CDI <span class="v21-kpi-sub-strong">' + fmtPct(cdiMes) + '</span>';
+        } else if (rentMes !== null) {
+          kpi1Sub.innerHTML = 'Carteira <span class="v21-kpi-sub-strong">' + fmtPct(rentMes) +
+                              '</span> • CDI indisponível';
         } else {
           kpi1Sub.textContent = 'Dados do mês indisponíveis';
         }
@@ -14725,7 +14756,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       }
       if (kpi2Sub) {
         if (rentYtd !== null && cdiYtd !== null) {
-          kpi2Sub.innerHTML = 'Carteira: <span class="v21-kpi-sub-strong">' + fmtPct(rentYtd) + '</span> vs CDI: <span class="v21-kpi-sub-strong">' + fmtPct(cdiYtd) + '</span>';
+          // Mesmo formato do card RENT. MÊS VS CDI, ao lado.
+          kpi2Sub.innerHTML =
+            'Carteira <span class="v21-kpi-sub-strong">' + fmtPct(rentYtd) + '</span>' +
+            ' • CDI <span class="v21-kpi-sub-strong">' + fmtPct(cdiYtd) + '</span>';
         } else {
           kpi2Sub.textContent = 'YTD indisponível';
         }
@@ -14761,6 +14795,14 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         var total = parseFloat(d.total||0);
         return isAuto && (valor > 0 || total > 0);
       });
+      var _fxMes = (typeof g20UsdBRL === 'function') ? g20UsdBRL(precos) : 0;
+      var _tipoMes = {};
+      try {
+        rvAp.forEach(function(a){
+          if (a && a.ticker) _tipoMes[String(a.ticker).toUpperCase()] = a.tipo || '';
+        });
+      } catch(e){}
+
       divsFiltrados.forEach(function(d){
         var dataPag = (d.data||'').substring(0,10);
         if (!dataPag || !dataPag.startsWith(mesAtual)) return;
@@ -14770,15 +14812,17 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         var total = parseFloat(d.total) || (valorCota * qtd);
         if (total <= 0) return;
 
-        // Converte USD → BRL
-        var tickerU = (d.ticker||'').toUpperCase();
-        var ehStockUS = /^[A-Z]{1,5}$/.test(tickerU) && !/\d/.test(tickerU);
-        if (ehStockUS) {
-          var cotUSD = 5.00;
-          var usdbrl = precos['USDBRL=X'] || precos['USD'] || precos['USDBRL'];
-          var _p = g20PriceOf(usdbrl);
-          if (_p) cotUSD = parseFloat(_p);
-          total = total * cotUSD;
+        /* R51: moeda pelo cadastro do provento ou pelo TIPO do ativo, não
+           pelo formato do ticker — mesma regra dos cards RENDA PASSIVA e
+           PROVENTOS 12 MESES. E câmbio de g20UsdBRL(), não 5,00 fixo. */
+        var _tpProv = String(_tipoMes[(d.ticker||'').toUpperCase()] || '').toUpperCase();
+        var _mProv = String(d.moeda || d.currency || '').toUpperCase();
+        var _ehUSD = (_mProv === 'USD') || (_mProv !== 'BRL' &&
+          (_tpProv === 'STOCK' || _tpProv === 'REIT' || _tpProv === 'ETF' ||
+           _tpProv === 'ETF US' || _tpProv === 'UCITS' || _tpProv === 'CRIPTO'));
+        if (_ehUSD) {
+          if (!(_fxMes > 0)) return;      // sem câmbio, fica de fora
+          total = total * _fxMes;
         }
 
         sumProvMes += total;
@@ -14801,23 +14845,57 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       }
 
       // ─── Card 4: APORTES ANO ────────────────────────
-      // Estrutura real: {ticker, data, qtd, preco, op:'C'/'V', tipo:'Acao'/'Stock'/...}
-      // Valor total = qtd × preco (op='C' soma, op='V' subtrai)
+      /* ═══════════════════════════════════════════════════════════════════
+         R51 — DUAS CORREÇÕES
+
+         1) APORTE EM DÓLAR ENTRAVA SEM CONVERSÃO
+            Estava assim:  valor = qtd × preco
+            O campo `preco` está na moeda de origem. Comprar 10 AAPL a
+            US$ 200 são US$ 2.000, ou ~R$ 10.157 — mas o card somava 2.000.
+            Numa carteira 57% dolarizada isso corta quase metade do total.
+
+            O sintoma: o card mostrava R$ 37.115 enquanto o G20DiagAnos,
+            que lê os fluxos da série (já em reais), mostrava R$ 112.766
+            para o mesmo ano.
+
+            A conversão usa o câmbio DA ÉPOCA (campo fxRate) quando existe;
+            senão, o de hoje. É o mesmo critério do motor de avaliação.
+
+         2) VENDA NÃO ERA DESCONTADA
+            Só as compras entravam. Quem comprou R$ 50 mil e vendeu R$ 30
+            mil aportou R$ 20 mil no ano, não R$ 50 mil. "Aporte" aqui é o
+            dinheiro que efetivamente entrou na carteira.
+         ═══════════════════════════════════════════════════════════════════ */
       var aportesAno = 0;
       var mesesAno = {};
-      // SESSÃO 51.0: aportes do ano = só carteira pessoal (sem CG20).
+      var _fxAp = (typeof g20UsdBRL === 'function') ? g20UsdBRL(precos) : 0;
       rvAp.forEach(function(a){
         var dataStr = (a.data||'').substring(0,10);
         if (!dataStr.startsWith(anoAtual)) return;
         var q = parseFloat(a.qtd)||0;
         var p = parseFloat(a.preco)||0;
+        if (!(q > 0) || !(p > 0)) return;
+
+        // Moeda: mesma inferência do motor (Stock, REIT, ETF, Cripto, UCITs = dólar)
+        var _tp = String(a.tipo||'').toUpperCase();
+        var _inf = (_tp==='CRIPTO'||_tp==='CRYPTO'||_tp==='STOCK'||_tp==='REIT'||
+                    _tp==='ETF'||_tp==='ETF US'||_tp==='UCITS') ? 'USD' : 'BRL';
+        var _moeda = String(a.moeda || _inf).toUpperCase();
+        if (_moeda === 'USD') {
+          var _fxHist = parseFloat(a.fxRate) || _fxAp || 0;
+          if (!(_fxHist > 0)) return;      // sem câmbio, não inventa valor
+          p = p * _fxHist;
+        }
+
         var valor = q * p;
-        if (valor <= 0) return;
-        // Só soma se for compra (op='C' ou campo ausente — default é compra)
-        if ((a.op||'C') !== 'C') return;
-        aportesAno += valor;
-        mesesAno[dataStr.substring(0,7)] = true;
+        if (!(valor > 0)) return;
+
+        var _venda = String(a.op||'C').toUpperCase() === 'V' ||
+                     String(a.tipo||'').toLowerCase() === 'venda';
+        aportesAno += _venda ? -valor : valor;
+        if (!_venda) mesesAno[dataStr.substring(0,7)] = true;
       });
+      if (aportesAno < 0) aportesAno = 0;
       var qtdMesesAno = Object.keys(mesesAno).length;
       var mediaMes = qtdMesesAno > 0 ? aportesAno / qtdMesesAno : 0;
 
@@ -14964,16 +15042,56 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       } catch(e) { console.warn('[v21 kpi5 beta]:', e); }
 
       // ─── Card 6: RENDA PASSIVA MENSAL PROJETADA (apenas GP) ──────
-      // Soma proventos últimos 12 meses / 12 = média mensal
-      // GP = todos os proventos (carteira pessoal consolidada, ignora origem CG20/GP do filtro)
-      try {
-        var dozeMesesAtras = new Date();
-        dozeMesesAtras.setMonth(dozeMesesAtras.getMonth() - 12);
-        var d12Str = dozeMesesAtras.toISOString().substring(0,10);
+      /* ═══════════════════════════════════════════════════════════════════
+         R51 — TRÊS CORREÇÕES
 
-        // Usa a MESMA lógica do PROVENTOS MÊS (valor por cota × quantidade na carteira, só
-        // proventos "auto"), somando os últimos 12 meses. Antes somava d.total direto — que para
-        // proventos auto é o valor POR COTA — dando uma renda passiva absurdamente baixa (R$ 30).
+         1) JANELA DIFERENTE DO GRÁFICO
+            Aqui a janela era "hoje menos 12 meses" — uma data no meio do
+            mês. O gráfico PROVENTOS 12 MESES usa 12 meses fechados. Com
+            janelas diferentes, os dois cards contavam conjuntos diferentes
+            de proventos: o gráfico dizia média/mês R$ 2,3k e este card
+            dizia R$ 1.186, para a mesma pergunta.
+
+         2) MOEDA ADIVINHADA PELO FORMATO DO TICKER
+            `/^[A-Z]{1,5}$/.test(ticker)` — qualquer código de até 5 letras
+            sem número era tratado como americano. Isso acerta AAPL e MSFT,
+            mas erra em papéis brasileiros sem número no fim e em BDRs, e
+            multiplica o provento pelo câmbio sem motivo. Agora a moeda vem
+            do cadastro do provento ou do TIPO do ativo na carteira — o
+            mesmo critério do motor de avaliação.
+
+         3) CÂMBIO 5,00 CHUTADO
+            Se a cotação não estivesse em g20_precos, usava 5,00 fixo. Com
+            o dólar a 5,08 o erro é pequeno; em 2020, com 5,80, seria de
+            14%. Agora usa g20UsdBRL(), que procura em todas as fontes, e
+            não converte se não encontrar.
+         ═══════════════════════════════════════════════════════════════════ */
+      try {
+        // Janela IGUAL à do gráfico: 12 meses fechados, do dia 1º do mês
+        // que faz 11 meses até hoje.
+        var _hj6 = new Date();
+        var _ini6 = new Date(_hj6.getFullYear(), _hj6.getMonth() - 11, 1);
+        var d12Str = _ini6.getFullYear() + '-' +
+                     String(_ini6.getMonth() + 1).padStart(2, '0') + '-01';
+
+        var _fx6 = (typeof g20UsdBRL === 'function') ? g20UsdBRL(precos) : 0;
+
+        // Tipo de cada ticker na carteira, para inferir a moeda do provento.
+        var _tipoDe6 = {};
+        try {
+          rvAp.forEach(function(a){
+            if (a && a.ticker) _tipoDe6[String(a.ticker).toUpperCase()] = a.tipo || '';
+          });
+        } catch(e){}
+        function _proventoEmUSD(d){
+          var m = String(d.moeda || d.currency || '').toUpperCase();
+          if (m === 'USD') return true;
+          if (m === 'BRL') return false;
+          var tp = String(_tipoDe6[(d.ticker||'').toUpperCase()] || '').toUpperCase();
+          return (tp === 'STOCK' || tp === 'REIT' || tp === 'ETF' ||
+                  tp === 'ETF US' || tp === 'UCITS' || tp === 'CRIPTO');
+        }
+
         var totalProv12m = 0;
         divs.forEach(function(d){
           if (!d.fonte) return;
@@ -14987,20 +15105,15 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           var qtd = parseFloat(d.qtd||0) || qtdCart;
           var total = parseFloat(d.total) || (valorCota * qtd);
           if (total <= 0) return;
-          var tickerU = (d.ticker||'').toUpperCase();
-          var ehStockUS = /^[A-Z]{1,5}$/.test(tickerU) && !/\d/.test(tickerU);
-          if (ehStockUS) {
-            var cotUSD = 5.00;
-            var usdbrl = precos['USDBRL=X'] || precos['USD'] || precos['USDBRL'];
-            var _p = g20PriceOf(usdbrl);
-            if (_p) cotUSD = parseFloat(_p);
-            total = total * cotUSD;
+          if (_proventoEmUSD(d)) {
+            if (!(_fx6 > 0)) return;        // sem câmbio, não inventa valor
+            total = total * _fx6;
           }
           totalProv12m += total;
         });
 
         var mediaMensal = totalProv12m / 12;
-        var projecaoAnual = mediaMensal * 12;
+        var projecaoAnual = totalProv12m;    // 12 meses fechados já é o ano
 
         var kpi6Val = document.getElementById('v21Kpi6Val');
         var kpi6Sub = document.getElementById('v21Kpi6Sub');
@@ -16202,11 +16315,15 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       try { apBR = JSON.parse(localStorage.getItem('g20_aportes')||'[]'); } catch(e){}
       try { precos = JSON.parse(localStorage.getItem('g20_precos')||'{}'); } catch(e){}
 
-      // Cotação USD→BRL
-      var cotUSD = 5.00;
-      var usdbrl = precos['USDBRL=X'] || precos['USD'] || precos['USDBRL'];
-      var _p = g20PriceOf(usdbrl);
-      if (_p) cotUSD = parseFloat(_p);
+      // Cotação USD→BRL — R51: g20UsdBRL() varre g20_precos, o cache da
+      // Carteira G20 e a memória viva. O 5,00 fixo de antes produzia erro de
+      // 14% quando o dólar estava a 5,80.
+      var cotUSD = (typeof g20UsdBRL === 'function') ? g20UsdBRL(precos) : 0;
+      if (!(cotUSD > 0)) {
+        var usdbrl = precos['USDBRL=X'] || precos['USD'] || precos['USDBRL'];
+        var _p = g20PriceOf(usdbrl);
+        if (_p) cotUSD = parseFloat(_p) || 0;
+      }
 
       // Mapa de qtd carteira
       // SESSÃO 51.0: só a carteira pessoal. A CG20 (apBR) é material didático
@@ -16242,6 +16359,27 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var anoAntStart = new Date(hoje.getFullYear()-1, hoje.getMonth()-11, 1);
       var anoAntEnd = new Date(hoje.getFullYear()-1, hoje.getMonth()+1, 0);
 
+      /* R51: moeda pelo CADASTRO, não pelo formato do ticker.
+         `/^[A-Z]{1,5}$/` tratava qualquer código de até 5 letras sem número
+         como americano — acerta AAPL, erra em papéis brasileiros sem número
+         e em BDRs, multiplicando o provento pelo câmbio sem motivo.
+         E o câmbio agora vem de g20UsdBRL(), que procura em todas as fontes
+         em vez de cair num 5,00 fixo. */
+      var _tipoProv = {};
+      try {
+        rvAp.forEach(function(a){
+          if (a && a.ticker) _tipoProv[String(a.ticker).toUpperCase()] = a.tipo || '';
+        });
+      } catch(e){}
+      function _provUSD(d){
+        var m = String(d.moeda || d.currency || '').toUpperCase();
+        if (m === 'USD') return true;
+        if (m === 'BRL') return false;
+        var tp = String(_tipoProv[(d.ticker||'').toUpperCase()] || '').toUpperCase();
+        return (tp === 'STOCK' || tp === 'REIT' || tp === 'ETF' ||
+                tp === 'ETF US' || tp === 'UCITS' || tp === 'CRIPTO');
+      }
+
       divs.forEach(function(d){
         if (!d.fonte) return;
         var f = String(d.fonte).toLowerCase();
@@ -16255,10 +16393,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         var total = parseFloat(d.total) || (valorCota * qtd);
         if (total <= 0) return;
 
-        // Converte USD → BRL
-        var tickerU = (d.ticker||'').toUpperCase();
-        var ehStockUS = /^[A-Z]{1,5}$/.test(tickerU) && !/\d/.test(tickerU);
-        if (ehStockUS) total = total * cotUSD;
+        if (_provUSD(d)) {
+          if (!(cotUSD > 0)) return;      // sem câmbio, fica de fora
+          total = total * cotUSD;
+        }
 
         var mesKey = dataPag.substring(0,7);
         somaPorMes[mesKey] = (somaPorMes[mesKey]||0) + total;
@@ -16281,8 +16419,15 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
       // Métricas topo
       var total12 = valores.reduce(function(s,v){ return s+v; }, 0);
+      /* R51: a média era total ÷ meses COM provento. Num ano em que só 5
+         meses pagaram, ela dizia "média R$ 5,4k/mês" — mas o que entrou por
+         mês, ao longo do ano, foi menos. E divergia do card RENDA PASSIVA,
+         que divide por 12. Duas médias mensais diferentes na mesma tela.
+
+         Agora divide por 12 nos dois lugares: é a renda mensal que a
+         carteira de fato produz, contando os meses secos. */
       var mesesComProv = valores.filter(function(v){ return v > 0; }).length;
-      var media = mesesComProv > 0 ? total12 / mesesComProv : 0;
+      var media = total12 / 12;
       var vs = somaAnoAnt > 0 ? ((total12/somaAnoAnt)-1)*100 : null;
 
       var elTotal = document.getElementById('v21ProvTotal');
