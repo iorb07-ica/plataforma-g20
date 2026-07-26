@@ -12685,13 +12685,74 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     var hojeStr = new Date().toISOString().substring(0,10);
     if (fim > hojeStr) fim = hojeStr;
 
-    var precos = window._g20Precos;
-    if (!precos) {
-      console.warn('[G20DiagAtivos] as séries de preço ainda não estão em memória. ' +
-                   'Espere o dashboard carregar por completo e rode de novo.');
+    /* ═══════════════════════════════════════════════════════════════════
+       DE ONDE VÊM OS PREÇOS
+
+       window._g20Precos só existe quando a reconstrução rodou nesta sessão.
+       Quando a série vem do cache — que é o caso normal — ela não roda, e o
+       diagnóstico ficava sem dado nenhum ("as séries ainda não estão em
+       memória"), mesmo com tudo carregado.
+
+       Mas os históricos por ativo continuam no localStorage, em g20_histpx_*,
+       gravados pela própria reconstrução. São exatamente os mesmos preços que
+       o motor usou. Aqui montamos o índice a partir deles.
+       ═══════════════════════════════════════════════════════════════════ */
+    function indexarPontos(pontos){
+      var mapa = {};
+      for (var i = 0; i < pontos.length; i++) {
+        var p = pontos[i];
+        var dd = p.d || p.data, cc = (p.c !== undefined) ? p.c : (p.close !== undefined ? p.close : p.preco);
+        if (dd && cc > 0) mapa[String(dd).substring(0,10)] = parseFloat(cc);
+      }
+      return {
+        em: function(dISO){
+          if (mapa[dISO] != null) return mapa[dISO];
+          var d = new Date(dISO + 'T12:00:00');
+          for (var k = 1; k <= 15; k++) {
+            var alvo = new Date(d); alvo.setDate(alvo.getDate() - k);
+            var s = alvo.toISOString().substring(0,10);
+            if (mapa[s] != null) return mapa[s];
+          }
+          return null;
+        }
+      };
+    }
+
+    function lerDoCache(){
+      var out = {}, fx = null, achados = 0;
+      try {
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (!k || k.indexOf('g20_histpx_') !== 0) continue;
+          var c = null;
+          try { c = JSON.parse(localStorage.getItem(k) || 'null'); } catch(e){ continue; }
+          if (!c || !c.pontos || !c.pontos.length) continue;
+          var sym = k.substring(11);                       // 'AAPL', 'PRIO3.SA', 'USDBRL=X'
+          var base = sym.replace(/\.(SA|US|L)$/i, '').replace(/-USD$/i, '').toUpperCase();
+          if (base === 'USDBRL=X' || base === 'USDBRL') { fx = indexarPontos(c.pontos); continue; }
+          out[base] = indexarPontos(c.pontos);
+          achados++;
+        }
+      } catch(e){}
+      return { precos: out, cambio: fx, n: achados };
+    }
+
+    var precos = window._g20Precos, cambio = window._g20Cambio, origem = 'memória';
+    if (!precos || !Object.keys(precos).length) {
+      var doCache = lerDoCache();
+      if (doCache.n) {
+        precos = doCache.precos;
+        cambio = cambio || doCache.cambio;
+        origem = 'cache do navegador (' + doCache.n + ' ativos)';
+      }
+    }
+    if (!precos || !Object.keys(precos).length) {
+      console.warn('[G20DiagAtivos] nenhum histórico de preços disponível.');
+      console.warn('  A série veio do cache, então a reconstrução não rodou nesta sessão.');
+      console.warn('  Rode  G20Rent.invalidar(); location.reload();  e tente de novo —');
+      console.warn('  a reconstrução completa demora ~1 min e deixa tudo em memória.');
       return;
     }
-    var cambio = window._g20Cambio;
 
     var aportes = [];
     try { aportes = JSON.parse(localStorage.getItem('g20_rvAportes') || '[]'); } catch(e){}
@@ -12762,9 +12823,12 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     linhas.sort(function(a,b){ return (b.deltaRS||0) - (a.deltaRS||0); });
 
     console.log('%c[G20DiagAtivos] ' + ini + ' -> ' + fim, 'color:#c9a961;font-weight:bold');
+    console.log('  fonte dos preços: ' + origem);
     if (fxIni && fxFim) {
       console.log('  câmbio USD/BRL: ' + fxIni.toFixed(4) + ' -> ' + fxFim.toFixed(4) +
                   '  (' + ((fxFim/fxIni-1)*100).toFixed(1) + '%)');
+    } else {
+      console.warn('  câmbio USD/BRL indisponível no período — valores em dólar não convertidos.');
     }
     console.table(linhas);
     var sus = linhas.filter(function(l){ return l.suspeita; });
