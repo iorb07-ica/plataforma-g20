@@ -690,11 +690,6 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
   0%{box-shadow:0 0 14px rgba(232,184,75,.85); filter:brightness(1.5)}
   100%{box-shadow:0 0 6px rgba(232,184,75,.35); filter:brightness(1)}
 }
-/* Aba em segundo plano: nada é atualizado, então a barra não corre.
-   Fica esmaecida em vez de sumir, para não mexer no layout. */
-.g20-refresh-bar.pausada{opacity:.18}
-.g20-refresh-bar.pausada > i{transition:none}
-
 body.light .g20-refresh-bar{background:rgba(20,40,80,.07)}
 
 .ticker-tape-wrap{position:relative;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:6px;height:50px;display:flex;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,.3);cursor:grab;user-select:none;-webkit-user-select:none}
@@ -4156,10 +4151,6 @@ body.pat-hidden .v21-change-extra::after{
     0%, 100% { opacity: 1; }
     50%      { opacity: 0.35; }
   }
-  /* Aba em segundo plano: nada é atualizado, o ponto para de pulsar. */
-  .v21-pill-cot.pausada .dot { animation: none; opacity: .45; }
-  .v21-pill-cot.pausada { opacity: .6; }
-
   /* Tooltip: aparece abaixo e alinhado à direita, para não sair da tela
      quando a pílula está no canto. */
   .v21-cot-tip {
@@ -12676,7 +12667,6 @@ window.g20Logout = function() {
          ═══════════════════════════════════════════════════════════════════ */
       var _barra = document.getElementById('g20RefreshBar');
       var _barraFill = document.getElementById('g20RefreshFill');
-      var _pilCot = document.getElementById('v21-pill-cot');
       var _pilHora = document.getElementById('v21-cot-hora');
       var _pilTip = document.getElementById('v21-cot-tip');
 
@@ -12691,9 +12681,7 @@ window.g20Logout = function() {
          A pílula mostra de QUANDO são os preços. O tooltip abre em duas
          linhas: de quando são, e quando mudam.
 
-         Com a aba em segundo plano nada é atualizado, e prometer uma
-         contagem regressiva ali seria mentira — o texto muda para dizer que
-         a atualização acontece na volta.
+         Só existe pintura com a aba à vista — quem chama já garantiu isso.
          ═══════════════════════════════════════════════════════════════════ */
       function _pintarPilula(){
         if (!_pilHora) return;
@@ -12702,14 +12690,10 @@ window.g20Logout = function() {
         var restante = Math.max(0, IDADE_MAX - (Date.now() - _ultimaAtualizacao));
         var min = Math.ceil(restante / 60000);
 
-        if (_pilCot) _pilCot.classList.toggle('pausada', document.hidden);
-
         if (!_pilTip) return;
         var l1 = 'Cotações de <b>' + _hhmm(_ultimaAtualizacao) + '</b>';
         var l2;
-        if (document.hidden) {
-          l2 = 'Atualiza quando você voltar à aba';
-        } else if (restante <= 0) {
+        if (restante <= 0) {
           l2 = 'Atualizando agora…';
         } else if (min <= 1) {
           l2 = 'Próxima atualização em menos de 1 min';
@@ -12720,14 +12704,11 @@ window.g20Logout = function() {
       }
 
       function _pintarBarra(){
+        /* Aba oculta: não há leitor. Não se pinta para ninguém — e o
+           visibilitychange repinta tudo no instante em que ela volta. */
+        if (document.hidden) return;
         _pintarPilula();
         if (!_barraFill) return;
-        if (document.hidden) {
-          // Nada é atualizado com a aba oculta — a barra não pode fingir que sim.
-          if (_barra) _barra.classList.add('pausada');
-          return;
-        }
-        if (_barra) _barra.classList.remove('pausada');
         var restante = Math.max(0, IDADE_MAX - (Date.now() - _ultimaAtualizacao));
         var fracao = restante / IDADE_MAX;
         _barraFill.style.transform = 'scaleX(' + fracao.toFixed(4) + ')';
