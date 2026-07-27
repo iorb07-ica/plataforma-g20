@@ -12829,29 +12829,28 @@ window.G20DiagRF = function(dias){
   return linhas;
 };
 
-  function _gpValorDoSnap(s, modo, bens){
+  function _gpValorDoSnap(s, modo, bens, ignorarVivo){
     if (!s) return 0;
     var t  = s.t  || 0;
 
     /* ═══════════════════════════════════════════════════════════════════
-       COTAÇÕES AO VIVO — R51: a RF vale sozinha
+       COTAÇÕES AO VIVO — R51
 
        A regra era "só em PAR": se apenas um dos dois existisse, os dois
        eram ignorados. Fazia sentido quando o rfVivo vinha de _calcBrutoRF()
-       — bruto contra a série líquida, bases diferentes, mistura perigosa.
+       — bruto contra a série líquida, bases diferentes. Só que travava a
+       renda fixa sempre que o mercado estava fechado.
 
-       Só que isso travava a renda fixa sempre que o mercado estava fechado:
-       sem rvVivo (fim de semana, pregão não aberto, fetch atrasado), o
-       rfVivo também era descartado e a RF não rendia. Era por isso que
-       "Apenas RF" mostrava a variação de dois dias atrás e "RV + RF" somava
-       exatamente o mesmo que "Apenas RV".
+       Agora o rfVivo vem de rfLiquido(), a mesma função da série, e pode
+       valer sozinho.
 
-       Agora o rfVivo é calculado com rfLiquido(), a MESMA função da série.
-       Mesma métrica, sem mistura — então ele pode valer por conta própria.
-       A RV continua exigindo o valor dela: ali a mistura de bases seria real.
+       `ignorarVivo` existe para quem precisa comparar FECHAMENTO com
+       FECHAMENTO: ao procurar o último movimento real de mercado, misturar
+       o valor de agora com o de ontem faz o card anunciar como "variação do
+       dia" algo que é só a apropriação da renda fixa.
        ═══════════════════════════════════════════════════════════════════ */
-    var rv = (s.rvVivo > 0) ? s.rvVivo : (s.rv || 0);
-    var rf = (s.rfVivo > 0) ? s.rfVivo : (s.rf || 0);
+    var rv = (!ignorarVivo && s.rvVivo > 0) ? s.rvVivo : (s.rv || 0);
+    var rf = (!ignorarVivo && s.rfVivo > 0) ? s.rfVivo : (s.rf || 0);
     if (modo === 'rv') return rv;
     if (modo === 'rf') return rf;
 
@@ -13398,11 +13397,22 @@ window.G20DiagRF = function(dias){
         var pontoAtu = snap[snap.length - 1];
         var pontoAnt = snap[snap.length - 2];
 
-        var _vivoCompleto = (pontoAtu.rvVivo > 0 && pontoAtu.rfVivo > 0);
-        /* R51: o modo RF antes SEMPRE recuava, porque o rfVivo era uma cópia
-           do fechamento e comparar um valor com ele mesmo dá 0,00%. Agora o
-           rfVivo é calculado para hoje com a mesma função da série, então a
-           apropriação do dia existe de verdade e pode ser exibida. */
+        /* ═══════════════════════════════════════════════════════════════
+           O QUE CONTA COMO "AO VIVO" DEPENDE DO MODO — R51
+
+           Modo RF: basta o rfVivo. A renda fixa apropria por dia útil e não
+           depende do pregão estar aberto.
+
+           Modos que incluem RV: exigem o rvVivo. Sem ele, o que mudou hoje
+           foi só a apropriação da renda fixa — anunciar isso como "variação
+           do dia" da carteira toda diz que ela rendeu R$ 5 quando na verdade
+           os ativos ainda não foram precificados. Melhor recuar e mostrar o
+           último pregão de verdade.
+           ═══════════════════════════════════════════════════════════════ */
+        var _recuou = false;
+        var _vivoCompleto = (modo === 'rf')
+          ? (pontoAtu.rfVivo > 0)
+          : (pontoAtu.rvVivo > 0);
         if (!_vivoCompleto) {
           /* ═══════════════════════════════════════════════════════════════
              RECUAR ATÉ O ÚLTIMO MOVIMENTO DE VERDADE — R51
@@ -13432,8 +13442,13 @@ window.G20DiagRF = function(dias){
           var _i = snap.length - 1;
           var _lim = 0;
           while (_i > 0 && _lim < 15) {
-            var _a = _gpValorDoSnap(snap[_i], modo, bens);
-            var _b = _gpValorDoSnap(snap[_i - 1], modo, bens);
+            /* `true` = ignora os valores ao vivo. Procuramos o último dia em
+               que o MERCADO se moveu; comparar o valor de agora com o
+               fechamento de ontem faria a busca parar no primeiro ponto
+               sempre, e a apropriação da renda fixa viraria "variação do
+               dia" da carteira inteira. */
+            var _a = _gpValorDoSnap(snap[_i], modo, bens, true);
+            var _b = _gpValorDoSnap(snap[_i - 1], modo, bens, true);
             var _fl = (modo === 'rv') ? (snap[_i].fluxoRV || 0)
                     : (modo === 'rf') ? (snap[_i].fluxoRF || 0)
                     : ((snap[_i].fluxoRV || 0) + (snap[_i].fluxoRF || 0));
@@ -13442,7 +13457,7 @@ window.G20DiagRF = function(dias){
             if (_b > 0 && Math.abs((_a - _fl) - _b) > _eps) break;
             _i--; _lim++;
           }
-          if (_i >= 1) { pontoAtu = snap[_i]; pontoAnt = snap[_i - 1]; }
+          if (_i >= 1) { pontoAtu = snap[_i]; pontoAnt = snap[_i - 1]; _recuou = true; }
         }
 
         // Os dois pontos precisam ser do MESMO tipo. Comparar um ponto da
@@ -13453,8 +13468,10 @@ window.G20DiagRF = function(dias){
         var tipoAtu = pontoAtu.real ? 'real' : (pontoAtu.seed ? 'seed' : '?');
         var basesIguais = (tipoAnt === tipoAtu);
 
-        var anterior = _gpValorDoSnap(pontoAnt, modo, bens) || valor;
-        var atual    = _gpValorDoSnap(pontoAtu, modo, bens);
+        /* Se recuamos, comparamos dois FECHAMENTOS — os valores ao vivo não
+           entram, senão o número exibido não seria o do dia que o rótulo diz. */
+        var anterior = _gpValorDoSnap(pontoAnt, modo, bens, _recuou) || valor;
+        var atual    = _gpValorDoSnap(pontoAtu, modo, bens, _recuou);
 
         /* Desconta o APORTE do dia: dinheiro novo entrando não é
            rendimento. Sem isso, um aporte de R$ 2.000 na RF aparecia
