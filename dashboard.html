@@ -6480,7 +6480,8 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
     if (_owner && _uid && _owner !== _uid) {
       ['rvAportes','aportes','rendaFixa','patrimonioBens','patrimonioSnaps','dividendos',
        'rvDividendos','patSnapshots','lastRVTotal','carteiraMeta','splits','rvColsVis',
-       'metaIF','precos','dashRVCot_cache','serieReal']
+       'metaIF','precos','dashRVCot_cache','serieReal',
+         'cg20Aportes','cg20Dividendos','cg20Splits','cg20Meta']
         .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
       try {
         Object.keys(localStorage).forEach(function(k){
@@ -6620,6 +6621,9 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
   var LEITURAS = {
     'g20_rvAportes':      function(){ return JSON.stringify(D.aportes    || []); },
     'g20_aportes':        function(){ return JSON.stringify(D.aportes    || []); },
+    // R51: chaves próprias da Carteira G20 (ver g20CG20Aportes)
+    'g20_cg20Aportes':    function(){ return JSON.stringify(D.aportes    || []); },
+    'g20_cg20Dividendos': function(){ return JSON.stringify(D.dividendos || []); },
     'g20_dividendos':     function(){ return JSON.stringify(D.dividendos || []); },
     'g20_rvDividendos':   function(){ return JSON.stringify(D.dividendos || []); },
     'g20_precos':         function(){ return JSON.stringify(D.precos     || {}); },
@@ -6641,6 +6645,7 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
   // ── 3. Gravações: bloqueadas ──────────────────────────────────────────
   var BLOQUEADAS = {
     'g20_rvAportes':1, 'g20_aportes':1, 'g20_dividendos':1, 'g20_rvDividendos':1,
+    'g20_cg20Aportes':1, 'g20_cg20Dividendos':1, 'g20_cg20Splits':1, 'g20_cg20Meta':1,
     'g20_precos':1, 'g20_rendaFixa':1, 'g20_patrimonioBens':1, 'g20_patSnapshots':1,
     'g20_lastRVTotal':1, 'g20_serieReal':1, 'g20_metaIF':1, 'g20_dashRVCot_cache':1,
     'g20_cotacoesCache':1
@@ -8134,6 +8139,42 @@ var PROXY_URL = 'https://g20-proxy.vercel.app';
 // ── Helper global: normaliza leitura de cotações do proxy/localStorage ──
 // O proxy mudou o formato de {price, changePercent, change} para {preco, chg}.
 // Estas funções aceitam AMBOS os formatos (defensivo).
+/* ═══════════════════════════════════════════════════════════════════════════
+   LEITURA DA CARTEIRA G20 — R51
+
+   A CG20 chega por dois caminhos, dependendo de quem está logado:
+
+     admin  -> g20_aportes / g20_dividendos      (são os documentos dele)
+     aluno  -> g20_cg20Aportes / g20_cg20Dividendos
+               (cópia dos documentos públicos do admin, feita no login)
+
+   As chaves são separadas de propósito: gravar a CG20 em g20_aportes na
+   conta do aluno contaminaria os números pessoais dele — foi o vazamento
+   que corrigimos hoje, com Proventos do Mês e Renda Passiva preenchidos
+   numa carteira vazia.
+
+   Estas funções escondem essa diferença. Quem quer a Carteira G20 chama
+   aqui e recebe, sem precisar saber quem está logado.
+   ═══════════════════════════════════════════════════════════════════════════ */
+function g20CG20Aportes(){
+  try {
+    var a = JSON.parse(localStorage.getItem('g20_cg20Aportes') || '[]');
+    if (Array.isArray(a) && a.length) return a;
+  } catch(e){}
+  try {
+    var b = JSON.parse(localStorage.getItem('g20_aportes') || '[]');
+    if (Array.isArray(b)) return b;
+  } catch(e){}
+  return [];
+}
+function g20CG20Dividendos(){
+  try {
+    var a = JSON.parse(localStorage.getItem('g20_cg20Dividendos') || '[]');
+    if (Array.isArray(a) && a.length) return a;
+  } catch(e){}
+  return null;   // null = use a lista geral de proventos
+}
+
 function g20PriceOf(item){
   if(!item) return null;
   return item.preco !== undefined ? item.preco : (item.price !== undefined ? item.price : null);
@@ -11296,7 +11337,8 @@ window.g20Logout = function() {
       if (_prevOwner && _prevOwner !== user.uid) {
         ['rvAportes','aportes','rendaFixa','patrimonioBens','patrimonioSnaps','dividendos',
          'rvDividendos','patSnapshots','lastRVTotal','carteiraMeta','splits','rvColsVis',
-         'metaIF','precos','dashRVCot_cache','serieReal']
+         'metaIF','precos','dashRVCot_cache','serieReal',
+         'cg20Aportes','cg20Dividendos','cg20Splits','cg20Meta']
           .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
         // Preços históricos por ticker: revelam a composição da carteira anterior.
         try {
@@ -11324,6 +11366,66 @@ window.g20Logout = function() {
     // Confirma o dono da série ANTES de qualquer painel renderizar. É esta chamada
     // que libera (ou descarta) o que o IndexedDB pré-carregou durante o boot.
     try { if (window.G20Rent) G20Rent.definirDono(user.uid); } catch(e){}
+
+    /* ═══════════════════════════════════════════════════════════════════
+       CARTEIRA G20 — CARGA NO LOGIN  (R51)
+
+       O PROBLEMA
+       A CG20 mora nos documentos do ADMIN. Cada aluno lê apenas os
+       próprios documentos, então nunca via a carteira educacional no
+       dashboard: os toggles CG20 da Composição, Agenda e Top Movers
+       apareciam vazios até ele visitar a página Carteira G20, que é quem
+       fazia essa leitura.
+
+       Como o aluno entra direto no dashboard, na prática ele encontrava
+       cards vazios sem entender por quê.
+
+       COMO RESOLVEMOS
+       O dashboard passa a ler os mesmos QUATRO documentos públicos que a
+       página Carteira G20 já lê — aportes, dividendos, splits e
+       carteiraMeta — e guarda em chaves PRÓPRIAS, com prefixo cg20.
+
+       Chave separada é essencial. Gravar em g20_aportes contaminaria os
+       números pessoais do aluno: foi exatamente o vazamento que corrigimos
+       hoje de manhã, quando Proventos do Mês, Aportes do Ano e Renda
+       Passiva apareciam preenchidos numa carteira vazia. A CG20 é material
+       didático e precisa viver em compartimento próprio.
+
+       O admin não passa por aqui: ele já recebe a CG20 nos próprios
+       documentos, pela carga normal logo acima.
+       ═══════════════════════════════════════════════════════════════════ */
+    (function carregarCG20(){
+      var CG20_UID = '8xrwHHEKAmd0Us5MCyBJhtkJVBM2';
+      if (user.uid === CG20_UID) return;      // admin já tem, nos próprios docs
+      try {
+        _fbDb.collection('users').doc(CG20_UID).collection('dados').get()
+          .then(function(snap){
+            var mapa = { aportes:'g20_cg20Aportes', dividendos:'g20_cg20Dividendos',
+                         splits:'g20_cg20Splits', carteiraMeta:'g20_cg20Meta' };
+            var n = 0;
+            snap.forEach(function(doc){
+              var destino = mapa[doc.id];
+              if (!destino) return;           // só os quatro públicos
+              try {
+                localStorage.setItem(destino, JSON.stringify(doc.data().value));
+                n++;
+              } catch(e){}
+            });
+            if (n) {
+              console.log('[G20] Carteira G20 carregada (' + n + ' documentos) — ' +
+                          'os toggles CG20 já funcionam sem visitar a página.');
+              // Redesenha o que depende dela.
+              try { if (typeof v21LoadCompChart === 'function') v21LoadCompChart(); } catch(e){}
+              try { if (typeof v21LoadAgenda === 'function') v21LoadAgenda(); } catch(e){}
+              try { if (typeof v21LoadMovers === 'function') v21LoadMovers(); } catch(e){}
+              try { if (typeof v21LoadProvChart === 'function') v21LoadProvChart(); } catch(e){}
+            }
+          })
+          .catch(function(e){
+            console.warn('[G20] não foi possível carregar a Carteira G20:', e && e.message);
+          });
+      } catch(e){}
+    })();
 
     // Polling: re-verifica aprova  o a cada 3s (resolve aprova  o ap s login)
     function verificarAcesso(tentativa) {
@@ -11414,7 +11516,8 @@ window.g20Logout = function() {
           if (_switched) {
             ['rvAportes','rendaFixa','patrimonioBens','patrimonioSnaps','splits','carteiraMeta',
              'dividendos','rvDividendos','lastRVTotal','patSnapshots','aportes','metaIF',
-             'precos','dashRVCot_cache','serieReal']
+             'precos','dashRVCot_cache','serieReal',
+             'cg20Aportes','cg20Dividendos','cg20Splits','cg20Meta']
               .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
             try { if (window.G20Rent) G20Rent.invalidar(); } catch(e){}
           }
@@ -14103,7 +14206,9 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     // Carteira G20 (educativa): g20_aportes
     if (src === 'cg20' || src === 'all') {
       try {
-        var apBR = JSON.parse(localStorage.getItem('g20_aportes')||'[]');
+        // R51: leitor único — pega da chave do aluno ou da do admin.
+        var apBR = (typeof g20CG20Aportes === 'function') ? g20CG20Aportes()
+                 : JSON.parse(localStorage.getItem('g20_aportes')||'[]');
         apBR.forEach(function(a){
           if (a.ticker !== ticker) return;
           var dataAporte = String(a.data||'').substring(0,10);
@@ -14335,8 +14440,26 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     try { snap = (window._patSnapLoad ? _patSnapLoad() : JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]')); } catch(e){}
     try { divs = (window._divsCarregar ? _divsCarregar() : JSON.parse(localStorage.getItem('g20_dividendos')||'[]')); } catch(e){}
     try { rvAp = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){}
-    try { apBR = JSON.parse(localStorage.getItem('g20_aportes')||'[]'); } catch(e){}
     try { precos = JSON.parse(localStorage.getItem('g20_precos')||'{}'); } catch(e){}
+
+    /* R51: no modo CG20, junta os proventos da Carteira G20 aos gerais.
+       Os do aluno vêm de g20_dividendos; os da CG20 chegam de
+       g20_cg20Dividendos, copiado dos documentos do admin no login. Sem
+       isso a Agenda ficava vazia até o aluno visitar a Carteira G20 —
+       exatamente o "Sem proventos futuros na fonte Carteira G20". */
+    try {
+      if ((V21 && V21.provSource) === 'cg20' && typeof g20CG20Dividendos === 'function') {
+        var _dCG = g20CG20Dividendos();
+        if (_dCG && _dCG.length) {
+          var _vistos = {};
+          divs.forEach(function(x){ _vistos[(x.ticker||'')+'|'+(x.data||'')] = 1; });
+          _dCG.forEach(function(x){
+            var k = (x.ticker||'')+'|'+(x.data||'');
+            if (!_vistos[k]) { divs.push(x); _vistos[k] = 1; }
+          });
+        }
+      }
+    } catch(e){}
 
     // PROVENTOS PESSOAIS: considera só proventos de ativos que o ALUNO tem na própria carteira
     // (rvAportes). Sem isso, proventos da Carteira G20 curada (compartilhada) apareciam como se
@@ -14699,7 +14822,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       try { snap = (window._patSnapLoad ? _patSnapLoad() : JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]')); } catch(e){}
       try { divs = (window._divsCarregar ? _divsCarregar() : JSON.parse(localStorage.getItem('g20_dividendos')||'[]')); } catch(e){}
       try { rvAp = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){}
-      try { apBR = JSON.parse(localStorage.getItem('g20_aportes')||'[]'); } catch(e){}
+      // R51: g20_aportes não é mais lido aqui — a CG20 tem chave própria
+      //      e os números pessoais não a incluem. Ver g20CG20Aportes().
       try { precos = JSON.parse(localStorage.getItem('g20_precos')||'{}'); } catch(e){}
 
       var hoje = new Date().toISOString().substring(0,10);
@@ -14980,8 +15104,25 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         if (!_venda) mesesAno[dataStr.substring(0,7)] = true;
       });
       if (aportesAno < 0) aportesAno = 0;
+      /* ═══════════════════════════════════════════════════════════════════
+         MÉDIA MENSAL — R51: dividir pelos meses DECORRIDOS, não pelos meses
+         em que houve aporte.
+
+         Estava total ÷ meses com aporte. Em julho, R$ 109.154 aportados em
+         3 meses davam "média R$ 36,4k/mês" — um número que descreve o
+         tamanho do aporte quando ele acontece, não o ritmo de quem investe.
+
+         Aporte é hábito. A média que importa é quanto entrou por mês ao
+         longo do ano, contando os meses parados: R$ 109.154 ÷ 7 = R$ 15,6k.
+         Esse número sobe quando o aluno aporta e desce quando ele para —
+         que é exatamente o comportamento que ensina.
+
+         O rodapé mostra os dois fatos: em quantos meses ele aportou, de
+         quantos já se passaram. "3 de 7 meses" conta a história inteira.
+         ═══════════════════════════════════════════════════════════════════ */
       var qtdMesesAno = Object.keys(mesesAno).length;
-      var mediaMes = qtdMesesAno > 0 ? aportesAno / qtdMesesAno : 0;
+      var _mesesDecorridos = new Date().getMonth() + 1;   // julho = 7
+      var mediaMes = aportesAno / _mesesDecorridos;
 
       var kpi4Val = document.getElementById('v21Kpi4Val');
       var kpi4Sub = document.getElementById('v21Kpi4Sub');
@@ -14994,7 +15135,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
           var mediaFmt = mediaMes >= 1000
             ? 'R$ ' + (mediaMes/1000).toFixed(1).replace('.', ',') + 'k'
             : 'R$ ' + Math.round(mediaMes);
-          kpi4Sub.innerHTML = '<span class="v21-kpi-sub-strong">' + qtdMesesAno + '</span> ' + (qtdMesesAno > 1 ? 'meses' : 'mês') + ' • média <span class="v21-kpi-sub-strong">' + mediaFmt + '/mês</span>';
+          kpi4Sub.innerHTML = '<span class="v21-kpi-sub-strong">' + qtdMesesAno + '</span> de ' +
+                              '<span class="v21-kpi-sub-strong">' + _mesesDecorridos + '</span> ' +
+                              (_mesesDecorridos > 1 ? 'meses' : 'mês') +
+                              ' • média <span class="v21-kpi-sub-strong">' + mediaFmt + '/mês</span>';
         } else {
           kpi4Sub.textContent = 'Nenhum aporte este ano';
         }
@@ -16152,7 +16296,12 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var aportes = [];
       var _modoCG20 = (V21C.compSource === 'cg20');
       try {
-        aportes = JSON.parse(localStorage.getItem(_modoCG20 ? 'g20_aportes' : 'g20_rvAportes') || '[]');
+        // R51: no modo CG20 usa o leitor único, que funciona para o aluno
+        // (chave g20_cg20Aportes, copiada no login) e para o admin.
+        aportes = _modoCG20
+          ? ((typeof g20CG20Aportes === 'function') ? g20CG20Aportes()
+             : JSON.parse(localStorage.getItem('g20_aportes')||'[]'))
+          : JSON.parse(localStorage.getItem('g20_rvAportes') || '[]');
       } catch(e){}
 
       /* ═══════════════════════════════════════════════════════════════════
@@ -16396,7 +16545,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       var precos = {};
       try { divs = (window._divsCarregar ? _divsCarregar() : JSON.parse(localStorage.getItem('g20_dividendos')||'[]')); } catch(e){}
       try { rvAp = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){}
-      try { apBR = JSON.parse(localStorage.getItem('g20_aportes')||'[]'); } catch(e){}
+      // R51: g20_aportes não é mais lido aqui — a CG20 tem chave própria
+      //      e os números pessoais não a incluem. Ver g20CG20Aportes().
       try { precos = JSON.parse(localStorage.getItem('g20_precos')||'{}'); } catch(e){}
 
       // Cotação USD→BRL — R51: g20UsdBRL() varre g20_precos, o cache da
@@ -17221,7 +17371,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         // Calcula posições abertas da CG20
         var posCG = {};
         try {
-          var apCG = JSON.parse(localStorage.getItem('g20_aportes') || '[]');
+          // R51: leitor único — funciona para o aluno (chave copiada no
+          // login) e para o admin (documentos próprios).
+          var apCG = (typeof g20CG20Aportes === 'function') ? g20CG20Aportes()
+                   : JSON.parse(localStorage.getItem('g20_aportes') || '[]');
           if (!Array.isArray(apCG)) apCG = [];
           apCG.sort(function(a,b){ return (a.data||'').localeCompare(b.data||''); }).forEach(function(a){
             if (!a || !a.ticker) return;
@@ -18512,8 +18665,14 @@ html body .topbar {
     {
       el: '.nav-section--conteudo', pos: 'right', skipMobile: true,
       titulo: 'Todo o conteúdo',
-      texto: '<b>Sala de Aula</b> com seu progresso salvo, <b>G20Flix</b> (lives e extras), ' +
-             '<b>G20Cast</b> (podcast diário), <b>Carteira G20</b> (a carteira que construo ao vivo) e o <b>Game G20</b>.'
+      texto: 'Comece pela <b>Sala de Aula</b> — é o curso em si, módulo a módulo, ' +
+             'com o seu progresso salvo de onde você parar. O resto acompanha: ' +
+             '<b>G20Flix</b> traz as lives e os extras em vídeo; ' +
+             '<b>G20Cast</b> é o podcast diário, e o <b>G20Cast Premium</b> vai mais fundo, ' +
+             'só para quem está aqui dentro; a <b>Carteira G20</b> é a carteira que eu construo ' +
+             'ao vivo, com cada aporte explicado; a <b>Biblioteca G20</b> reúne os livros que ' +
+             'formaram a minha cabeça de investidor, com o seu progresso de leitura; ' +
+             'e o <b>Game G20</b> transforma a disciplina em conquistas.'
     },
     {
       el: '#tut-gestao', pos: 'right', skipMobile: true,
