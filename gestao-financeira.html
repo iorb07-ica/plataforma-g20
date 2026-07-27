@@ -1316,6 +1316,16 @@ body.dark-mode .month-button.selected {
 /* ============================================================
    KPI CARDS — REDESIGN IMPACTANTE
    ============================================================ */
+.gf-warning {
+    display: flex; align-items: flex-start; gap: 10px;
+    margin: 0 0 16px 0; padding: 12px 14px;
+    background: rgba(232,184,75,.10);
+    border: 1px solid rgba(232,184,75,.35);
+    border-radius: 10px;
+    font-size: 12.5px; line-height: 1.5; color: #8a6d1f;
+}
+.gf-warning b { font-weight: 700; }
+.gf-warning-ico { font-size: 15px; line-height: 1.2; flex-shrink: 0; }
 .kpi-row {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -3563,6 +3573,25 @@ body.didactic-on .didactic-note{ display:block; }
                 </div>
             </header>
 
+            <!-- Avisos de sincronização — só aparecem quando há algo errado. -->
+            <div id="sync-warning" class="gf-warning" style="display:none">
+                <span class="gf-warning-ico">⚠️</span>
+                <div>
+                    <b>Salvo só neste aparelho.</b>
+                    Não consegui gravar na nuvem — seus lançamentos estão seguros aqui e
+                    sobem sozinhos assim que a conexão voltar. Evite lançar de outro
+                    dispositivo até isso sincronizar.
+                </div>
+            </div>
+            <div id="size-warning" class="gf-warning" style="display:none">
+                <span class="gf-warning-ico">📦</span>
+                <div>
+                    <b>Seu histórico está ficando grande.</b>
+                    Considere arquivar os anos mais antigos para não atingir o limite
+                    de armazenamento por perfil.
+                </div>
+            </div>
+
             <div class="kpi-row">
                 <div class="card balance" id="kpi-balance-card">
                     <h3>
@@ -4081,7 +4110,11 @@ body.didactic-on .didactic-note{ display:block; }
         // Prefixo para as chaves no localStorage: `g20_data_${email}_${profileName}`
         function getStorageKey() {
             if (!currentUserUid) return null;
-            const safeProfile = activeProfileName.replace(/[^a-zA-Z0-9_-]/g, '');
+            /* Mesma sanitização usada no docId do Firestore ('_', não '').
+               Estavam divergentes: "Minha Empresa" virava `MinhaEmpresa` aqui
+               e `financeiro_Minha_Empresa` lá. Não quebrava nada porque cada
+               lado era consistente consigo mesmo, mas era uma armadilha. */
+            const safeProfile = activeProfileName.replace(/[^a-zA-Z0-9_-]/g, '_');
             return `g20_fin_${currentUserUid}_${safeProfile}`;
         }
 
@@ -4341,6 +4374,7 @@ body.didactic-on .didactic-note{ display:block; }
         }
 
         function loadProfileData() {
+            _edicaoLocal = false;   // nova carga: o que houver na memória é do perfil anterior
             const key = getStorageKey();
             const rawData = localStorage.getItem(key);
 
@@ -4361,6 +4395,25 @@ body.didactic-on .didactic-note{ display:block; }
                 const _finish = () => { ensureDataStructure(); renderAll(); init(); };
                 // 1) tenta o path NOVO (uid) — única fonte da verdade
                 window._fbLoad(['users', currentUserUid, 'dados', docId]).then(docSnap => {
+                    /* ═══════════════════════════════════════════════════════
+                       A NUVEM NÃO ATROPELA O QUE ACABOU DE SER DIGITADO
+
+                       Este .then() chega DEPOIS de a tela já estar usável
+                       (logo abaixo, `data` recebe o localStorage pra UX
+                       imediata). Se o aluno lançou algo nesse intervalo —
+                       coisa de segundos no wifi, bem mais no 4G — a versão
+                       da nuvem sobrescrevia `data` e o lançamento sumia,
+                       sem erro nenhum na tela.
+
+                       `_edicaoLocal` marca que houve escrita depois do boot.
+                       Havendo, o que está na memória é mais novo que o que
+                       veio do servidor: mantemos o local e reenviamos. */
+                    if (_edicaoLocal) {
+                        console.warn('[GF] resposta da nuvem ignorada — houve lançamento local durante a carga. Reenviando.');
+                        saveData();
+                        _finish();
+                        return;
+                    }
                     if (docSnap.exists && docSnap.data() && docSnap.data().data) {
                         data = JSON.parse(docSnap.data().data);
                         if (key) localStorage.setItem(key, JSON.stringify(data));
@@ -4414,21 +4467,74 @@ body.didactic-on .didactic-note{ display:block; }
             if (!data.budgets)        data.budgets = {};
         }
 
-                function saveData() {
-            const key = getStorageKey();
-            // Cache local imediato
-            if (key) localStorage.setItem(key, JSON.stringify(data));
-            // Persistência na nuvem — PADRÃO PLATAFORMA: users/{uid}/dados/financeiro_{perfil}
-            if (window._fbSave && currentUserUid) {
-                const safeProfile = (activeProfileName || 'Pessoal').replace(/[^a-zA-Z0-9_-]/g, '_');
-                const docId = 'financeiro_' + safeProfile;
-                window._fbSave(
-                    ['users', currentUserUid, 'dados', docId],
-                    { data: JSON.stringify(data), email: currentUserEmail || '',
-                      perfil: activeProfileName, atualizado: new Date().toISOString() }
-                ).catch(e => console.warn('Firestore save error:', e));
+        /* ═══════════════════════════════════════════════════════════════
+           SALVAR — e admitir quando não salvou
+
+           A versão anterior engolia o erro num console.warn. O aluno
+           lançava o mês inteiro com sinal ruim, via o feedback verde de
+           sucesso, e o dado existia só no localStorage daquele aparelho.
+           Ele só descobria meses depois, trocando de celular.
+
+           Agora a falha vira um aviso visível e persistente. Não é
+           alarme: o dado ESTÁ salvo localmente e volta a sincronizar
+           sozinho. O aviso só impede que ele confie numa gravação que
+           não aconteceu.
+
+           `_syncPendente` guarda que existe algo por subir; `tentarSincronizar()`
+           reenvia quando a conexão volta. */
+        let _syncPendente = false;
+        /* Vira true no primeiro saveData() após o boot — ver loadProfileData(). */
+        let _edicaoLocal = false;
+
+        function _marcarSync(ok, erro) {
+            const el = document.getElementById('sync-warning');
+            if (!el) return;
+            if (ok) {
+                _syncPendente = false;
+                el.style.display = 'none';
+                return;
             }
+            _syncPendente = true;
+            el.style.display = 'flex';
+            el.title = erro ? String(erro.message || erro) : '';
         }
+
+        function saveData() {
+            _edicaoLocal = true;
+            const key = getStorageKey();
+            // Cache local imediato — nunca perde o lançamento, mesmo offline.
+            if (key) localStorage.setItem(key, JSON.stringify(data));
+
+            // Persistência na nuvem — PADRÃO PLATAFORMA: users/{uid}/dados/financeiro_{perfil}
+            if (!window._fbSave || !currentUserUid) { _marcarSync(false, 'sem sessão'); return Promise.resolve(false); }
+
+            const safeProfile = (activeProfileName || 'Pessoal').replace(/[^a-zA-Z0-9_-]/g, '_');
+            const docId = 'financeiro_' + safeProfile;
+            const payload = JSON.stringify(data);
+
+            /* Documento do Firestore tem teto de 1 MiB e tudo vai num campo só.
+               Avisa ANTES de estourar, enquanto ainda dá pra arquivar ano antigo. */
+            if (payload.length > 850000) {
+                console.warn('[GF] documento em ' + Math.round(payload.length/1024) + ' KB — perto do limite de 1 MB do Firestore.');
+                const av = document.getElementById('size-warning');
+                if (av) av.style.display = 'flex';
+            }
+
+            return window._fbSave(
+                ['users', currentUserUid, 'dados', docId],
+                { data: payload, email: currentUserEmail || '',
+                  perfil: activeProfileName, atualizado: new Date().toISOString() }
+            ).then(() => { _marcarSync(true); return true; })
+             .catch(e => { console.warn('Firestore save error:', e); _marcarSync(false, e); return false; });
+        }
+
+        /* Reenvia o que ficou pendente quando a conexão volta. */
+        function tentarSincronizar() {
+            if (!_syncPendente) return;
+            saveData();
+        }
+        window.addEventListener('online', tentarSincronizar);
+        setInterval(tentarSincronizar, 60000);
 
         // --- MANIPULAÇÃO DA UI DE PERFIS ---
         function toggleProfileDropdown(e) {
