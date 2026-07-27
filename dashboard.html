@@ -9003,6 +9003,35 @@ function _buscarCotacoesEAtualizarRV(){
         };
       });
       localStorage.setItem('g20_precos', JSON.stringify(precosAtuais));
+
+      /* ═══════════════════════════════════════════════════════════════════
+         AS COTAÇÕES CHEGARAM — AVISE QUEM PRECISA  (R51)
+
+         Este ponto é o instante em que os preços de agora ficam disponíveis.
+         Antes dele, quem calcula patrimônio não tem o que calcular.
+
+         E o loadPatStrip roda no boot, ANTES daqui. Sem cotação, ele gravava
+         o snapshot de hoje sem o campo rvVivo — e ninguém o chamava de novo.
+         O card ficava preso no último fechamento o dia inteiro, com o rótulo
+         "em 27/07" em vez de "hoje", mesmo com a B3 aberta e todas as 17
+         cotações no navegador.
+
+         O diagnóstico mostrou os dois lados ao mesmo tempo:
+             G20DiagRV  -> TOTAL a mercado R$ 563.918  (existia)
+             G20DiagRF  -> temRvVivo '—'               (não chegou ao card)
+
+         Recalcular aqui fecha essa distância.
+         ═══════════════════════════════════════════════════════════════════ */
+      try {
+        if (typeof loadPatStrip === 'function') {
+          setTimeout(function(){
+            try { loadPatStrip(); } catch(e){}
+            try { if (typeof v21LoadGP === 'function') v21LoadGP(); } catch(e){}
+            try { if (typeof v21LoadCompChart === 'function') v21LoadCompChart(); } catch(e){}
+          }, 0);
+        }
+      } catch(e){}
+
       // Salva _dashRVCot com data de hoje — outras páginas usam para notificações de queda/destaques
       try{
         localStorage.setItem('g20_dashRVCot_cache', JSON.stringify({
