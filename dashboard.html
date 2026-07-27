@@ -85,10 +85,49 @@ function _divsSalvar(lista){
 function _divsCarregar(){
   var doLS = [];
   try { doLS = JSON.parse(localStorage.getItem('g20_dividendos')||'[]'); } catch(e){}
-  if (doLS && doLS.length) return doLS;
-  // Caiu na memória? usa ela.
-  if (window._g20DivsMem && window._g20DivsMem.length) return window._g20DivsMem;
-  return doLS || [];
+  if (!doLS || !doLS.length) {
+    // Caiu na memória? usa ela.
+    if (window._g20DivsMem && window._g20DivsMem.length) doLS = window._g20DivsMem;
+    else doLS = doLS || [];
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     PROVENTOS DA CARTEIRA G20 — R51
+
+     O aluno recebe os proventos da CG20 em g20_cg20Dividendos, copiado dos
+     documentos do admin no login. Mas a lista central lia só g20_dividendos,
+     que na conta dele traz apenas os ativos que ELE tem — nenhum, se a
+     carteira está vazia. Resultado: a Agenda no modo Carteira G20 dizia
+     "Nenhum provento encontrado" mesmo com o dado no navegador.
+
+     Juntar aqui resolve para todos os cards de uma vez, em vez de cada um
+     lembrar de fazer o merge. Quem filtra por carteira é
+     getQtdCarteiraNaData(), que já sabe separar CG20 de pessoal — então
+     misturar as origens aqui não contamina os números pessoais.
+
+     A chave é ticker + data: um provento que exista nas duas listas entra
+     uma vez só.
+     ═══════════════════════════════════════════════════════════════════════ */
+  try {
+    var cg = JSON.parse(localStorage.getItem('g20_cg20Dividendos') || '[]');
+    if (Array.isArray(cg) && cg.length) {
+      var vistos = {};
+      doLS.forEach(function(x){ vistos[(x.ticker||'') + '|' + String(x.data||'').substring(0,10)] = 1; });
+      var juntos = doLS.slice();
+      cg.forEach(function(x){
+        var k = (x.ticker||'') + '|' + String(x.data||'').substring(0,10);
+        if (!vistos[k]) { juntos.push(x); vistos[k] = 1; }
+      });
+      if (juntos.length !== doLS.length && !window._g20AvisouMergeCG20) {
+        window._g20AvisouMergeCG20 = true;
+        console.log('[proventos] +' + (juntos.length - doLS.length) +
+                    ' da Carteira G20 somados à lista (total ' + juntos.length + ').');
+      }
+      return juntos;
+    }
+  } catch(e){}
+
+  return doLS;
 }
 window._divsCarregar = _divsCarregar;
 
@@ -6476,33 +6515,63 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
 </style>
 </head>
 <body>
-<!-- ISOLAMENTO NO BOOT: limpa o cache patrimonial SÓ quando ele pertence a OUTRA conta
-     (troca de usuário no mesmo navegador). Para o mesmo usuário, mantém o cache pra tudo
-     renderizar na hora. O login.html já limpa tudo no login (isolamento primário); isto aqui
-     é a rede de segurança pra quem chega ao dashboard sem passar pelo login.
+<!-- ═══════════════════════════════════════════════════════════════════════
+     ISOLAMENTO NO BOOT — a primeira barreira
 
-     SESSÃO 51.0: passa a limpar o IndexedDB também. A série histórica (g20_serieReal)
-     mora lá desde a migração, e removeItem() do localStorage não a alcançava — ela
-     atravessava a troca de conta e vazava o patrimônio do dono anterior. -->
+     Limpa o cache patrimonial quando ele NÃO pertence, com certeza, a quem
+     está abrindo a página agora.
+
+     R51 — A BRECHA QUE DEIXAVA VAZAR NA TROCA DE CONTA
+     A condição era `if (_owner && _uid && _owner !== _uid)`. Ela exigia que
+     g20_uid existisse. Mas o LOGOUT APAGA g20_uid — é a primeira coisa que
+     ele faz. Então, saindo de uma conta e entrando em outra na mesma aba:
+
+         g20_uid          = null      (apagado no logout)
+         g20_dados_owner  = Israel    (sobreviveu)
+         condição         = FALSA     -> não limpava nada
+
+     E o dashboard renderiza a partir do localStorage em ~26ms, muito antes
+     de o Firebase confirmar quem entrou (~500ms). Nessa janela, a conta nova
+     exibia a carteira da anterior. Foi o que apareceu ao sair do iorb07 e
+     entrar como Antonio.
+
+     A REGRA AGORA É OUTRA: só mantém o cache quando dá para PROVAR que ele é
+     de quem está entrando — g20_uid presente E igual ao dono registrado. Em
+     qualquer outra situação (uid ausente, uid diferente, dono ausente), limpa.
+
+     O custo de limpar à toa é uma reconstrução de ~30 segundos. O custo de
+     não limpar é mostrar o patrimônio de outra pessoa.
+     ═══════════════════════════════════════════════════════════════════════ -->
 <script>
 (function(){
   try {
     var _uid = localStorage.getItem('g20_uid');
     var _owner = localStorage.getItem('g20_dados_owner');
-    if (_owner && _uid && _owner !== _uid) {
+
+    // Só é seguro manter quando os dois existem E são o mesmo.
+    var _mesmoDono = !!(_uid && _owner && _owner === _uid);
+    // Navegador sem nada gravado: não há o que proteger.
+    var _semCache = !_owner;
+
+    if (!_mesmoDono && !_semCache) {
       ['rvAportes','aportes','rendaFixa','patrimonioBens','patrimonioSnaps','dividendos',
        'rvDividendos','patSnapshots','lastRVTotal','carteiraMeta','splits','rvColsVis',
-       'metaIF','precos','dashRVCot_cache','serieReal',
-         'cg20Aportes','cg20Dividendos','cg20Splits','cg20Meta']
+       'metaIF','precos','dashRVCot_cache','serieReal','cotacoesCache',
+       'cg20Aportes','cg20Dividendos','cg20Splits','cg20Meta',
+       'splits_cache','bonificacoes_cache','ultCot']
         .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
       try {
         Object.keys(localStorage).forEach(function(k){
-          if (k.indexOf('g20_histpx_') === 0) localStorage.removeItem(k);
+          if (k.indexOf('g20_histpx_') === 0 || k.indexOf('g20_backup_') === 0) {
+            localStorage.removeItem(k);
+          }
         });
       } catch(e){}
-      // IndexedDB: onde os dados pesados realmente moram desde a R51.
-      // localStorage.removeItem não os alcança — foi assim que a série
-      // atravessou a troca de conta e vazou o patrimônio do dono anterior.
+      // O dono sai junto: sem ele, a próxima carga também não confia em nada.
+      try { localStorage.removeItem('g20_dados_owner'); } catch(e){}
+
+      // IndexedDB: onde os dados pesados moram desde a R51.
+      // localStorage.removeItem não os alcança.
       try {
         if (window.G20Store) {
           G20Store.del('g20_serieReal');
@@ -6514,7 +6583,15 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
           }
         }
       } catch(e){}
-      console.log('[G20] cache da conta anterior descartado (localStorage + IndexedDB).');
+      try { window._g20HistMem = {}; } catch(e){}
+
+      /* Trava para o resto da página: nenhum card calcula patrimônio até o
+         Firebase confirmar quem entrou. Sem isto, a renderização (~26ms)
+         corre na frente da confirmação de identidade (~500ms). */
+      try { window._g20DadosProntos = false; } catch(e){}
+
+      console.warn('[G20] cache de outra conta (ou de origem incerta) descartado. ' +
+                   'Os dados serão recarregados após a confirmação do login.');
     }
   } catch(e){}
 })();
@@ -9409,6 +9486,8 @@ if(document.readyState === 'loading'){
 
 // -- PAINEL PATRIMONIAL (l- do localStorage) --------------------
 function loadPatStrip(){
+  /* R51: idem — nada de patrimônio antes de saber de quem é. */
+  if (window._g20DadosProntos === false) return;
   var fmtBRL=function(v){return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});};
   try{
     // RF
@@ -9525,6 +9604,8 @@ function loadPatStrip(){
     _patRenderAllSparks();
   }catch(e){}
 }
+/* R51: exposto para o redesenho pós-confirmação de identidade. */
+window.loadPatStrip = loadPatStrip;
 
 // //  HISTRICO PATRIMONIAL + SPARKLINE + CDI
 /* ===== MOTOR DE RENTABILIDADE REAL (embutido) ===== */
@@ -10332,6 +10413,44 @@ function loadPatStrip(){
        ═══════════════════════════════════════════════════════════════════ */
     definirDono: function (uid) {
       API._uidDono = uid || null;
+
+      /* ═══════════════════════════════════════════════════════════════════
+         CARTEIRA VAZIA NÃO TEM SÉRIE — R51
+
+         O carimbo de dono resolve o vazamento entre CONTAS diferentes. Falta
+         uma trava para o caso do mesmo navegador: se a carteira pessoal está
+         vazia, não existe série possível, e qualquer série em memória é
+         resíduo — de um cálculo anterior, de outra fonte, do que for.
+
+         O sintoma apareceu na conta de teste: aluno sem nenhum aporte, com
+         "Minha Carteira: aguardando dados…", e ao mesmo tempo Rentabilidade
+         +36,37% e Alpha +28,52 pp, com um degrau no gráfico em 26/Mar.
+         Números de uma carteira que não é dele, num painel que deveria
+         estar zerado.
+
+         Zero aportes, zero renda fixa, zero bens = sem série. Ponto.
+         ═══════════════════════════════════════════════════════════════════ */
+      var _vazia = false;
+      try {
+        var _rv = JSON.parse(localStorage.getItem('g20_rvAportes')   || '[]');
+        var _rf = JSON.parse(localStorage.getItem('g20_rendaFixa')   || '[]');
+        var _bn = JSON.parse(localStorage.getItem('g20_patrimonioBens') || '[]');
+        _vazia = ((_rv.length || 0) + (_rf.length || 0) + (_bn.length || 0)) === 0;
+      } catch(e){}
+
+      if (_vazia) {
+        if (API._serieMem || API._serieQuarentena) {
+          console.warn('[G20Rent] carteira pessoal vazia — série descartada ' +
+                       '(era resíduo, não pertence a esta carteira).');
+        }
+        API._serieMem = null;
+        API._serieUid = null;
+        API._serieQuarentena = null;
+        try { window._g20HistPronto = false; } catch(e){}
+        try { localStorage.removeItem(SERIE_KEY); } catch(e){}
+        try { if (window.G20Store) G20Store.del(SERIE_KEY); } catch(e){}
+        return API._uidDono;
+      }
 
       // 1) Série já em memória de outro dono? Fora.
       if (API._serieMem && API._serieUid !== API._uidDono) {
@@ -11358,14 +11477,59 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
 // //  Firebase Auth
 var _fbAuth, _fbDb;
 
-// Logout   definido globalmente antes de tudo
+// Logout — definido globalmente antes de tudo
 window.g20Logout = function() {
+  /* ═══════════════════════════════════════════════════════════════════════
+     LIMPAR AO SAIR — R51
+
+     Este logout apenas deslogava do Firebase e navegava. Todo o cache
+     patrimonial ficava no navegador esperando o próximo usuário, e a
+     barreira de boot tinha que adivinhar de quem era. Adivinhar deu errado:
+     o Antonio abriu com a carteira do Israel na tela.
+
+     Limpar aqui é a defesa mais simples e a mais segura. Quem sai leva os
+     próprios dados junto; quem entra encontra o navegador limpo. A barreira
+     de boot continua existindo — para quem fecha a aba sem deslogar —, mas
+     deixa de ser a única linha.
+     ═══════════════════════════════════════════════════════════════════════ */
+  try {
+    ['uid','dados_owner','rvAportes','aportes','rendaFixa','patrimonioBens',
+     'patrimonioSnaps','dividendos','rvDividendos','patSnapshots','lastRVTotal',
+     'carteiraMeta','splits','rvColsVis','metaIF','precos','dashRVCot_cache',
+     'serieReal','cotacoesCache','cg20Aportes','cg20Dividendos','cg20Splits',
+     'cg20Meta','splits_cache','bonificacoes_cache','ultCot','user_profile',
+     'perfil_ok','user_tipo','admin']
+      .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
+    Object.keys(localStorage).forEach(function(k){
+      if (k.indexOf('g20_histpx_') === 0 || k.indexOf('g20_backup_') === 0 ||
+          k.indexOf('g20_fin_')    === 0) {
+        localStorage.removeItem(k);
+      }
+    });
+  } catch(e){}
+  try { sessionStorage.removeItem('g20_tourDemo'); } catch(e){}
+  try {
+    if (window.G20Store) {
+      G20Store.del('g20_serieReal');
+      G20Store.del('g20_patSnapshots');
+      if (G20Store.list) {
+        G20Store.list('g20_histpx_').then(function(r){
+          ((r && r.keys) || []).forEach(function(k){ G20Store.del(k); });
+        }).catch(function(){});
+        G20Store.list('g20_backup_').then(function(r){
+          ((r && r.keys) || []).forEach(function(k){ G20Store.del(k); });
+        }).catch(function(){});
+      }
+    }
+  } catch(e){}
+
   if (_fbAuth) {
+    // Pequena folga para o IndexedDB concluir antes da navegação.
     _fbAuth.signOut().then(function(){
-      window.location.href = 'login.html';
+      setTimeout(function(){ window.location.href = 'login.html'; }, 150);
     }).catch(function(){ window.location.href = 'login.html'; });
   } else {
-    window.location.href = 'login.html';
+    setTimeout(function(){ window.location.href = 'login.html'; }, 150);
   }
 };
 
@@ -11438,15 +11602,31 @@ window.g20Logout = function() {
         console.log('[G20Rent] snapshots de versão antiga descartados — série será reconstruída');
       }
     } catch(e){}
-    // Rede de segurança: se o Firestore falhar ou demorar demais, libera os painéis com o que
-    // houver em cache depois de 8s — melhor mostrar algo do que deixar tudo vazio.
+    /* Rede de segurança: se o Firestore demorar, libera os painéis com o que
+       houver em cache — melhor mostrar algo do que deixar tudo vazio.
+
+       R51: SÓ libera se o dono do cache for confirmadamente quem está logado.
+       Antes ela liberava incondicionalmente depois de 8s, o que anulava a
+       proteção contra troca de conta: bastava o Firestore atrasar e a
+       carteira da conta anterior aparecia. Sem confirmação, seguimos
+       esperando — vazio é melhor que errado. */
     setTimeout(function(){
-      if (window._g20DadosProntos === false) {
-        window._g20DadosProntos = true;
-        ['v21LoadRent','v21LoadRentChart','v21LoadBench','v21LoadKpis'].forEach(function(fn){
+      if (window._g20DadosProntos !== false) return;
+      var _donoOk = false;
+      try {
+        var _o = localStorage.getItem('g20_dados_owner');
+        _donoOk = !!(_o && user && _o === user.uid);
+      } catch(e){}
+      if (!_donoOk) {
+        console.warn('[G20] cache não confirmado como desta conta — painéis seguem aguardando.');
+        return;
+      }
+      window._g20DadosProntos = true;
+      ['loadPatStrip','v21LoadGP','v21LoadRent','v21LoadRentChart','v21LoadBench',
+       'v21LoadKpis','v21LoadCompChart','v21LoadProvChart','v21LoadAgenda']
+        .forEach(function(fn){
           try { if (typeof window[fn] === 'function') window[fn](); } catch(e){}
         });
-      }
     }, 8000);
 
     // ISOLAMENTO POR USUÁRIO: se o dono dos dados em cache mudou (outra conta logou antes
@@ -11735,8 +11915,19 @@ window.g20Logout = function() {
             }
           } catch(e){ try { localStorage.removeItem('g20_aportes'); } catch(e2){} }
           try { localStorage.setItem('g20_dados_owner', user.uid); } catch(e){}
-          // Snapshots reais do usuário já estão no localStorage: libera os painéis.
+          // Dados do usuário confirmado já estão no localStorage: libera os painéis.
           window._g20DadosProntos = true;
+
+          /* R51: redesenha TUDO agora. Os cards que foram bloqueados no boot
+             pela trava de identidade ficariam vazios para sempre se ninguém
+             os chamasse de novo — a maioria só roda uma vez, no v21Init. */
+          try {
+            ['loadPatStrip','v21LoadGP','v21LoadRent','v21LoadRentChart','v21LoadBench',
+             'v21LoadKpis','v21LoadCompChart','v21LoadProvChart','v21LoadAgenda','v21LoadMovers']
+              .forEach(function(fn){
+                try { if (typeof window[fn] === 'function') window[fn](); } catch(e){}
+              });
+          } catch(e){}
 
           // ── RECONSTRÓI O HISTÓRICO REAL a partir dos lançamentos ──────────────
           // Junta a carteira pessoal (rvAportes) e, para o admin, a Carteira G20
@@ -12866,6 +13057,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   };
 
   function v21LoadGP() {
+    /* R51: sem confirmação de identidade, não pinta patrimônio.
+       É o card mais sensível — foi ele que exibiu a carteira do Israel
+       na conta do Antonio. */
+    if (window._g20DadosProntos === false) return;
     try {
       var snap = [];
       try { snap = (window._patSnapLoad ? _patSnapLoad() : JSON.parse(localStorage.getItem('g20_patSnapshots') || '[]')); } catch(e){}
@@ -14422,6 +14617,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   }
 
   function v21LoadAgenda() {
+    /* R51: não calcula patrimônio antes de o Firebase confirmar quem entrou.
+       Sem esta linha, a renderização (~26ms) corre na frente da confirmação
+       de identidade (~500ms) e a conta nova exibe a carteira da anterior. */
+    if (window._g20DadosProntos === false) return;
     try {
       var list = getEl('v21-agenda-list');
       if (!list) return;
@@ -14642,24 +14841,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     try { rvAp = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){}
     try { precos = JSON.parse(localStorage.getItem('g20_precos')||'{}'); } catch(e){}
 
-    /* R51: no modo CG20, junta os proventos da Carteira G20 aos gerais.
-       Os do aluno vêm de g20_dividendos; os da CG20 chegam de
-       g20_cg20Dividendos, copiado dos documentos do admin no login. Sem
-       isso a Agenda ficava vazia até o aluno visitar a Carteira G20 —
-       exatamente o "Sem proventos futuros na fonte Carteira G20". */
-    try {
-      if ((V21 && V21.provSource) === 'cg20' && typeof g20CG20Dividendos === 'function') {
-        var _dCG = g20CG20Dividendos();
-        if (_dCG && _dCG.length) {
-          var _vistos = {};
-          divs.forEach(function(x){ _vistos[(x.ticker||'')+'|'+(x.data||'')] = 1; });
-          _dCG.forEach(function(x){
-            var k = (x.ticker||'')+'|'+(x.data||'');
-            if (!_vistos[k]) { divs.push(x); _vistos[k] = 1; }
-          });
-        }
-      }
-    } catch(e){}
+    /* R51: o merge dos proventos da Carteira G20 agora acontece dentro de
+       _divsCarregar(), para todos os cards de uma vez. Ver o comentário lá. */
 
     // PROVENTOS PESSOAIS: considera só proventos de ativos que o ALUNO tem na própria carteira
     // (rvAportes). Sem isso, proventos da Carteira G20 curada (compartilhada) apareciam como se
@@ -16489,6 +16672,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   // CHART 2: COMPOSIÇÃO (donut por classes)
   // ─────────────────────────────────────────────────────
   function v21LoadCompChart() {
+    /* R51: não calcula patrimônio antes de o Firebase confirmar quem entrou.
+       Sem esta linha, a renderização (~26ms) corre na frente da confirmação
+       de identidade (~500ms) e a conta nova exibe a carteira da anterior. */
+    if (window._g20DadosProntos === false) return;
     try {
       if (typeof Chart === 'undefined') return;
 
@@ -16739,6 +16926,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
   // CHART 3: PROVENTOS 12 MESES (barras + média móvel)
   // ─────────────────────────────────────────────────────
   function v21LoadProvChart() {
+    /* R51: não calcula patrimônio antes de o Firebase confirmar quem entrou.
+       Sem esta linha, a renderização (~26ms) corre na frente da confirmação
+       de identidade (~500ms) e a conta nova exibe a carteira da anterior. */
+    if (window._g20DadosProntos === false) return;
     try {
       if (typeof Chart === 'undefined') return;
       var divs = [];
