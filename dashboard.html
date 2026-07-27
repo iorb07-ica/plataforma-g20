@@ -4131,6 +4131,79 @@ body.pat-hidden .v21-change-extra::after{
     font-weight: 500;
     margin-left: 4px;
   }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     PÍLULA DE COTAÇÕES + TOOLTIP
+
+     Dourada e visivelmente mais apagada que as verdes de mercado: ela
+     participa do grupo sem disputar atenção. O ponto pulsa devagar (2,6s
+     contra 1,8s das outras) porque descreve algo que muda a cada 15
+     minutos, não a cada segundo.
+     ═══════════════════════════════════════════════════════════════════════ */
+  .v21-pill-cot {
+    background: rgba(201,169,97,0.07) !important;
+    border-color: rgba(201,169,97,0.20) !important;
+    color: #c9a961 !important;
+    position: relative;
+    cursor: default;
+  }
+  .v21-pill-cot .dot {
+    background: #c9a961 !important;
+    box-shadow: 0 0 6px rgba(201,169,97,0.6) !important;
+    animation: v21-cot-pulse 2.6s ease-in-out infinite;
+  }
+  @keyframes v21-cot-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.35; }
+  }
+  /* Aba em segundo plano: nada é atualizado, o ponto para de pulsar. */
+  .v21-pill-cot.pausada .dot { animation: none; opacity: .45; }
+  .v21-pill-cot.pausada { opacity: .6; }
+
+  /* Tooltip: aparece abaixo e alinhado à direita, para não sair da tela
+     quando a pílula está no canto. */
+  .v21-cot-tip {
+    position: absolute;
+    top: calc(100% + 9px);
+    right: 0;
+    background: #12151c;
+    border: 1px solid rgba(201,169,97,0.28);
+    border-radius: 9px;
+    padding: 9px 13px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 11.5px;
+    font-weight: 400;
+    letter-spacing: 0;
+    line-height: 1.5;
+    color: #c3cbd8;
+    white-space: nowrap;
+    text-transform: none;
+    box-shadow: 0 8px 24px rgba(0,0,0,.55);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-4px);
+    transition: opacity .16s ease, transform .16s ease, visibility .16s;
+    pointer-events: none;
+    z-index: 60;
+  }
+  .v21-cot-tip b { color: #e8b84b; font-weight: 600; }
+  .v21-cot-tip .l2 { display: block; color: #8b93a1; font-size: 11px; margin-top: 2px; }
+  /* Setinha apontando para a pílula */
+  .v21-cot-tip::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    right: 18px;
+    border: 6px solid transparent;
+    border-bottom-color: rgba(201,169,97,0.28);
+  }
+  .v21-pill-cot:hover .v21-cot-tip {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+  }
+  body.light .v21-cot-tip { background: #ffffff; color: #3a4658; }
+  body.light .v21-cot-tip .l2 { color: #6b7688; }
 </style>
 
 <!-- G20 Dashboard v21 - Market Pill States (5 cores) -->
@@ -7352,6 +7425,27 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
         <div class="v21-market-pill" id="v21-pill-nyse">
           <span class="dot"></span>
           <span id="v21-market-status-nyse">NYSE</span>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════════════
+             PÍLULA DE COTAÇÕES — R51
+
+             Terceiro estado do mesmo grupo: "B3 aberta · NYSE aberta ·
+             Cotações 12:37". O aluno olhava R$ 574.284 sem saber de quando
+             era aquele número; a barra dourada diz quanto falta, esta pílula
+             diz de quando é.
+
+             Dourada e mais apagada que as verdes ao lado, de propósito: ela
+             participa do grupo sem competir com o estado dos mercados, que é
+             a informação principal ali.
+
+             O tooltip é montado por JavaScript e tem duas linhas: de quando
+             são os preços e quando muda.
+             ═══════════════════════════════════════════════════════════════ -->
+        <div class="v21-market-pill v21-pill-cot" id="v21-pill-cot">
+          <span class="dot"></span>
+          <span id="v21-cot-hora">—</span>
+          <span class="v21-cot-tip" id="v21-cot-tip"></span>
         </div>
       </div>
     </div>
@@ -12582,8 +12676,51 @@ window.g20Logout = function() {
          ═══════════════════════════════════════════════════════════════════ */
       var _barra = document.getElementById('g20RefreshBar');
       var _barraFill = document.getElementById('g20RefreshFill');
+      var _pilCot = document.getElementById('v21-pill-cot');
+      var _pilHora = document.getElementById('v21-cot-hora');
+      var _pilTip = document.getElementById('v21-cot-tip');
+
+      function _hhmm(ts){
+        var d = new Date(ts);
+        return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+      }
+
+      /* ═══════════════════════════════════════════════════════════════════
+         A PÍLULA E O TOOLTIP
+
+         A pílula mostra de QUANDO são os preços. O tooltip abre em duas
+         linhas: de quando são, e quando mudam.
+
+         Com a aba em segundo plano nada é atualizado, e prometer uma
+         contagem regressiva ali seria mentira — o texto muda para dizer que
+         a atualização acontece na volta.
+         ═══════════════════════════════════════════════════════════════════ */
+      function _pintarPilula(){
+        if (!_pilHora) return;
+        _pilHora.textContent = _hhmm(_ultimaAtualizacao);
+
+        var restante = Math.max(0, IDADE_MAX - (Date.now() - _ultimaAtualizacao));
+        var min = Math.ceil(restante / 60000);
+
+        if (_pilCot) _pilCot.classList.toggle('pausada', document.hidden);
+
+        if (!_pilTip) return;
+        var l1 = 'Cotações de <b>' + _hhmm(_ultimaAtualizacao) + '</b>';
+        var l2;
+        if (document.hidden) {
+          l2 = 'Atualiza quando você voltar à aba';
+        } else if (restante <= 0) {
+          l2 = 'Atualizando agora…';
+        } else if (min <= 1) {
+          l2 = 'Próxima atualização em menos de 1 min';
+        } else {
+          l2 = 'Próxima atualização em ' + min + ' min';
+        }
+        _pilTip.innerHTML = l1 + '<span class="l2">' + l2 + '</span>';
+      }
 
       function _pintarBarra(){
+        _pintarPilula();
         if (!_barraFill) return;
         if (document.hidden) {
           // Nada é atualizado com a aba oculta — a barra não pode fingir que sim.
@@ -12604,6 +12741,7 @@ window.g20Logout = function() {
 
       function _reiniciarBarra(){
         _ultimaAtualizacao = Date.now();
+        _pintarPilula();
         if (!_barraFill || !_barra) return;
         // Volta cheia sem animar (senão ela "corre para trás"), depois pulsa.
         _barra.classList.add('recarregou');
