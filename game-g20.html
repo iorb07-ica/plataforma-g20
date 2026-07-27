@@ -1951,6 +1951,20 @@ function salvarCarteira(){
    de ontem (para o delta). Nada de UID de terceiros, e-mail ou foto.
    ═══════════════════════════════════════════════════════════════════════ */
 var RANK_DOC = ['game-g20-ranking','atual'];
+
+/* Quais janelas JA terminaram de carregar nesta sessao.
+
+   Sem isto havia uma corrida silenciosa: as tres chamadas de
+   carregarRankingTipo sao independentes, e _rankResumo() devolve um
+   resumo valido para lista vazia (o que e correto — ninguem montou
+   carteira e uma informacao legitima). A primeira janela a terminar
+   enxergava as outras duas como "vazias" em vez de "ainda carregando" e
+   publicava o documento com dois tercos zerados.
+
+   Hoje nao aparece porque as tres estao mesmo vazias. Em agosto, com
+   jogadores, o aluno veria "monte sua carteira" no trimestral e no anual
+   enquanto competia nos dois. */
+var _rankPronto = { mensal:false, trimestral:false, anual:false };
 var IDADE_MAX_RANK = 20 * 60 * 60 * 1000;   // 20h — casa com a regra do Firestore
 var _publicando = false;
 
@@ -2014,6 +2028,9 @@ function publicarRankingSePreciso(){
   }
 
   // Só publica com as TRÊS janelas calculadas — documento parcial é pior que velho.
+  /* So publica com as TRES janelas efetivamente carregadas. */
+  if (!_rankPronto.mensal || !_rankPronto.trimestral || !_rankPronto.anual) return;
+
   var m = _rankResumo('mensal'), t = _rankResumo('trimestral'), a = _rankResumo('anual');
   if (!m || !t || !a) return;
   // Publica com listas vazias, mas nunca sem o alvo: sem ele o card nao
@@ -2021,6 +2038,9 @@ function publicarRankingSePreciso(){
   if (!m.alvo || !t.alvo || !a.alvo) return;
 
   _publicando = true;
+  /* Se por qualquer motivo a promessa nao resolver (rede caindo no meio),
+     a flag ficaria presa em true e nada mais publicaria ate recarregar. */
+  setTimeout(function(){ _publicando = false; }, 15000);
   var ref = db.collection(RANK_DOC[0]).doc(RANK_DOC[1]);
 
   ref.get().then(function(doc){
@@ -2049,6 +2069,7 @@ function publicarRankingSePreciso(){
 }
 
 function carregarRanking(){
+  _rankPronto = { mensal:false, trimestral:false, anual:false };
   ['mensal','trimestral','anual'].forEach(carregarRankingTipo);
   var now=new Date();
   var el=document.getElementById('lastUpdate');
@@ -2088,6 +2109,7 @@ function carregarRankingTipo(tipo){
       rankingData[tipo]=jogadores;
       renderRanking(tipo,jogadores);
       atualizarMinha(tipo,jogadores);
+      _rankPronto[tipo] = true;
       try { publicarRankingSePreciso(); } catch(e){ console.warn('[Game] publicação:', e); }
     });
   }).catch(function(err){
