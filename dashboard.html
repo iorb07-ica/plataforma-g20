@@ -8217,6 +8217,46 @@ window.G20DiagCG20 = function(){
 
   var ap = g20CG20Aportes();
   console.log('  g20CG20Aportes() devolve: ' + ap.length + ' aportes');
+
+  /* Câmbio: sem ele todo ativo em dólar é excluído da avaliação, e a
+     Composição CG20 aparece só com os brasileiros. */
+  try {
+    var _fxd = (typeof g20UsdBRL === 'function') ? g20UsdBRL({}) : 0;
+    if (_fxd > 0) console.log('  câmbio USD/BRL disponível: ' + _fxd.toFixed(4));
+    else console.warn('  SEM CÂMBIO USD/BRL — ativos em dólar ficarão de fora da Composição.');
+  } catch(e){}
+
+  /* Cotações: quantos dos ativos da CG20 têm preço em alguma fonte. */
+  try {
+    var pos0 = {};
+    ap.forEach(function(a){
+      if (!a || !a.ticker) return;
+      var t = String(a.ticker).toUpperCase();
+      var q = parseFloat(a.qtd) || 0;
+      if (String(a.op||'C').toUpperCase() === 'V') q = -q;
+      pos0[t] = (pos0[t]||0) + q;
+    });
+    var ab = Object.keys(pos0).filter(function(t){ return pos0[t] > 0.001; });
+    var comCot = ab.filter(function(t){ return g20CotacaoDe(t, {}) > 0; });
+    console.log('  cotações encontradas: ' + comCot.length + '/' + ab.length);
+    if (comCot.length < ab.length) {
+      var sem = ab.filter(function(t){ return !(g20CotacaoDe(t, {}) > 0); });
+      console.warn('  sem cotação: ' + sem.slice(0,15).join(', ') + (sem.length>15?'…':''));
+    }
+  } catch(e){}
+
+  /* Proventos da CG20 — o que alimenta a Agenda no modo Carteira G20. */
+  try {
+    var dv = (typeof g20CG20Dividendos === 'function') ? g20CG20Dividendos() : null;
+    if (dv && dv.length) {
+      var hoje = new Date().toISOString().substring(0,10);
+      var fut = dv.filter(function(d){ return String(d.data||'').substring(0,10) >= hoje; });
+      console.log('  proventos da CG20: ' + dv.length + ' (futuros: ' + fut.length + ')');
+    } else {
+      console.log('  proventos da CG20: usando a lista geral (g20_dividendos)');
+    }
+  } catch(e){}
+
   if (ap.length) {
     var pos = {};
     ap.forEach(function(a){
@@ -8394,6 +8434,32 @@ function g20UsdBRL(precos){
   try {
     var cc = JSON.parse(localStorage.getItem('g20_cotacoesCache') || 'null');
     if (cc && parseFloat(cc.usdBRL) > 0) return parseFloat(cc.usdBRL);
+  } catch(e){}
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     O TICKER DO TOPO — a fonte que o ALUNO sempre tem
+
+     As duas fontes acima são preenchidas por quem já mexeu na carteira:
+     g20_precos pelo dashboard (só ativos pessoais) e g20_cotacoesCache pela
+     página Carteira G20. Um aluno recém-chegado não tem nenhuma das duas.
+
+     Sem câmbio, o motor de avaliação exclui todo ativo em dólar — foi o que
+     aconteceu quando a Carteira G20 passou a carregar no login: o aluno via
+     a Composição CG20 com R$ 62,8k e 3 classes, só os brasileiros, enquanto
+     o admin via R$ 159,1k e 5 classes. Stocks e REITs sumiam sem aviso.
+
+     Mas a fita de cotações do topo busca 'BRL=X' em toda carga, para todo
+     mundo, e guarda em g20_indMkt_cache. É a fonte mais universal que
+     existe aqui — só faltava alguém olhar para ela.
+     ═══════════════════════════════════════════════════════════════════════ */
+  try {
+    var mk = JSON.parse(localStorage.getItem('g20_indMkt_cache') || 'null');
+    var dd = mk && mk.data ? mk.data : null;
+    if (dd) {
+      var k = dd['BRL=X'] || dd['USDBRL=X'] || dd['USDBRL'];
+      var p = k && (k.price !== undefined ? k.price : k.preco);
+      if (p && parseFloat(p) > 0) return parseFloat(p);
+    }
   } catch(e){}
 
   try {
@@ -17150,6 +17216,36 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
     Promise.all(promises).then(function(){
       V21Movers.cg20Loading = false;
+
+      /* ═══════════════════════════════════════════════════════════════════
+         PUBLICA AS COTAÇÕES DA CG20 — R51
+
+         Este fetch já traz os 115 preços da Carteira G20, mas guardava tudo
+         numa variável local: só o Top Movers aproveitava. A Composição e a
+         Agenda em modo CG20 ficavam sem preço para os ativos que o aluno
+         não tem na carteira dele — que são quase todos.
+
+         Publicando aqui, g20CotacaoDe() encontra pela fonte 3 e todos os
+         cards passam a enxergar a mesma coisa. Um fetch, quatro cards.
+         ═══════════════════════════════════════════════════════════════════ */
+      try {
+        window._dashRVCot = window._dashRVCot || {};
+        var _novos = 0;
+        Object.keys(results).forEach(function(t){
+          var r = results[t];
+          if (!r || !(r.price > 0)) return;
+          if (window._dashRVCot[t] && window._dashRVCot[t].preco > 0) return;  // não sobrescreve
+          window._dashRVCot[t] = { preco: r.price, varPct: r.p, isUS: !!r.isUS };
+          _novos++;
+        });
+        if (_novos) {
+          console.log('[v21 cg20] ' + _novos + ' cotações publicadas — Composição e Agenda já as usam.');
+          ['v21LoadCompChart','v21LoadAgenda'].forEach(function(fn){
+            try { if (typeof window[fn] === 'function') window[fn](); } catch(e){}
+          });
+        }
+      } catch(e){}
+
       var data = Object.keys(results).map(function(t){
         var r = results[t];
         return { t: t, p: r.p, price: r.price, isUS: r.isUS, high52: r.high52, low52: r.low52 };
