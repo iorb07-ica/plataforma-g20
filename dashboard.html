@@ -7133,8 +7133,13 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
   <div class="sidebar-user" id="sidebarUserBlock" onclick="window.location.href='perfil.html'" style="cursor:pointer">
     <div class="user-avatar" id="sidebarAvatar"><span id="sidebarInitials">IS</span></div>
     <div class="user-info">
-      <div class="user-name" id="sidebarName"><span class="user-name-text">Israel Oreano</span><span class="badge-infinity" id="badgeInfinity">∞ Infinity</span></div>
-      <div class="user-turma"><span class="user-online"></span><span id="sidebarTurma">Turma 20</span></div>
+      <!-- R51: sem nome fixo no HTML. Qualquer aluno via "Israel Oreano" na
+           sidebar ate o Firestore responder. -->
+      <div class="user-name" id="sidebarName"><span class="user-name-text">&nbsp;</span><span class="badge-infinity" id="badgeInfinity">∞ Infinity</span></div>
+      <!-- R51: sem valor fixo. Nascia com "Turma 20" e ficava assim ate o Firestore
+           responder — na conta do Antonio, que e Turma 9, o rotulo errado
+           aparecia por meio segundo. -->
+      <div class="user-turma"><span class="user-online"></span><span id="sidebarTurma">&nbsp;</span></div>
     </div>
     <span class="user-edit-ico">✏️</span>
   </div>
@@ -8059,15 +8064,18 @@ var USER_PROFILE_KEY = 'g20_user_profile';
 function loadUserProfile(){
   try{
     var saved = localStorage.getItem(USER_PROFILE_KEY);
+    /* R51: o padrao era name:'Israel Oreano', turma:'Turma 20'. Numa conta sem
+       perfil salvo, o dashboard exibia o nome e a turma de OUTRA pessoa ate o
+       Firestore responder. Padrao agora e vazio — o Firestore preenche. */
     return saved ? JSON.parse(saved) : {
-      name:'Israel Oreano', apelido:'Israel',
-      turma:'Turma 20', role:'Membro',
+      name:'', apelido:'',
+      turma:'', role:'Membro',
       photo:'', bio:'',
       risco:'Moderado', objetivo:'Independencia Financeira',
       metaPat:''
     };
   }catch(e){
-    return {name:'Israel Oreano',apelido:'Israel',turma:'Turma 20',role:'Membro',photo:'',bio:'',risco:'Moderado',objetivo:'Independencia Financeira',metaPat:''};
+    return {name:'',apelido:'',turma:'',role:'Membro',photo:'',bio:'',risco:'Moderado',objetivo:'Independencia Financeira',metaPat:''};
   }
 }
 
@@ -8187,7 +8195,8 @@ function salvarPerfil(){
 }
 
 // -- PERFIL DE USU-RIO (legado - usa renderSidebarUser) (compartilhado via localStorage) --------
-var USER = {name:'Israel Oreano', turma:'Turma 20', role:'Membro', initials:'IS', photo:''};
+// R51: sem nome nem turma de ninguem por padrao — o Firestore preenche.
+var USER = {name:'', turma:'', role:'Membro', initials:'', photo:''};
 
 function loadUser(){
   try{
@@ -11523,8 +11532,9 @@ if(_alModal) _alModal.addEventListener('click', function(e){
 (function(){
   try {
     var u = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
-    var name = u.name || u.nome || 'Israel Oreano';
-    var turma = u.turma || 'Turma 20';
+    // R51: sem nome de ninguem por padrao — vazio ate o Firestore responder.
+    var name = u.name || u.nome || '';
+    var turma = u.turma || '';   // R51: sem turma padrao
     var role = u.role || 'Membro';
     var photo = u.photo || '';
     var initials = name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase() || 'IO';
@@ -11613,7 +11623,7 @@ window.g20Logout = function() {
     if (cached.name) {
       var _bi=document.getElementById('badgeInfinity');if(_bi)_bi.style.display='none';
       var ids = {sidebarName:cached.name, wName:cached.apelido||cached.name.split(' ')[0],
-                 sidebarTurma:cached.turma||'Turma 20', 
+                 sidebarTurma:(cached.turma||''), 
                  sidebarInitials:(cached.name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase()||'IO')};
       Object.keys(ids).forEach(function(id){ var el=document.getElementById(id); if(el) el.textContent=ids[id]; });
       var av=document.getElementById('sidebarAvatar');
@@ -11875,11 +11885,21 @@ window.g20Logout = function() {
       // Nesse caso usa o displayName do Auth, que guarda o nome real que o aluno digitou.
       var _nomeRuim = (!_rawName || _rawName === emailLocal);
       var name     = _nomeRuim ? (user.displayName || _rawName || emailLocal) : _rawName;
-      var turma    = profile.turma || 'Turma 20';
+      /* ═══════════════════════════════════════════════════════════════════
+         TURMA — do FIRESTORE, não do cache local  (R51)
+
+         `profile` vem do localStorage. Numa conta que acabou de entrar, ele
+         está vazio ou tem sobra de outra sessão — foi assim que o Antonio,
+         Turma 9, apareceu na sidebar como "Turma 20".
+
+         A turma real está no documento do usuário, gravada pelo perfil. O
+         cache só serve de reserva, e só se disser alguma coisa.
+         ═══════════════════════════════════════════════════════════════════ */
+      var turma = data.turma || (data.perfil && data.perfil.turma) || profile.turma || '';
       var role     = profile.role  || data.role   || 'Membro';
       var photo    = (data.perfil && data.perfil.foto) || profile.photo || user.photoURL || '';
-      var initials = name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase() || 'IO';
-      var turmaLabel = (role === 'admin') ? 'Admin' : turma;
+      var initials = name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase() || '';
+      var turmaLabel = (role === 'admin') ? 'Admin' : (turma || 'Membro');
 
       // Auto-correção DEFINITIVA: se o nome no banco estava ruim e achamos um melhor
       // (o displayName real), grava de volta no Firestore. Conserta contas antigas pra
