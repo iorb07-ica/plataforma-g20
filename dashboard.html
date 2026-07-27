@@ -9645,8 +9645,41 @@ function loadPatStrip(){
        Caso contrário passa 0 — e o snapshot mantém o fechamento. */
     var _rvParaSnap = rvMercado;
 
+    /* ═══════════════════════════════════════════════════════════════════
+       RASTRO — por que a cotação ao vivo não chega ao card
+
+       Três coisas precisam dar certo em sequência: a avaliação ficar
+       completa, o valor sobreviver à trava de sanidade, e o snapshot ser
+       gravado com ele. Sem rastro, dá para passar horas trocando hipótese.
+       Esta linha diz em qual das três parou.
+       ═══════════════════════════════════════════════════════════════════ */
+    try {
+      window._g20RastroRV = {
+        quando: new Date().toTimeString().substring(0,8),
+        rvMercado: Math.round(rvMercado),
+        faltando: (typeof faltando !== 'undefined' && faltando) ? faltando.length : '?',
+        rfAtual: Math.round(rfAtual),
+        total: Math.round(total)
+      };
+      if (!(rvMercado > 0)) {
+        console.warn('[loadPatStrip] RV ao vivo = 0 — o snapshot fica sem cotação. ' +
+          'Faltando: ' + window._g20RastroRV.faltando + ' ativo(s).');
+      }
+    } catch(e){}
+
     // Sparkline: grava snapshot de hoje + renderiza
     _patSnapUpsert(total, rfAtual, _rvParaSnap);
+
+    try {
+      var _chk = (window._patSnapLoad ? _patSnapLoad() : []);
+      var _u = _chk[_chk.length-1];
+      window._g20RastroRV.gravou = (_u && _u.rvVivo > 0) ? Math.round(_u.rvVivo) : 'NAO';
+      if (rvMercado > 0 && !(_u && _u.rvVivo > 0)) {
+        console.warn('[loadPatStrip] passei RV ' + Math.round(rvMercado) +
+                     ' mas o snapshot não guardou. Rode G20RastroRV() para ver.');
+      }
+    } catch(e){}
+
     _patRenderAllSparks();
   }catch(e){}
 }
@@ -12847,6 +12880,68 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
      fim do gráfico. Por isso o cálculo parte sempre de rv/rf (coerente
      nos dois tipos) e os bens entram conforme a natureza do ponto. */
   /* ═══════════════════════════════════════════════════════════════════════════
+   G20RastroRV() — segue a cotação ao vivo do cálculo até o card
+
+   O card mostra o fechamento mesmo com todas as cotações no navegador. O
+   valor existe (G20DiagRV prova) e não aparece (G20DiagRF prova). Entre um
+   ponto e outro há quatro etapas, e trocar hipótese sobre elas custou tempo
+   demais. Esta função percorre cada uma e conta o que aconteceu.
+   ═══════════════════════════════════════════════════════════════════════════ */
+window.G20RastroRV = function(){
+  console.log('%c[G20RastroRV] seguindo a cotação ao vivo', 'color:#c9a961;font-weight:bold');
+
+  var ap = [];
+  try { ap = JSON.parse(localStorage.getItem('g20_rvAportes') || '[]'); } catch(e){}
+  var av = null;
+  try { av = (typeof g20AvaliarRV === 'function') ? g20AvaliarRV(ap) : null; } catch(e){}
+  if (!av) { console.error('  1. g20AvaliarRV indisponível'); return; }
+  console.log('  1. avaliação : R$ ' + Math.round(av.total).toLocaleString('pt-BR') +
+              '  | completa: ' + (av.completo ? 'sim' : 'NÃO (' + av.faltando.length + ' sem cotação)'));
+  if (!av.completo) {
+    console.warn('     faltando: ' + av.faltando.slice(0,10).join(', '));
+    console.warn('     -> loadPatStrip zera o valor ao vivo quando falta algum. Para aqui.');
+  }
+
+  var r = window._g20RastroRV;
+  if (!r) console.warn('  2. loadPatStrip ainda não rodou nesta sessão');
+  else console.log('  2. loadPatStrip (' + r.quando + ') : passou RV ' +
+                   (r.rvMercado ? 'R$ ' + r.rvMercado.toLocaleString('pt-BR') : '0 (zerado)') +
+                   '  | gravou: ' + r.gravou);
+
+  var snap = [];
+  try { snap = (window._patSnapLoad ? _patSnapLoad() : []); } catch(e){}
+  var u = snap[snap.length-1];
+  if (!u) { console.error('  3. sem snapshots'); return; }
+  var hoje = new Date().toISOString().substring(0,10);
+  console.log('  3. snapshot  : ' + u.d + (u.d === hoje ? ' (hoje)' : ' <-- NÃO É HOJE') +
+              '  | rvVivo: ' + (u.rvVivo > 0 ? Math.round(u.rvVivo) : 'ausente') +
+              '  | rfVivo: ' + (u.rfVivo > 0 ? Math.round(u.rfVivo) : 'ausente'));
+
+  var serie = null;
+  try { serie = (window.G20Rent && G20Rent.cache()) ? G20Rent.cache() : null; } catch(e){}
+  if (serie && serie.length) {
+    var us = serie[serie.length-1];
+    console.log('  4. série     : último ponto ' + us.d +
+                '  | RV R$ ' + Math.round(us.rv || 0).toLocaleString('pt-BR'));
+    if (us.d !== hoje) {
+      console.warn('     A série termina em ' + us.d + '. O ponto de hoje é reconstruído');
+      console.warn('     a partir dela a cada chamada de _patSnapUpsert.');
+    }
+  }
+
+  console.log('');
+  if (av.completo && av.total > 0 && !(u.rvVivo > 0)) {
+    console.warn('  VEREDITO: o valor existe (etapa 1) e não está no snapshot (etapa 3).');
+    console.warn('  Alguma chamada posterior reconstruiu o ponto de hoje sem a cotação.');
+  } else if (!av.completo) {
+    console.warn('  VEREDITO: a avaliação não fica completa — nunca haverá valor ao vivo.');
+  } else if (u.rvVivo > 0) {
+    console.log('%c  VEREDITO: está tudo no lugar. O card deve mostrar "hoje".', 'color:#4ade80');
+  }
+  return { avaliacao: av.total, completo: av.completo, loadPatStrip: r, snapshot: u };
+};
+
+/* ═══════════════════════════════════════════════════════════════════════════
    G20DiagRF() — abre os últimos dias e mostra o que a renda fixa fez
 
    Serve para responder, com dado, três perguntas que ficaram no ar:
