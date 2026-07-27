@@ -5673,12 +5673,21 @@ body.pat-hidden .v21-change-extra::after{
      completa fica no game-g20.html — mostrar o ranking inteiro todo
      dia pesa demais pra quem está na metade de baixo.
      ════════════════════════════════════════════════════════ */
-  .v21-game-filtros { display:flex; gap:3px; margin-left:auto; }
-  .v21-game-filtro { font-size:9.5px; font-weight:700; letter-spacing:.5px; padding:3px 7px;
-                     border-radius:5px; cursor:pointer; color:var(--text2,#8b93a7);
-                     background:rgba(255,255,255,.04); transition:.15s; }
-  .v21-game-filtro:hover { color:var(--text,#e8eaf0); }
-  .v21-game-filtro.active { background:rgba(201,169,97,.18); color:#e8b84b; }
+  /* Um botão que cicla, no lugar de três pílulas de 9,5px.
+     Aquelas davam alvo de toque de ~20px — menos da metade do mínimo
+     de 44px do iOS. Mesmo padrão do seletor do Top Movers. */
+  .v21-game-toggle {
+    margin-left:auto; font-family:'DM Sans',sans-serif; font-size:10px; font-weight:700;
+    letter-spacing:.7px; padding:7px 11px; min-height:30px; border-radius:7px; cursor:pointer;
+    color:#e8b84b; background:rgba(201,169,97,.12); border:1px solid rgba(201,169,97,.28);
+    transition:.15s; white-space:nowrap;
+  }
+  .v21-game-toggle:hover { background:rgba(201,169,97,.22); }
+  .v21-game-toggle:active { transform:scale(.96); }
+  @media (max-width: 768px) {
+    /* Alvo de toque confortável no celular. */
+    .v21-game-toggle { min-height:40px; padding:10px 14px; font-size:11px; }
+  }
   .v21-game-ciclo { font-size:9.5px; letter-spacing:.6px; text-transform:uppercase;
                     color:var(--text2,#8b93a7); margin:-4px 0 10px; }
   .v21-game-carimbo { font-size:9px; color:#6b7280; margin-top:5px; }
@@ -8136,11 +8145,10 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
       <div class="v21-card-2d v21-game-card" id="v21GameCard">
         <div class="v21-2d-head">
           <h3 class="v21-2d-title"><span class="v21-2d-ico">🏆</span>GAME G20</h3>
-          <div class="v21-game-filtros" id="v21GameFiltros">
-            <span class="v21-game-filtro" data-tipo="mensal">M</span>
-            <span class="v21-game-filtro" data-tipo="trimestral">T</span>
-            <span class="v21-game-filtro" data-tipo="anual">A</span>
-          </div>
+          <button class="v21-game-toggle" id="v21GameToggle" type="button"
+                  title="Trocar período (mensal → trimestral → anual)">
+            <span id="v21GameToggleLbl">MENSAL</span> ▾
+          </button>
         </div>
         <div class="v21-game-ciclo" id="v21GameHint">—</div>
 
@@ -20465,18 +20473,20 @@ window.v21LoadGame = function(){
 
   loading.style.display = 'none';
 
-  /* Botões de janela */
-  var filtros = document.querySelectorAll('#v21GameFiltros .v21-game-filtro');
-  Array.prototype.forEach.call(filtros, function(b){
-    b.classList.toggle('active', b.getAttribute('data-tipo') === tipo);
-    if (!b._lig) {
-      b._lig = true;
-      b.addEventListener('click', function(){
-        window._g20GameTipo = b.getAttribute('data-tipo');
-        v21LoadGame();
-      });
-    }
-  });
+  /* Botão que cicla: mensal → trimestral → anual → mensal */
+  var ORDEM = ['mensal','trimestral','anual'];
+  var ROTULO = { mensal:'MENSAL', trimestral:'TRIMESTRAL', anual:'ANUAL' };
+  var tog = document.getElementById('v21GameToggle');
+  var togLbl = document.getElementById('v21GameToggleLbl');
+  if (togLbl) togLbl.textContent = ROTULO[tipo] || 'MENSAL';
+  if (tog && !tog._lig) {
+    tog._lig = true;
+    tog.addEventListener('click', function(){
+      var i = ORDEM.indexOf(window._g20GameTipo || 'mensal');
+      window._g20GameTipo = ORDEM[(i + 1) % ORDEM.length];
+      v21LoadGame();
+    });
+  }
 
   var janela = d ? d[tipo] : null;
   var minha  = janela ? _g20GameMinha(janela) : null;
