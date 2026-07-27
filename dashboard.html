@@ -5669,64 +5669,119 @@ body.pat-hidden .v21-change-extra::after{
      ========================================================== */
   /* ════════════════════════════════════════════════════════
      CARD GAME G20 (row 2D, slot 3)
-     Card estreito: um número grande e o contexto mínimo. A tabela
-     completa fica no game-g20.html — mostrar o ranking inteiro todo
-     dia pesa demais pra quem está na metade de baixo.
+
+     Anel de percentil + rentabilidade, curva da turma, semana, e um
+     flip que mostra as 10 posições do período.
+
+     Por que anel e não "4º de 80": o total de participantes desanima em
+     ciclos com poucos jogadores. O percentil funciona igual com 5 ou
+     500, e o anel devolve a noção de escala sem revelar o número.
      ════════════════════════════════════════════════════════ */
-  /* Um botão que cicla, no lugar de três pílulas de 9,5px.
-     Aquelas davam alvo de toque de ~20px — menos da metade do mínimo
-     de 44px do iOS. Mesmo padrão do seletor do Top Movers. */
+  .v21-game-card { perspective: 1500px; padding: 0 !important; background: transparent !important;
+                   border: none !important; box-shadow: none !important; }
+  .v21-game-flip { position: relative; width: 100%; height: 100%;
+                   transform-style: preserve-3d; transition: transform .8s cubic-bezier(.4,0,.2,1); }
+  .v21-game-card.flipped .v21-game-flip { transform: rotateY(180deg); }
+  .v21-game-face {
+    position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden;
+    background: var(--v21-surface, #171b23); border: 1px solid rgba(201,169,97,.10);
+    border-radius: 16px; padding: 16px 18px; display: flex; flex-direction: column;
+    box-shadow: 0 6px 20px rgba(0,0,0,.35);
+  }
+  .v21-game-back { transform: rotateY(180deg); }
+  /* backface-visibility esconde a face virada, mas ela CONTINUA capturando
+     cliques: com o card virado, o cabeçalho da frente ficava por cima e o
+     botão de voltar era inalcançável. Desliga o ponteiro na face que não
+     está à mostra. */
+  .v21-game-card:not(.flipped) .v21-game-back { pointer-events: none; }
+  .v21-game-card.flipped .v21-game-face:not(.v21-game-back) { pointer-events: none; }
+
+  .v21-game-acoes { display:flex; gap:7px; margin-left:auto; align-items:center; }
+  /* Um botão que cicla, no lugar de três pílulas de 9,5px — aquelas davam
+     alvo de toque de ~20px, menos da metade do mínimo de 44px do iOS. */
   .v21-game-toggle {
-    margin-left:auto; font-family:'DM Sans',sans-serif; font-size:10px; font-weight:700;
-    letter-spacing:.7px; padding:7px 11px; min-height:30px; border-radius:7px; cursor:pointer;
-    color:#e8b84b; background:rgba(201,169,97,.12); border:1px solid rgba(201,169,97,.28);
+    font-family:'DM Sans',sans-serif; font-size:10px; font-weight:700; letter-spacing:.7px;
+    padding:7px 11px; min-height:30px; border-radius:7px; cursor:pointer; color:#e8b84b;
+    background:rgba(201,169,97,.12); border:1px solid rgba(201,169,97,.28);
     transition:.15s; white-space:nowrap;
   }
   .v21-game-toggle:hover { background:rgba(201,169,97,.22); }
   .v21-game-toggle:active { transform:scale(.96); }
-  @media (max-width: 768px) {
-    /* Alvo de toque confortável no celular. */
-    .v21-game-toggle { min-height:40px; padding:10px 14px; font-size:11px; }
+  .v21-game-vbtn {
+    background:rgba(201,169,97,.12); border:1px solid rgba(201,169,97,.28); color:#e8b84b;
+    border-radius:7px; width:30px; min-height:30px; cursor:pointer; font-size:13px;
+    display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:.15s;
   }
+  .v21-game-vbtn:hover { background:rgba(201,169,97,.22); }
+  @media (max-width: 768px) {
+    .v21-game-toggle { min-height:40px; padding:10px 14px; font-size:11px; }
+    .v21-game-vbtn   { width:40px; min-height:40px; font-size:15px; }
+  }
+
   .v21-game-ciclo { font-size:11px; letter-spacing:.8px; text-transform:uppercase;
-                    color:var(--text2,#8b93a7); margin:-2px 0 14px; }
-  .v21-game-carimbo { font-size:10.5px; color:#6b7280; margin-top:7px; }
-  /* R52d: tudo estava pequeno demais para um card que tem altura sobrando.
-     O grid estica os cards ate a altura do Movers, entao o espaco existia —
-     so nao estava sendo usado. Escalas subidas em ~25%. */
+                    color:var(--text2,#8b93a7); margin:-2px 0 12px; }
   .v21-game-body { display:flex; flex-direction:column; flex:1; min-height:0; }
   .v21-game-loading { padding:18px 2px; color:var(--text2,#8b93a7); font-size:12.5px; }
-  .v21-game-pos-wrap { display:flex; align-items:baseline; gap:11px; }
-  .v21-game-pos { font-family:'Bebas Neue',sans-serif; font-size:62px; line-height:.86; color:#e8b84b; letter-spacing:.5px; }
-  .v21-game-pos-lbl { font-size:12.5px; color:var(--text2,#8b93a7); line-height:1.4; }
-  .v21-game-delta { font-size:13px; margin-top:10px; font-weight:600; }
+
+  /* Anel à esquerda (largura fixa: 4º e 31º ocupam o mesmo espaço) e
+     rentabilidade à direita. Alinhados pelo centro, não pela linha de
+     base — foi o que deixava os dois tortos na versão anterior. */
+  .v21-game-topo { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .v21-game-anel { width:78px; height:78px; flex-shrink:0; }
+  #v21GameAnel { transition: stroke-dashoffset 1.1s cubic-bezier(.4,0,.2,1); }
+  .v21-game-ret { font-family:'Bebas Neue',sans-serif; font-size:38px; line-height:.9;
+                  color:#4ade80; letter-spacing:.5px; }
+  .v21-game-ret.down { color:#f87171; }
+
+  .v21-game-delta { font-size:12.5px; margin-top:10px; font-weight:600; }
   .v21-game-delta.up { color:#4ade80; }
   .v21-game-delta.down { color:#f87171; }
   .v21-game-delta.flat { color:var(--text2,#8b93a7); font-weight:400; }
-  .v21-game-podio { margin-top:18px; padding-top:15px; border-top:1px solid rgba(255,255,255,.06);
-                    display:flex; flex-direction:column; gap:11px; }
-  .v21-game-pod { display:flex; align-items:center; gap:10px; font-size:13.5px; }
-  .v21-game-pod-m { width:20px; font-size:15px; flex-shrink:0; }
-  .v21-game-pod-n { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-                    color:var(--text,#e8eaf0); }
-  .v21-game-pod-v { font-family:'JetBrains Mono',monospace; font-size:12.5px; font-weight:600; color:#4ade80; }
-  .v21-game-pod.voce .v21-game-pod-n { color:#e8b84b; font-weight:700; }
-  .v21-game-foot { margin-top:auto; padding-top:15px; font-size:13px; color:var(--text2,#8b93a7); line-height:1.5;
-                   border-top:1px solid rgba(255,255,255,.05); }
-  .v21-game-prazo { margin-top:12px; font-size:12.5px; color:#c9a961;
-                    padding:6px 9px; border-radius:7px; background:rgba(201,169,97,.10);
-                    border:1px solid rgba(201,169,97,.22); }
-  .v21-game-prazo.urgente { color:#f87171; background:rgba(248,113,113,.10);
-                            border-color:rgba(248,113,113,.28); }
-  .v21-game-prazo b { font-family:'JetBrains Mono',monospace; font-weight:600; }
+
+  .v21-game-bloco { margin-top:16px; padding-top:14px; border-top:1px solid rgba(255,255,255,.06); }
+  .v21-game-lbl { font-size:10px; letter-spacing:1px; color:var(--text2,#8b93a7);
+                  text-transform:uppercase; margin-bottom:9px; }
+  .v21-game-curva { width:100%; height:56px; display:block; }
+  #v21GameLinha, #v21GamePonto { transition: all .9s cubic-bezier(.4,0,.2,1); }
+  .v21-game-pct { font-size:11.5px; color:var(--text2,#8b93a7); margin-top:5px; }
+
+  .v21-game-semana { display:flex; align-items:flex-end; gap:4px; height:48px; }
+  .v21-game-dia { flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; max-width:34px; }
+  .v21-game-dia-b { width:100%; border-radius:3px; background:rgba(255,255,255,.13);
+                    transition:height .8s cubic-bezier(.4,0,.2,1); min-height:3px; }
+  .v21-game-dia-b.recente { background:rgba(232,184,75,.5); }
+  .v21-game-dia-b.hoje { background:#e8b84b; }
+  .v21-game-dia-l { font-size:8.5px; color:#6b7280; }
+  .v21-game-dia-l.hoje { color:#e8b84b; font-weight:600; }
+
+  /* Verso */
+  .v21-game-lista { flex:1; overflow-y:auto; margin-top:2px; }
+  .v21-game-item { display:flex; align-items:center; gap:9px; padding:6px 0;
+                   border-bottom:1px solid rgba(255,255,255,.04); }
+  .v21-game-item:last-child { border-bottom:none; }
+  .v21-game-logo { width:20px; height:20px; border-radius:5px; flex-shrink:0; object-fit:contain;
+                   background:rgba(255,255,255,.05); }
+  .v21-game-tk { flex:1; min-width:0; font-size:12px; overflow:hidden;
+                 text-overflow:ellipsis; white-space:nowrap; }
+  .v21-game-tr { font-family:'JetBrains Mono',monospace; font-size:11.5px; font-weight:600; }
+  .v21-game-media { padding-top:10px; border-top:1px solid rgba(255,255,255,.06);
+                    display:flex; justify-content:space-between; font-size:12px;
+                    color:var(--text2,#8b93a7); }
+
+  /* Estado de convite */
   .v21-game-empty { display:flex; flex-direction:column; align-items:flex-start; gap:9px; padding:6px 0; }
   .v21-game-empty-ico { font-size:30px; opacity:.75; }
   .v21-game-empty-txt { font-size:13px; color:var(--text2,#8b93a7); line-height:1.6; }
+  .v21-game-prazo { margin-top:12px; font-size:12.5px; color:#c9a961; padding:6px 9px; border-radius:7px;
+                    background:rgba(201,169,97,.10); border:1px solid rgba(201,169,97,.22); }
+  .v21-game-prazo.urgente { color:#f87171; background:rgba(248,113,113,.10); border-color:rgba(248,113,113,.28); }
+  .v21-game-prazo b { font-family:'JetBrains Mono',monospace; font-weight:600; }
   .v21-game-btn { margin-top:4px; padding:10px 16px; border-radius:8px; background:rgba(201,169,97,.12);
                   border:1px solid rgba(201,169,97,.3); color:#e8b84b; font-size:12.5px; font-weight:600;
                   text-decoration:none; transition:background .18s ease; }
   .v21-game-btn:hover { background:rgba(201,169,97,.2); }
-  body.light .v21-game-podio { border-top-color:rgba(0,0,0,.07); }
+  .v21-game-carimbo { font-size:10.5px; color:#6b7280; margin-top:7px; }
+  body.light .v21-game-face { background: var(--surface) !important; }
 
   /* ════════════════════════════════════════════════════════
      CARD GESTAO FINANCEIRA (row 2D, slot 2)
@@ -8152,38 +8207,90 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
       </div>
 
 
-      <!-- Card 3: GAME G20 — posição do aluno no ciclo -->
+      <!-- Card 3: GAME G20 — anel de percentil + flip com a carteira -->
       <div class="v21-card-2d v21-game-card" id="v21GameCard">
-        <div class="v21-2d-head">
-          <h3 class="v21-2d-title"><span class="v21-2d-ico">🏆</span>GAME G20</h3>
-          <button class="v21-game-toggle" id="v21GameToggle" type="button"
-                  title="Trocar período (mensal → trimestral → anual)">
-            <span id="v21GameToggleLbl">MENSAL</span> ▾
-          </button>
-        </div>
-        <div class="v21-game-ciclo" id="v21GameHint">—</div>
+        <div class="v21-game-flip" id="v21GameFlip">
 
-        <div class="v21-game-body" id="v21GameBody">
-          <div class="v21-game-loading" id="v21GameLoading">Carregando…</div>
-
-          <div class="v21-game-main" id="v21GameMain" style="display:none">
-            <div class="v21-game-pos-wrap">
-              <div class="v21-game-pos" id="v21GamePos">—</div>
-              <div class="v21-game-pos-lbl">de <span id="v21GameTotal">—</span><br>jogadores</div>
+          <!-- FRENTE -->
+          <div class="v21-game-face">
+            <div class="v21-2d-head">
+              <h3 class="v21-2d-title"><span class="v21-2d-ico">🏆</span>GAME G20</h3>
+              <div class="v21-game-acoes">
+                <button class="v21-game-toggle" id="v21GameToggle" type="button"
+                        title="Trocar período (mensal → trimestral → anual)">
+                  <span id="v21GameToggleLbl">MENSAL</span> ▾
+                </button>
+                <button class="v21-game-vbtn" id="v21GameVerso" type="button"
+                        title="Ver sua carteira do período">🔄</button>
+              </div>
             </div>
-            <div class="v21-game-delta" id="v21GameDelta"></div>
-            <div class="v21-game-podio" id="v21GamePodio"></div>
-            <div class="v21-game-foot" id="v21GameFoot"></div>
+            <div class="v21-game-ciclo" id="v21GameHint">—</div>
+
+            <div class="v21-game-body" id="v21GameBody">
+              <div class="v21-game-loading" id="v21GameLoading">Carregando…</div>
+
+              <div class="v21-game-main" id="v21GameMain" style="display:none">
+                <div class="v21-game-topo">
+                  <svg class="v21-game-anel" viewBox="0 0 80 80" aria-hidden="true">
+                    <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(255,255,255,.07)" stroke-width="6"/>
+                    <circle id="v21GameAnel" cx="40" cy="40" r="34" fill="none" stroke="#e8b84b"
+                            stroke-width="6" stroke-linecap="round" stroke-dasharray="214"
+                            stroke-dashoffset="214" transform="rotate(-90 40 40)"/>
+                    <text id="v21GamePos" x="40" y="52" text-anchor="middle" fill="#e8b84b"
+                          font-family="Bebas Neue" font-size="34">—</text>
+                  </svg>
+                  <div class="v21-game-ret" id="v21GameRet">—</div>
+                </div>
+                <div class="v21-game-delta" id="v21GameDelta"></div>
+
+                <div class="v21-game-bloco" id="v21GameCurvaBloco">
+                  <div class="v21-game-lbl">Sua posição na turma</div>
+                  <svg class="v21-game-curva" viewBox="0 0 250 58" preserveAspectRatio="none">
+                    <defs>
+                      <linearGradient id="v21GameGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="rgba(232,184,75,.28)"/>
+                        <stop offset="100%" stop-color="rgba(232,184,75,.02)"/>
+                      </linearGradient>
+                      <clipPath id="v21GameClip"><rect id="v21GameClipR" x="0" y="0" width="0" height="58"/></clipPath>
+                    </defs>
+                    <path d="M0,46 C52,46 64,8 125,8 C186,8 198,46 250,46" fill="none"
+                          stroke="rgba(255,255,255,.13)" stroke-width="1.8"/>
+                    <path d="M0,46 C52,46 64,8 125,8 C186,8 198,46 250,46 L250,52 L0,52 Z"
+                          fill="url(#v21GameGrad)" clip-path="url(#v21GameClip)"/>
+                    <line id="v21GameLinha" x1="0" y1="12" x2="0" y2="52" stroke="#e8b84b"
+                          stroke-width="1.8" stroke-dasharray="3,3"/>
+                    <circle id="v21GamePonto" cx="0" cy="29" r="4.5" fill="#e8b84b"/>
+                  </svg>
+                  <div class="v21-game-pct" id="v21GamePct"></div>
+                </div>
+
+                <div class="v21-game-bloco" id="v21GameSemanaBloco" style="display:none">
+                  <div class="v21-game-lbl">Últimos 7 dias</div>
+                  <div class="v21-game-semana" id="v21GameSemana"></div>
+                </div>
+              </div>
+
+              <div class="v21-game-empty" id="v21GameEmpty" style="display:none">
+                <div class="v21-game-empty-ico">🏆</div>
+                <div class="v21-game-empty-txt" id="v21GameEmptyTxt">
+                  Monte sua carteira do ciclo e dispute com a turma.
+                  Não precisa ter investimento nenhum pra jogar.
+                </div>
+                <a href="game-g20.html" class="v21-game-btn">Montar carteira</a>
+              </div>
+            </div>
           </div>
 
-          <div class="v21-game-empty" id="v21GameEmpty" style="display:none">
-            <div class="v21-game-empty-ico">🏆</div>
-            <div class="v21-game-empty-txt" id="v21GameEmptyTxt">
-              Monte sua carteira do ciclo e dispute com a turma.
-              Não precisa ter investimento nenhum pra jogar.
+          <!-- VERSO: as 10 posições do período -->
+          <div class="v21-game-face v21-game-back">
+            <div class="v21-2d-head">
+              <h3 class="v21-2d-title" id="v21GameVersoTit" style="font-size:12.5px">CARTEIRA</h3>
+              <button class="v21-game-vbtn" id="v21GameFrente" type="button" title="Voltar">↩</button>
             </div>
-            <a href="game-g20.html" class="v21-game-btn">Montar carteira</a>
+            <div class="v21-game-lista" id="v21GameLista"></div>
+            <div class="v21-game-media" id="v21GameMedia"></div>
           </div>
+
         </div>
       </div>
 
@@ -20396,7 +20503,7 @@ setInterval(function(){
 
    game-g20-ranking/atual é escrito pelo primeiro aluno que abre o Game
    num dia em que ele esteja velho. Aqui só lemos: 1 leitura no lugar das
-   258 que sairiam de recalcular as três janelas por aluno.
+   ~258 que sairiam de recalcular as três janelas por aluno.
    ═══════════════════════════════════════════════════════════════════════ */
 window._g20GameBuscar = function(){
   try {
@@ -20410,6 +20517,7 @@ window._g20GameBuscar = function(){
         window._g20GameDados = {
           uid: u.uid,
           mensal: d.mensal, trimestral: d.trimestral, anual: d.anual,
+          historico: Array.isArray(d.historico) ? d.historico : [],
           atualizadoEm: (d.atualizadoEm && d.atualizadoEm.toDate) ? d.atualizadoEm.toDate() : null
         };
         window._g20GameTipo = _g20GameJanelaDeAbertura();
@@ -20419,7 +20527,6 @@ window._g20GameBuscar = function(){
   } catch(e){}
 };
 
-/* Encontra o aluno dentro de uma janela. */
 function _g20GameMinha(janela){
   if (!janela || !Array.isArray(janela.jogadores)) return null;
   var uid = window._g20GameDados && window._g20GameDados.uid;
@@ -20437,16 +20544,12 @@ function _g20GameMinha(janela){
 
    Deliberadamente NÃO escolhemos "a janela onde ele está melhor". Isso
    transformaria o card numa máquina de boa notícia: num mês ruim em
-   todas as três, ele escolheria a menos ruim e seguiria escolhendo. O
-   aluno acabaria descobrindo, e aí todo número da plataforma vira
-   suspeito. Queda de nove posições é exatamente o que ele precisa ver.
-
-   Empate vai para o mensal, que é o ciclo em disputa.
+   todas as três, escolheria a menos ruim e seguiria escolhendo. Queda de
+   nove posições é exatamente o que o aluno precisa ver.
    ═══════════════════════════════════════════════════════════════════════ */
 function _g20GameJanelaDeAbertura(){
   var d = window._g20GameDados;
   if (!d) return 'mensal';
-
   var ant = {};
   try {
     var raw = localStorage.getItem('g20_gameSnap');
@@ -20464,15 +20567,55 @@ function _g20GameJanelaDeAbertura(){
     var mov = (antes != null) ? Math.abs(antes - minha.pos) : 0;
     if (mov > maior) { maior = mov; melhor = t; }
   });
-
-  try {
-    localStorage.setItem('g20_gameSnap', JSON.stringify({
-      uid: d.uid, pos: atual, em: Date.now()
-    }));
-  } catch(e){}
-
+  try { localStorage.setItem('g20_gameSnap', JSON.stringify({ uid:d.uid, pos:atual, em:Date.now() })); } catch(e){}
   window._g20GameAnterior = ant;
   return melhor;
+}
+
+var G20_GAME_ORDEM  = ['mensal','trimestral','anual'];
+var G20_GAME_ROTULO = { mensal:'MENSAL', trimestral:'TRIMESTRAL', anual:'ANUAL' };
+
+function _g20GameFmt(v){
+  if (v == null || !isFinite(v)) return '—';
+  return (v >= 0 ? '+' : '') + Number(v).toFixed(1).replace('.', ',') + '%';
+}
+
+/* Verso: as 10 posições do período. Só a carteira do próprio aluno —
+   a dos outros continua acessível apenas dentro do game-g20.html. */
+function _g20GameVerso(tipo, janela){
+  var tit = document.getElementById('v21GameVersoTit');
+  if (tit) tit.textContent = 'CARTEIRA · ' + G20_GAME_ROTULO[tipo];
+
+  var lista = document.getElementById('v21GameLista');
+  var media = document.getElementById('v21GameMedia');
+  if (!lista) return;
+
+  var meus = janela && janela.meus;
+  if (!meus || !meus.length) {
+    lista.innerHTML = '<div style="padding:16px 2px;font-size:12px;color:var(--text2,#8b93a7);line-height:1.6">' +
+                      'Você ainda não montou carteira para este período.</div>';
+    if (media) media.innerHTML = '';
+    return;
+  }
+
+  lista.innerHTML = meus.map(function(a){
+    var cor = (a.ret == null) ? '#8b93a7' : (a.ret >= 0 ? '#4ade80' : '#f87171');
+    /* Logo pela CDN da TradingView, padrão da plataforma. Falhando, some
+       sem deixar buraco — o ticker já identifica o ativo. */
+    var slug = String(a.ticker).toLowerCase().replace(/[0-9]+$/,'');
+    return '<div class="v21-game-item">' +
+             '<img class="v21-game-logo" src="https://s3-symbol-logo.tradingview.com/' + slug + '.svg" ' +
+             'alt="" onerror="this.style.visibility=\'hidden\'">' +
+             '<span class="v21-game-tk">' + a.ticker + '</span>' +
+             '<span class="v21-game-tr" style="color:' + cor + '">' + _g20GameFmt(a.ret) + '</span>' +
+           '</div>';
+  }).join('');
+
+  var minha = _g20GameMinha(janela);
+  if (media && minha) {
+    media.innerHTML = '<span>média da carteira</span><b style="font-family:\'JetBrains Mono\',monospace;color:' +
+                      (minha.retorno >= 0 ? '#4ade80' : '#f87171') + '">' + _g20GameFmt(minha.retorno) + '</b>';
+  }
 }
 
 window.v21LoadGame = function(){
@@ -20491,64 +20634,65 @@ window.v21LoadGame = function(){
   loading.style.display = 'none';
 
   /* Botão que cicla: mensal → trimestral → anual → mensal */
-  var ORDEM = ['mensal','trimestral','anual'];
-  var ROTULO = { mensal:'MENSAL', trimestral:'TRIMESTRAL', anual:'ANUAL' };
-  var tog = document.getElementById('v21GameToggle');
   var togLbl = document.getElementById('v21GameToggleLbl');
-  if (togLbl) togLbl.textContent = ROTULO[tipo] || 'MENSAL';
+  if (togLbl) togLbl.textContent = G20_GAME_ROTULO[tipo] || 'MENSAL';
+  var tog = document.getElementById('v21GameToggle');
   if (tog && !tog._lig) {
     tog._lig = true;
     tog.addEventListener('click', function(){
-      var i = ORDEM.indexOf(window._g20GameTipo || 'mensal');
-      window._g20GameTipo = ORDEM[(i + 1) % ORDEM.length];
+      var i = G20_GAME_ORDEM.indexOf(window._g20GameTipo || 'mensal');
+      window._g20GameTipo = G20_GAME_ORDEM[(i + 1) % G20_GAME_ORDEM.length];
       v21LoadGame();
     });
+  }
+
+  /* Flip */
+  var card = document.getElementById('v21GameCard');
+  var bV = document.getElementById('v21GameVerso');
+  var bF = document.getElementById('v21GameFrente');
+  if (card && bV && !bV._lig) {
+    bV._lig = true;
+    bV.addEventListener('click', function(){ card.classList.add('flipped'); });
+  }
+  if (card && bF && !bF._lig) {
+    bF._lig = true;
+    bF.addEventListener('click', function(){ card.classList.remove('flipped'); });
   }
 
   var janela = d ? d[tipo] : null;
   var minha  = janela ? _g20GameMinha(janela) : null;
 
   if (hint) {
-    hint.textContent = janela && janela.ciclo
-      ? janela.ciclo
-      : MESES[hoje.getMonth()] + ' de ' + hoje.getFullYear();
+    hint.textContent = (janela && janela.ciclo) ? janela.ciclo
+                     : (MESES[hoje.getMonth()] + ' de ' + hoje.getFullYear());
   }
+
+  _g20GameVerso(tipo, janela);
 
   if (!minha) {
     main.style.display = 'none';
     vazio.style.display = '';
+    if (bV) bV.style.display = 'none';
     var txt = document.getElementById('v21GameEmptyTxt');
     if (txt) {
-      /* ═══════════════════════════════════════════════════════════════
-         O CONVITE PRECISA APONTAR PARA O CICLO QUE AINDA DA PARA MONTAR
-
-         A primeira versao usava o mes corrente. Errado: em 27 de julho o
-         ciclo EM COMPETICAO e julho, mas o prazo dele fechou em 30 de
-         junho — o aluno estaria sendo convidado a montar algo impossivel.
-         O que ele pode montar e o ciclo ALVO (agosto), e o que importa e
-         quanto tempo falta.
-
-         `alvo` vem do getTargetCiclo() do game-g20.html, publicado junto
-         com o ranking. Regra de negocio mora num lugar so. */
+      /* O convite precisa apontar para o ciclo que AINDA dá para montar.
+         Usar o mês corrente estava errado: em 27 de julho o ciclo em
+         competição é julho, mas o prazo dele fechou em 30 de junho. */
       var alvo = janela && janela.alvo;
       var nomeAlvo = (alvo && alvo.label) ? alvo.label : MESES[hoje.getMonth()];
       var html = 'Monte sua carteira de <b style="color:#e8b84b">' + nomeAlvo +
                  '</b> e dispute com a turma. Não precisa ter investimento nenhum pra jogar.';
-
       if (alvo && alvo.prazo) {
         var resta = alvo.prazo - Date.now();
         if (resta > 0) {
           var dias  = Math.floor(resta / 86400000);
           var horas = Math.floor((resta % 86400000) / 3600000);
           var mins  = Math.floor((resta % 3600000) / 60000);
-          var quanto = dias > 0
-            ? dias + (dias > 1 ? ' dias' : ' dia') + ' e ' + horas + 'h'
-            : (horas > 0 ? horas + 'h' + String(mins).padStart(2,'0') : mins + ' min');
-          /* Menos de 48h muda a cor: aviso, não decoração. */
-          var urgente = resta < 48 * 3600000;
+          var quanto = dias > 0 ? dias + (dias > 1 ? ' dias' : ' dia') + ' e ' + horas + 'h'
+                                : (horas > 0 ? horas + 'h' + String(mins).padStart(2,'0') : mins + ' min');
+          var urgente = resta < 48 * 3600000;   // menos de 48h vira aviso, não decoração
           html += '<div class="v21-game-prazo' + (urgente ? ' urgente' : '') + '">' +
-                    '⏳ faltam <b>' + quanto + '</b> para o prazo' +
-                  '</div>';
+                    '⏳ faltam <b>' + quanto + '</b> para o prazo</div>';
         } else {
           html = 'O prazo de <b style="color:#e8b84b">' + nomeAlvo + '</b> encerrou. ' +
                  'O próximo ciclo abre em breve — fique de olho.';
@@ -20561,50 +20705,90 @@ window.v21LoadGame = function(){
 
   vazio.style.display = 'none';
   main.style.display = '';
+  if (bV) bV.style.display = '';
 
-  var set = function(id, txt){ var e = document.getElementById(id); if (e) e.textContent = txt; };
-  set('v21GamePos', minha.pos + 'º');
-  set('v21GameTotal', janela.total || '—');
+  /* ── ANEL DE PERCENTIL ──────────────────────────────────────────────
+     O anel mede quanto da turma está atrás de você. Substitui o "de 80":
+     com poucos participantes, o total desanima; o percentil funciona
+     igual com 5 ou 500. */
+  var total = janela.total || (janela.jogadores || []).length || 1;
+  var pct   = (total > 1) ? ((total - minha.pos) / (total - 1)) * 100 : 100;
+  pct = Math.max(0, Math.min(100, pct));
 
-  /* Movimento pesa mais que posição crua: subir três anima quem está em
+  var posEl = document.getElementById('v21GamePos');
+  if (posEl) posEl.textContent = minha.pos + 'º';
+  var anel = document.getElementById('v21GameAnel');
+  if (anel) {
+    var C = 2 * Math.PI * 34;                       // 213.6
+    anel.setAttribute('stroke-dasharray', C.toFixed(1));
+    anel.setAttribute('stroke-dashoffset', (C * (1 - pct / 100)).toFixed(1));
+  }
+  var retEl = document.getElementById('v21GameRet');
+  if (retEl) {
+    retEl.textContent = _g20GameFmt(minha.retorno);
+    retEl.className = 'v21-game-ret' + (minha.retorno < 0 ? ' down' : '');
+  }
+
+  /* ── DELTA ───────────────────────────────────────────────────────────
+     Movimento pesa mais que posição crua: subir três anima quem está em
      30º; o "30º" sozinho só lembra que ele está atrás. */
   var deltaEl = document.getElementById('v21GameDelta');
   if (deltaEl) {
-    var ant = (window._g20GameAnterior || {})[tipo];
+    var ant  = (window._g20GameAnterior || {})[tipo];
     var base = (ant != null) ? ant : minha.posOntem;
-    var dl = (base != null) ? (base - minha.pos) : 0;
+    var dl   = (base != null) ? (base - minha.pos) : 0;
     var quando = (ant != null) ? 'desde sua última visita' : 'desde ontem';
-    if (dl > 0)      { deltaEl.className = 'v21-game-delta up';   deltaEl.textContent = '▲ ' + dl + ' posiç' + (dl>1?'ões ':'ão ') + quando; }
-    else if (dl < 0) { deltaEl.className = 'v21-game-delta down'; deltaEl.textContent = '▼ ' + Math.abs(dl) + ' posiç' + (dl<-1?'ões ':'ão ') + quando; }
-    else             { deltaEl.className = 'v21-game-delta flat'; deltaEl.textContent = 'sem mudança ' + quando; }
+    if (dl > 0)      { deltaEl.className='v21-game-delta up';   deltaEl.textContent='▲ '+dl+' posiç'+(dl>1?'ões ':'ão ')+quando; }
+    else if (dl < 0) { deltaEl.className='v21-game-delta down'; deltaEl.textContent='▼ '+Math.abs(dl)+' posiç'+(dl<-1?'ões ':'ão ')+quando; }
+    else             { deltaEl.className='v21-game-delta flat'; deltaEl.textContent='sem mudança '+quando; }
   }
 
-  /* Só o pódio. A metade de baixo da tabela não vai para o dashboard. */
-  var podEl = document.getElementById('v21GamePodio');
-  if (podEl && janela.jogadores) {
-    var M = ['🥇','🥈','🥉'];
-    podEl.innerHTML = janela.jogadores.slice(0,3).map(function(p, i){
-      var eu = (p.uid === d.uid);
-      var r = (p.retorno >= 0 ? '+' : '') + Number(p.retorno).toFixed(1).replace('.', ',') + '%';
-      return '<div class="v21-game-pod' + (eu ? ' voce' : '') + '">' +
-               '<span class="v21-game-pod-m">' + M[i] + '</span>' +
-               '<span class="v21-game-pod-n">' + (eu ? 'Você' : p.nome) + '</span>' +
-               '<span class="v21-game-pod-v" style="color:' + (p.retorno >= 0 ? '#4ade80' : '#f87171') + '">' + r + '</span>' +
-             '</div>';
-    }).join('');
+  /* ── CURVA DA TURMA ──────────────────────────────────────────────────
+     O marcador anda pelo eixo conforme o percentil. A curva é a mesma
+     silhueta sempre — é ilustração da distribuição, não histograma real,
+     e por isso não promete precisão que não tem. */
+  var X = 8 + (pct / 100) * 234;
+  var linha = document.getElementById('v21GameLinha');
+  var ponto = document.getElementById('v21GamePonto');
+  var clipR = document.getElementById('v21GameClipR');
+  if (linha) { linha.setAttribute('x1', X.toFixed(1)); linha.setAttribute('x2', X.toFixed(1)); }
+  if (ponto) ponto.setAttribute('cx', X.toFixed(1));
+  if (clipR) clipR.setAttribute('width', X.toFixed(1));
+  var pctEl = document.getElementById('v21GamePct');
+  if (pctEl) {
+    pctEl.innerHTML = 'à frente de <b style="color:#4ade80">' + Math.round(pct) + '%</b> da turma';
   }
 
-  var footEl = document.getElementById('v21GameFoot');
-  if (footEl) {
-    var meu = (minha.retorno >= 0 ? '+' : '') + Number(minha.retorno).toFixed(1).replace('.', ',') + '%';
-    var carimbo = '';
-    if (d.atualizadoEm) {
-      carimbo = '<div class="v21-game-carimbo">ranking de ' +
-                String(d.atualizadoEm.getDate()).padStart(2,'0') + '/' +
-                String(d.atualizadoEm.getMonth()+1).padStart(2,'0') + '</div>';
+  /* ── SEMANA ──────────────────────────────────────────────────────────
+     Série montada pelo publicador do Game, um ponto por dia. Leva 7 dias
+     para encher; até lá mostramos o que existe. */
+  var semBloco = document.getElementById('v21GameSemanaBloco');
+  var semEl    = document.getElementById('v21GameSemana');
+  var serie = [];
+  try {
+    (d.historico || []).forEach(function(h){
+      var p = h && h[tipo] && h[tipo][d.uid];
+      if (p != null) serie.push({ d: h.d, pos: p });
+    });
+  } catch(e){}
+  if (semBloco && semEl) {
+    if (serie.length < 2) {
+      semBloco.style.display = 'none';
+    } else {
+      semBloco.style.display = '';
+      var pior = 1;
+      serie.forEach(function(x){ if (x.pos > pior) pior = x.pos; });
+      semEl.innerHTML = serie.map(function(x, i){
+        /* Barra alta = posição boa. Invertemos porque 1º é o topo. */
+        var alt = Math.round(((pior - x.pos + 1) / pior) * 42) + 4;
+        var ult = (i === serie.length - 1);
+        var cls = ult ? 'hoje' : (i >= serie.length - 3 ? 'recente' : '');
+        return '<div class="v21-game-dia">' +
+                 '<div class="v21-game-dia-b ' + cls + '" style="height:' + alt + 'px"></div>' +
+                 '<div class="v21-game-dia-l ' + (ult ? 'hoje' : '') + '">' + x.pos + 'º</div>' +
+               '</div>';
+      }).join('');
     }
-    footEl.innerHTML = 'Sua carteira: <b style="color:' +
-                       (minha.retorno >= 0 ? '#4ade80' : '#f87171') + '">' + meu + '</b>' + carimbo;
   }
 };
 </script></script>

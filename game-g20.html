@@ -1991,9 +1991,31 @@ function _rankResumo(tipo){
     }
   } catch(e){}
 
+  /* A carteira do PRÓPRIO aluno, com o retorno de cada ativo — alimenta o
+     verso do card no dashboard. Só a dele: a de terceiros continua
+     acessível apenas dentro do Game, ao clicar no jogador. */
+  var meus = null;
+  try {
+    for (var q = 0; q < lista.length; q++) {
+      if (lista[q].uid !== currentUid) continue;
+      meus = (lista[q].ativos || []).map(function(a){
+        var base = precoBaseDe(tipo, a.ticker);
+        var atual = cotacoesCache[a.ticker] != null ? parseFloat(cotacoesCache[a.ticker]) : null;
+        var r = (base && atual && base > 0) ? ((atual - base) / base * 100) : null;
+        return { ticker: a.ticker, ret: (r == null ? null : Math.round(r * 100) / 100) };
+      }).sort(function(x, y){
+        if (x.ret == null) return 1;
+        if (y.ret == null) return -1;
+        return y.ret - x.ret;
+      });
+      break;
+    }
+  } catch(e){}
+
   return {
     total: lista.length,
     alvo: alvo,
+    meus: meus,
     ciclo: (typeof getLiveCiclo === 'function') ? getLiveCiclo(tipo).label : '',
     jogadores: lista.map(function(j, i){
       var posAnt = ontem[j.uid];
@@ -2053,8 +2075,30 @@ function publicarRankingSePreciso(){
         return null;
       }
     }
+    /* ═══════════════════════════════════════════════════════════════
+       HISTÓRICO DE 7 DIAS — construído de graça
+
+       O card mostra a evolução da posição na semana, e não existia
+       lugar guardando isso. Como a publicação acontece uma vez por dia
+       e já lemos o documento aqui, basta acrescentar a foto de hoje e
+       manter as 7 últimas. Sem cron, sem endpoint, sem leitura extra.
+
+       Guardamos só uid -> posição. A série leva 7 dias para encher; até
+       lá o card mostra os dias que existem. */
+    var hist = (doc.exists && Array.isArray(doc.data().historico)) ? doc.data().historico : [];
+    var hojeStr = new Date().toISOString().slice(0,10);
+    hist = hist.filter(function(h){ return h && h.d && h.d !== hojeStr; });
+
+    var foto = { d: hojeStr, mensal:{}, trimestral:{}, anual:{} };
+    [['mensal',m],['trimestral',t],['anual',a]].forEach(function(par){
+      (par[1].jogadores || []).forEach(function(j){ foto[par[0]][j.uid] = j.pos; });
+    });
+    hist.push(foto);
+    hist = hist.slice(-7);
+
     return ref.set({
       mensal: m, trimestral: t, anual: a,
+      historico: hist,
       atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
     });
   }).then(function(r){
