@@ -162,8 +162,20 @@ function _importarTodosProventosBackground(onDone){
   var fromStr = from.toISOString().split('T')[0];
   var US_TIPOS = ['Stock','REIT','ETF','Cripto','UCITs','ETF US'];
 
-  var aportesG20  = JSON.parse(localStorage.getItem('g20_aportes')||'[]');
-  var aportesGest = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
+  /* R51: as duas chaves precisam ser ARRAYS. Um dado corrompido derrubava
+     o import inteiro com "aportesG20.forEach is not a function" — e sem
+     import não chega provento nenhum, nem da carteira pessoal. Falha de
+     um lado não pode calar o outro. */
+  function _listaSegura(chave){
+    try {
+      var v = JSON.parse(localStorage.getItem(chave) || '[]');
+      if (Array.isArray(v)) return v;
+      console.warn('[G20] ' + chave + ' não é uma lista — ignorado neste import.');
+    } catch(e){}
+    return [];
+  }
+  var aportesG20  = _listaSegura('g20_aportes');
+  var aportesGest = _listaSegura('g20_rvAportes');
 
   var tarefas = [];
   var g20Map={};
@@ -8157,6 +8169,9 @@ var PROXY_URL = 'https://g20-proxy.vercel.app';
    aqui e recebe, sem precisar saber quem está logado.
    ═══════════════════════════════════════════════════════════════════════════ */
 function g20CG20Aportes(){
+  /* Só aceita ARRAY. Se a chave vier com outro formato — como aconteceu
+     quando o documento artefato "g20_aportes" sobrescreveu o bom — vale
+     mais devolver vazio que entregar algo que quebra quem chamou. */
   try {
     var a = JSON.parse(localStorage.getItem('g20_cg20Aportes') || '[]');
     if (Array.isArray(a) && a.length) return a;
@@ -11598,20 +11613,61 @@ window.g20Logout = function() {
             try { if (window.G20Rent) G20Rent.invalidar(); } catch(e){}
           }
           snap.forEach(function(doc) {
+            /* ═══════════════════════════════════════════════════════════
+               DOCUMENTOS COM PREFIXO DUPLICADO SÃO LIXO — IGNORE
+
+               Existe no Firestore um documento chamado "g20_aportes",
+               resíduo de alguma gravação antiga. O documento bom se chama
+               "aportes".
+
+               Eu tinha "corrigido" isso normalizando o nome — tirando o
+               prefixo antes de gravar. Foi pior: como a iteração é
+               alfabética, "aportes" gravava certo e logo depois
+               "g20_aportes" gravava POR CIMA, com o conteúdo errado. O
+               resultado ficou visível no diagnóstico:
+
+                   g20_aportes ... 283 KB, 1 registro
+
+               1 registro em 283 KB não é uma lista de aportes. E o
+               dashboard quebrava com "aportesG20.forEach is not a
+               function", porque esperava um array e recebeu um objeto.
+
+               Documento com prefixo é artefato: pular é o certo. E
+               apagamos a chave órfã que possa ter sobrado. */
+            if (String(doc.id).indexOf('g20_') === 0) return;
+
             // A Carteira G20 curada (aportes) é do ADMIN. Não carrega no cache do aluno,
             // senão os valores dela vazam pros KPIs pessoais (APORTES, composição) como se
             // fossem do próprio aluno. O aluno vê só a carteira dele (rvAportes).
             if (!_isAdminDash && doc.id === 'aportes') return;
-            /* R51: se o documento no Firestore já se chama "g20_aportes",
-               concatenar o prefixo produzia a chave órfã `g20_g20_aportes` —
-               283 KB de dado morto que ninguém lê e que ocupava a cota.
-               Normaliza antes de gravar. */
-            var _id = String(doc.id).replace(/^g20_/, '');
-            if (!_isAdminDash && _id === 'aportes') return;
-            try { localStorage.setItem('g20_' + _id, JSON.stringify(doc.data().value)); } catch(e) {}
+
+            var _valor = doc.data() && doc.data().value;
+            if (_valor === undefined) return;
+            try { localStorage.setItem('g20_' + doc.id, JSON.stringify(_valor)); } catch(e) {}
           });
           // Remove a chave órfã de versões anteriores, se existir.
           try { localStorage.removeItem('g20_g20_aportes'); } catch(e){}
+
+          /* ═══════════════════════════════════════════════════════════════
+             SANEAMENTO: g20_aportes precisa ser um ARRAY
+
+             Uma versão anterior desta sessão gravou o conteúdo do documento
+             "g20_aportes" (artefato) por cima do documento "aportes" (bom).
+             Quem abriu o dashboard naquele intervalo ficou com um objeto no
+             lugar da lista, e o import de proventos quebrava com
+             "aportesG20.forEach is not a function".
+
+             Aqui detectamos o formato errado e removemos. Na próxima
+             leitura do Firestore a chave é reescrita corretamente — agora
+             que os documentos com prefixo são ignorados. */
+          try {
+            var _ap = JSON.parse(localStorage.getItem('g20_aportes') || 'null');
+            if (_ap !== null && !Array.isArray(_ap)) {
+              localStorage.removeItem('g20_aportes');
+              console.warn('[G20] g20_aportes estava corrompido (não era uma lista) — ' +
+                           'descartado. Será recarregado do Firestore.');
+            }
+          } catch(e){ try { localStorage.removeItem('g20_aportes'); } catch(e2){} }
           try { localStorage.setItem('g20_dados_owner', user.uid); } catch(e){}
           // Snapshots reais do usuário já estão no localStorage: libera os painéis.
           window._g20DadosProntos = true;
