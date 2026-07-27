@@ -12324,18 +12324,29 @@ window.g20Logout = function() {
               }
             });
           }
-          // Aguarda 2s para cota  es do Yahoo chegarem antes de renderizar varia  es
-          setTimeout(function(){
-            _atualizarVariacoesPat();
-            // V3: mais um retry apos cotacoes chegarem
-            if(typeof v3InitBlocks === 'function'){
-              try{ v3InitBlocks(); }catch(e){}
-            }
-          }, 2000);
+          /* ═══════════════════════════════════════════════════════════════
+             R51: era `setTimeout(..., 2000)` — uma aposta de que as cotações
+             chegariam em dois segundos. Numa conexão lenta, não chegavam, e
+             os cards ficavam com o fechamento até o próximo ciclo de 15 min.
+
+             Agora _buscarCotacoesEAtualizarRV() avisa quando termina: ele
+             mesmo recalcula loadPatStrip, v21LoadGP e a Composição depois de
+             gravar os preços. A espera aqui deixou de ser necessária — mas
+             mantemos um disparo imediato, para o ciclo começar sem atraso. */
+          _atualizarVariacoesPat();
+          if (typeof v3InitBlocks === 'function') {
+            setTimeout(function(){ try { v3InitBlocks(); } catch(e){} }, 2000);
+          }
         }).catch(function(e) { console.warn('Patrim\u00f4nio Firestore:', e); });
       }
       atualizarPat();
-      setInterval(atualizarPat, 15 * 60 * 1000); // atualiza a cada 15 minutos
+      /* Ciclo de 15 minutos: relê o Firestore, busca cotações novas e
+         recalcula os cards de patrimônio. É o que mantém o card Minha
+         Carteira acompanhando o pregão ao longo do dia. */
+      setInterval(function(){
+        console.log('[G20] atualização periódica (15 min) — buscando cotações');
+        atualizarPat();
+      }, 15 * 60 * 1000);
 
     }).catch(function(e){ console.warn('Firestore:', e); });
   });
