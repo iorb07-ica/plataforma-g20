@@ -11060,6 +11060,32 @@ function _patSnapUpsert(total,rf,rv){
 
          Agora ela é calculada sempre. A RV continua com a trava dela.
          ═══════════════════════════════════════════════════════════════════ */
+      /* ═══════════════════════════════════════════════════════════════════
+         NÃO APAGUE A COTAÇÃO QUE JÁ CHEGOU — R51
+
+         Esta função é chamada por dois caminhos, e em ordem imprevisível:
+
+           loadPatStrip .......... traz a RV ao vivo (rv > 0)
+           semeadura da série .... passa rv = 0, porque ali não há cotação
+
+         A semeadura roda DEPOIS na maioria das cargas — o log mostra
+         "série aplicada aos painéis" bem após a Composição já ter sido
+         ancorada. Como ela reconstrói o ponto de hoje do zero, apagava o
+         rvVivo que o loadPatStrip tinha acabado de gravar.
+
+         Resultado: temRvVivo '—' o dia inteiro, o card preso no fechamento e
+         o rótulo "em 26/07" numa segunda-feira com a B3 aberta.
+
+         A regra: rv = 0 significa "não tenho cotação para oferecer", não
+         "apague a que existe". Quem tem valor, manda.
+         ═══════════════════════════════════════════════════════════════════ */
+      var _rvAnterior = 0;
+      try {
+        var _hojeAntigo = arr.filter(function(p){ return p.d === hoje; })[0];
+        if (_hojeAntigo && _hojeAntigo.rvVivo > 0) _rvAnterior = _hojeAntigo.rvVivo;
+      } catch(e){}
+      if (!(rv > 0) && _rvAnterior > 0) rv = _rvAnterior;
+
       var _rfHoje = null;
       try {
         if (window.G20Rent && typeof G20Rent._rfLiquido === 'function') {
