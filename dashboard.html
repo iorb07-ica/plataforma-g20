@@ -6895,7 +6895,15 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
 (function(){
   var _ov  = document.getElementById('g20LoadingOverlay');
   var _msg = document.getElementById('g20LoaderMsg');
-  var _frases = ['Carregando carteira','Lendo proventos','Chamando o Buffett \uD83C\uDFA9','#n\u00e3ofoisorte'];
+  /* Banco de frases do splash. Com o piso maior no primeiro login da
+     sessão, quatro frases davam a volta e repetiam — nove cobrem os ~7s
+     sem repetir nenhuma. A ordem é proposital: começa no concreto
+     ("carregando carteira"), passa pelo Buffett no meio, quando o aluno
+     já está prestando atenção, e fecha na assinatura da marca. */
+  var _frases = ['Carregando carteira','Lendo proventos','Somando os aportes',
+                 'Conferindo os proventos','Chamando o Buffett \uD83C\uDFA9',
+                 'Calculando a rentabilidade','Alinhando com o CDI',
+                 'Preparando seus gr\u00e1ficos','#n\u00e3ofoisorte'];
   var _i=0, _rot=null, _shownAt=Date.now(), _hidden=false, _maxTimer=null;
 
   /* ═══════════════════════════════════════════════════════════════
@@ -6919,9 +6927,25 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
   var LIMITE_OCIOSO = 2 * 60 * 60 * 1000;   // 2h
 
   var _primeiraVez = false, _primeiraDoDia = false, _voltandoDepoisDeMuito = false;
+  var _primeiraDaSessao = false;
   try {
     _primeiraVez = !localStorage.getItem('g20_dash_seen');
     localStorage.setItem('g20_dash_seen','1');
+
+    /* ═══════════════════════════════════════════════════════════════
+       PRIMEIRO CARREGAMENTO DESTA SESSÃO — R51
+
+       O sessionStorage morre quando a aba fecha. Então isto é
+       verdadeiro uma vez por sessão de navegação: quem acabou de
+       entrar na plataforma vê o splash completo, com as frases
+       rodando. Quem vai ao G20Flix e volta pro dashboard, não vê —
+       a mesma aba, a mesma sessão, entrada instantânea.
+
+       É diferente de g20_dash_seen, que vive no localStorage e só é
+       verdadeiro na estreia absoluta, uma vez na vida do navegador.
+       ═══════════════════════════════════════════════════════════════ */
+    _primeiraDaSessao = !sessionStorage.getItem('g20_sessao_iniciada');
+    sessionStorage.setItem('g20_sessao_iniciada','1');
 
     // Primeira abertura do dia (data local, não UTC)
     var _hoje = new Date();
@@ -6935,17 +6959,29 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
     localStorage.setItem('g20_dash_lastSeen', String(AGORA));
   } catch(e){}
 
-  var _splashCompleto = _primeiraVez || _primeiraDoDia || _voltandoDepoisDeMuito;
+  var _splashCompleto = _primeiraVez || _primeiraDaSessao || _primeiraDoDia || _voltandoDepoisDeMuito;
 
-  // Piso: só existe quando o splash completo faz sentido.
-  // Nos retornos rápidos é ZERO — fecha assim que os dados chegam.
-  var _piso = _primeiraVez ? 5000 : (_splashCompleto ? 2500 : 0);
+  /* Piso por situação:
+       estreia absoluta ....... 7,5s — é a primeira impressão da plataforma
+       primeiro login da sessão 6,0s — dá tempo das frases rodarem
+       primeira do dia / 2h+ .. 2,5s
+       navegando entre páginas . 0   — instantâneo, como as outras páginas
+
+     O que muda em relação ao anterior: antes, entrar na plataforma pela
+     segunda vez no mesmo dia abria o dashboard num piscar. Agora todo
+     login novo ganha o splash; só o vai-e-volta dentro da sessão é rápido. */
+  var _piso = _primeiraVez ? 7500
+            : _primeiraDaSessao ? 6000
+            : _splashCompleto ? 2500 : 0;
   // Teto de segurança: nunca deixa o overlay preso se algo falhar.
   var _teto = _splashCompleto ? (_piso + 2500) : 1200;
 
   try {
     console.log('[G20Loader] ' + (_splashCompleto
-      ? ('splash completo (' + (_primeiraVez ? 'estreia' : _primeiraDoDia ? 'primeira do dia' : 'retorno após 2h+') + ') — piso ' + _piso + 'ms')
+      ? ('splash completo (' + (_primeiraVez ? 'estreia'
+          : _primeiraDaSessao ? 'primeiro acesso da sessão'
+          : _primeiraDoDia ? 'primeira do dia' : 'retorno após 2h+')
+        + ') — piso ' + _piso + 'ms')
       : 'modo rápido — sem piso, fecha ao carregar'));
   } catch(e){}
 
@@ -6954,10 +6990,16 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
     // Sem splash completo o overlay dura menos que uma troca de frase;
     // rotacionar só causaria flicker.
     if(!_splashCompleto) return;
+    /* R51: 1,5s por frase mostrava só quatro num splash de 6s, e o Buffett
+       — que é a graça da tela — às vezes nem aparecia. Com 850ms cabem
+       todas as nove, e a leitura continua confortável: o texto é curto.
+       O fade encurtou junto (400ms para 220ms), senão a transição comeria
+       metade do tempo de cada frase. */
+    var _ritmo = _primeiraVez ? 800 : _primeiraDaSessao ? 850 : 1400;
     _rot = setInterval(function(){
       _msg.style.opacity = 0;
-      setTimeout(function(){ _i=(_i+1)%_frases.length; _msg.textContent=_frases[_i]; _msg.style.opacity=1; }, 400);
-    }, 1500);
+      setTimeout(function(){ _i=(_i+1)%_frases.length; _msg.textContent=_frases[_i]; _msg.style.opacity=1; }, 220);
+    }, _ritmo);
   }
   function _doHide(){
     if(_hidden||!_ov) return; _hidden=true;
