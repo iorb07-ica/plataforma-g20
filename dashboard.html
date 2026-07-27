@@ -650,7 +650,55 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 /* Estilos dos botões da topbar e painel de notificações: assets/g20-topbar.css */
 
 /* TICKER TAPE */
+/* ═══════════════════════════════════════════════════════════════════════════
+   BARRA DE ATUALIZAÇÃO
+
+   Discrição é o requisito principal: 2px de altura, opacidade baixa, sem
+   animação chamativa. Ela informa a quem procura e desaparece para quem não
+   está olhando. Sobe para 3px no hover, quando o aluno de fato quer saber.
+
+   O degradê corre do dourado escuro ao claro e termina num ponto de brilho —
+   a ponta que se move é o que dá a leitura de "está correndo".
+   ═══════════════════════════════════════════════════════════════════════════ */
+.g20-refresh-bar{
+  position:relative;height:2px;margin:0 2px 6px;border-radius:2px;
+  background:rgba(255,255,255,.045);overflow:hidden;
+  transition:height .18s ease, opacity .18s ease;
+  opacity:.55;
+}
+.g20-refresh-bar:hover{height:3px;opacity:1}
+.g20-refresh-bar > i{
+  display:block;height:100%;width:100%;border-radius:2px;
+  transform-origin:left center;
+  background:linear-gradient(90deg,
+    rgba(201,169,97,.28) 0%,
+    rgba(201,169,97,.75) 55%,
+    #e8b84b 92%,
+    #f3d27a 100%);
+  box-shadow:0 0 6px rgba(232,184,75,.35);
+  /* A transição acompanha o passo do relógio (1s). Sem ela o esvaziamento
+     ficaria em degraus visíveis. */
+  transition:transform 1s linear;
+}
+/* Ao recarregar, a barra volta cheia com um pulso curto — é o único momento
+   em que ela chama atenção, e serve para dizer "acabou de atualizar". */
+.g20-refresh-bar.recarregou > i{
+  transition:none;
+  animation:g20RefreshPulse .9s ease-out;
+}
+@keyframes g20RefreshPulse{
+  0%{box-shadow:0 0 14px rgba(232,184,75,.85); filter:brightness(1.5)}
+  100%{box-shadow:0 0 6px rgba(232,184,75,.35); filter:brightness(1)}
+}
+/* Aba em segundo plano: nada é atualizado, então a barra não corre.
+   Fica esmaecida em vez de sumir, para não mexer no layout. */
+.g20-refresh-bar.pausada{opacity:.18}
+.g20-refresh-bar.pausada > i{transition:none}
+
+body.light .g20-refresh-bar{background:rgba(20,40,80,.07)}
+
 .ticker-tape-wrap{position:relative;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:6px;height:50px;display:flex;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,.3);cursor:grab;user-select:none;-webkit-user-select:none}
+
 .ticker-tape-wrap.dragging{cursor:grabbing}
 .ticker-tape-wrap::before,.ticker-tape-wrap::after{content:'';position:absolute;top:0;bottom:0;width:48px;z-index:2;pointer-events:none}
 .ticker-tape-wrap::before{left:0;background:linear-gradient(to right,var(--bg2),transparent)}
@@ -7217,6 +7265,24 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
 
   <div class="content">
 
+    <!-- ═══════════════════════════════════════════════════════════════════
+         BARRA DE ATUALIZAÇÃO — R51
+
+         Uma linha de 2px entre o cabeçalho e a fita de cotações. Ela esvazia
+         ao longo de 15 minutos e recomeça cheia a cada busca de preços.
+
+         Existe porque o aluno olhava R$ 575.103 sem saber se era de agora ou
+         de catorze minutos atrás. A barra responde isso de relance, sem
+         ocupar espaço nem pedir atenção — e dá sinal de que a plataforma
+         está trabalhando, o que a página parada não transmitia.
+
+         Só aparece quando a aba está visível: com a página em segundo plano
+         nada é atualizado, e uma barra correndo ali seria mentira.
+         ═══════════════════════════════════════════════════════════════════ -->
+    <div class="g20-refresh-bar" id="g20RefreshBar" title="Cotações atualizam a cada 15 minutos">
+      <i id="g20RefreshFill"></i>
+    </div>
+
     <!-- TICKER TAPE -->
     <div class="ticker-tape-wrap" id="tickerTapeWrap">
       <div class="ticker-tape-track" id="tickerTapeTrack">
@@ -8941,6 +9007,10 @@ function _buscarCotacoesEAtualizarRV(){
         _dashRVCot = _cc.data;
         console.log('[G20] cotações reaproveitadas do cache (' +
                     Math.round(_idade/60000) + ' min) — nenhuma requisição feita.');
+        /* A barra precisa mostrar a idade REAL do dado. Reaproveitar um cache
+           de 12 minutos e desenhar a barra cheia diria que acabou de
+           atualizar — e o aluno confiaria num número que vence em 3 minutos. */
+        try { window._g20CotIdade = _idade; } catch(e){}
         try { if (typeof loadPatStrip === 'function') loadPatStrip(); } catch(e){}
         try { if (typeof v21LoadGP === 'function') v21LoadGP(); } catch(e){}
         try { if (typeof v21LoadCompChart === 'function') v21LoadCompChart(); } catch(e){}
@@ -12503,6 +12573,56 @@ window.g20Logout = function() {
       var IDADE_MAX = 15 * 60 * 1000;
       var _ultimaAtualizacao = Date.now();
 
+      /* ═══════════════════════════════════════════════════════════════════
+         A BARRA — o relógio visível
+
+         Ela não controla nada: só desenha o que a regra de idade já decide.
+         Se um dia o intervalo mudar de 15 para 10 minutos, a barra acompanha
+         sozinha, porque lê a mesma variável.
+         ═══════════════════════════════════════════════════════════════════ */
+      var _barra = document.getElementById('g20RefreshBar');
+      var _barraFill = document.getElementById('g20RefreshFill');
+
+      function _pintarBarra(){
+        if (!_barraFill) return;
+        if (document.hidden) {
+          // Nada é atualizado com a aba oculta — a barra não pode fingir que sim.
+          if (_barra) _barra.classList.add('pausada');
+          return;
+        }
+        if (_barra) _barra.classList.remove('pausada');
+        var restante = Math.max(0, IDADE_MAX - (Date.now() - _ultimaAtualizacao));
+        var fracao = restante / IDADE_MAX;
+        _barraFill.style.transform = 'scaleX(' + fracao.toFixed(4) + ')';
+        if (_barra) {
+          var min = Math.ceil(restante / 60000);
+          _barra.title = restante > 0
+            ? 'Cotações atualizam em ' + min + ' min'
+            : 'Atualizando cotações…';
+        }
+      }
+
+      function _reiniciarBarra(){
+        _ultimaAtualizacao = Date.now();
+        if (!_barraFill || !_barra) return;
+        // Volta cheia sem animar (senão ela "corre para trás"), depois pulsa.
+        _barra.classList.add('recarregou');
+        _barraFill.style.transform = 'scaleX(1)';
+        setTimeout(function(){ if (_barra) _barra.classList.remove('recarregou'); }, 900);
+      }
+
+      _reiniciarBarra();
+      /* Se as cotações vieram do cache, o relógio não começa do zero: começa
+         da idade que elas já têm. Sem isso, reabrir a página com um cache de
+         12 minutos desenharia a barra cheia. */
+      try {
+        if (window._g20CotIdade > 0 && window._g20CotIdade < IDADE_MAX) {
+          _ultimaAtualizacao = Date.now() - window._g20CotIdade;
+          _pintarBarra();
+        }
+      } catch(e){}
+      setInterval(_pintarBarra, 1000);
+
       function _precisaAtualizar(){
         return (Date.now() - _ultimaAtualizacao) >= IDADE_MAX;
       }
@@ -12511,7 +12631,7 @@ window.g20Logout = function() {
         if (!_precisaAtualizar()) return;
         var min = Math.round((Date.now() - _ultimaAtualizacao) / 60000);
         console.log('[G20] ' + motivo + ' — dado com ' + min + ' min, atualizando cotações');
-        _ultimaAtualizacao = Date.now();
+        _reiniciarBarra();
         atualizarPat();
       }
 
@@ -12521,6 +12641,7 @@ window.g20Logout = function() {
 
       try {
         document.addEventListener('visibilitychange', function(){
+          _pintarBarra();
           if (!document.hidden) _atualizarSePreciso('de volta à aba');
         });
       } catch(e){}
