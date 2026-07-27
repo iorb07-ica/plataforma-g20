@@ -10994,7 +10994,75 @@ function _patSnapUpsert(total,rf,rv){
     var SERIE_VER = 4;
     var _jaOk = (window._g20HistPronto && arr.length >= 2 && arr[arr.length-1] &&
                  arr[arr.length-1].real && arr[arr.length-1].sv === SERIE_VER);
-    if (_jaOk) return;
+    if (_jaOk) {
+      /* ═══════════════════════════════════════════════════════════════════
+         O ATALHO QUE ENGOLIA A COTAÇÃO — R51
+
+         `_jaOk` significa "a série já foi aplicada aos snapshots, não
+         precisa refazer". Correto para a série. Só que a função saía aqui
+         SEM olhar o `rv` recebido — e é logo abaixo, na montagem do ponto de
+         hoje, que a cotação ao vivo seria gravada.
+
+         Ou seja: na primeira chamada a série é montada e a cotação ainda não
+         chegou; da segunda em diante a cotação chega, mas o atalho devolve
+         antes de usá-la. O rastro mostrou isso com todas as letras:
+
+             loadPatStrip: passou RV R$ 564.985  |  gravou: NAO
+             snapshot: rvVivo ausente, rfVivo 11042
+
+         O rfVivo aparecia porque é calculado dentro desta função na primeira
+         passagem; o rvVivo vem de fora, e nunca era aproveitado.
+
+         Agora, antes de sair, aplicamos ao ponto de hoje o que veio nesta
+         chamada. É barato — só atualiza dois campos — e é o que faz o card
+         acompanhar o pregão em vez de ficar preso no fechamento.
+         ═══════════════════════════════════════════════════════════════════ */
+      try {
+        var _pt = arr[arr.length-1];
+        if (_pt && _pt.d === hoje) {
+          var mudou = false;
+
+          if (rv > 0) {
+            // Mesma trava de sanidade de baixo: valor ao vivo muito distante
+            // da série indica cálculo defeituoso, não movimento de mercado.
+            var _base = _pt.rv || 0;
+            var _ok = !(_base > 0) || (Math.abs(rv - _base) / _base * 100) <= 15;
+            if (_ok && _pt.rvVivo !== rv) { _pt.rvVivo = rv; mudou = true; }
+            else if (!_ok) {
+              console.warn('[G20Rent] cotação ao vivo descartada: R$ ' +
+                Math.round(rv).toLocaleString('pt-BR') + ' contra série R$ ' +
+                Math.round(_base).toLocaleString('pt-BR') + '.');
+            }
+          }
+
+          // Renda fixa: apropria por dia útil, independe do pregão.
+          try {
+            if (window.G20Rent && typeof G20Rent._rfLiquido === 'function') {
+              var _lst = JSON.parse(localStorage.getItem('g20_rendaFixa') || '[]');
+              var _ix = {
+                cdi:   (typeof IND !== 'undefined' && IND.cdi)   ? IND.cdi   : 14.15,
+                selic: (typeof IND !== 'undefined' && IND.selic) ? IND.selic : 14.25,
+                ipca:  (typeof IND !== 'undefined' && IND.ipca)  ? IND.ipca  : 4.64,
+                igpm:  (typeof IND !== 'undefined' && IND.igpm)  ? IND.igpm  : 3.18
+              };
+              var _s = 0;
+              _lst.forEach(function(x){
+                if (!x || x.encerrado) return;
+                var v = G20Rent._rfLiquido(x, hoje, _ix);
+                if (isFinite(v) && v > 0) _s += v;
+              });
+              if (_s > 0 && _pt.rfVivo !== _s) { _pt.rfVivo = _s; mudou = true; }
+            }
+          } catch(e){}
+
+          if (mudou) {
+            _patSnapSave(arr);
+            try { if (typeof _patRenderAllSparks === 'function') _patRenderAllSparks(); } catch(e){}
+          }
+        }
+      } catch(e){}
+      return;
+    }
 
     // Grava a série REAL como ela é. SEM ESCALA.
     var cdiD0 = _cdiDaily(), cdiAcc0 = 100;
