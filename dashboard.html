@@ -10914,7 +10914,22 @@ function _patSnapUpsert(total,rf,rv){
     // anteriores precisam ser DESCARTADOS. Sem isso, séries corrompidas (ex.: com o antigo
     // fator de escala aplicado em duplicidade, gerando "+106% hoje") sobrevivem no
     // localStorage e continuam sendo exibidas mesmo depois da correção.
-    var SERIE_VER = 3;
+    /* ═══════════════════════════════════════════════════════════════════
+       VERSÃO DA SÉRIE — R51: v3 → v4
+
+       A série fica em cache (IndexedDB) e só é reconstruída quando a versão
+       muda. As correções da renda fixa desta sessão mexeram no CÁLCULO DA
+       SÉRIE, não só na exibição:
+
+         · dias úteis reais (segunda a sexta, fora feriados) no lugar da
+           estimativa dc × 252/365, que fazia o CDB render no fim de semana;
+         · calendário de feriados nacionais com os móveis.
+
+       Sem o bump, a série antiga sobrevive e continua rendendo aos sábados
+       e domingos — foi por isso que o card seguia mostrando variação num
+       domingo (26/07) mesmo depois de subir o arquivo corrigido.
+       ═══════════════════════════════════════════════════════════════════ */
+    var SERIE_VER = 4;
     var _jaOk = (window._g20HistPronto && arr.length >= 2 && arr[arr.length-1] &&
                  arr[arr.length-1].real && arr[arr.length-1].sv === SERIE_VER);
     if (_jaOk) return;
@@ -11005,36 +11020,47 @@ function _patSnapUpsert(total,rf,rv){
          e o _diasUteisAte() conta hoje como dia útil (fora fim de semana e
          feriado). Numa segunda-feira, a sexta já pagou o fim de semana.
          ═══════════════════════════════════════════════════════════════════ */
+      /* ═══════════════════════════════════════════════════════════════════
+         A RENDA FIXA NÃO DEPENDE DA RENDA VARIÁVEL
+
+         Este cálculo ficava dentro de `if (rv > 0)`. Ou seja: sem cotação ao
+         vivo dos ativos — mercado fechado, fetch atrasado, fim de semana —
+         a renda fixa também deixava de render. Duas coisas independentes
+         amarradas: a RF apropria por dia útil e não tem nada a ver com o
+         pregão estar aberto.
+
+         Agora ela é calculada sempre. A RV continua com a trava dela.
+         ═══════════════════════════════════════════════════════════════════ */
+      var _rfHoje = null;
+      try {
+        if (window.G20Rent && typeof G20Rent._rfLiquido === 'function') {
+          var _rfLista = [];
+          try { _rfLista = JSON.parse(localStorage.getItem('g20_rendaFixa') || '[]'); } catch(e){}
+          var _idxRF = {
+            cdi:   (typeof IND !== 'undefined' && IND.cdi)   ? IND.cdi   : 14.15,
+            selic: (typeof IND !== 'undefined' && IND.selic) ? IND.selic : 14.25,
+            ipca:  (typeof IND !== 'undefined' && IND.ipca)  ? IND.ipca  : 4.64,
+            igpm:  (typeof IND !== 'undefined' && IND.igpm)  ? IND.igpm  : 3.18
+          };
+          var _hojeRF = new Date().toISOString().substring(0,10);
+          var _soma = 0;
+          _rfLista.forEach(function(rfItem){
+            if (!rfItem || rfItem.encerrado) return;
+            var v = G20Rent._rfLiquido(rfItem, _hojeRF, _idxRF);
+            if (isFinite(v) && v > 0) _soma += v;
+          });
+          if (_soma > 0) _rfHoje = _soma;
+        }
+      } catch(e){}
+
+      /* Só o campo AO VIVO recebe o valor de hoje. Os campos t/rf/rv do ponto
+         de hoje continuam repetindo o fechamento, de propósito: é o que mantém
+         o gráfico com uma base só. Quem lê a variação do dia usa rvVivo e
+         rfVivo — e é lá que a renda fixa precisava aparecer. */
+      if (_rfHoje !== null) _pontoHoje.rfVivo = _rfHoje;
       if (rv > 0) {
         _pontoHoje.rvVivo = rv;
-
-        var _rfHoje = null;
-        try {
-          if (window.G20Rent && typeof G20Rent._rfLiquido === 'function') {
-            var _rfLista = [];
-            try { _rfLista = JSON.parse(localStorage.getItem('g20_rendaFixa') || '[]'); } catch(e){}
-            var _idxRF = {
-              cdi:   (typeof IND !== 'undefined' && IND.cdi)   ? IND.cdi   : 14.15,
-              selic: (typeof IND !== 'undefined' && IND.selic) ? IND.selic : 14.25,
-              ipca:  (typeof IND !== 'undefined' && IND.ipca)  ? IND.ipca  : 4.64,
-              igpm:  (typeof IND !== 'undefined' && IND.igpm)  ? IND.igpm  : 3.18
-            };
-            var _hojeRF = new Date().toISOString().substring(0,10);
-            var _soma = 0;
-            _rfLista.forEach(function(rfItem){
-              if (!rfItem || rfItem.encerrado) return;
-              var v = G20Rent._rfLiquido(rfItem, _hojeRF, _idxRF);
-              if (isFinite(v) && v > 0) _soma += v;
-            });
-            if (_soma > 0) _rfHoje = _soma;
-          }
-        } catch(e){}
-
-        /* Só o campo AO VIVO recebe o valor de hoje. Os campos t/rf/rv do
-           ponto de hoje continuam repetindo o fechamento, de propósito: é o
-           que mantém o gráfico com uma base só. Quem lê a variação do dia
-           usa rvVivo/rfVivo — e é lá que a renda fixa precisava aparecer. */
-        _pontoHoje.rfVivo = (_rfHoje !== null) ? _rfHoje : _uNovo.rf;
+        if (_rfHoje === null) _pontoHoje.rfVivo = _uNovo.rf;   // reserva
       }
       novo.push(_pontoHoje);
     }
