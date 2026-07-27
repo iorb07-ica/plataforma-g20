@@ -1956,10 +1956,30 @@ var _publicando = false;
 
 function _rankResumo(tipo){
   var lista = rankingData[tipo];
-  if (!Array.isArray(lista) || !lista.length) return null;
+  /* Lista vazia NAO impede a publicacao: ninguem ter montado carteira do
+     ciclo ainda e uma informacao legitima, e o alvo/prazo continua valendo
+     para o convite no dashboard. */
+  if (!Array.isArray(lista)) lista = [];
   var ontem = (typeof deltaCache === 'object' && deltaCache) ? (deltaCache[tipo] || {}) : {};
+  /* Ciclo ALVO = o que o aluno ainda pode montar (o proximo periodo), com
+     o prazo. O dashboard usa isso para o convite dizer o mes certo e
+     mostrar quanto tempo falta. Sem isso o card convidava a montar o mes
+     corrente, cujo prazo ja passou. */
+  var alvo = null;
+  try {
+    if (typeof getTargetCiclo === 'function') {
+      var t = getTargetCiclo(tipo);
+      alvo = {
+        label: t.label,
+        prazo: t.prazo ? t.prazo.getTime() : null,
+        fechado: !!t.fechado
+      };
+    }
+  } catch(e){}
+
   return {
     total: lista.length,
+    alvo: alvo,
     ciclo: (typeof getLiveCiclo === 'function') ? getLiveCiclo(tipo).label : '',
     jogadores: lista.map(function(j, i){
       var posAnt = ontem[j.uid];
@@ -1976,9 +1996,29 @@ function _rankResumo(tipo){
 
 function publicarRankingSePreciso(){
   if (_publicando) return;
+
+  /* ═══════════════════════════════════════════════════════════════
+     NUNCA PUBLICAR O MODO DEMO
+
+     toggleDemo() escreve jogadores ficticios direto em rankingData[tipo]
+     para as tres janelas. Este publicador le exatamente esse objeto. Sem
+     esta trava, ativar o demo e trocar de aba (o que dispara
+     carregarRanking) publicaria nomes inventados no documento que TODOS
+     os alunos leem no dashboard.
+
+     Dado falso apresentado como real e pior que dado nenhum: o aluno
+     acredita. */
+  if (typeof G20_DEMO_ON !== 'undefined' && G20_DEMO_ON) {
+    console.log('[Game] modo demo ativo — publicação bloqueada de propósito.');
+    return;
+  }
+
   // Só publica com as TRÊS janelas calculadas — documento parcial é pior que velho.
   var m = _rankResumo('mensal'), t = _rankResumo('trimestral'), a = _rankResumo('anual');
   if (!m || !t || !a) return;
+  // Publica com listas vazias, mas nunca sem o alvo: sem ele o card nao
+  // sabe qual mes convidar nem quanto tempo falta.
+  if (!m.alvo || !t.alvo || !a.alvo) return;
 
   _publicando = true;
   var ref = db.collection(RANK_DOC[0]).doc(RANK_DOC[1]);

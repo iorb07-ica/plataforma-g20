@@ -5708,6 +5708,12 @@ body.pat-hidden .v21-change-extra::after{
   .v21-game-pod-v { font-family:'JetBrains Mono',monospace; font-size:10px; color:#4ade80; }
   .v21-game-pod.voce .v21-game-pod-n { color:#e8b84b; font-weight:700; }
   .v21-game-foot { margin-top:auto; padding-top:10px; font-size:10px; color:var(--text2,#8b93a7); line-height:1.45; }
+  .v21-game-prazo { margin-top:9px; font-size:11px; color:#c9a961;
+                    padding:6px 9px; border-radius:7px; background:rgba(201,169,97,.10);
+                    border:1px solid rgba(201,169,97,.22); }
+  .v21-game-prazo.urgente { color:#f87171; background:rgba(248,113,113,.10);
+                            border-color:rgba(248,113,113,.28); }
+  .v21-game-prazo b { font-family:'JetBrains Mono',monospace; font-weight:600; }
   .v21-game-empty { display:flex; flex-direction:column; align-items:flex-start; gap:9px; padding:6px 0; }
   .v21-game-empty-ico { font-size:24px; opacity:.7; }
   .v21-game-empty-txt { font-size:11px; color:var(--text2,#8b93a7); line-height:1.55; }
@@ -20374,6 +20380,12 @@ html body .topbar {
 window._g20GameDados = null;
 window._g20GameTipo  = 'mensal';
 
+/* O countdown do prazo envelhece na tela. Repinta de minuto em minuto —
+   só o card, nenhuma requisição. */
+setInterval(function(){
+  try { if (window._g20GameDados && typeof v21LoadGame === 'function') v21LoadGame(); } catch(e){}
+}, 60000);
+
 /* ═══════════════════════════════════════════════════════════════════════
    LEITOR DO RANKING — 1 documento, três janelas
 
@@ -20502,9 +20514,42 @@ window.v21LoadGame = function(){
     vazio.style.display = '';
     var txt = document.getElementById('v21GameEmptyTxt');
     if (txt) {
-      txt.innerHTML = 'Monte sua carteira de <b style="color:#e8b84b">' +
-                      MESES[hoje.getMonth()] + '</b> e dispute com a turma. ' +
-                      'Não precisa ter investimento nenhum pra jogar.';
+      /* ═══════════════════════════════════════════════════════════════
+         O CONVITE PRECISA APONTAR PARA O CICLO QUE AINDA DA PARA MONTAR
+
+         A primeira versao usava o mes corrente. Errado: em 27 de julho o
+         ciclo EM COMPETICAO e julho, mas o prazo dele fechou em 30 de
+         junho — o aluno estaria sendo convidado a montar algo impossivel.
+         O que ele pode montar e o ciclo ALVO (agosto), e o que importa e
+         quanto tempo falta.
+
+         `alvo` vem do getTargetCiclo() do game-g20.html, publicado junto
+         com o ranking. Regra de negocio mora num lugar so. */
+      var alvo = janela && janela.alvo;
+      var nomeAlvo = (alvo && alvo.label) ? alvo.label : MESES[hoje.getMonth()];
+      var html = 'Monte sua carteira de <b style="color:#e8b84b">' + nomeAlvo +
+                 '</b> e dispute com a turma. Não precisa ter investimento nenhum pra jogar.';
+
+      if (alvo && alvo.prazo) {
+        var resta = alvo.prazo - Date.now();
+        if (resta > 0) {
+          var dias  = Math.floor(resta / 86400000);
+          var horas = Math.floor((resta % 86400000) / 3600000);
+          var mins  = Math.floor((resta % 3600000) / 60000);
+          var quanto = dias > 0
+            ? dias + (dias > 1 ? ' dias' : ' dia') + ' e ' + horas + 'h'
+            : (horas > 0 ? horas + 'h' + String(mins).padStart(2,'0') : mins + ' min');
+          /* Menos de 48h muda a cor: aviso, não decoração. */
+          var urgente = resta < 48 * 3600000;
+          html += '<div class="v21-game-prazo' + (urgente ? ' urgente' : '') + '">' +
+                    '⏳ faltam <b>' + quanto + '</b> para o prazo' +
+                  '</div>';
+        } else {
+          html = 'O prazo de <b style="color:#e8b84b">' + nomeAlvo + '</b> encerrou. ' +
+                 'O próximo ciclo abre em breve — fique de olho.';
+        }
+      }
+      txt.innerHTML = html;
     }
     return;
   }
