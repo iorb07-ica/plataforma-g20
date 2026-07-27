@@ -10982,7 +10982,60 @@ function _patSnapUpsert(total,rf,rv){
          que é justamente a mordida tributária, não rendimento.
          A RF também não tem preço intradiário: seu retorno do dia é a
          apropriação entre dois pregões, que a própria série já calcula. */
-      if (rv > 0) { _pontoHoje.rvVivo = rv; _pontoHoje.rfVivo = _uNovo.rf; }
+      /* ═══════════════════════════════════════════════════════════════════
+         RENDA FIXA DE HOJE — R51: calculada, não copiada
+
+         Estava `_pontoHoje.rfVivo = _uNovo.rf` — o RF do ÚLTIMO DIA DA
+         SÉRIE. Como a série termina no fechamento anterior, a renda fixa
+         simplesmente não rendia no dia corrente. Dois sintomas na tela:
+
+           · "Apenas RF" mostrava a variação de 24/07 numa segunda-feira,
+             porque de sexta para hoje o valor não mudava;
+           · "RV + RF" somava +R$ 772, exatamente igual a "Apenas RV" —
+             a renda fixa contribuía com zero.
+
+         O comentário abaixo explica por que a RF não usa o cálculo AO VIVO
+         (_calcBrutoRF é bruto, a série é líquida — misturar cria um salto
+         de ~4%, que é a mordida do IR). Isso continua valendo. A correção é
+         outra: usar a MESMA função da série, rfLiquido(), com a data de
+         hoje. Mesma métrica, dia certo.
+
+         Sobre a apropriação: CDI e Selic rendem por dia útil. O rendimento
+         de hoje é reconhecido hoje, não amanhã — a taxa anual já é conhecida
+         e o _diasUteisAte() conta hoje como dia útil (fora fim de semana e
+         feriado). Numa segunda-feira, a sexta já pagou o fim de semana.
+         ═══════════════════════════════════════════════════════════════════ */
+      if (rv > 0) {
+        _pontoHoje.rvVivo = rv;
+
+        var _rfHoje = null;
+        try {
+          if (window.G20Rent && typeof G20Rent._rfLiquido === 'function') {
+            var _rfLista = [];
+            try { _rfLista = JSON.parse(localStorage.getItem('g20_rendaFixa') || '[]'); } catch(e){}
+            var _idxRF = {
+              cdi:   (typeof IND !== 'undefined' && IND.cdi)   ? IND.cdi   : 14.15,
+              selic: (typeof IND !== 'undefined' && IND.selic) ? IND.selic : 14.25,
+              ipca:  (typeof IND !== 'undefined' && IND.ipca)  ? IND.ipca  : 4.64,
+              igpm:  (typeof IND !== 'undefined' && IND.igpm)  ? IND.igpm  : 3.18
+            };
+            var _hojeRF = new Date().toISOString().substring(0,10);
+            var _soma = 0;
+            _rfLista.forEach(function(rfItem){
+              if (!rfItem || rfItem.encerrado) return;
+              var v = G20Rent._rfLiquido(rfItem, _hojeRF, _idxRF);
+              if (isFinite(v) && v > 0) _soma += v;
+            });
+            if (_soma > 0) _rfHoje = _soma;
+          }
+        } catch(e){}
+
+        /* Só o campo AO VIVO recebe o valor de hoje. Os campos t/rf/rv do
+           ponto de hoje continuam repetindo o fechamento, de propósito: é o
+           que mantém o gráfico com uma base só. Quem lê a variação do dia
+           usa rvVivo/rfVivo — e é lá que a renda fixa precisava aparecer. */
+        _pontoHoje.rfVivo = (_rfHoje !== null) ? _rfHoje : _uNovo.rf;
+      }
       novo.push(_pontoHoje);
     }
     _patSnapSave(novo);
@@ -13259,10 +13312,10 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
         var pontoAnt = snap[snap.length - 2];
 
         var _vivoCompleto = (pontoAtu.rvVivo > 0 && pontoAtu.rfVivo > 0);
-        /* RF não tem cotação intradiária: seu retorno do dia é a apropriação
-           entre dois pregões. Então neste modo sempre recuamos para o último
-           par REAL, mesmo havendo cotação de RV ao vivo. */
-        if (modo === 'rf') _vivoCompleto = false;
+        /* R51: o modo RF antes SEMPRE recuava, porque o rfVivo era uma cópia
+           do fechamento e comparar um valor com ele mesmo dá 0,00%. Agora o
+           rfVivo é calculado para hoje com a mesma função da série, então a
+           apropriação do dia existe de verdade e pode ser exibida. */
         if (!_vivoCompleto) {
           /* ═══════════════════════════════════════════════════════════════
              RECUAR ATÉ O ÚLTIMO MOVIMENTO DE VERDADE — R51
