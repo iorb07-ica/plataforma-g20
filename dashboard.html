@@ -5673,6 +5673,15 @@ body.pat-hidden .v21-change-extra::after{
      completa fica no game-g20.html — mostrar o ranking inteiro todo
      dia pesa demais pra quem está na metade de baixo.
      ════════════════════════════════════════════════════════ */
+  .v21-game-filtros { display:flex; gap:3px; margin-left:auto; }
+  .v21-game-filtro { font-size:9.5px; font-weight:700; letter-spacing:.5px; padding:3px 7px;
+                     border-radius:5px; cursor:pointer; color:var(--text2,#8b93a7);
+                     background:rgba(255,255,255,.04); transition:.15s; }
+  .v21-game-filtro:hover { color:var(--text,#e8eaf0); }
+  .v21-game-filtro.active { background:rgba(201,169,97,.18); color:#e8b84b; }
+  .v21-game-ciclo { font-size:9.5px; letter-spacing:.6px; text-transform:uppercase;
+                    color:var(--text2,#8b93a7); margin:-4px 0 10px; }
+  .v21-game-carimbo { font-size:9px; color:#6b7280; margin-top:5px; }
   .v21-game-body { display:flex; flex-direction:column; flex:1; min-height:0; }
   .v21-game-loading { padding:18px 2px; color:var(--text2,#8b93a7); font-size:11.5px; }
   .v21-game-pos-wrap { display:flex; align-items:baseline; gap:8px; }
@@ -8127,8 +8136,13 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
       <div class="v21-card-2d v21-game-card" id="v21GameCard">
         <div class="v21-2d-head">
           <h3 class="v21-2d-title"><span class="v21-2d-ico">🏆</span>GAME G20</h3>
-          <span class="v21-2d-hint" id="v21GameHint">—</span>
+          <div class="v21-game-filtros" id="v21GameFiltros">
+            <span class="v21-game-filtro" data-tipo="mensal">M</span>
+            <span class="v21-game-filtro" data-tipo="trimestral">T</span>
+            <span class="v21-game-filtro" data-tipo="anual">A</span>
+          </div>
         </div>
+        <div class="v21-game-ciclo" id="v21GameHint">—</div>
 
         <div class="v21-game-body" id="v21GameBody">
           <div class="v21-game-loading" id="v21GameLoading">Carregando…</div>
@@ -12626,7 +12640,7 @@ window.g20Logout = function() {
           try {
             ['loadPatStrip','v21LoadGP','v21LoadRent','v21LoadRentChart','v21LoadBench',
              'v21LoadKpis','v21LoadCompChart','v21LoadProvChart','v21LoadAgenda','v21LoadMovers',
-             'v21LoadGF','v21LoadGame']
+             'v21LoadGF','v21LoadGame','_g20GameBuscar']
               .forEach(function(fn){
                 try { if (typeof window[fn] === 'function') window[fn](); } catch(e){}
               });
@@ -20349,6 +20363,93 @@ html body .topbar {
    convite (que é, aliás, o estado correto para quem ainda não montou
    carteira do ciclo). Ligar depois é preencher _g20GameBuscar().
    ═══════════════════════════════════════════════════════════════════════ */
+window._g20GameDados = null;
+window._g20GameTipo  = 'mensal';
+
+/* ═══════════════════════════════════════════════════════════════════════
+   LEITOR DO RANKING — 1 documento, três janelas
+
+   game-g20-ranking/atual é escrito pelo primeiro aluno que abre o Game
+   num dia em que ele esteja velho. Aqui só lemos: 1 leitura no lugar das
+   258 que sairiam de recalcular as três janelas por aluno.
+   ═══════════════════════════════════════════════════════════════════════ */
+window._g20GameBuscar = function(){
+  try {
+    if (!window.firebase || !firebase.firestore) return;
+    var u = firebase.auth().currentUser;
+    if (!u) return;
+    firebase.firestore().collection('game-g20-ranking').doc('atual').get()
+      .then(function(doc){
+        if (!doc.exists) return;
+        var d = doc.data() || {};
+        window._g20GameDados = {
+          uid: u.uid,
+          mensal: d.mensal, trimestral: d.trimestral, anual: d.anual,
+          atualizadoEm: (d.atualizadoEm && d.atualizadoEm.toDate) ? d.atualizadoEm.toDate() : null
+        };
+        window._g20GameTipo = _g20GameJanelaDeAbertura();
+        v21LoadGame();
+      })
+      .catch(function(e){ console.warn('[Game] ranking:', e && e.message); });
+  } catch(e){}
+};
+
+/* Encontra o aluno dentro de uma janela. */
+function _g20GameMinha(janela){
+  if (!janela || !Array.isArray(janela.jogadores)) return null;
+  var uid = window._g20GameDados && window._g20GameDados.uid;
+  for (var i = 0; i < janela.jogadores.length; i++) {
+    if (janela.jogadores[i].uid === uid) return janela.jogadores[i];
+  }
+  return null;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   QUAL JANELA ABRIR
+
+   O critério é MOVIMENTO, não posição favorável. Abre onde mais mudou
+   desde a última visita — para cima ou para baixo, em módulo.
+
+   Deliberadamente NÃO escolhemos "a janela onde ele está melhor". Isso
+   transformaria o card numa máquina de boa notícia: num mês ruim em
+   todas as três, ele escolheria a menos ruim e seguiria escolhendo. O
+   aluno acabaria descobrindo, e aí todo número da plataforma vira
+   suspeito. Queda de nove posições é exatamente o que ele precisa ver.
+
+   Empate vai para o mensal, que é o ciclo em disputa.
+   ═══════════════════════════════════════════════════════════════════════ */
+function _g20GameJanelaDeAbertura(){
+  var d = window._g20GameDados;
+  if (!d) return 'mensal';
+
+  var ant = {};
+  try {
+    var raw = localStorage.getItem('g20_gameSnap');
+    var obj = raw ? JSON.parse(raw) : null;
+    // Carimbo de dono: snapshot de outra conta não vale (padrão da sessão 51).
+    if (obj && obj.uid === d.uid) ant = obj.pos || {};
+  } catch(e){}
+
+  var melhor = 'mensal', maior = -1, atual = {};
+  ['mensal','trimestral','anual'].forEach(function(t){
+    var minha = _g20GameMinha(d[t]);
+    if (!minha) return;
+    atual[t] = minha.pos;
+    var antes = ant[t];
+    var mov = (antes != null) ? Math.abs(antes - minha.pos) : 0;
+    if (mov > maior) { maior = mov; melhor = t; }
+  });
+
+  try {
+    localStorage.setItem('g20_gameSnap', JSON.stringify({
+      uid: d.uid, pos: atual, em: Date.now()
+    }));
+  } catch(e){}
+
+  window._g20GameAnterior = ant;
+  return melhor;
+}
+
 window.v21LoadGame = function(){
   var loading = document.getElementById('v21GameLoading');
   var main    = document.getElementById('v21GameMain');
@@ -20356,18 +20457,37 @@ window.v21LoadGame = function(){
   var hint    = document.getElementById('v21GameHint');
   if (!loading || !main || !vazio) return;
 
-  /* Rótulo do ciclo mensal — isto sim dá pra calcular sem o game-g20.html,
-     porque é só o mês corrente. */
   var MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
                'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   var hoje = new Date();
-  if (hint) hint.textContent = MESES[hoje.getMonth()].slice(0,3).toLowerCase() + '/' + String(hoje.getFullYear()).slice(2);
-
-  var d = (typeof window._g20GameDados === 'object') ? window._g20GameDados : null;
+  var d = window._g20GameDados;
+  var tipo = window._g20GameTipo || 'mensal';
 
   loading.style.display = 'none';
 
-  if (!d || !d.posicao) {
+  /* Botões de janela */
+  var filtros = document.querySelectorAll('#v21GameFiltros .v21-game-filtro');
+  Array.prototype.forEach.call(filtros, function(b){
+    b.classList.toggle('active', b.getAttribute('data-tipo') === tipo);
+    if (!b._lig) {
+      b._lig = true;
+      b.addEventListener('click', function(){
+        window._g20GameTipo = b.getAttribute('data-tipo');
+        v21LoadGame();
+      });
+    }
+  });
+
+  var janela = d ? d[tipo] : null;
+  var minha  = janela ? _g20GameMinha(janela) : null;
+
+  if (hint) {
+    hint.textContent = janela && janela.ciclo
+      ? janela.ciclo
+      : MESES[hoje.getMonth()] + ' de ' + hoje.getFullYear();
+  }
+
+  if (!minha) {
     main.style.display = 'none';
     vazio.style.display = '';
     var txt = document.getElementById('v21GameEmptyTxt');
@@ -20383,38 +20503,51 @@ window.v21LoadGame = function(){
   main.style.display = '';
 
   var set = function(id, txt){ var e = document.getElementById(id); if (e) e.textContent = txt; };
-  set('v21GamePos', d.posicao + 'º');
-  set('v21GameTotal', d.total || '—');
+  set('v21GamePos', minha.pos + 'º');
+  set('v21GameTotal', janela.total || '—');
 
-  /* Movimento pesa mais que posição crua: subir três lugares anima quem
-     está em 30º, enquanto o "30º" sozinho só lembra que ele está atrás. */
+  /* Movimento pesa mais que posição crua: subir três anima quem está em
+     30º; o "30º" sozinho só lembra que ele está atrás. */
   var deltaEl = document.getElementById('v21GameDelta');
   if (deltaEl) {
-    var dl = d.delta || 0;
-    if (dl > 0)      { deltaEl.className = 'v21-game-delta up';   deltaEl.textContent = '▲ ' + dl + ' posiç' + (dl>1?'ões':'ão') + ' esta semana'; }
-    else if (dl < 0) { deltaEl.className = 'v21-game-delta down'; deltaEl.textContent = '▼ ' + Math.abs(dl) + ' posiç' + (dl<-1?'ões':'ão') + ' esta semana'; }
-    else             { deltaEl.className = 'v21-game-delta flat'; deltaEl.textContent = 'sem mudança esta semana'; }
+    var ant = (window._g20GameAnterior || {})[tipo];
+    var base = (ant != null) ? ant : minha.posOntem;
+    var dl = (base != null) ? (base - minha.pos) : 0;
+    var quando = (ant != null) ? 'desde sua última visita' : 'desde ontem';
+    if (dl > 0)      { deltaEl.className = 'v21-game-delta up';   deltaEl.textContent = '▲ ' + dl + ' posiç' + (dl>1?'ões ':'ão ') + quando; }
+    else if (dl < 0) { deltaEl.className = 'v21-game-delta down'; deltaEl.textContent = '▼ ' + Math.abs(dl) + ' posiç' + (dl<-1?'ões ':'ão ') + quando; }
+    else             { deltaEl.className = 'v21-game-delta flat'; deltaEl.textContent = 'sem mudança ' + quando; }
   }
 
   /* Só o pódio. A metade de baixo da tabela não vai para o dashboard. */
   var podEl = document.getElementById('v21GamePodio');
-  if (podEl && d.podio && d.podio.length) {
+  if (podEl && janela.jogadores) {
     var M = ['🥇','🥈','🥉'];
-    podEl.innerHTML = d.podio.slice(0,3).map(function(p, i){
-      return '<div class="v21-game-pod' + (p.voce ? ' voce' : '') + '">' +
+    podEl.innerHTML = janela.jogadores.slice(0,3).map(function(p, i){
+      var eu = (p.uid === d.uid);
+      var r = (p.retorno >= 0 ? '+' : '') + Number(p.retorno).toFixed(1).replace('.', ',') + '%';
+      return '<div class="v21-game-pod' + (eu ? ' voce' : '') + '">' +
                '<span class="v21-game-pod-m">' + M[i] + '</span>' +
-               '<span class="v21-game-pod-n">' + p.nome + '</span>' +
-               '<span class="v21-game-pod-v">' + p.retorno + '</span>' +
+               '<span class="v21-game-pod-n">' + (eu ? 'Você' : p.nome) + '</span>' +
+               '<span class="v21-game-pod-v" style="color:' + (p.retorno >= 0 ? '#4ade80' : '#f87171') + '">' + r + '</span>' +
              '</div>';
     }).join('');
   }
 
   var footEl = document.getElementById('v21GameFoot');
-  if (footEl && d.retorno !== undefined) {
-    footEl.innerHTML = 'Sua carteira do ciclo: <b style="color:#e8b84b">' + d.retorno + '</b>';
+  if (footEl) {
+    var meu = (minha.retorno >= 0 ? '+' : '') + Number(minha.retorno).toFixed(1).replace('.', ',') + '%';
+    var carimbo = '';
+    if (d.atualizadoEm) {
+      carimbo = '<div class="v21-game-carimbo">ranking de ' +
+                String(d.atualizadoEm.getDate()).padStart(2,'0') + '/' +
+                String(d.atualizadoEm.getMonth()+1).padStart(2,'0') + '</div>';
+    }
+    footEl.innerHTML = 'Sua carteira: <b style="color:' +
+                       (minha.retorno >= 0 ? '#4ade80' : '#f87171') + '">' + meu + '</b>' + carimbo;
   }
 };
-</script>
+</script></script>
 
 <script>
 

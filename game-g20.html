@@ -1927,6 +1927,87 @@ function salvarCarteira(){
 }
 
 // ── RANKING ───────────────────────────────────────────
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PUBLICAÇÃO DO RANKING PARA O DASHBOARD
+
+   POR QUE ISSO EXISTE
+   O card do Game no dashboard precisa do ranking do dia. Calcular ali
+   custaria, por aluno: 1 collectionGroup (N docs) + N leituras em
+   networking_public para resolver nomes — vezes três janelas. Com 43
+   jogadores dá 258 leituras por aluno, por dia.
+
+   Aqui o cálculo já foi feito para desenhar a tela. Só o gravamos num
+   documento único. O dashboard passa a ler 1 documento em vez de 258.
+
+   QUEM PUBLICA
+   O primeiro que abrir a aba Ranking num dia em que o documento esteja
+   velho. Não depende do admin lembrar de entrar: qualquer aluno que
+   carregue o Game republica para todos. Se ninguém entrar, ninguém
+   precisava do dado — e o primeiro do dia seguinte republica.
+
+   O QUE VAI NO DOCUMENTO
+   Só o que é público por natureza: posição, apelido, retorno e a posição
+   de ontem (para o delta). Nada de UID de terceiros, e-mail ou foto.
+   ═══════════════════════════════════════════════════════════════════════ */
+var RANK_DOC = ['game-g20-ranking','atual'];
+var IDADE_MAX_RANK = 20 * 60 * 60 * 1000;   // 20h — casa com a regra do Firestore
+var _publicando = false;
+
+function _rankResumo(tipo){
+  var lista = rankingData[tipo];
+  if (!Array.isArray(lista) || !lista.length) return null;
+  var ontem = (typeof deltaCache === 'object' && deltaCache) ? (deltaCache[tipo] || {}) : {};
+  return {
+    total: lista.length,
+    ciclo: (typeof getLiveCiclo === 'function') ? getLiveCiclo(tipo).label : '',
+    jogadores: lista.map(function(j, i){
+      var posAnt = ontem[j.uid];
+      return {
+        uid: j.uid,                                  // o dashboard usa só para achar VOCÊ
+        nome: j.nome || 'Aluno G20',
+        retorno: Math.round(j.rentabilidade * 100) / 100,
+        pos: i + 1,
+        posOntem: (posAnt != null) ? posAnt : null
+      };
+    })
+  };
+}
+
+function publicarRankingSePreciso(){
+  if (_publicando) return;
+  // Só publica com as TRÊS janelas calculadas — documento parcial é pior que velho.
+  var m = _rankResumo('mensal'), t = _rankResumo('trimestral'), a = _rankResumo('anual');
+  if (!m || !t || !a) return;
+
+  _publicando = true;
+  var ref = db.collection(RANK_DOC[0]).doc(RANK_DOC[1]);
+
+  ref.get().then(function(doc){
+    if (doc.exists) {
+      var d = doc.data();
+      var ts = d && d.atualizadoEm && d.atualizadoEm.toDate ? d.atualizadoEm.toDate().getTime() : 0;
+      if (ts && (Date.now() - ts) < IDADE_MAX_RANK) {
+        // Fresco: outro aluno já publicou hoje. Não gasta escrita.
+        _publicando = false;
+        return null;
+      }
+    }
+    return ref.set({
+      mensal: m, trimestral: t, anual: a,
+      atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  }).then(function(r){
+    if (r !== null) console.log('[Game] ranking publicado para o dashboard ('
+                               + m.total + ' jogadores)');
+    _publicando = false;
+  }).catch(function(e){
+    // Falha de permissão aqui é inofensiva: o dashboard cai no estado de convite.
+    console.warn('[Game] não publicou o ranking:', e && e.message);
+    _publicando = false;
+  });
+}
+
 function carregarRanking(){
   ['mensal','trimestral','anual'].forEach(carregarRankingTipo);
   var now=new Date();
@@ -1943,8 +2024,11 @@ function carregarRankingTipo(tipo){
       if(!d.uid||!Array.isArray(d.ativos))return;
       d.ativos.forEach(function(a){ if(a&&a.ticker) tickersSet[a.ticker]=true; });
       var p=db.collection('networking_public').doc(d.uid).get().then(function(uDoc){
-        var nome=d.uid,foto='',infinite=false;
-        if(uDoc.exists){var ud=uDoc.data();nome=ud.nome||ud.name||d.uid;foto=ud.foto||ud.photo||'';infinite=ud.infinite===true;}
+        /* Fallback era o UID cru — por isso o Hall da Fama exibia
+           "8xrwHHEKAmdOU…". Quem não tem doc em networking_public vira
+           "Aluno G20", igual ao que o .catch() abaixo já fazia. */
+        var nome='Aluno G20',foto='',infinite=false;
+        if(uDoc.exists){var ud=uDoc.data();nome=ud.nome||ud.name||'Aluno G20';foto=ud.foto||ud.photo||'';infinite=ud.infinite===true;}
         jogadores.push({uid:d.uid,nome:nome,foto:foto,infinite:infinite,ativos:d.ativos});
       }).catch(function(){
         jogadores.push({uid:d.uid,nome:'Aluno G20',foto:'',infinite:false,ativos:d.ativos});
@@ -1964,6 +2048,7 @@ function carregarRankingTipo(tipo){
       rankingData[tipo]=jogadores;
       renderRanking(tipo,jogadores);
       atualizarMinha(tipo,jogadores);
+      try { publicarRankingSePreciso(); } catch(e){ console.warn('[Game] publicação:', e); }
     });
   }).catch(function(err){
     var id='tbody'+tipo.charAt(0).toUpperCase()+tipo.slice(1);
@@ -2458,8 +2543,8 @@ function arquivarCamposesSeNecessario(){
         // resolve nomes/fotos do pódio
         return Promise.all(top3.map(function(j){
           return db.collection('networking_public').doc(j.uid).get().then(function(u){
-            var nome=j.uid, foto='';
-            if(u.exists){var ud=u.data();nome=ud.nome||ud.name||j.uid;foto=ud.foto||ud.photo||'';}
+            var nome='Aluno G20', foto='';
+            if(u.exists){var ud=u.data();nome=ud.nome||ud.name||'Aluno G20';foto=ud.foto||ud.photo||'';}
             return {uid:j.uid, nome:nome, foto:foto, rentabilidade:j.rentabilidade, ativos:j.ativos};
           }).catch(function(){return {uid:j.uid,nome:'Aluno G20',foto:'',rentabilidade:j.rentabilidade,ativos:j.ativos};});
         })).then(function(podio){
