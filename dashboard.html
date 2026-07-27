@@ -12780,17 +12780,78 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
      Tratar os dois igual mistura escalas e produz o salto vertical no
      fim do gráfico. Por isso o cálculo parte sempre de rv/rf (coerente
      nos dois tipos) e os bens entram conforme a natureza do ponto. */
+  /* ═══════════════════════════════════════════════════════════════════════════
+   G20DiagRF() — abre os últimos dias e mostra o que a renda fixa fez
+
+   Serve para responder, com dado, três perguntas que ficaram no ar:
+     · a série foi reconstruída depois da correção dos dias úteis? (versão)
+     · a RF está parada no fim de semana, como deve?
+     · o ponto de hoje tem a apropriação do dia (rfVivo)?
+   ═══════════════════════════════════════════════════════════════════════════ */
+window.G20DiagRF = function(dias){
+  dias = dias || 12;
+  var snap = [];
+  try { snap = (window._patSnapLoad ? _patSnapLoad() : []); } catch(e){}
+  if (!snap.length) { console.warn('[G20DiagRF] sem snapshots'); return; }
+
+  var SEM = ['dom','seg','ter','qua','qui','sex','sáb'];
+  var linhas = snap.slice(-dias).map(function(s, i, arr){
+    var ant = i > 0 ? arr[i-1] : null;
+    var rf  = (s.rfVivo > 0) ? s.rfVivo : (s.rf || 0);
+    var rfA = ant ? ((ant.rfVivo > 0) ? ant.rfVivo : (ant.rf || 0)) : 0;
+    var d = new Date(s.d + 'T12:00:00');
+    return {
+      data: s.d,
+      dia: SEM[d.getDay()],
+      RF: +rf.toFixed(2),
+      variouRF: ant ? +(rf - rfA).toFixed(2) : null,
+      RV: +((s.rvVivo > 0 ? s.rvVivo : (s.rv||0))).toFixed(2),
+      temRfVivo: s.rfVivo > 0 ? 'sim' : '—',
+      temRvVivo: s.rvVivo > 0 ? 'sim' : '—',
+      versao: s.sv || '?'
+    };
+  });
+
+  console.log('%c[G20DiagRF] últimos ' + dias + ' pontos', 'color:#c9a961;font-weight:bold');
+  console.table(linhas);
+
+  var ult = snap[snap.length-1];
+  console.log('  versão da série no último ponto: v' + (ult.sv || '?') +
+              (ult.sv === 4 ? '  (reconstruída com dias úteis reais)'
+                            : '  <-- ANTIGA: rode G20Rent.invalidar(); location.reload();'));
+  var fds = linhas.filter(function(l){ return (l.dia==='sáb'||l.dia==='dom') && Math.abs(l.variouRF||0) > 0.01; });
+  if (fds.length) {
+    console.warn('  ' + fds.length + ' dia(s) de fim de semana com variação de RF — a série é antiga.');
+  } else {
+    console.log('  fim de semana sem apropriação de RF: correto.');
+  }
+  console.log('  ponto de hoje tem rfVivo: ' + (ult.rfVivo > 0 ? 'SIM (R$ ' + ult.rfVivo.toFixed(2) + ')' : 'NÃO'));
+  return linhas;
+};
+
   function _gpValorDoSnap(s, modo, bens){
     if (!s) return 0;
     var t  = s.t  || 0;
-    /* Se o ponto trouxe cotações ao vivo (só o de hoje traz), elas têm
-       prioridade: representam o preço de agora, não o fechamento de
-       ontem. É o que permite mostrar a variação do dia. */
-    /* Cotações ao vivo só valem em PAR — se só uma existisse, misturaríamos
-       preço de agora com fechamento de ontem dentro do mesmo número. */
-    var _vivoOk = (s.rvVivo > 0 && s.rfVivo > 0);
-    var rv = _vivoOk ? s.rvVivo : (s.rv || 0);
-    var rf = _vivoOk ? s.rfVivo : (s.rf || 0);
+
+    /* ═══════════════════════════════════════════════════════════════════
+       COTAÇÕES AO VIVO — R51: a RF vale sozinha
+
+       A regra era "só em PAR": se apenas um dos dois existisse, os dois
+       eram ignorados. Fazia sentido quando o rfVivo vinha de _calcBrutoRF()
+       — bruto contra a série líquida, bases diferentes, mistura perigosa.
+
+       Só que isso travava a renda fixa sempre que o mercado estava fechado:
+       sem rvVivo (fim de semana, pregão não aberto, fetch atrasado), o
+       rfVivo também era descartado e a RF não rendia. Era por isso que
+       "Apenas RF" mostrava a variação de dois dias atrás e "RV + RF" somava
+       exatamente o mesmo que "Apenas RV".
+
+       Agora o rfVivo é calculado com rfLiquido(), a MESMA função da série.
+       Mesma métrica, sem mistura — então ele pode valer por conta própria.
+       A RV continua exigindo o valor dela: ali a mistura de bases seria real.
+       ═══════════════════════════════════════════════════════════════════ */
+    var rv = (s.rvVivo > 0) ? s.rvVivo : (s.rv || 0);
+    var rf = (s.rfVivo > 0) ? s.rfVivo : (s.rf || 0);
     if (modo === 'rv') return rv;
     if (modo === 'rf') return rf;
 
