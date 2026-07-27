@@ -6584,6 +6584,14 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
         }
       } catch(e){}
       try { window._g20HistMem = {}; } catch(e){}
+      /* Memórias vivas: sobrevivem a tudo que é localStorage/IndexedDB
+         porque não estão em nenhum dos dois. Zerar aqui é o que impede a
+         carteira anterior de continuar na tela desta sessão. */
+      try { window._g20SnapMem = null; } catch(e){}
+      try { window._g20DivsMem = null; } catch(e){}
+      try { window._g20RVExibida = { valor: 0, fonte: null }; } catch(e){}
+      try { if (window.G20Rent) { G20Rent._serieMem = null; G20Rent._serieUid = null;
+                                  G20Rent._serieQuarentena = null; } } catch(e){}
 
       /* Trava para o resto da página: nenhum card calcula patrimônio até o
          Firebase confirmar quem entrou. Sem isto, a renderização (~26ms)
@@ -10571,6 +10579,34 @@ function _daysBetween(a,b){return Math.round((new Date(b)-new Date(a))/86400000)
 window._g20SnapMem = null;
 
 function _patSnapLoad(){
+  /* ═══════════════════════════════════════════════════════════════════════
+     A BARREIRA FINAL — R51
+
+     Todos os cards de patrimônio passam por aqui. As proteções anteriores
+     ficavam espalhadas: uma no boot, outra na pré-carga, outra na série. Se
+     qualquer uma falhar, o dado escapa por este ponto — e foi o que
+     aconteceu com o card Minha Carteira mostrando R$ 572.595 numa conta
+     zerada.
+
+     Aqui não há como escapar: se o dono registrado não for exatamente quem
+     está logado, devolvemos lista vazia. Card sem dado é um incômodo; card
+     com o dado de outra pessoa é uma falha grave de privacidade.
+     ═══════════════════════════════════════════════════════════════════════ */
+  var _uid = null, _owner = null;
+  try {
+    _uid   = localStorage.getItem('g20_uid');
+    _owner = localStorage.getItem('g20_dados_owner');
+  } catch(e){}
+
+  if (!_uid || !_owner || _uid !== _owner) {
+    if (!window._g20AvisouSnapBloq) {
+      window._g20AvisouSnapBloq = true;
+      console.warn('[snapshots] dono não confirmado — nenhum dado patrimonial será exibido ' +
+                   'até o login ser validado.');
+    }
+    return [];
+  }
+
   // A memória tem prioridade: é sempre a versão mais recente da sessão.
   if (window._g20SnapMem && window._g20SnapMem.length) return window._g20SnapMem;
   try{var a=JSON.parse(localStorage.getItem(PAT_SNAP_KEY)||'[]');return Array.isArray(a)?a:[];}catch(e){return [];}
@@ -10585,7 +10621,12 @@ function _patSnapSave(arr){
      falhava em toda carga e ainda espremia as outras chaves. */
   if (window.G20Store) {
     try {
-      G20Store.set(PAT_SNAP_KEY, arr).catch(function(){});
+      /* R51: grava COM o uid do dono. Sem ele, a pré-carga não tem como
+         saber de quem é o dado e a conta seguinte herda a carteira da
+         anterior — foi o que aconteceu com o card Minha Carteira. */
+      var _donoSnap = null;
+      try { _donoSnap = localStorage.getItem('g20_uid'); } catch(e){}
+      G20Store.set(PAT_SNAP_KEY, { uid: _donoSnap, arr: arr }).catch(function(){});
       // Remove a versão antiga do localStorage: ela não é mais lida e só
       // ocupa a cota que as outras chaves precisam.
       try { localStorage.removeItem(PAT_SNAP_KEY); } catch(e){}
@@ -10720,13 +10761,45 @@ window.G20Backups = function(chave){
 };
 
 
-/* Pré-carrega os snapshots do IndexedDB para a memória, uma vez por sessão. */
+/* ═══════════════════════════════════════════════════════════════════════════
+   PRÉ-CARGA DOS SNAPSHOTS — com carimbo de dono (R51)
+
+   ESTA ERA A ÚLTIMA PORTA ABERTA.
+   A série histórica ganhou carimbo de dono e quarentena. Os SNAPSHOTS, não —
+   eles voltavam do IndexedDB direto para a memória, sem ninguém perguntar de
+   quem eram. E é deles que o card Minha Carteira tira o valor.
+
+   Resultado na conta de teste: Composição R$ 0, Aportes R$ 0, Proventos R$ 0
+   — tudo certo, porque esses cards leem os aportes. E, ao lado,
+   "R$ 572.595" e "+5848,28%", porque esses leem os snapshots. Metade do
+   dashboard zerado e a outra metade com a carteira de outra pessoa.
+
+   Agora o payload carrega o uid de quem o gerou, e a pré-carga só entrega
+   à memória se bater com o usuário desta sessão. Payload sem carimbo é de
+   antes desta correção: descartado por precaução.
+   ═══════════════════════════════════════════════════════════════════════════ */
 (function(){
   try {
     if (!window.G20Store) return;
-    G20Store.get(PAT_SNAP_KEY).then(function(arr){
+    G20Store.get(PAT_SNAP_KEY).then(function(payload){
+      if (!payload) return;
+
+      // Formato novo: { uid, arr }. Formato antigo: array puro.
+      var arr = Array.isArray(payload) ? payload : payload.arr;
+      var dono = Array.isArray(payload) ? null : payload.uid;
       if (!Array.isArray(arr) || !arr.length) return;
-      // Só assume se a memória ainda não tiver algo mais novo.
+
+      var uidAtual = null;
+      try { uidAtual = localStorage.getItem('g20_uid'); } catch(e){}
+
+      if (!dono || !uidAtual || dono !== uidAtual) {
+        console.warn('[snapshots] ' + arr.length + ' pontos no IndexedDB ' +
+                     (dono ? 'pertencem a outra conta' : 'sem dono identificado') +
+                     ' — descartados.');
+        try { G20Store.del(PAT_SNAP_KEY); } catch(e){}
+        return;
+      }
+
       var mem = window._g20SnapMem;
       if (!mem || !mem.length || arr.length > mem.length) {
         window._g20SnapMem = arr;
