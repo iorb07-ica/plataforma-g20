@@ -8175,6 +8175,53 @@ function g20CG20Dividendos(){
   return null;   // null = use a lista geral de proventos
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   G20DiagCG20() — a Carteira G20 chegou neste navegador?
+
+   Os cards em modo CG20 aparecerem vazios pode ter três causas bem
+   diferentes: a carga não rodou, rodou e o Firestore recusou, ou os dados
+   estão aqui e quem não os lê é o card. Esta função separa as três em uma
+   linha, em vez de deixar a gente adivinhando.
+   ═══════════════════════════════════════════════════════════════════════════ */
+window.G20DiagCG20 = function(){
+  function medir(k){
+    var raw = null;
+    try { raw = localStorage.getItem(k); } catch(e){}
+    if (raw == null) return { chave:k, estado:'ausente', registros:0, KB:0 };
+    var v = null;
+    try { v = JSON.parse(raw); } catch(e){ return { chave:k, estado:'inválido', registros:0, KB:+(raw.length*2/1024).toFixed(1) }; }
+    var n = Array.isArray(v) ? v.length : (v && typeof v === 'object' ? Object.keys(v).length : 1);
+    return { chave:k, estado:(n ? 'ok' : 'vazio'), registros:n, KB:+(raw.length*2/1024).toFixed(1) };
+  }
+
+  var linhas = ['g20_cg20Aportes','g20_cg20Dividendos','g20_cg20Splits','g20_cg20Meta',
+                'g20_aportes','g20_dividendos'].map(medir);
+
+  console.log('%c[G20DiagCG20] o que existe neste navegador', 'color:#c9a961;font-weight:bold');
+  console.table(linhas);
+
+  var ap = g20CG20Aportes();
+  console.log('  g20CG20Aportes() devolve: ' + ap.length + ' aportes');
+  if (ap.length) {
+    var pos = {};
+    ap.forEach(function(a){
+      if (!a || !a.ticker) return;
+      var t = String(a.ticker).toUpperCase();
+      var q = parseFloat(a.qtd) || 0;
+      if (String(a.op||'C').toUpperCase() === 'V') q = -q;
+      pos[t] = (pos[t]||0) + q;
+    });
+    var abertos = Object.keys(pos).filter(function(t){ return pos[t] > 0.001; });
+    console.log('  posições abertas na CG20: ' + abertos.length);
+    console.log('  ' + abertos.slice(0,15).join(', ') + (abertos.length>15 ? '…' : ''));
+  } else {
+    console.warn('  A Carteira G20 NÃO está neste navegador.');
+    console.warn('  Se o console não mostrou "[G20] Carteira G20 carregada" nesta sessão,');
+    console.warn('  a leitura do Firestore falhou — veja se apareceu "não vieram: ..." acima.');
+  }
+  return linhas;
+};
+
 function g20PriceOf(item){
   if(!item) return null;
   return item.preco !== undefined ? item.preco : (item.price !== undefined ? item.price : null);
@@ -11396,35 +11443,64 @@ window.g20Logout = function() {
        ═══════════════════════════════════════════════════════════════════ */
     (function carregarCG20(){
       var CG20_UID = '8xrwHHEKAmd0Us5MCyBJhtkJVBM2';
-      if (user.uid === CG20_UID) return;      // admin já tem, nos próprios docs
+      if (user.uid === CG20_UID) return;      // dono da CG20 já tem nos próprios docs
       try {
-        _fbDb.collection('users').doc(CG20_UID).collection('dados').get()
-          .then(function(snap){
-            var mapa = { aportes:'g20_cg20Aportes', dividendos:'g20_cg20Dividendos',
-                         splits:'g20_cg20Splits', carteiraMeta:'g20_cg20Meta' };
-            var n = 0;
-            snap.forEach(function(doc){
-              var destino = mapa[doc.id];
-              if (!destino) return;           // só os quatro públicos
+        var _ref = _fbDb.collection('users').doc(CG20_UID).collection('dados');
+        var mapa = { aportes:'g20_cg20Aportes', dividendos:'g20_cg20Dividendos',
+                     splits:'g20_cg20Splits', carteiraMeta:'g20_cg20Meta' };
+
+        /* ═══════════════════════════════════════════════════════════════
+           DOCUMENTO A DOCUMENTO, NÃO A COLEÇÃO INTEIRA
+
+           A primeira versão fazia .collection('dados').get() — uma LISTAGEM.
+           As regras do Firestore tratam listagem e leitura como operações
+           diferentes: elas liberam os quatro documentos públicos da CG20
+           por nome, mas negam varrer a coleção, porque ali também moram os
+           dados privados do admin. A consulta inteira era recusada e nada
+           chegava — sem erro visível nos cards, só o card vazio.
+
+           A página Carteira G20 sempre fez do jeito certo:
+               _db_ref.doc(id).get({ source:'server' })
+
+           Aqui fazemos igual: quatro leituras nomeadas.
+           ═══════════════════════════════════════════════════════════════ */
+        var nomes = Object.keys(mapa);
+        var promessas = nomes.map(function(id){
+          return _ref.doc(id).get()
+            .then(function(doc){
+              if (!doc.exists) return { id:id, ok:false, motivo:'não existe' };
+              var v = doc.data() && doc.data().value;
+              if (v === undefined || v === null) return { id:id, ok:false, motivo:'vazio' };
               try {
-                localStorage.setItem(destino, JSON.stringify(doc.data().value));
-                n++;
-              } catch(e){}
+                localStorage.setItem(mapa[id], JSON.stringify(v));
+                return { id:id, ok:true, n:(Array.isArray(v) ? v.length : 1) };
+              } catch(e) { return { id:id, ok:false, motivo:'localStorage cheio' }; }
+            })
+            .catch(function(e){
+              return { id:id, ok:false, motivo:(e && e.code) || 'erro' };
             });
-            if (n) {
-              console.log('[G20] Carteira G20 carregada (' + n + ' documentos) — ' +
-                          'os toggles CG20 já funcionam sem visitar a página.');
-              // Redesenha o que depende dela.
-              try { if (typeof v21LoadCompChart === 'function') v21LoadCompChart(); } catch(e){}
-              try { if (typeof v21LoadAgenda === 'function') v21LoadAgenda(); } catch(e){}
-              try { if (typeof v21LoadMovers === 'function') v21LoadMovers(); } catch(e){}
-              try { if (typeof v21LoadProvChart === 'function') v21LoadProvChart(); } catch(e){}
-            }
-          })
-          .catch(function(e){
-            console.warn('[G20] não foi possível carregar a Carteira G20:', e && e.message);
-          });
-      } catch(e){}
+        });
+
+        Promise.all(promessas).then(function(res){
+          var okList = res.filter(function(r){ return r.ok; });
+          var falhas = res.filter(function(r){ return !r.ok; });
+
+          if (okList.length) {
+            console.log('%c[G20] Carteira G20 carregada: ' +
+              okList.map(function(r){ return r.id + ' (' + r.n + ')'; }).join(', '),
+              'color:#4ade80;font-weight:bold');
+            // Redesenha o que depende dela.
+            ['v21LoadCompChart','v21LoadAgenda','v21LoadMovers','v21LoadProvChart']
+              .forEach(function(fn){
+                try { if (typeof window[fn] === 'function') window[fn](); } catch(e){}
+              });
+          }
+          if (falhas.length) {
+            console.warn('[G20] Carteira G20 — não vieram: ' +
+              falhas.map(function(r){ return r.id + ' (' + r.motivo + ')'; }).join(', '));
+          }
+        });
+      } catch(e){ console.warn('[G20] falha ao carregar a Carteira G20:', e && e.message); }
     })();
 
     // Polling: re-verifica aprova  o a cada 3s (resolve aprova  o ap s login)
@@ -14398,6 +14474,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
       }
     } catch(e) { console.warn('[v21] agenda:', e); }
   }
+  /* R51: exposto no window para a carga da Carteira G20 poder redesenhar. */
+  window.v21LoadAgenda = v21LoadAgenda;
 
   // ==================== TOPBAR — INSERIR TOGGLE DE TEMA ====================
   function v21InstallThemeToggle() {
@@ -16532,6 +16610,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
     } catch(e) { console.warn('[v21 compChart]:', e); }
   }
+  /* R51: exposto no window para a carga da Carteira G20 poder redesenhar. */
+  window.v21LoadCompChart = v21LoadCompChart;
 
   // ─────────────────────────────────────────────────────
   // CHART 3: PROVENTOS 12 MESES (barras + média móvel)
@@ -16755,6 +16835,8 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
 
     } catch(e) { console.warn('[v21 provChart]:', e); }
   }
+  /* R51: exposto no window para a carga da Carteira G20 poder redesenhar. */
+  window.v21LoadProvChart = v21LoadProvChart;
 
   // ─────────────────────────────────────────────────────
   // Instala handlers dos controles (período, toggles, fonte)
