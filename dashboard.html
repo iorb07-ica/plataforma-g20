@@ -8910,6 +8910,45 @@ function _buscarCotacoesEAtualizarRV(){
     if(el){el.textContent='–';el.className='pat-kpi-var neu';}
     return;
   }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     REABRIR A PÁGINA NÃO PRECISA REFAZER TUDO — R51
+
+     Fechar e reabrir o dashboard disparava uma busca completa das cotações,
+     mesmo que o aluno tivesse fechado dois minutos antes. Numa carteira de
+     17 ativos são 17 requisições ao proxy, e num dia de idas e vindas isso
+     multiplica rápido — sem nenhum ganho, porque preço não muda em dois
+     minutos.
+
+     Agora reaproveitamos o que ficou no navegador quando ainda serve. A
+     validade é a mesma da atualização automática, 15 minutos: se o dado é
+     bom o suficiente para quem está com a página aberta, é bom para quem
+     acabou de reabrir.
+
+     Só vale se o cache cobrir TODAS as posições — carteira que mudou desde
+     a última visita precisa buscar de verdade.
+     ═══════════════════════════════════════════════════════════════════════ */
+  try {
+    var _cc = JSON.parse(localStorage.getItem('g20_dashRVCot_cache') || 'null');
+    var _idade = (_cc && _cc._ts) ? (Date.now() - _cc._ts) : Infinity;
+    if (_cc && _cc.data && _idade < 15 * 60 * 1000) {
+      var _tickers = {};
+      rvAportes.forEach(function(a){ if (a && a.ticker) _tickers[a.ticker] = 1; });
+      var _faltam = Object.keys(_tickers).filter(function(t){
+        return !(_cc.data[t] && _cc.data[t].preco > 0);
+      });
+      if (!_faltam.length) {
+        _dashRVCot = _cc.data;
+        console.log('[G20] cotações reaproveitadas do cache (' +
+                    Math.round(_idade/60000) + ' min) — nenhuma requisição feita.');
+        try { if (typeof loadPatStrip === 'function') loadPatStrip(); } catch(e){}
+        try { if (typeof v21LoadGP === 'function') v21LoadGP(); } catch(e){}
+        try { if (typeof v21LoadCompChart === 'function') v21LoadCompChart(); } catch(e){}
+        return;
+      }
+    }
+  } catch(e){}
+
   // Calcula posi  es
   var posMap={};
   rvAportes.sort(function(a,b){return a.data.localeCompare(b.data);}).forEach(function(a){
@@ -9036,6 +9075,9 @@ function _buscarCotacoesEAtualizarRV(){
       try{
         localStorage.setItem('g20_dashRVCot_cache', JSON.stringify({
           _cacheDate: (function(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })(),
+          /* R51: grava o INSTANTE, não só a data. É o que permite saber se
+             as cotações ainda servem quando o aluno reabre a página. */
+          _ts: Date.now(),
           data: _dashRVCot
         }));
       }catch(e){}
@@ -12434,39 +12476,52 @@ window.g20Logout = function() {
         }).catch(function(e) { console.warn('Patrim\u00f4nio Firestore:', e); });
       }
       atualizarPat();
-      /* Ciclo de 15 minutos: relê o Firestore, busca cotações novas e
-         recalcula os cards de patrimônio. É o que mantém o card Minha
-         Carteira acompanhando o pregão ao longo do dia. */
-      var _ultimaAtualizacao = Date.now();
-      setInterval(function(){
-        console.log('[G20] atualização periódica (15 min) — buscando cotações');
-        _ultimaAtualizacao = Date.now();
-        atualizarPat();
-      }, 15 * 60 * 1000);
 
       /* ═══════════════════════════════════════════════════════════════════
-         VOLTAR PARA A ABA — R51
+         QUANDO ATUALIZAR — regra de IDADE, não de cronômetro  (R51)
 
-         O setInterval sozinho não basta. Navegadores estrangulam timers de
-         abas em segundo plano: o Chrome limita a um disparo por minuto
-         depois de cinco minutos oculta, e quando o computador dorme os
-         timers simplesmente não correm. Quem deixa o dashboard aberto numa
-         aba e volta depois de horas encontra dado velho, sem saber que é
-         velho — pior que dado ausente.
+         A regra é uma frase: os dados nunca ficam mais de 15 minutos velhos
+         ENQUANTO O ALUNO ESTÁ OLHANDO.
 
-         Aqui atualizamos quando a aba volta a ficar visível, mas só se já
-         passou tempo suficiente: sem esse piso, alternar entre abas dispararia
-         uma rodada de requisições a cada clique.
+         Por que não um setInterval de 15 minutos direto: ele continua
+         tentando disparar com a aba em segundo plano, e o navegador o
+         estrangula de forma imprevisível — o Chrome limita a um disparo por
+         minuto depois de cinco minutos oculto, e nada dispara com a máquina
+         dormindo. O resultado era gastar requisição para ninguém ver, e
+         mesmo assim mostrar dado velho na volta.
+
+         Com a regra de idade:
+           · aba escondida ...... nada roda, nenhuma requisição
+           · aba visível ........ verifica de minuto em minuto e só busca
+                                  quando o dado passou de 15 minutos
+           · volta para a aba ... se o dado está velho, atualiza na hora;
+                                  se está fresco, não faz nada
+
+         Um aluno que deixa o dashboard aberto o dia inteiro numa aba de
+         fundo gasta ZERO requisições até voltar a olhar.
          ═══════════════════════════════════════════════════════════════════ */
+      var IDADE_MAX = 15 * 60 * 1000;
+      var _ultimaAtualizacao = Date.now();
+
+      function _precisaAtualizar(){
+        return (Date.now() - _ultimaAtualizacao) >= IDADE_MAX;
+      }
+      function _atualizarSePreciso(motivo){
+        if (document.hidden) return;          // ninguém olhando: não gasta
+        if (!_precisaAtualizar()) return;
+        var min = Math.round((Date.now() - _ultimaAtualizacao) / 60000);
+        console.log('[G20] ' + motivo + ' — dado com ' + min + ' min, atualizando cotações');
+        _ultimaAtualizacao = Date.now();
+        atualizarPat();
+      }
+
+      /* Verificação leve: só compara dois números. A busca de cotações em si
+         acontece no máximo a cada 15 minutos. */
+      setInterval(function(){ _atualizarSePreciso('verificação periódica'); }, 60 * 1000);
+
       try {
         document.addEventListener('visibilitychange', function(){
-          if (document.hidden) return;
-          var parado = Date.now() - _ultimaAtualizacao;
-          if (parado < 3 * 60 * 1000) return;      // menos de 3 min: nada a fazer
-          console.log('[G20] de volta à aba após ' + Math.round(parado/60000) +
-                      ' min — atualizando cotações');
-          _ultimaAtualizacao = Date.now();
-          atualizarPat();
+          if (!document.hidden) _atualizarSePreciso('de volta à aba');
         });
       } catch(e){}
 
