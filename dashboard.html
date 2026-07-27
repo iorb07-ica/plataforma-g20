@@ -9645,41 +9645,8 @@ function loadPatStrip(){
        Caso contrário passa 0 — e o snapshot mantém o fechamento. */
     var _rvParaSnap = rvMercado;
 
-    /* ═══════════════════════════════════════════════════════════════════
-       RASTRO — por que a cotação ao vivo não chega ao card
-
-       Três coisas precisam dar certo em sequência: a avaliação ficar
-       completa, o valor sobreviver à trava de sanidade, e o snapshot ser
-       gravado com ele. Sem rastro, dá para passar horas trocando hipótese.
-       Esta linha diz em qual das três parou.
-       ═══════════════════════════════════════════════════════════════════ */
-    try {
-      window._g20RastroRV = {
-        quando: new Date().toTimeString().substring(0,8),
-        rvMercado: Math.round(rvMercado),
-        faltando: (typeof faltando !== 'undefined' && faltando) ? faltando.length : '?',
-        rfAtual: Math.round(rfAtual),
-        total: Math.round(total)
-      };
-      if (!(rvMercado > 0)) {
-        console.warn('[loadPatStrip] RV ao vivo = 0 — o snapshot fica sem cotação. ' +
-          'Faltando: ' + window._g20RastroRV.faltando + ' ativo(s).');
-      }
-    } catch(e){}
-
     // Sparkline: grava snapshot de hoje + renderiza
     _patSnapUpsert(total, rfAtual, _rvParaSnap);
-
-    try {
-      var _chk = (window._patSnapLoad ? _patSnapLoad() : []);
-      var _u = _chk[_chk.length-1];
-      window._g20RastroRV.gravou = (_u && _u.rvVivo > 0) ? Math.round(_u.rvVivo) : 'NAO';
-      if (rvMercado > 0 && !(_u && _u.rvVivo > 0)) {
-        console.warn('[loadPatStrip] passei RV ' + Math.round(rvMercado) +
-                     ' mas o snapshot não guardou. Rode G20RastroRV() para ver.');
-      }
-    } catch(e){}
-
     _patRenderAllSparks();
   }catch(e){}
 }
@@ -12470,10 +12437,38 @@ window.g20Logout = function() {
       /* Ciclo de 15 minutos: relê o Firestore, busca cotações novas e
          recalcula os cards de patrimônio. É o que mantém o card Minha
          Carteira acompanhando o pregão ao longo do dia. */
+      var _ultimaAtualizacao = Date.now();
       setInterval(function(){
         console.log('[G20] atualização periódica (15 min) — buscando cotações');
+        _ultimaAtualizacao = Date.now();
         atualizarPat();
       }, 15 * 60 * 1000);
+
+      /* ═══════════════════════════════════════════════════════════════════
+         VOLTAR PARA A ABA — R51
+
+         O setInterval sozinho não basta. Navegadores estrangulam timers de
+         abas em segundo plano: o Chrome limita a um disparo por minuto
+         depois de cinco minutos oculta, e quando o computador dorme os
+         timers simplesmente não correm. Quem deixa o dashboard aberto numa
+         aba e volta depois de horas encontra dado velho, sem saber que é
+         velho — pior que dado ausente.
+
+         Aqui atualizamos quando a aba volta a ficar visível, mas só se já
+         passou tempo suficiente: sem esse piso, alternar entre abas dispararia
+         uma rodada de requisições a cada clique.
+         ═══════════════════════════════════════════════════════════════════ */
+      try {
+        document.addEventListener('visibilitychange', function(){
+          if (document.hidden) return;
+          var parado = Date.now() - _ultimaAtualizacao;
+          if (parado < 3 * 60 * 1000) return;      // menos de 3 min: nada a fazer
+          console.log('[G20] de volta à aba após ' + Math.round(parado/60000) +
+                      ' min — atualizando cotações');
+          _ultimaAtualizacao = Date.now();
+          atualizarPat();
+        });
+      } catch(e){}
 
     }).catch(function(e){ console.warn('Firestore:', e); });
   });
@@ -12970,18 +12965,16 @@ window.G20RastroRV = function(){
     console.warn('     -> loadPatStrip zera o valor ao vivo quando falta algum. Para aqui.');
   }
 
-  var r = window._g20RastroRV;
-  if (!r) console.warn('  2. loadPatStrip ainda não rodou nesta sessão');
-  else console.log('  2. loadPatStrip (' + r.quando + ') : passou RV ' +
-                   (r.rvMercado ? 'R$ ' + r.rvMercado.toLocaleString('pt-BR') : '0 (zerado)') +
-                   '  | gravou: ' + r.gravou);
-
+  /* Etapa 2: em vez de depender de uma variável gravada a cada carga —
+     instrumentação que não deve viver em produção —, comparamos o que a
+     avaliação produz agora com o que está no snapshot. Se o valor existe e
+     não está gravado, o caminho quebrou entre um e outro. */
   var snap = [];
   try { snap = (window._patSnapLoad ? _patSnapLoad() : []); } catch(e){}
   var u = snap[snap.length-1];
-  if (!u) { console.error('  3. sem snapshots'); return; }
+  if (!u) { console.error('  2. sem snapshots'); return; }
   var hoje = new Date().toISOString().substring(0,10);
-  console.log('  3. snapshot  : ' + u.d + (u.d === hoje ? ' (hoje)' : ' <-- NÃO É HOJE') +
+  console.log('  2. snapshot  : ' + u.d + (u.d === hoje ? ' (hoje)' : ' <-- NÃO É HOJE') +
               '  | rvVivo: ' + (u.rvVivo > 0 ? Math.round(u.rvVivo) : 'ausente') +
               '  | rfVivo: ' + (u.rfVivo > 0 ? Math.round(u.rfVivo) : 'ausente'));
 
@@ -12989,24 +12982,26 @@ window.G20RastroRV = function(){
   try { serie = (window.G20Rent && G20Rent.cache()) ? G20Rent.cache() : null; } catch(e){}
   if (serie && serie.length) {
     var us = serie[serie.length-1];
-    console.log('  4. série     : último ponto ' + us.d +
+    console.log('  3. série     : último ponto ' + us.d +
                 '  | RV R$ ' + Math.round(us.rv || 0).toLocaleString('pt-BR'));
-    if (us.d !== hoje) {
-      console.warn('     A série termina em ' + us.d + '. O ponto de hoje é reconstruído');
-      console.warn('     a partir dela a cada chamada de _patSnapUpsert.');
-    }
   }
 
   console.log('');
   if (av.completo && av.total > 0 && !(u.rvVivo > 0)) {
-    console.warn('  VEREDITO: o valor existe (etapa 1) e não está no snapshot (etapa 3).');
-    console.warn('  Alguma chamada posterior reconstruiu o ponto de hoje sem a cotação.');
+    console.warn('  VEREDITO: o valor existe (etapa 1) e não está no snapshot (etapa 2).');
+    console.warn('  A cotação não está chegando ao card. Recarregue e rode de novo:');
+    console.warn('  se mudar, é ordem de execução; se não mudar, é a gravação que falha.');
   } else if (!av.completo) {
     console.warn('  VEREDITO: a avaliação não fica completa — nunca haverá valor ao vivo.');
   } else if (u.rvVivo > 0) {
-    console.log('%c  VEREDITO: está tudo no lugar. O card deve mostrar "hoje".', 'color:#4ade80');
+    var _dif = Math.abs(av.total - u.rvVivo);
+    console.log('%c  VEREDITO: está tudo no lugar. O card mostra "hoje".', 'color:#4ade80');
+    if (_dif > 1) {
+      console.log('  (diferença de R$ ' + Math.round(_dif) +
+                  ' entre o cálculo de agora e o gravado — normal, o preço se move.)');
+    }
   }
-  return { avaliacao: av.total, completo: av.completo, loadPatStrip: r, snapshot: u };
+  return { avaliacao: av.total, completo: av.completo, snapshot: u };
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════
