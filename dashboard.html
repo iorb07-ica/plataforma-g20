@@ -8470,6 +8470,16 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
         <span style="display:block;width:3px;height:14px;border-radius:2px;background:linear-gradient(180deg,var(--gold),var(--goldd))"></span>
         Painel Admin
       </div>
+      <!-- Alerta de armazenamento: aparece só quando algum aluno passa de
+           50% do limite de 1 MB por documento da Gestão Financeira. -->
+      <a id="armzAlerta" href="admin-hub.html" style="display:none;align-items:center;gap:12px;
+         padding:14px 18px;border-radius:12px;margin-bottom:12px;text-decoration:none;
+         background:rgba(232,184,75,.10);border:1px solid rgba(232,184,75,.30)">
+        <span style="font-size:20px;flex-shrink:0">📦</span>
+        <span id="armzAlertaTxt" style="flex:1;font-size:13.5px;color:var(--gold);line-height:1.5"></span>
+        <span style="font-size:12px;color:var(--gold);font-weight:700;white-space:nowrap">Ver detalhes →</span>
+      </a>
+
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <a href="admin-hub.html" style="display:inline-flex;align-items:center;gap:10px;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:800;color:#0d0c10;background:var(--gold);text-decoration:none;transition:all .2s;box-shadow:0 8px 24px rgba(201,169,97,.25)" onmouseover="this.style.background='#e8c766';this.style.transform='translateY(-2px)'" onmouseout="this.style.background='var(--gold)';this.style.transform=''">
           🛠️ Painel Admin
@@ -12485,7 +12495,10 @@ window.g20Logout = function() {
       if(av&&cached.photo) av.innerHTML='<img src="'+cached.photo+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display=&quot;none&quot;">';
       var turmaEl=document.getElementById('sidebarTurma');
       if(turmaEl&&cached.role==='admin') turmaEl.textContent='Admin';
-      if(cached.role==='admin'){var ap=document.getElementById('adminPainelWrap');if(ap)ap.style.display='block';}
+      if(cached.role==='admin'){
+        var ap=document.getElementById('adminPainelWrap');if(ap)ap.style.display='block';
+        try { window._g20ArmzVigia && _g20ArmzVigia(); } catch(e){}
+      }
     }
   } catch(e) {}
 })();
@@ -20662,6 +20675,130 @@ html body .topbar {
   } else {
     setTimeout(agendar, 1500);
   }
+})();
+</script>
+
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════
+   VIGIA DE ARMAZENAMENTO — SÓ PARA ADMIN, UMA VEZ POR MÊS
+
+   A Gestão Financeira guarda TODO o histórico do aluno numa string única,
+   dentro de um documento só. O Firestore limita 1.048.576 bytes por
+   documento — estourando, o save falha e o aluno para de lançar.
+
+   O módulo já avisa o ALUNO aos 850 KB, mas esse aviso morre na tela dele.
+   O painel admin tem a varredura sob demanda; isto aqui é a rede de
+   segurança para quando o admin não pensar em clicar lá.
+
+   POR QUE UMA VEZ POR MÊS
+   O crescimento é lento — anos até alguém encher. Varrer todo dia seria
+   desperdício. Uma passada mensal dá meses de antecedência de sobra:
+
+     ~300 leituras por mês  ·  cota gratuita: 50.000 por DIA
+
+   Roda 8s depois do boot para não atrasar o carregamento, e só se a
+   última varredura tiver mais de 30 dias. O resultado fica em
+   localStorage, então abrir o dashboard dez vezes no mesmo mês não
+   consulta nada.
+   ═══════════════════════════════════════════════════════════════════════ */
+(function(){
+  var CHAVE   = 'g20_armzVigia';
+  var INTERVALO = 30 * 24 * 60 * 60 * 1000;   // 30 dias
+  var LIMITE  = 1048576;
+  var ALERTA  = 50;                            // % a partir do qual avisa
+
+  function pintar(res){
+    var el  = document.getElementById('armzAlerta');
+    var txt = document.getElementById('armzAlertaTxt');
+    if (!el || !txt || !res || !res.pior) return;
+    if (res.pior.pct < ALERTA) { el.style.display = 'none'; return; }
+
+    var critico = res.pior.pct >= 80;
+    el.style.display = 'flex';
+    el.style.background   = critico ? 'rgba(248,113,113,.10)' : 'rgba(232,184,75,.10)';
+    el.style.borderColor  = critico ? 'rgba(248,113,113,.32)' : 'rgba(232,184,75,.30)';
+    txt.style.color       = critico ? '#f87171' : '#e8b84b';
+    el.querySelectorAll('span')[2].style.color = critico ? '#f87171' : '#e8b84b';
+
+    txt.innerHTML =
+      '<b>' + res.pior.nome + '</b> já usa <b>' + res.pior.pct.toFixed(0) + '%</b> ' +
+      'do limite de armazenamento da Gestão Financeira' +
+      (res.acima > 1 ? ' — e mais ' + (res.acima - 1) + ' aluno' + (res.acima > 2 ? 's' : '') +
+                       ' acima de 50%' : '') + '.';
+  }
+
+  function varrer(){
+    var db;
+    try { db = firebase.firestore(); } catch(e){ return; }
+
+    db.collection('users').get().then(function(alunos){
+      var fila = alunos.docs.slice();
+      var linhas = [];
+
+      /* Sequencial: centenas de consultas simultâneas estouram o limite de
+         conexões do navegador e ficam mais lentas, não mais rápidas. */
+      function proximo(){
+        if (!fila.length) return Promise.resolve();
+        var doc = fila.shift();
+        var u = doc.data() || {};
+        return db.collection('users').doc(doc.id).collection('dados').get()
+          .then(function(dados){
+            dados.forEach(function(d){
+              if (String(d.id).indexOf('financeiro_') !== 0) return;
+              if (d.id === 'financeiro_perfis') return;
+              var c = d.data() && d.data().data;
+              if (typeof c !== 'string') return;
+              var bytes = new Blob([c]).size;
+              linhas.push({
+                nome: u.nome || u.name || u.email || doc.id.slice(0,8),
+                pct: bytes / LIMITE * 100
+              });
+            });
+          })
+          .catch(function(){})
+          .then(proximo);
+      }
+
+      return proximo().then(function(){
+        linhas.sort(function(a,b){ return b.pct - a.pct; });
+        var res = {
+          em: Date.now(),
+          pior: linhas[0] || null,
+          acima: linhas.filter(function(l){ return l.pct >= ALERTA; }).length,
+          total: linhas.length
+        };
+        try { localStorage.setItem(CHAVE, JSON.stringify(res)); } catch(e){}
+        console.log('[G20 armazenamento] ' + res.total + ' documentos verificados' +
+                    (res.pior ? ' — maior: ' + res.pior.nome + ' (' + res.pior.pct.toFixed(1) + '%)' : ''));
+        pintar(res);
+      });
+    }).catch(function(e){ console.warn('[G20 armazenamento]', e && e.message); });
+  }
+
+  window._g20ArmzVigia = function(forcar){
+    /* Só admin. Aluno comum nem tem permissão de listar users. */
+    var ehAdmin = false;
+    try { ehAdmin = (JSON.parse(localStorage.getItem('g20_user_profile') || '{}').role === 'admin'); } catch(e){}
+    if (!ehAdmin) return;
+
+    var cache = null;
+    try { cache = JSON.parse(localStorage.getItem(CHAVE) || 'null'); } catch(e){}
+
+    /* Mostra o que já se sabe na hora, sem esperar varredura nenhuma. */
+    if (cache) pintar(cache);
+
+    if (forcar || !cache || (Date.now() - (cache.em || 0)) > INTERVALO) {
+      setTimeout(varrer, forcar ? 0 : 8000);   // 8s: não atrasa o boot
+    }
+  };
+
+  /* Diagnóstico manual: G20DiagArmz() força a varredura na hora. */
+  window.G20DiagArmz = function(){
+    try { localStorage.removeItem(CHAVE); } catch(e){}
+    window._g20ArmzVigia(true);
+    return 'varredura forçada — acompanhe o console';
+  };
 })();
 </script>
 
