@@ -2070,7 +2070,19 @@ function publicarRankingSePreciso(){
     if (doc.exists) {
       var d = doc.data();
       var ts = d && d.atualizadoEm && d.atualizadoEm.toDate ? d.atualizadoEm.toDate().getTime() : 0;
-      if (ts && (Date.now() - ts) < IDADE_MAX_RANK) {
+      /* O ADMIN IGNORA A TRAVA DE 20H.
+
+         A trava existe para um aluno não regravar um documento que já está
+         fresco. Mas ela também impedia o Israel de republicar depois de
+         mudar o FORMATO do documento — foi assim que o campo alvo.key novo
+         ficou de fora, e o card continuou dizendo "monte sua carteira" para
+         quem já tinha montado.
+
+         As regras do Firestore já permitem que o admin escreva a qualquer
+         momento; faltava o cliente respeitar isso. */
+      var ehAdmin = false;
+      try { ehAdmin = souAdmin(); } catch(e){}
+      if (!ehAdmin && ts && (Date.now() - ts) < IDADE_MAX_RANK) {
         // Fresco: outro aluno já publicou hoje. Não gasta escrita.
         _publicando = false;
         return null;
@@ -2104,7 +2116,7 @@ function publicarRankingSePreciso(){
     });
   }).then(function(r){
     if (r !== null) console.log('[Game] ranking publicado para o dashboard ('
-                               + m.total + ' jogadores)');
+                               + m.total + ' jogadores)' + (ehAdmin ? ' — admin, sem esperar as 20h' : ''));
     _publicando = false;
   }).catch(function(e){
     // Falha de permissão aqui é inofensiva: o dashboard cai no estado de convite.
