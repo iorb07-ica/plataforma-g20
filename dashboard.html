@@ -20810,6 +20810,14 @@ html body .topbar {
     window._g20ArmzVigia(true);
     return 'varredura forçada — acompanhe o console';
   };
+
+  /* ─── AUTODISPARO ───────────────────────────────────────────────────────
+     Mesmo problema do vigia de comentários: a chamada no boot acontece
+     antes desta definição existir. Dispara aqui. */
+  try {
+    var _perfilA = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
+    if (_perfilA.role === 'admin') window._g20ArmzVigia();
+  } catch(e){}
 })();
 </script>
 
@@ -20892,8 +20900,14 @@ html body .topbar {
 
             var res = { em: Date.now(), novos: novos.length, autores: autores, aula: ultimaAula };
             try { localStorage.setItem(CACHE, JSON.stringify(res)); } catch(e){}
+            /* Loga SEMPRE. Antes só falava quando havia novidade, e um
+               diagnóstico mudo é indistinguível de um diagnóstico quebrado
+               — foi exatamente o que confundiu o teste. */
             if (novos.length) {
               console.log('[G20 comentários] ' + novos.length + ' novo(s) de ' + autores.join(', '));
+            } else {
+              console.log('[G20 comentários] consulta ok — ' + snap.size +
+                          ' comentário(s) no total, nenhum novo desde a última visita.');
             }
             pintar(res);
           });
@@ -20921,6 +20935,17 @@ html body .topbar {
     window._g20ComVigia(true);
     return 'consultando comentários — acompanhe o console';
   };
+
+  /* ─── AUTODISPARO ───────────────────────────────────────────────────────
+     O bloco que carrega o perfil do cache chama `window._g20ComVigia` no
+     boot, mas roda ~8.000 linhas ANTES desta definição. Naquele momento a
+     função ainda é undefined e o `&&` engole a chamada em silêncio: o
+     vigia nunca rodava sozinho. Por isso a faixa verde nunca apareceu.
+     Aqui o próprio vigia se dispara assim que termina de ser definido. */
+  try {
+    var _perfil = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
+    if (_perfil.role === 'admin') window._g20ComVigia();
+  } catch(e){}
 })();
 </script>
 
