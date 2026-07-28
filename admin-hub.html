@@ -116,10 +116,184 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
       <span class="card-go">Abrir painel <i data-lucide="arrow-right"></i></span>
     </a>
 
+    <a href="#" onclick="abrirArmazenamento(event)" class="card" style="--ac:#8b93a7;--acbg:rgba(139,147,167,.12);--acbd:rgba(139,147,167,.25)">
+      <div class="card-ico"><i data-lucide="hard-drive"></i></div>
+      <div class="card-title">Armazenamento</div>
+      <div class="card-desc">Quanto cada aluno ja ocupou na Gestao Financeira. O Firestore limita 1 MB por documento.</div>
+      <span class="card-go">Verificar <i data-lucide="arrow-right"></i></span>
+    </a>
+
   </div>
 
   <div class="foot">G20 MASTERCLASS · PAINEL ADMIN · #NÃOFOISORTE</div>
 </div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     ARMAZENAMENTO DA GESTÃO FINANCEIRA
+
+     Por que existe: o módulo guarda TODO o histórico do aluno numa string
+     única, dentro de um documento só. O Firestore limita 1.048.576 bytes
+     por documento — e quando estoura, o save falha e o aluno para de
+     conseguir lançar.
+
+     O gestao-financeira.html já avisa o ALUNO aos 850 KB. Mas o aviso
+     morre na tela dele: você não fica sabendo. Esta tela fecha esse buraco.
+
+     A varredura só roda quando você clica. Custo: uma consulta por aluno,
+     e nada acontece no carregamento do painel.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div id="armzModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;
+     align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto">
+  <div style="background:#171b23;border:1px solid rgba(201,169,97,.22);border-radius:16px;
+       padding:26px 28px;width:100%;max-width:760px;box-shadow:0 24px 48px rgba(0,0,0,.6)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:1.2px;color:#e8b84b">
+        ARMAZENAMENTO — GESTÃO FINANCEIRA</div>
+      <button onclick="fecharArmazenamento()" style="background:none;border:none;color:rgba(255,255,255,.5);
+        font-size:22px;cursor:pointer;line-height:1">✕</button>
+    </div>
+    <div style="font-size:12.5px;color:#8b93a7;line-height:1.6;margin-bottom:18px">
+      O Firestore limita <b style="color:#e8eaf0">1 MB por documento</b>, e o módulo guarda todo o
+      histórico do aluno em um só. Abaixo, quanto cada um já ocupa.
+    </div>
+
+    <button id="armzBtn" onclick="rodarArmazenamento()"
+      style="padding:12px 20px;border-radius:10px;background:rgba(201,169,97,.14);
+      border:1px solid rgba(201,169,97,.34);color:#e8b84b;font-family:'DM Sans',sans-serif;
+      font-size:13.5px;font-weight:700;cursor:pointer">Verificar agora</button>
+
+    <div id="armzStatus" style="font-size:12.5px;color:#8b93a7;margin-top:14px"></div>
+    <div id="armzResultado" style="margin-top:18px"></div>
+  </div>
+</div>
+
+<script>
+var _armzRodando = false;
+
+function abrirArmazenamento(ev){
+  if (ev) ev.preventDefault();
+  document.getElementById('armzModal').style.display = 'flex';
+}
+function fecharArmazenamento(){
+  document.getElementById('armzModal').style.display = 'none';
+}
+
+function _armzFmt(b){
+  if (b >= 1048576) return (b/1048576).toFixed(2) + ' MB';
+  if (b >= 1024)    return (b/1024).toFixed(1) + ' KB';
+  return b + ' B';
+}
+
+async function rodarArmazenamento(){
+  if (_armzRodando) return;
+  _armzRodando = true;
+
+  var btn = document.getElementById('armzBtn');
+  var st  = document.getElementById('armzStatus');
+  var res = document.getElementById('armzResultado');
+  btn.disabled = true; btn.style.opacity = '.5';
+  res.innerHTML = '';
+  st.textContent = 'Lendo lista de alunos…';
+
+  try {
+    var alunos = await db.collection('users').get();
+    var total = alunos.size, feitos = 0, linhas = [];
+
+    /* Uma consulta por aluno na subcoleção `dados`. Sequencial de propósito:
+       em paralelo, 300 consultas simultâneas estouram o limite de conexões
+       do navegador e a varredura fica mais lenta, não mais rápida. */
+    for (var doc of alunos.docs) {
+      feitos++;
+      st.textContent = 'Verificando ' + feitos + ' de ' + total + '…';
+      var u = doc.data() || {};
+      try {
+        var dados = await db.collection('users').doc(doc.id).collection('dados').get();
+        dados.forEach(function(d){
+          if (String(d.id).indexOf('financeiro_') !== 0) return;
+          if (d.id === 'financeiro_perfis') return;
+          var conteudo = d.data() && d.data().data;
+          if (typeof conteudo !== 'string') return;
+          var bytes = new Blob([conteudo]).size;
+          var lanc = 0;
+          try { lanc = (JSON.parse(conteudo).transactions || []).length; } catch(e){}
+          linhas.push({
+            nome: u.nome || u.name || u.email || doc.id.slice(0,10),
+            email: u.email || '',
+            perfil: d.id.replace('financeiro_',''),
+            bytes: bytes,
+            pct: bytes / 1048576 * 100,
+            lanc: lanc
+          });
+        });
+      } catch(e){}
+    }
+
+    linhas.sort(function(a,b){ return b.bytes - a.bytes; });
+
+    if (!linhas.length) {
+      st.textContent = 'Nenhum aluno usou a Gestão Financeira ainda.';
+      btn.disabled = false; btn.style.opacity = '1'; _armzRodando = false;
+      return;
+    }
+
+    var maior = linhas[0];
+    var acima50 = linhas.filter(function(l){ return l.pct >= 50; }).length;
+    var acima80 = linhas.filter(function(l){ return l.pct >= 80; }).length;
+
+    st.innerHTML = total + ' alunos verificados · ' + linhas.length + ' com dados · ' +
+      'maior: <b style="color:#e8eaf0">' + _armzFmt(maior.bytes) + '</b> (' + maior.pct.toFixed(1) + '%)' +
+      (acima80 ? ' · <b style="color:#f87171">' + acima80 + ' acima de 80%</b>'
+               : (acima50 ? ' · <b style="color:#e8b84b">' + acima50 + ' acima de 50%</b>'
+                          : ' · <b style="color:#4ade80">nenhum em risco</b>'));
+
+    res.innerHTML =
+      '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+      '<thead><tr>' +
+        '<th style="text-align:left;padding:8px 10px;font-size:10px;letter-spacing:1px;color:#8b93a7;' +
+        'text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.08)">Aluno</th>' +
+        '<th style="text-align:left;padding:8px 10px;font-size:10px;letter-spacing:1px;color:#8b93a7;' +
+        'text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.08)">Perfil</th>' +
+        '<th style="text-align:right;padding:8px 10px;font-size:10px;letter-spacing:1px;color:#8b93a7;' +
+        'text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.08)">Lanç.</th>' +
+        '<th style="text-align:right;padding:8px 10px;font-size:10px;letter-spacing:1px;color:#8b93a7;' +
+        'text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.08)">Tamanho</th>' +
+        '<th style="width:34%;padding:8px 10px;font-size:10px;letter-spacing:1px;color:#8b93a7;' +
+        'text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.08)">% do limite</th>' +
+      '</tr></thead><tbody>' +
+      linhas.map(function(l){
+        var cor = l.pct >= 80 ? '#f87171' : (l.pct >= 50 ? '#e8b84b' : '#4ade80');
+        return '<tr>' +
+          '<td style="padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.04)">' +
+            '<div style="color:#e8eaf0">' + l.nome + '</div>' +
+            (l.email ? '<div style="font-size:10.5px;color:#6b7280">' + l.email + '</div>' : '') + '</td>' +
+          '<td style="padding:9px 10px;color:#8b93a7;border-bottom:1px solid rgba(255,255,255,.04)">' + l.perfil + '</td>' +
+          '<td style="padding:9px 10px;text-align:right;font-family:\'JetBrains Mono\',monospace;' +
+            'color:#8b93a7;border-bottom:1px solid rgba(255,255,255,.04)">' + l.lanc + '</td>' +
+          '<td style="padding:9px 10px;text-align:right;font-family:\'JetBrains Mono\',monospace;' +
+            'color:' + cor + ';border-bottom:1px solid rgba(255,255,255,.04)">' + _armzFmt(l.bytes) + '</td>' +
+          '<td style="padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.04)">' +
+            '<div style="display:flex;align-items:center;gap:9px">' +
+              '<div style="flex:1;height:7px;border-radius:4px;background:rgba(255,255,255,.06);overflow:hidden">' +
+                '<div style="width:' + Math.max(1, Math.min(100, l.pct)) + '%;height:100%;background:' + cor + '"></div>' +
+              '</div>' +
+              '<span style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:' + cor + ';' +
+                'min-width:44px;text-align:right">' + l.pct.toFixed(1) + '%</span>' +
+            '</div></td></tr>';
+      }).join('') +
+      '</tbody></table>' +
+      '<div style="font-size:11.5px;color:#6b7280;margin-top:16px;line-height:1.6">' +
+      'Verde abaixo de 50%, dourado entre 50 e 80%, vermelho acima de 80%. ' +
+      'O aluno recebe um aviso na própria tela ao passar de 850 KB (81%). ' +
+      'Quando alguém se aproximar do limite, a solução é quebrar o histórico por ano.</div>';
+
+  } catch(e) {
+    st.innerHTML = '<span style="color:#f87171">Falhou: ' + (e && e.message ? e.message : e) + '</span>';
+  }
+
+  btn.disabled = false; btn.style.opacity = '1'; _armzRodando = false;
+}
+</script>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
