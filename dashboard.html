@@ -6365,11 +6365,11 @@ body.pat-hidden .v21-change-extra::after{
     background: transparent;
     border-radius: 12px;
     overflow: hidden;
-    min-height: 232px;
+    min-height: 152px;
   }
   .v21-cast-player iframe {
     width: 100%;
-    /* Altura vem do atributo HTML (232: capa + título + play) */
+    /* Altura vem do atributo HTML (152 no player compacto) */
     border: 0;
     border-radius: 12px;
     display: block;
@@ -6380,6 +6380,18 @@ body.pat-hidden .v21-change-extra::after{
     color: var(--v21-text-2, #9a958e);
     font-size: 12px;
   }
+  .v21-cast-antes { margin-top:14px; padding-top:12px; border-top:1px solid rgba(255,255,255,.06); }
+  .v21-cast-antes-lbl { font-size:10px; letter-spacing:1px; color:var(--text2,#8b93a7);
+                        text-transform:uppercase; margin-bottom:10px; }
+  .v21-cast-ep { display:flex; align-items:baseline; gap:9px; padding:7px 0;
+                 border-bottom:1px solid rgba(255,255,255,.04); }
+  .v21-cast-ep:last-child { border-bottom:none; }
+  .v21-cast-ep-num { font-family:'JetBrains Mono',monospace; font-size:11.5px;
+                     color:#e8b84b; flex-shrink:0; }
+  .v21-cast-ep-tit { flex:1; min-width:0; font-size:12.5px; color:var(--text,#e8eaf0);
+                     overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .v21-cast-ep-dia { font-size:10.5px; color:#6b7280; flex-shrink:0; }
+
   .v21-cast-footer {
     margin-top: auto;
     padding-top: 12px;
@@ -8391,6 +8403,12 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
         <div class="v21-cast-player" id="v21CastPlayer">
           <div class="v21-cast-loading">Carregando player Spotify…</div>
         </div>
+
+        <!-- Episódios anteriores: texto, sem play.
+             Um segundo player no card criaria dois botões, duas interfaces e
+             a chance de dois áudios tocando ao mesmo tempo. O play fica só no
+             Spotify, que também é onde a escuta conta como métrica. -->
+        <div class="v21-cast-antes" id="v21CastAntes"></div>
         <div class="v21-cast-footer">
           <a href="g20cast.html" class="v21-cast-footer-link">
             Ver todos os episódios →
@@ -19244,6 +19262,48 @@ window.G20DiagRF = function(dias){
           var totalEps = maxNum > items.length ? maxNum : items.length;
           if (hintEl) hintEl.textContent = totalEps + ' episódios';
 
+          /* ── EPISÓDIOS ANTERIORES ────────────────────────────────────
+             Só texto: número, título e data. Sem play.
+
+             O feed do Anchor não traz o ID do Spotify (o link termina no
+             slug deles, tipo "e3mk7un", não no ID de 22 caracteres que o
+             embed de episódio exige), então trocar o iframe por episódio
+             não é possível. E um segundo player, com o MP3 do enclosure,
+             criaria dois botões de play no mesmo card, com risco de dois
+             áudios simultâneos — e tiraria a escuta das métricas do
+             Spotify.
+
+             Os dados já estão aqui: zero requisição adicional. */
+          var antesEl = document.getElementById('v21CastAntes');
+          if (antesEl) {
+            var MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+            var anteriores = items.slice(1, 5);
+            if (!anteriores.length) {
+              antesEl.innerHTML = '';
+            } else {
+              antesEl.innerHTML =
+                '<div class="v21-cast-antes-lbl">Anteriores</div>' +
+                anteriores.map(function(ep){
+                  var t = ep.title || '';
+                  var mNum = t.match(/#(\d+)/);
+                  var num = mNum ? '#' + mNum[1] : '';
+                  /* Tira o prefixo "G20Cast #770 - " e deixa só o assunto:
+                     o número já aparece na coluna da esquerda. */
+                  var titulo = t.replace(/^\s*G20Cast\s*#?\d*\s*[-–—]\s*/i, '').trim() || t;
+                  var dia = '';
+                  try {
+                    var d2 = new Date(ep.pubDate);
+                    if (!isNaN(d2)) dia = d2.getDate() + ' ' + MESES[d2.getMonth()];
+                  } catch(e){}
+                  return '<div class="v21-cast-ep">' +
+                           '<span class="v21-cast-ep-num">' + num + '</span>' +
+                           '<span class="v21-cast-ep-tit">' + titulo + '</span>' +
+                           '<span class="v21-cast-ep-dia">' + dia + '</span>' +
+                         '</div>';
+                }).join('');
+            }
+          }
+
           // Tenta carregar player Spotify do último episódio
           // Usa a mesma função v3CastShowEmbed (se existir) mas redirecionando pro container v21
           var link = last.link || '';
@@ -19286,11 +19346,14 @@ window.G20DiagRF = function(dias){
 
        Os 80–200px devolvidos vão pra Gestão Financeira, que é onde ele
        tem algo a fazer além de apertar play. */
-    /* R52b: voltou pra 232 — o embed de 152 é uma tira fina sem capa e sem
-       título legível. Em 232 o Spotify mostra a arte do episódio, o título
-       completo e o play grande, que é o que faz alguém apertar. O card ficou
-       estreito, então a altura preenche a coluna em vez de sobrar vazio. */
-    var iframeHeight = 232;
+    /* R52d: de volta ao compacto de 152px, e desta vez por um motivo
+       concreto, não estético: o embed de 232px não se adapta a container
+       estreito e CORTA o título do episódio. O de 152px tem layout de uma
+       linha e cabe.
+
+       O vazio que sobrava embaixo passou a ser ocupado pela lista dos
+       episódios anteriores, que vem do mesmo RSS já carregado. */
+    var iframeHeight = 152;
 
     if (num && window.G20CAST_SPOTIFY_IDS && window.G20CAST_SPOTIFY_IDS[num]) {
       var spotifyId = window.G20CAST_SPOTIFY_IDS[num];
