@@ -116,6 +116,13 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
       <span class="card-go">Abrir painel <i data-lucide="arrow-right"></i></span>
     </a>
 
+    <a href="#" onclick="abrirComentarios(event)" class="card" style="--ac:#2ecc71;--acbg:rgba(46,204,113,.12);--acbd:rgba(46,204,113,.25)">
+      <div class="card-ico"><i data-lucide="message-square-text"></i></div>
+      <div class="card-title">Comentarios das Aulas <span id="comBadge" style="display:none"></span></div>
+      <div class="card-desc">O que os alunos escreveram nas aulas. Responder aqui constroi o acervo que as proximas turmas leem.</div>
+      <span class="card-go">Ver comentarios <i data-lucide="arrow-right"></i></span>
+    </a>
+
     <a href="#" onclick="abrirArmazenamento(event)" class="card" style="--ac:#8b93a7;--acbg:rgba(139,147,167,.12);--acbd:rgba(139,147,167,.25)">
       <div class="card-ico"><i data-lucide="hard-drive"></i></div>
       <div class="card-title">Armazenamento</div>
@@ -292,6 +299,175 @@ async function rodarArmazenamento(){
   }
 
   btn.disabled = false; btn.style.opacity = '1'; _armzRodando = false;
+}
+</script>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     COMENTÁRIOS DAS AULAS
+
+     Aluno comenta e o Israel precisa saber. Sem isso o comentário fica
+     esperando resposta que nunca vem — e comentário sem resposta é pior
+     que não ter campo de comentário: o aluno conclui que foi ignorado.
+
+     Usa collectionGroup('comentarios') para varrer todas as aulas de uma
+     vez. Isso exige a regra por CURINGA no Firestore — a regra de caminho
+     específico não autoriza collectionGroup (mesma armadilha que quebrou o
+     ranking do Game na sessão 49).
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div id="comModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;
+     align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto">
+  <div style="background:#171b23;border:1px solid rgba(201,169,97,.22);border-radius:16px;
+       padding:26px 28px;width:100%;max-width:780px;box-shadow:0 24px 48px rgba(0,0,0,.6)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:1.2px;color:#e8b84b">
+        COMENTÁRIOS DAS AULAS</div>
+      <button onclick="fecharComentarios()" style="background:none;border:none;color:rgba(255,255,255,.5);
+        font-size:22px;cursor:pointer;line-height:1">✕</button>
+    </div>
+    <div style="font-size:12.5px;color:#8b93a7;line-height:1.6;margin-bottom:18px">
+      Os comentários ficam na aula e <b style="color:#e8eaf0">atravessam as turmas</b> —
+      o que você responde hoje a Turma 25 vai ler.
+    </div>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+      <button id="comBtn" onclick="carregarComentarios()"
+        style="padding:12px 20px;border-radius:10px;background:rgba(201,169,97,.14);
+        border:1px solid rgba(201,169,97,.34);color:#e8b84b;font-family:'DM Sans',sans-serif;
+        font-size:13.5px;font-weight:700;cursor:pointer">Atualizar</button>
+      <button id="comBtnVisto" onclick="marcarTudoVisto()"
+        style="padding:12px 20px;border-radius:10px;background:rgba(46,204,113,.12);
+        border:1px solid rgba(46,204,113,.32);color:#2ecc71;font-family:'DM Sans',sans-serif;
+        font-size:13.5px;font-weight:700;cursor:pointer">Marcar tudo como visto</button>
+    </div>
+
+    <div id="comStatus" style="font-size:12.5px;color:#8b93a7;margin-bottom:16px"></div>
+    <div id="comLista"></div>
+  </div>
+</div>
+
+<script>
+var _comVistoEm = 0;
+
+function abrirComentarios(ev){
+  if (ev) ev.preventDefault();
+  document.getElementById('comModal').style.display = 'flex';
+  carregarComentarios();
+}
+function fecharComentarios(){
+  document.getElementById('comModal').style.display = 'none';
+}
+
+function _comEsc(t){
+  return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* Data SÓ aqui no painel admin — o aluno nunca vê data no comentário.
+   Aqui ela é ferramenta de trabalho: saber o que é recente. */
+function _comQuando(ts){
+  if (!ts) return '';
+  var d = ts.toDate ? ts.toDate() : new Date(ts);
+  var min = Math.floor((Date.now() - d.getTime()) / 60000);
+  if (min < 60)   return 'há ' + min + ' min';
+  if (min < 1440) return 'há ' + Math.floor(min/60) + 'h';
+  var dias = Math.floor(min/1440);
+  if (dias < 30)  return 'há ' + dias + (dias > 1 ? ' dias' : ' dia');
+  return d.toLocaleDateString('pt-BR');
+}
+
+function carregarComentarios(){
+  var st  = document.getElementById('comStatus');
+  var box = document.getElementById('comLista');
+  var btn = document.getElementById('comBtn');
+  btn.disabled = true; btn.style.opacity = '.5';
+  st.textContent = 'Carregando…';
+
+  var uid = auth.currentUser ? auth.currentUser.uid : null;
+  if (!uid) { st.textContent = 'Sessão expirada.'; return; }
+
+  db.collection('users').doc(uid).collection('config').doc('comentariosVistos').get()
+    .then(function(doc){
+      _comVistoEm = 0;
+      if (doc.exists && doc.data() && doc.data().em) {
+        var v = doc.data().em;
+        _comVistoEm = v.toDate ? v.toDate().getTime() : v;
+      }
+      return db.collectionGroup('comentarios').orderBy('criadoEm','desc').limit(50).get();
+    })
+    .then(function(snap){
+      var itens = [];
+      snap.forEach(function(d){
+        var c = d.data() || {}; c._id = d.id; c._path = d.ref.path;
+        var p = d.ref.path.split('/');
+        c._modulo = p[3] || ''; c._aula = p[5] || '';
+        c._ts = c.criadoEm && c.criadoEm.toDate ? c.criadoEm.toDate().getTime() : 0;
+        c._novo = !c.admin && c._ts > _comVistoEm;
+        itens.push(c);
+      });
+
+      var novos = itens.filter(function(c){ return c._novo; }).length;
+      st.innerHTML = itens.length + ' comentário(s) · ' +
+        (novos ? '<b style="color:#2ecc71">' + novos + ' novo(s) desde sua última visita</b>'
+               : 'nenhum novo desde sua última visita');
+
+      var badge = document.getElementById('comBadge');
+      if (badge) {
+        badge.style.display = novos ? 'inline-block' : 'none';
+        badge.textContent = novos;
+        badge.style.cssText += ';margin-left:8px;padding:2px 9px;border-radius:11px;' +
+          'background:#2ecc71;color:#0d0c10;font-size:12px;font-weight:800';
+      }
+
+      if (!itens.length) {
+        box.innerHTML = '<div style="padding:24px 2px;color:#8b93a7;font-size:14px">' +
+                        'Nenhum comentário nas aulas ainda.</div>';
+        return;
+      }
+
+      box.innerHTML = itens.map(function(c){
+        var link = 'sala-de-aula.html#aula=' + c._modulo + '~' + c._aula;
+        return '<div style="padding:16px 18px;margin-bottom:11px;border-radius:12px;' +
+          'background:' + (c._novo ? 'rgba(46,204,113,.07)' : 'rgba(255,255,255,.03)') + ';' +
+          'border:1px solid ' + (c._novo ? 'rgba(46,204,113,.26)' : 'rgba(255,255,255,.06)') + '">' +
+          '<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;flex-wrap:wrap">' +
+            '<span style="font-size:14px;font-weight:700;color:#e8eaf0">' + _comEsc(c.autorNome) + '</span>' +
+            (c.admin ? '<span style="padding:2px 8px;border-radius:9px;background:rgba(201,169,97,.18);' +
+                       'color:#e8b84b;font-size:10px;font-weight:800;letter-spacing:.8px">VOCÊ</span>' : '') +
+            (c._novo ? '<span style="padding:2px 8px;border-radius:9px;background:#2ecc71;' +
+                       'color:#0d0c10;font-size:10px;font-weight:800;letter-spacing:.8px">NOVO</span>' : '') +
+            (c.respostaDe ? '<span style="font-size:11px;color:#6b7280">↳ resposta</span>' : '') +
+            '<span style="margin-left:auto;font-size:11px;color:#6b7280">' + _comQuando(c.criadoEm) + '</span>' +
+          '</div>' +
+          '<div style="font-size:14px;line-height:1.65;color:#c9c6c1;white-space:pre-wrap">' +
+            _comEsc(c.texto) + '</div>' +
+          '<a href="' + link + '" style="display:inline-block;margin-top:11px;font-size:12.5px;' +
+            'color:#e8b84b;font-weight:700;text-decoration:none">Abrir a aula e responder →</a>' +
+        '</div>';
+      }).join('');
+    })
+    .catch(function(e){
+      st.innerHTML = '<span style="color:#f87171">Falhou: ' + (e && e.message ? e.message : e) +
+        '</span><br><span style="font-size:11.5px;color:#8b93a7">Se disser "insufficient permissions", ' +
+        'republique o firestore.rules — a consulta collectionGroup precisa da regra por curinga.</span>';
+    })
+    .then(function(){ btn.disabled = false; btn.style.opacity = '1'; });
+}
+
+function marcarTudoVisto(){
+  var uid = auth.currentUser ? auth.currentUser.uid : null;
+  if (!uid) return;
+  db.collection('users').doc(uid).collection('config').doc('comentariosVistos')
+    .set({ em: firebase.firestore.FieldValue.serverTimestamp() })
+    .then(function(){
+      try { localStorage.removeItem('g20_comVigia'); } catch(e){}
+      carregarComentarios();
+    })
+    .catch(function(e){ alert('Erro: ' + (e && e.message)); });
+}
+
+/* Abre direto no painel quando vem do alerta do dashboard. */
+if (location.search.indexOf('comentarios=1') > -1) {
+  setTimeout(function(){ abrirComentarios(); }, 900);
 }
 </script>
 

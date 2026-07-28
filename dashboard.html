@@ -8470,6 +8470,16 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
         <span style="display:block;width:3px;height:14px;border-radius:2px;background:linear-gradient(180deg,var(--gold),var(--goldd))"></span>
         Painel Admin
       </div>
+      <!-- Alerta de comentários novos nas aulas: aparece quando algum aluno
+           comenta e você ainda não viu. -->
+      <a id="comAlerta" href="admin-hub.html?comentarios=1" style="display:none;align-items:center;gap:12px;
+         padding:14px 18px;border-radius:12px;margin-bottom:12px;text-decoration:none;
+         background:rgba(74,222,128,.10);border:1px solid rgba(74,222,128,.30)">
+        <span style="font-size:20px;flex-shrink:0">💬</span>
+        <span id="comAlertaTxt" style="flex:1;font-size:13.5px;color:#4ade80;line-height:1.5"></span>
+        <span style="font-size:12px;color:#4ade80;font-weight:700;white-space:nowrap">Responder →</span>
+      </a>
+
       <!-- Alerta de armazenamento: aparece só quando algum aluno passa de
            50% do limite de 1 MB por documento da Gestão Financeira. -->
       <a id="armzAlerta" href="admin-hub.html" style="display:none;align-items:center;gap:12px;
@@ -12498,6 +12508,7 @@ window.g20Logout = function() {
       if(cached.role==='admin'){
         var ap=document.getElementById('adminPainelWrap');if(ap)ap.style.display='block';
         try { window._g20ArmzVigia && _g20ArmzVigia(); } catch(e){}
+        try { window._g20ComVigia  && _g20ComVigia();  } catch(e){}
       }
     }
   } catch(e) {}
@@ -20798,6 +20809,117 @@ html body .topbar {
     try { localStorage.removeItem(CHAVE); } catch(e){}
     window._g20ArmzVigia(true);
     return 'varredura forçada — acompanhe o console';
+  };
+})();
+</script>
+
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════
+   VIGIA DE COMENTÁRIOS DAS AULAS — SÓ PARA ADMIN
+
+   Aluno comenta numa aula e o Israel precisa saber. Sem isso, o comentário
+   fica lá esperando resposta que nunca vem — e comentário sem resposta é
+   pior que campo de comentário nenhum: o aluno conclui que foi ignorado.
+
+   COMO FUNCIONA
+   Uma consulta collectionGroup('comentarios') traz os mais recentes de
+   TODAS as aulas de uma vez. Compara com a data da última visita, guardada
+   em users/{uid}/config/comentariosVistos — no Firestore, não no
+   localStorage, para valer em qualquer aparelho.
+
+   CUSTO
+   Uma consulta a cada 30 minutos, trazendo no máximo 20 documentos. Dez
+   aberturas do dashboard por dia dão menos de 200 leituras — a cota
+   gratuita é de 50.000 por dia.
+   ═══════════════════════════════════════════════════════════════════════ */
+(function(){
+  var CACHE   = 'g20_comVigia';
+  var INTERV  = 30 * 60 * 1000;   // 30 min entre consultas
+
+  function pintar(res){
+    var el  = document.getElementById('comAlerta');
+    var txt = document.getElementById('comAlertaTxt');
+    if (!el || !txt || !res) return;
+    if (!res.novos) { el.style.display = 'none'; return; }
+
+    el.style.display = 'flex';
+    var quem = res.autores && res.autores.length ? res.autores[0] : 'Um aluno';
+    txt.innerHTML = res.novos === 1
+      ? '<b>' + quem + '</b> comentou em <b>' + (res.aula || 'uma aula') + '</b>.'
+      : '<b>' + res.novos + ' comentários novos</b> nas aulas' +
+        (res.autores && res.autores.length
+           ? ' — ' + res.autores.slice(0,2).join(', ') +
+             (res.autores.length > 2 ? ' e mais' : '')
+           : '') + '.';
+  }
+
+  function consultar(){
+    var db, uid;
+    try {
+      db  = firebase.firestore();
+      uid = firebase.auth().currentUser.uid;
+    } catch(e){ return; }
+
+    /* Marca d'água: até quando o admin já viu. Fica no Firestore para o
+       alerta não reaparecer quando ele trocar de computador. */
+    db.collection('users').doc(uid).collection('config').doc('comentariosVistos').get()
+      .then(function(doc){
+        var visto = 0;
+        if (doc.exists && doc.data() && doc.data().em) {
+          var v = doc.data().em;
+          visto = v.toDate ? v.toDate().getTime() : v;
+        }
+
+        return db.collectionGroup('comentarios')
+                 .orderBy('criadoEm', 'desc').limit(20).get()
+          .then(function(snap){
+            var novos = [], autores = [], ultimaAula = '';
+            snap.forEach(function(d){
+              var c = d.data() || {};
+              if (c.admin) return;                       // os meus não contam
+              var t = c.criadoEm && c.criadoEm.toDate ? c.criadoEm.toDate().getTime() : 0;
+              if (!t || t <= visto) return;
+              novos.push(c);
+              if (autores.indexOf(c.autorNome) === -1) autores.push(c.autorNome);
+              /* O caminho do documento carrega o módulo e a aula:
+                 cursos/{c}/modulos/{m}/aulas/{a}/comentarios/{id} */
+              if (!ultimaAula) {
+                var p = d.ref.path.split('/');
+                ultimaAula = p[5] || '';
+              }
+            });
+
+            var res = { em: Date.now(), novos: novos.length, autores: autores, aula: ultimaAula };
+            try { localStorage.setItem(CACHE, JSON.stringify(res)); } catch(e){}
+            if (novos.length) {
+              console.log('[G20 comentários] ' + novos.length + ' novo(s) de ' + autores.join(', '));
+            }
+            pintar(res);
+          });
+      })
+      .catch(function(e){ console.warn('[G20 comentários]', e && e.message); });
+  }
+
+  window._g20ComVigia = function(forcar){
+    var ehAdmin = false;
+    try { ehAdmin = (JSON.parse(localStorage.getItem('g20_user_profile') || '{}').role === 'admin'); } catch(e){}
+    if (!ehAdmin) return;
+
+    var cache = null;
+    try { cache = JSON.parse(localStorage.getItem(CACHE) || 'null'); } catch(e){}
+    if (cache) pintar(cache);                        // mostra o que já sabe, na hora
+
+    if (forcar || !cache || (Date.now() - (cache.em || 0)) > INTERV) {
+      setTimeout(consultar, forcar ? 0 : 5000);      // 5s: não atrasa o boot
+    }
+  };
+
+  /* Diagnóstico: G20DiagCom() consulta na hora, ignorando o cache. */
+  window.G20DiagCom = function(){
+    try { localStorage.removeItem(CACHE); } catch(e){}
+    window._g20ComVigia(true);
+    return 'consultando comentários — acompanhe o console';
   };
 })();
 </script>
