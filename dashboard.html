@@ -5825,15 +5825,19 @@ body.pat-hidden .v21-change-extra::after{
   }
 
   /* Estado de convite */
-  .v21-game-empty { display:flex; flex-direction:column; align-items:flex-start; gap:9px; padding:6px 0; }
-  .v21-game-empty-ico { font-size:30px; opacity:.75; }
-  .v21-game-empty-txt { font-size:13px; color:var(--text2,#8b93a7); line-height:1.6; }
-  .v21-game-prazo { margin-top:12px; font-size:12.5px; color:#c9a961; padding:6px 9px; border-radius:7px;
-                    background:rgba(201,169,97,.10); border:1px solid rgba(201,169,97,.22); }
+  .v21-game-empty { display:flex; flex-direction:column; align-items:flex-start; gap:11px; padding:10px 0; }
+  .v21-game-empty-ico { font-size:34px; opacity:.8; }
+  .v21-game-empty-txt { font-size:14.5px; color:var(--text2,#8b93a7); line-height:1.65; }
+  .v21-game-prazo { margin-top:16px; font-size:15px; color:#c9a961; padding:12px 14px; border-radius:9px;
+                    background:rgba(201,169,97,.10); border:1px solid rgba(201,169,97,.22);
+                    display:flex; align-items:baseline; gap:7px; }
   .v21-game-prazo.urgente { color:#f87171; background:rgba(248,113,113,.10); border-color:rgba(248,113,113,.28); }
-  .v21-game-prazo b { font-family:'JetBrains Mono',monospace; font-weight:600; }
-  .v21-game-btn { margin-top:4px; padding:10px 16px; border-radius:8px; background:rgba(201,169,97,.12);
-                  border:1px solid rgba(201,169,97,.3); color:#e8b84b; font-size:12.5px; font-weight:600;
+  .v21-game-prazo.urgente b { color:#f87171; }
+  .v21-game-prazo b { font-family:'JetBrains Mono',monospace; font-weight:700; font-size:20px;
+                      color:#e8b84b; letter-spacing:-.3px; }
+  .v21-game-btn { margin-top:14px; padding:15px 20px; border-radius:10px; width:100%; text-align:center;
+                  background:rgba(201,169,97,.14); border:1px solid rgba(201,169,97,.34);
+                  color:#e8b84b; font-size:15px; font-weight:700; letter-spacing:.3px;
                   text-decoration:none; transition:background .18s ease; }
   .v21-game-btn:hover { background:rgba(201,169,97,.2); }
   .v21-game-carimbo { font-size:10.5px; color:#6b7280; margin-top:7px; }
@@ -20382,9 +20386,15 @@ html body .topbar {
              'Bate o olho e sabe quem puxou o dia.'
     },
     {
-      el: '#v21MuralCard', pos: 'top',
-      titulo: 'Mural G20',
-      texto: 'O que a turma está fazendo agora: aportes, conquistas e movimentos. Comunidade viva, em tempo real.'
+      /* R52: o Mural G20 saiu do dashboard (era conteúdo sintético) e o
+         slot passou a ser a Gestão Financeira. O passo foi reaproveitado
+         em vez de removido — senão o tour caía de 19 para 18 e o aluno
+         perdia uma explicação. */
+      el: '#v21GFCard', pos: 'top',
+      titulo: 'Gestão Financeira',
+      texto: 'Quanto entrou, quanto saiu e <b>quanto sobra pra investir</b>. ' +
+             'É daqui que nasce o aporte — antes de escolher ativo, é preciso ter o que aportar. ' +
+             'Gire o card pra ver onde seu dinheiro foi no mês.'
     },
     {
       el: '#v21CastCard', pos: 'top',
@@ -20678,6 +20688,39 @@ window._g20GameBuscar = function(){
   } catch(e){}
 };
 
+/* ═══════════════════════════════════════════════════════════════════════
+   O ALUNO JÁ MONTOU A CARTEIRA DO PRÓXIMO CICLO?
+
+   O ranking é do ciclo EM COMPETIÇÃO (julho, cujo prazo fechou em 30 de
+   junho). Quem montou a carteira de AGOSTO não aparece nele — e o card,
+   sem saber disso, mandava "monte sua carteira de Agosto" para quem já
+   tinha montado.
+
+   As carteiras ficam em game-g20/{uid}/carteiras/{cicloKey}, com o ID do
+   documento igual à chave do ciclo. Uma leitura por período consultado,
+   e o resultado fica em cache na sessão. */
+window._g20GameAlvo = {};   // cicloKey -> true/false
+
+function _g20GameChecarAlvo(tipo){
+  var d = window._g20GameDados;
+  var janela = d && d[tipo];
+  var chave = janela && janela.alvo && janela.alvo.key;
+  if (!chave || window._g20GameAlvo[chave] !== undefined) return;
+
+  window._g20GameAlvo[chave] = null;   // marca "consultando" e evita repetir
+  try {
+    firebase.firestore().collection('game-g20').doc(d.uid)
+      .collection('carteiras').doc(chave).get()
+      .then(function(doc){
+        window._g20GameAlvo[chave] = !!(doc.exists && doc.data() &&
+                                        Array.isArray(doc.data().ativos) &&
+                                        doc.data().ativos.length);
+        v21LoadGame();
+      })
+      .catch(function(){ window._g20GameAlvo[chave] = false; });
+  } catch(e){ window._g20GameAlvo[chave] = false; }
+}
+
 function _g20GameMinha(janela){
   if (!janela || !Array.isArray(janela.jogadores)) return null;
   var uid = window._g20GameDados && window._g20GameDados.uid;
@@ -20819,6 +20862,9 @@ window.v21LoadGame = function(){
     main.style.display = 'none';
     vazio.style.display = '';
     if (bV) bV.style.display = 'none';
+    _g20GameChecarAlvo(tipo);
+    var jaMontou = janela && janela.alvo && window._g20GameAlvo[janela.alvo.key] === true;
+
     var txt = document.getElementById('v21GameEmptyTxt');
     if (txt) {
       /* O convite precisa apontar para o ciclo que AINDA dá para montar.
@@ -20826,8 +20872,13 @@ window.v21LoadGame = function(){
          competição é julho, mas o prazo dele fechou em 30 de junho. */
       var alvo = janela && janela.alvo;
       var nomeAlvo = (alvo && alvo.label) ? alvo.label : MESES[hoje.getMonth()];
-      var html = 'Monte sua carteira de <b style="color:#e8b84b">' + nomeAlvo +
-                 '</b> e dispute com a turma. Não precisa ter investimento nenhum pra jogar.';
+
+      var html = jaMontou
+        ? 'Sua carteira de <b style="color:#e8b84b">' + nomeAlvo + '</b> está pronta. ' +
+          'Ela entra em disputa quando o ciclo virar.'
+        : 'Monte sua carteira de <b style="color:#e8b84b">' + nomeAlvo + '</b> e dispute ' +
+          'com a turma. Não precisa ter investimento nenhum pra jogar.';
+
       if (alvo && alvo.prazo) {
         var resta = alvo.prazo - Date.now();
         if (resta > 0) {
@@ -20836,9 +20887,13 @@ window.v21LoadGame = function(){
           var mins  = Math.floor((resta % 3600000) / 60000);
           var quanto = dias > 0 ? dias + (dias > 1 ? ' dias' : ' dia') + ' e ' + horas + 'h'
                                 : (horas > 0 ? horas + 'h' + String(mins).padStart(2,'0') : mins + ' min');
-          var urgente = resta < 48 * 3600000;   // menos de 48h vira aviso, não decoração
+          /* Quem já montou não precisa de contagem regressiva vermelha: para
+             ele o prazo é informação, não cobrança. */
+          var urgente = !jaMontou && resta < 48 * 3600000;
           html += '<div class="v21-game-prazo' + (urgente ? ' urgente' : '') + '">' +
-                    '⏳ faltam <b>' + quanto + '</b> para o prazo</div>';
+                    (jaMontou ? 'começa em ' : 'faltam ') +
+                    '<b>' + quanto + '</b>' + (jaMontou ? '' : ' para o prazo') +
+                  '</div>';
         } else {
           html = 'O prazo de <b style="color:#e8b84b">' + nomeAlvo + '</b> encerrou. ' +
                  'O próximo ciclo abre em breve — fique de olho.';
@@ -20846,6 +20901,12 @@ window.v21LoadGame = function(){
       }
       txt.innerHTML = html;
     }
+
+    /* O botão muda de papel: montar ou revisar. */
+    var btn = document.querySelector('#v21GameEmpty .v21-game-btn');
+    if (btn) btn.textContent = jaMontou ? 'Revisar carteira' : 'Montar carteira';
+    var ico = document.querySelector('#v21GameEmpty .v21-game-empty-ico');
+    if (ico) ico.textContent = jaMontou ? '✅' : '🏆';
     return;
   }
 
