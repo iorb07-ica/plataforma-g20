@@ -286,6 +286,24 @@ a{text-decoration:none;color:inherit}
 .ql-editor ul li::before { color: #c9a961; }
 #quill-editor-aula { display: none; }
 
+
+/* ═══ R53 — MATERIAL DE APOIO ═══════════════════════════════════════ */
+.adm-mat{display:flex;gap:8px;align-items:center;margin-bottom:9px}
+.adm-mat input{flex:1;min-width:0}
+.adm-mat-nome{flex:0 0 34%}
+.adm-mat-del{flex:0 0 auto;width:36px;height:36px;border-radius:8px;cursor:pointer;
+  background:rgba(248,113,113,.10);border:1px solid rgba(248,113,113,.28);color:#f87171;
+  font-size:15px;line-height:1}
+.adm-mat-del:hover{background:rgba(248,113,113,.22)}
+.adm-mat-add{margin-top:4px;padding:10px 16px;border-radius:9px;cursor:pointer;
+  background:rgba(201,169,97,.12);border:1px solid rgba(201,169,97,.30);color:#e8b84b;
+  font-family:inherit;font-size:13px;font-weight:700}
+.adm-mat-add:hover{background:rgba(201,169,97,.22)}
+.adm-mat-vazio{font-size:12.5px;color:var(--text3);padding:6px 0 10px}
+@media(max-width:640px){
+  .adm-mat{flex-wrap:wrap}
+  .adm-mat-nome{flex:1 1 100%}
+}
 </style>
 </head>
 <body>
@@ -725,11 +743,107 @@ function buildFormAula(d) {
     '<div class="adm-form-row"><label class="adm-form-label">Resumo (texto do card de preview)</label>' +
     '<textarea class="adm-textarea" id="f_previewResumo" rows="3">' + _esc(p.resumo || '') + '</textarea></div>' +
     '<div class="adm-divider"></div>' +
+
+    /* MATERIAL DE APOIO — R53
+       São LINKS, não upload. Os arquivos ficam no GitHub Pages junto com a
+       plataforma, onde as imagens das aulas já moram: custo zero e sem
+       serviço novo. O Firebase Storage foi descartado porque a cota grátis
+       é de 1 GB de download POR DIA, e 300 alunos baixando ebook estouram. */
+    '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Material de apoio</div>' +
+    '<div class="adm-form-row">' +
+      '<div id="matLista"></div>' +
+      '<button type="button" class="adm-mat-add" onclick="matAdicionar()">+ Adicionar material</button>' +
+      '<div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.6">' +
+        'Ebook, planilha, PDF. Hospede no GitHub do projeto (pasta <code>assets/materiais/</code>) e cole o link aqui.' +
+      '</div>' +
+    '</div>' +
+    '<input type="hidden" id="f_materiais" value="' + _esc(JSON.stringify(d.materiais || [])) + '">' +
+
+    '<div class="adm-divider"></div>' +
     '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Texto da aula</div>' +
     '<div class="adm-form-row"><label class="adm-form-label">Introdução / contexto (aparece abaixo da thumb)</label>' +
     '<div id="quill-editor-aula" data-content="' + _esc(d.textoAula || '') + '"></div>' +
     '<input type="hidden" id="f_textoAula" value="' + _esc(d.textoAula || '') + '">' +
     '<div style="font-size:11px;color:var(--text3);margin-top:6px">Editor rico — negrito, itálico, títulos, listas e mais.</div></div>';
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MATERIAL DE APOIO DA AULA — R53
+
+   Lista de { nome, url } gravada no campo `materiais` da aula. A Sala de
+   Aula renderiza como bloco "Material de apoio" abaixo do vídeo, com
+   ícone escolhido pela extensão do arquivo.
+
+   Por que LINK e não upload: o Firebase Storage tem cota gratuita de 1 GB
+   de download POR DIA. Com 300 alunos baixando ebook, isso estoura e passa
+   a cobrar. Hospedando no GitHub Pages — onde as imagens das aulas já
+   moram — o custo é zero e não há serviço novo para monitorar.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function _matLer(){
+  try { return JSON.parse(document.getElementById('f_materiais').value || '[]') || []; }
+  catch(e){ return []; }
+}
+
+function _matGravar(arr){
+  var el = document.getElementById('f_materiais');
+  if (el) el.value = JSON.stringify(arr);
+}
+
+function matRender(){
+  var wrap = document.getElementById('matLista');
+  if (!wrap) return;
+  var arr = _matLer();
+
+  if (!arr.length) {
+    wrap.innerHTML = '<div class="adm-mat-vazio">Nenhum material nesta aula.</div>';
+    return;
+  }
+
+  wrap.innerHTML = arr.map(function(m, i){
+    return '<div class="adm-mat">' +
+      '<input class="adm-input adm-mat-nome" value="' + _esc(m.nome || '') + '" ' +
+        'placeholder="Nome (ex: Ebook — Mapa do Tesouro)" ' +
+        'oninput="matAlterar(' + i + ',\'nome\',this.value)">' +
+      '<input class="adm-input" value="' + _esc(m.url || '') + '" ' +
+        'placeholder="https://..." oninput="matAlterar(' + i + ',\'url\',this.value)">' +
+      '<button type="button" class="adm-mat-del" onclick="matRemover(' + i + ')" title="Remover">✕</button>' +
+    '</div>';
+  }).join('');
+}
+
+function matAdicionar(){
+  var arr = _matLer();
+  arr.push({ nome: '', url: '' });
+  _matGravar(arr);
+  matRender();
+  /* Foca o campo novo para o admin já digitar. */
+  var campos = document.querySelectorAll('#matLista .adm-mat-nome');
+  if (campos.length) campos[campos.length - 1].focus();
+}
+
+function matAlterar(i, campo, valor){
+  var arr = _matLer();
+  if (!arr[i]) return;
+  arr[i][campo] = valor;
+  _matGravar(arr);            /* sem re-render: não perde o foco enquanto digita */
+}
+
+function matRemover(i){
+  var arr = _matLer();
+  arr.splice(i, 1);
+  _matGravar(arr);
+  matRender();
+}
+
+/* Descarta linhas sem URL antes de salvar — material sem link não serve. */
+function matParaSalvar(){
+  return _matLer()
+    .filter(function(m){ return m && (m.url || '').trim(); })
+    .map(function(m){
+      return { nome: (m.nome || '').trim() || 'Material', url: m.url.trim() };
+    });
 }
 
 // ─── IMAGE PREVIEW ───
@@ -747,6 +861,7 @@ function bindImgPreviews() {
     var qc = document.getElementById('quill-editor-aula');
     var texto = qc ? (qc.getAttribute('data-content') || '') : '';
     initQuillEditor(texto);
+    try { matRender(); } catch(e){}
   }, 200);
 
   // Sliders da AULA
@@ -1055,6 +1170,7 @@ function _saveNovaAula() {
     url: _gv('f_url'), ordem: parseInt(_gv('f_ordem')) || 0,
     publicada: _gb('f_publicada'),
     textoAula: _gv('f_textoAula'), criadoEm: Date.now(),
+    materiais: matParaSalvar(),
     previewScale: _slAZ ? (_slAZ.value/100) : 1,
     previewTranslateX: _slAX ? (_slAX.value-50)*-1 : 0,
     previewTranslateY: _slAY ? (_slAY.value-50)*-1 : 0 };
@@ -1080,6 +1196,7 @@ function _saveEditAula() {
   var data = { titulo: _gv('f_titulo'), desc: _gv('f_desc'), tipo: _gv('f_tipo'),
     url: _gv('f_url'), ordem: parseInt(_gv('f_ordem')) || 0, publicada: _gb('f_publicada'),
     textoAula: getQuillContent(),
+    materiais: matParaSalvar(),
     liberarEm: (function(){ var v=_gv('f_liberarEm'); return v ? new Date(v).getTime() : null; })(),
     previewScale: _slAZ ? (_slAZ.value/100) : 1,
     previewTranslateX: _slAX ? (_slAX.value-50)*-1 : 0,
