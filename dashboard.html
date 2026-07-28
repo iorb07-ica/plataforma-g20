@@ -20709,10 +20709,39 @@ window._g20GameBuscar = function(){
    e o resultado fica em cache na sessão. */
 window._g20GameAlvo = {};   // cicloKey -> true/false
 
+/* A chave do ciclo alvo calculada AQUI, sem depender do publicador.
+
+   A primeira versão só usava o `alvo.key` vindo do documento publicado — e
+   isso criou uma dependência frágil: enquanto o game-g20.html não
+   republicasse (a trava de 20h impedia), o campo não existia, a função
+   saía na primeira linha e o card seguia dizendo "monte sua carteira" para
+   quem já tinha montado.
+
+   A regra do ciclo alvo é simples e estável: o período seguinte ao atual.
+   Mesma fórmula do getTargetCiclo() do Game. Calculando localmente, o card
+   funciona mesmo com documento em formato antigo. */
+function _g20GameChaveAlvo(tipo){
+  var n = new Date(), y = n.getFullYear(), m = n.getMonth() + 1;
+  if (tipo === 'mensal') {
+    var nm = (m === 12) ? 1 : m + 1;
+    var ny = (m === 12) ? y + 1 : y;
+    return ny + '-' + String(nm).padStart(2, '0');
+  }
+  if (tipo === 'trimestral') {
+    var q  = Math.ceil(m / 3);
+    var nq = (q === 4) ? 1 : q + 1;
+    var qy = (q === 4) ? y + 1 : y;
+    return qy + '-T' + nq;
+  }
+  return String(y + 1);
+}
+
 function _g20GameChecarAlvo(tipo){
   var d = window._g20GameDados;
-  var janela = d && d[tipo];
-  var chave = janela && janela.alvo && janela.alvo.key;
+  if (!d || !d.uid) return;
+  var janela = d[tipo];
+  /* Prefere a chave publicada; se não houver, calcula. */
+  var chave = (janela && janela.alvo && janela.alvo.key) || _g20GameChaveAlvo(tipo);
   if (!chave || window._g20GameAlvo[chave] !== undefined) return;
 
   window._g20GameAlvo[chave] = null;   // marca "consultando" e evita repetir
@@ -20871,7 +20900,8 @@ window.v21LoadGame = function(){
     vazio.style.display = '';
     if (bV) bV.style.display = 'none';
     _g20GameChecarAlvo(tipo);
-    var jaMontou = janela && janela.alvo && window._g20GameAlvo[janela.alvo.key] === true;
+    var chaveAlvo = (janela && janela.alvo && janela.alvo.key) || _g20GameChaveAlvo(tipo);
+    var jaMontou  = window._g20GameAlvo[chaveAlvo] === true;
 
     var txt = document.getElementById('v21GameEmptyTxt');
     if (txt) {
@@ -21326,6 +21356,26 @@ window.v21LoadGF = function(){
 };
 
 /* Diagnóstico de console, no padrão dos demais. */
+/* Diagnóstico do card do Game — roda no console: G20DiagGame() */
+window.G20DiagGame = function(){
+  var d = window._g20GameDados;
+  console.log('[G20DiagGame] documento carregado:', !!d);
+  if (!d) { console.log('  → o dashboard ainda não leu game-g20-ranking/atual'); return; }
+  console.log('  atualizado em:', d.atualizadoEm);
+  ['mensal','trimestral','anual'].forEach(function(t){
+    var j = d[t] || {};
+    var pub = j.alvo && j.alvo.key;
+    var loc = _g20GameChaveAlvo(t);
+    console.log('  ' + t + ': ciclo=' + (j.ciclo || '—') +
+                ' | alvo publicado=' + (pub || 'AUSENTE') +
+                ' | alvo calculado=' + loc +
+                ' | jogadores=' + ((j.jogadores || []).length) +
+                ' | já montou=' + window._g20GameAlvo[pub || loc]);
+  });
+  console.log('  cache de carteiras:', window._g20GameAlvo);
+  return window._g20GameAlvo;
+};
+
 window.G20DiagGF = function(){
   var d = null;
   try { d = G20GF.dados(); } catch(e){}
