@@ -9410,8 +9410,31 @@ function _buildTxLista(){
       subtipo: a.tipo || 'Ação',
       op: isCompra ? 'Compra' : 'Venda',
       opCor: isCompra ? '#10b981' : '#e63946',
-      valor: (a.qtd || 0) * (a.preco || 0),
-      detalhe: (a.qtd || '') + ' × ' + fmtBRL(a.preco || 0) + (a.moeda === 'USD' ? ' USD' : ''),
+      /* SESSÃO 53 — O ÚNICO PONTO DO ARQUIVO QUE NÃO CONVERTIA
+
+         Estava assim:
+           valor:   (a.qtd||0) * (a.preco||0)
+           detalhe: fmtBRL(a.preco) + ' USD'
+
+         Com AAPL comprada em 05/jun/2019 a US$ 45,63, a linha exibia
+         "40 × R$ 45,63 USD" — o rótulo se contradizia — e o total saía
+         R$ 1.825,40 quando o custo real foi US$ 1.825,40, ou seja
+         ~R$ 7.082 pelo dólar de 3,88 da época.
+
+         Os outros doze pontos deste arquivo já faziam
+         `a.moeda==='USD' ? a.preco*(a.fxRate||rvUsdBRL) : a.preco`.
+         Aqui é a mesma regra, nem mais nem menos.
+
+         Isso corrige junto o card "Investido em RV", que soma desta
+         mesma lista e por isso subestimava a parte internacional. */
+      valor: (a.qtd || 0) * ((a.moeda === 'USD')
+               ? (a.preco || 0) * (a.fxRate || rvUsdBRL)
+               : (a.preco || 0)),
+      detalhe: (a.qtd || '') + ' × ' +
+               (a.moeda === 'USD'
+                 ? '$ ' + (a.preco || 0).toLocaleString('en-US',
+                     {minimumFractionDigits:2, maximumFractionDigits:2}) + ' (US$)'
+                 : fmtBRL(a.preco || 0)),
       moeda: a.moeda || 'BRL',
       qtd: a.qtd,
       preco: a.preco,
