@@ -197,13 +197,16 @@ function _ptaxCarregar(){
     }
   } catch(e){}
 
-  /* 10 anos cobrem qualquer histórico de aporte do aluno com folga.
-     Só dataInicial, sem dataFinal — é o formato que a série 4391 já usa
-     aqui e que comprovadamente funciona. */
-  var ini = new Date(); ini.setFullYear(ini.getFullYear()-10);
-  var dIni = String(ini.getDate()).padStart(2,'0') + '/' +
-             String(ini.getMonth()+1).padStart(2,'0') + '/' + ini.getFullYear();
-  var url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.1/dados?formato=json&dataInicial=' + dIni;
+  /* POR QUE `ultimos/N` E NÃO INTERVALO DE DATAS
+
+     A primeira versão pedia dataInicial de 10 anos atrás e o BCB devolvia
+     HTTP 406 — inclusive através do corsproxy, o que provou que a recusa
+     era da própria API e não de CORS. O SGS limita consultas por intervalo
+     nas séries DIÁRIAS, e a série 1 (dólar) é diária.
+
+     `ultimos/N` não tem esse limite. 2600 observações ≈ 10 anos de dias
+     úteis, e é o mesmo formato que Selic, CDI e IPCA já usam aqui. */
+  var url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.1/dados/ultimos/2600?formato=json';
 
   /* CASCATA — o BCB falha por CORS no browser com frequência. A primeira
      versão desta função tinha só a chamada direta e devolvia null em
@@ -234,6 +237,13 @@ function _ptaxCarregar(){
     .catch(function(e2){
       console.warn('[ptax] corsproxy falhou (' + e2.message + '), tentando allorigins');
       return buscar('https://api.allorigins.win/raw?url=' + encodeURIComponent(url), 'allorigins');
+    })
+    .catch(function(e3){
+      /* Última tentativa com janela menor: 5 anos ainda cobrem quase todo
+         provento relevante, e um payload menor passa onde o grande não passa. */
+      var curta = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.1/dados/ultimos/1300?formato=json';
+      console.warn('[ptax] allorigins falhou (' + e3.message + '), tentando janela de 5 anos');
+      return buscar(curta, 'bcb-5anos');
     })
     .then(function(arr){
       var mapa = {};
