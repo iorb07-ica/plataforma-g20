@@ -330,6 +330,13 @@ function _importarTodosProventosBackground(onDone){
         return !substituir[String(d.ticker||'').toUpperCase()];
       });
 
+    /* Base pessoal: a mesma que Minha Carteira usa. Carregada aqui e
+       gravada uma vez no fim, para não escrever no localStorage a cada
+       provento. */
+    var _pess = [];
+    try { var _v = JSON.parse(localStorage.getItem('g20_rvDividendos')||'[]'); if(Array.isArray(_v)) _pess = _v; } catch(e){}
+    var _pessNovos = 0;
+
     results.forEach(function(r){
       var divList=[];
       if(Array.isArray(r.raw)) divList=r.raw;
@@ -348,17 +355,42 @@ function _importarTodosProventosBackground(onDone){
         else if(tipoStr.includes('BONIF')) tipoFinal='Bonificacao';
 
         if(r.origem==='gestao'){
+          /* ═══════════════════════════════════════════════════════════════
+             PROVENTO PESSOAL VAI PARA A BASE DE MINHA CARTEIRA — SESSÃO 53
+
+             Antes este ramo gravava em g20_dividendos com regras próprias e
+             piores que as da Gestão Patrimonial: caía na quantidade de HOJE
+             quando não achava a histórica, e criava uma linha extra na
+             data-com que todos os cards somavam como dinheiro recebido.
+
+             Agora escreve em g20_rvDividendos — a mesma base que a tela
+             Minha Carteira alimenta — com as mesmas três regras dela:
+               · quantidade real na data-com, sem cair no valor de hoje
+               · dedupe por ticker + valor + mês
+               · um registro por pagamento, sem linha separada de data-com
+
+             Assim existe UMA base pessoal, alimentada por dois lugares que
+             concordam, e o dashboard continua atualizando a cada boot.
+             ═══════════════════════════════════════════════════════════════ */
           var qtd=_getQtdNaDataGestao(r.ticker,dataEx||dataPag);
           if(qtd<=0){ var dp2=new Date(dataEx||dataPag); dp2.setDate(dp2.getDate()+7); qtd=_getQtdNaDataGestao(r.ticker,dp2.toISOString().split('T')[0]); }
-          if(qtd<=0) qtd=_getQtdNaDataGestao(r.ticker,hoje);
-          if(qtd<=0) return;
-          var dupG=lista.some(function(p){ return p.ticker===r.ticker&&(p.data||'').substring(0,10)===dataPag&&Math.abs((p.valorCota||0)-valor)<0.00001; });
-          if(dupG) return;
-          lista.push({ ticker:r.ticker, tipo:tipoFinal, data:dataPag, datex:dataEx||dataPag, valorCota:valor, qtd:qtd, total:valor*qtd, obs:'', fonte:'auto' });
-          if(dataEx&&dataEx!==dataPag){
-            var dupGex=lista.some(function(p){ return p.ticker===r.ticker&&(p.data||'').substring(0,10)===dataEx&&Math.abs((p.valorCota||0)-valor)<0.00001; });
-            if(!dupGex) lista.push({ ticker:r.ticker, tipo:tipoFinal, data:dataEx, datex:dataEx, valorCota:valor, qtd:qtd, total:valor*qtd, obs:'', fonte:'auto', isExDate:true });
-          }
+          if(qtd<=0) return;    // sem posição na data, o provento não é dele
+          var mesAno = dataPag.substring(0,7);
+          var jaTem = _pess.some(function(p){
+            if(String(p.ticker||'').toUpperCase() !== String(r.ticker).toUpperCase()) return false;
+            var vp = (p.valor != null) ? p.valor : (p.valorCota||0);
+            if(Math.abs(vp - valor) > 0.0001) return false;
+            return String(p.data||'').substring(0,7) === mesAno;
+          });
+          if(jaTem) return;
+          _pess.push({
+            id: Date.now().toString()+Math.random(),
+            ticker:r.ticker, tipo:tipoFinal, data:dataPag, datex:dataEx||dataPag,
+            valor:valor, valorCota:valor, qtdEx:qtd, qtd:qtd, total:valor*qtd,
+            fonte:'Auto-'+(div.source||'B3'),
+            moeda: US_TIPOS.includes(r.tipo) ? 'USD' : 'BRL'
+          });
+          _pessNovos++;
         } else {
           var qtdG20=0;
           try{
@@ -380,6 +412,12 @@ function _importarTodosProventosBackground(onDone){
       });
     });
 
+    if(_pessNovos > 0){
+      try {
+        localStorage.setItem('g20_rvDividendos', JSON.stringify(_pess));
+        console.log('[proventos] +' + _pessNovos + ' na sua carteira (base de Minha Carteira).');
+      } catch(e){ console.warn('[proventos] não coube no armazenamento:', e && e.message); }
+    }
     _divsSalvar(lista);
     if(onDone) onDone();
   }).catch(function(){ if(onDone) onDone(); });
@@ -16003,8 +16041,25 @@ window.G20DiagRF = function(dias){
       _qtdCache = null;
       _buildQtdCache();
 
+      /* SESSÃO 53: a Agenda mostra as duas carteiras, então junta as duas
+         bases boas — a pessoal (g20_rvDividendos, alimentada por Minha
+         Carteira e pelo import do dashboard) e a da CG20. A antiga
+         g20_dividendos entra só pelo que sobrou da Carteira G20 dentro de
+         _divsCarregar(); os proventos pessoais não vêm mais dela. */
       var divs = [];
-      try { divs = (window._divsCarregar ? _divsCarregar() : JSON.parse(localStorage.getItem('g20_dividendos')||'[]')); } catch(e){}
+      try {
+        var _p = JSON.parse(localStorage.getItem('g20_rvDividendos')||'[]');
+        if (Array.isArray(_p)) divs = _p.slice();
+      } catch(e){}
+      try {
+        var _c = (window._divsCarregar ? _divsCarregar() : []);
+        var _tenho = {};
+        divs.forEach(function(d){ _tenho[String(d.ticker||'').toUpperCase()+'|'+String(d.data||'').substring(0,10)] = 1; });
+        _c.forEach(function(d){
+          var k = String(d.ticker||'').toUpperCase()+'|'+String(d.data||'').substring(0,10);
+          if (!_tenho[k]) { divs.push(d); _tenho[k] = 1; }
+        });
+      } catch(e){}
 
       if (!divs.length) {
         list.innerHTML = '<div class="v21-agenda-empty">Nenhum provento encontrado</div>';
