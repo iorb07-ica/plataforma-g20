@@ -123,85 +123,51 @@ function _divsCarregar(){
         console.log('[proventos] +' + (juntos.length - doLS.length) +
                     ' da Carteira G20 somados à lista (total ' + juntos.length + ').');
       }
-      return _divsDedup(juntos);
+      return juntos;
     }
   } catch(e){}
 
-  return _divsDedup(doLS);
+  return doLS;
 }
+
+window._divsCarregar = _divsCarregar;
 
 /* ═══════════════════════════════════════════════════════════════════════
-   DUAS LINHAS PARA O MESMO PROVENTO — SESSÃO 53
+   A BASE PESSOAL É A DA GESTÃO PATRIMONIAL — SESSÃO 53
 
-   O importador grava DOIS registros por provento quando a data-com difere
-   da data de pagamento:
+   Existem duas bases de proventos no navegador, e o dashboard estava
+   lendo a pior:
 
-     lista.push({ data: dataPag });                    // pagamento
-     lista.push({ data: dataEx, isExDate: true });     // data-com
+     g20_dividendos     importador do dashboard. Grava uma linha extra na
+                        data-com, cai na quantidade de HOJE quando não
+                        acha a histórica, apaga e reconstrói tudo a cada
+                        importação, e mistura a Carteira G20.
 
-   O segundo existe só para a Agenda avisar "vai ficar ex amanhã". Mas
-   nenhum card de SOMA filtrava `isExDate` — só a Agenda, na linha 16001.
-   Resultado: todo provento com data-com distinta entrava duas vezes em
-   PROVENTOS MÊS, PROVENTOS 12 MESES e RENDA PASSIVA. O total de 12 meses
-   marcava R$ 25,0k onde o correto era ~R$ 13,7k.
+     g20_rvDividendos   importador de Minha Carteira. Usa _getQtdNaData()
+                        para pegar a posição na data-com, faz dedupe por
+                        ticker + valor + mês, grava um registro por
+                        pagamento e vai até 2018.
 
-   A correção real está nos três cards, que agora ignoram `isExDate`.
-   Esta dedupe continua aqui como rede de segurança para duplicatas de
-   outra origem — a mesma fonte devolvendo o pagamento com datas
-   diferentes em importações distintas.
+   A segunda é a que o aluno vê na aba Proventos, e é a correta. Os cards
+   pessoais do dashboard passam a ler dela.
 
-   Chave: ticker + mês + valor por cota + tipo.
-   - mesmo mês, mesmo valor por cota  → mesmo pagamento, entra uma vez
-   - Dividendo e JCP no mesmo mês     → valores diferentes, os dois entram
+   E SÓ dela. Se estiver vazia, o card mostra zero — não cai na base
+   antiga. Número errado num card de dinheiro é pior que card zerado: o
+   aluno acredita no que está na tela e não tem como desconfiar. Zero é
+   verificável ("não recebi nada este mês, confere"); R$ 92 vindo da
+   Carteira G20 não é.
 
-   Entre duplicatas fica o registro de PAGAMENTO. A versão anterior desta
-   função ficava com a data mais antiga, o que preservava a data-com e
-   jogava o provento para o mês errado — foi o que quebrou julho.
+   O caso do aluno que tem aportes mas nunca abriu Minha Carteira resolve
+   sozinho: basta ele entrar lá uma vez e a importação preenche a base.
    ═══════════════════════════════════════════════════════════════════════ */
-function _divsDedup(lista){
-  if (!Array.isArray(lista) || lista.length < 2) return lista || [];
-  var porChave = {}, ordem = [], removidos = 0;
-
-  lista.forEach(function(d){
-    if (!d || !d.ticker) { ordem.push(d); return; }
-    var data = String(d.data || '').substring(0,10);
-    if (!data) { ordem.push(d); return; }
-
-    var vc = parseFloat(d.valorCota) || parseFloat(d.valor) || parseFloat(d.value) ||
-             parseFloat(d.amount)    || parseFloat(d.rate)  || 0;
-    /* Sem valor por cota não há como comparar com segurança — deixa passar.
-       É melhor um duplicado eventual do que apagar provento legítimo. */
-    if (!vc) { ordem.push(d); return; }
-
-    var k = String(d.ticker).toUpperCase() + '|' + data.substring(0,7) + '|' +
-            vc.toFixed(6) + '|' + String(d.tipo || '').toUpperCase();
-
-    if (porChave[k] === undefined) {
-      porChave[k] = ordem.length;
-      ordem.push(d);
-    } else {
-      removidos++;
-      var i = porChave[k];
-      /* Entre os dois, fica o de pagamento. Só se ambos forem do mesmo
-         tipo é que a data mais antiga desempata. */
-      var guardado = ordem[i];
-      if (guardado.isExDate && !d.isExDate) {
-        ordem[i] = d;
-      } else if (!!guardado.isExDate === !!d.isExDate) {
-        if (data < String(guardado.data || '').substring(0,10)) ordem[i] = d;
-      }
-    }
-  });
-
-  if (removidos && !window._g20AvisouDedup) {
-    window._g20AvisouDedup = true;
-    console.log('[proventos] ' + removidos + ' duplicata(s) removida(s) ' +
-                '(mesmo ticker, mês e valor por cota).');
-  }
-  return ordem;
+function _divsPessoais(){
+  try {
+    var v = JSON.parse(localStorage.getItem('g20_rvDividendos') || '[]');
+    if (Array.isArray(v)) return v;
+  } catch(e){}
+  return [];
 }
-window._divsDedup = _divsDedup;
-window._divsCarregar = _divsCarregar;
+window._divsPessoais = _divsPessoais;
 
 function _importarProventosGestaoBackground(onEmpty){
   if(_gestaoImportRunning) return;
@@ -16245,7 +16211,7 @@ window.G20DiagRF = function(dias){
     var apBR = [];
     var precos = {};
     try { snap = (window._patSnapLoad ? _patSnapLoad() : JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]')); } catch(e){}
-    try { divs = (window._divsCarregar ? _divsCarregar() : JSON.parse(localStorage.getItem('g20_dividendos')||'[]')); } catch(e){}
+    try { divs = (window._divsPessoais ? _divsPessoais() : JSON.parse(localStorage.getItem('g20_rvDividendos')||'[]')); } catch(e){}
     try { rvAp = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){}
     try { precos = JSON.parse(localStorage.getItem('g20_precos')||'{}'); } catch(e){}
 
@@ -16611,7 +16577,7 @@ window.G20DiagRF = function(dias){
       var apBR = [];
       var precos = {};
       try { snap = (window._patSnapLoad ? _patSnapLoad() : JSON.parse(localStorage.getItem('g20_patSnapshots')||'[]')); } catch(e){}
-      try { divs = (window._divsCarregar ? _divsCarregar() : JSON.parse(localStorage.getItem('g20_dividendos')||'[]')); } catch(e){}
+      try { divs = (window._divsPessoais ? _divsPessoais() : JSON.parse(localStorage.getItem('g20_rvDividendos')||'[]')); } catch(e){}
       try { rvAp = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){}
       // R51: g20_aportes não é mais lido aqui — a CG20 tem chave própria
       //      e os números pessoais não a incluem. Ver g20CG20Aportes().
@@ -16810,8 +16776,24 @@ window.G20DiagRF = function(dias){
         var dataPag = (d.data||'').substring(0,10);
         if (!dataPag || !dataPag.startsWith(mesAtual)) return;
         var valorCota = getValorProvento(d);
-        var qtdCart = qtdMap[(d.ticker||'').toUpperCase()] || 0;
-        var qtd = parseFloat(d.qtd||0) || qtdCart;
+        /* SESSÃO 53 — DUAS CORREÇÕES NUMA LINHA SÓ
+
+           1) O fallback `|| qtdCart` usava a quantidade de HOJE para
+              provento de qualquer época. Quem comprou mais ao longo do ano
+              via o histórico inteiro recalculado pela posição atual.
+
+           2) Pior: os proventos da Carteira G20, que _divsCarregar() junta
+              na lista, não trazem `qtd` própria. Com o fallback, eles
+              herdavam a SUA quantidade e viravam provento seu — para todo
+              ticker que existe nas duas carteiras. Era a origem do número
+              mudando a cada abertura, porque a ordem da lista muda a cada
+              importação.
+
+           O import pessoal sempre grava `qtd` (a posição na data-com). Exigir
+           esse campo resolve as duas coisas: usa a quantidade histórica certa
+           e deixa a CG20 de fora sem precisar de lista de exclusão. */
+        var qtd = parseFloat(d.qtd || 0);
+        if (!(qtd > 0)) return;
         var total = parseFloat(d.total) || (valorCota * qtd);
         if (total <= 0) return;
 
@@ -17125,8 +17107,11 @@ window.G20DiagRF = function(dias){
           var dataPag = (d.data||'').substring(0,10);
           if (!dataPag || dataPag < d12Str) return;
           var valorCota = getValorProvento(d);
-          var qtdCart = qtdMap[(d.ticker||'').toUpperCase()] || 0;
-          var qtd = parseFloat(d.qtd||0) || qtdCart;
+          /* SESSÃO 53: mesma regra dos outros dois cards — exige a `qtd`
+             gravada pelo import pessoal. Sem ela, proventos da Carteira G20
+             herdavam a quantidade do aluno e entravam como se fossem dele. */
+          var qtd = parseFloat(d.qtd || 0);
+          if (!(qtd > 0)) return;
           var total = parseFloat(d.total) || (valorCota * qtd);
           if (total <= 0) return;
           if (_proventoEmUSD(d)) {
@@ -18349,7 +18334,7 @@ window.G20DiagRF = function(dias){
       var rvAp = [];
       var apBR = [];
       var precos = {};
-      try { divs = (window._divsCarregar ? _divsCarregar() : JSON.parse(localStorage.getItem('g20_dividendos')||'[]')); } catch(e){}
+      try { divs = (window._divsPessoais ? _divsPessoais() : JSON.parse(localStorage.getItem('g20_rvDividendos')||'[]')); } catch(e){}
       try { rvAp = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){}
       // R51: g20_aportes não é mais lido aqui — a CG20 tem chave própria
       //      e os números pessoais não a incluem. Ver g20CG20Aportes().
@@ -18429,8 +18414,24 @@ window.G20DiagRF = function(dias){
         var dataPag = (d.data||'').substring(0,10);
         if (!dataPag) return;
         var valorCota = getValorProvento(d);
-        var qtdCart = qtdMap[(d.ticker||'').toUpperCase()] || 0;
-        var qtd = parseFloat(d.qtd||0) || qtdCart;
+        /* SESSÃO 53 — DUAS CORREÇÕES NUMA LINHA SÓ
+
+           1) O fallback `|| qtdCart` usava a quantidade de HOJE para
+              provento de qualquer época. Quem comprou mais ao longo do ano
+              via o histórico inteiro recalculado pela posição atual.
+
+           2) Pior: os proventos da Carteira G20, que _divsCarregar() junta
+              na lista, não trazem `qtd` própria. Com o fallback, eles
+              herdavam a SUA quantidade e viravam provento seu — para todo
+              ticker que existe nas duas carteiras. Era a origem do número
+              mudando a cada abertura, porque a ordem da lista muda a cada
+              importação.
+
+           O import pessoal sempre grava `qtd` (a posição na data-com). Exigir
+           esse campo resolve as duas coisas: usa a quantidade histórica certa
+           e deixa a CG20 de fora sem precisar de lista de exclusão. */
+        var qtd = parseFloat(d.qtd || 0);
+        if (!(qtd > 0)) return;
         var total = parseFloat(d.total) || (valorCota * qtd);
         if (total <= 0) return;
 
