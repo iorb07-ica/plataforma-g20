@@ -211,11 +211,16 @@ function _ptaxCarregar(){
                              Sondagem ano a ano devolveu 200 com ZERO
                              registros de 2016 a 2023.
 
-       Stooq                 10 anos, CORS liberado na origem, sem chave.
-                             É a mesma fonte de onde este dashboard já
-                             puxa IBOV e S&P500 com sucesso.
+       Stooq direto          Bloqueado por CORS ("No Access-Control-Allow-
+                             Origin"). O comentário na função de IBOV diz
+                             que o Stooq tem CORS liberado, mas o log
+                             mostra fonte=yahoo-corsproxy — ou seja, lá
+                             também cai no proxy.
 
-     Então: Stooq para a espinha dorsal de 10 anos, e a PTAX da AwesomeAPI
+       Yahoo via corsproxy   Funciona. 10 anos de USDBRL=X, mesma rota das
+                             séries de IBOV e S&P500 deste dashboard.
+
+     Então: Yahoo para a espinha dorsal de 10 anos, e a PTAX da AwesomeAPI
      sobreposta onde existe — ela é a taxa oficial do Banco Central, que é
      a que a Receita exige para converter rendimento no exterior.
 
@@ -226,27 +231,29 @@ function _ptaxCarregar(){
       setTimeout(function(){ res(null); }, ms||12000); })]);
   }
 
-  /* ── Stooq: CSV com Date,Open,High,Low,Close ── */
-  function viaStooq(){
-    var d = new Date(); d.setFullYear(d.getFullYear() - 10);
-    var d1 = d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') +
-             String(d.getDate()).padStart(2,'0');
-    var url = 'https://stooq.com/q/d/l/?s=usdbrl&i=d&d1=' + d1;
-    return comTimeout(fetch(url).then(function(r){ return r.ok ? r.text() : ''; })
-                                .catch(function(){ return ''; }))
-      .then(function(csv){
+  /* ── Yahoo via corsproxy: 10 anos de USDBRL=X ──
+     Stooq foi tentado e devolveu bloqueio de CORS ("No Access-Control-
+     Allow-Origin"), apesar do comentário otimista na função de IBOV. O que
+     de fato funciona neste dashboard é o Yahoo pelo corsproxy — as séries
+     de IBOV e S&P500 carregam por aí, com fonte=yahoo-corsproxy no log.
+     Mesma rota, mesmo parse, símbolo USDBRL=X. */
+  function viaYahoo(){
+    var yUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' +
+               encodeURIComponent('USDBRL=X') + '?range=10y&interval=1d';
+    var url  = 'https://corsproxy.io/?' + encodeURIComponent(yUrl);
+    return comTimeout(fetch(url).then(function(r){ return r.ok ? r.json() : null; })
+                                .catch(function(){ return null; }))
+      .then(function(data){
         var mapa = {};
-        if (!csv) return mapa;
-        var linhas = String(csv).trim().split('\n');
-        if (linhas.length < 2) return mapa;
-        var cab = linhas[0].toLowerCase().split(',');
-        var iData = cab.indexOf('date'), iFech = cab.indexOf('close');
-        if (iData < 0 || iFech < 0) return mapa;
-        for (var k = 1; k < linhas.length; k++) {
-          var col = linhas[k].split(',');
-          var dt = (col[iData]||'').trim();
-          var v  = parseFloat(col[iFech]);
-          if (/^\d{4}-\d{2}-\d{2}$/.test(dt) && v > 0) mapa[dt] = v;
+        var res = data && data.chart && data.chart.result && data.chart.result[0];
+        if (!res) return mapa;
+        var ts = res.timestamp || [];
+        var cl = (res.indicators && res.indicators.quote && res.indicators.quote[0] &&
+                  res.indicators.quote[0].close) || [];
+        for (var i = 0; i < ts.length; i++) {
+          var v = parseFloat(cl[i]);
+          if (!(v > 0)) continue;
+          mapa[new Date(ts[i]*1000).toISOString().substring(0,10)] = v;
         }
         return mapa;
       });
@@ -288,12 +295,12 @@ function _ptaxCarregar(){
     });
   }
 
-  return Promise.all([viaStooq(), viaAwesome()])
+  return Promise.all([viaYahoo(), viaAwesome()])
     .then(function(r){
-      var stooq = r[0] || {}, ptax = r[1] || {};
+      var longo = r[0] || {}, ptax = r[1] || {};
       /* PTAX por cima: onde ela existe, é a taxa oficial e prevalece. */
       var mapa = {};
-      Object.keys(stooq).forEach(function(k){ mapa[k] = stooq[k]; });
+      Object.keys(longo).forEach(function(k){ mapa[k] = longo[k]; });
       Object.keys(ptax ).forEach(function(k){ mapa[k] = ptax[k];  });
 
       var n = Object.keys(mapa).length;
@@ -305,7 +312,7 @@ function _ptaxCarregar(){
 
       var ks = Object.keys(mapa).sort();
       console.log('[ptax] ' + n + ' cotações em cache (7 dias) — de ' + ks[0] +
-                  ' a ' + ks[ks.length-1] + '. Stooq: ' + Object.keys(stooq).length +
+                  ' a ' + ks[ks.length-1] + '. Yahoo: ' + Object.keys(longo).length +
                   ' · PTAX oficial: ' + Object.keys(ptax).length + '.');
       return mapa;
     })
