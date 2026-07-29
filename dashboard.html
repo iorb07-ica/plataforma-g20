@@ -197,36 +197,64 @@ function _ptaxCarregar(){
     }
   } catch(e){}
 
-  /* 10 anos cobrem qualquer histórico de aporte do aluno com folga. */
+  /* 10 anos cobrem qualquer histórico de aporte do aluno com folga.
+     Só dataInicial, sem dataFinal — é o formato que a série 4391 já usa
+     aqui e que comprovadamente funciona. */
   var ini = new Date(); ini.setFullYear(ini.getFullYear()-10);
-  function br(d){ return String(d.getDate()).padStart(2,'0') + '/' +
-                         String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear(); }
-  var url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.1/dados?formato=json' +
-            '&dataInicial=' + br(ini) + '&dataFinal=' + br(new Date());
+  var dIni = String(ini.getDate()).padStart(2,'0') + '/' +
+             String(ini.getMonth()+1).padStart(2,'0') + '/' + ini.getFullYear();
+  var url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.1/dados?formato=json&dataInicial=' + dIni;
 
-  return new Promise(function(resolve){
-    var pronto = false;
-    var t = setTimeout(function(){ if(!pronto){ pronto=true; resolve(null); } }, 10000);
-    fetch(url)
-      .then(function(r){ return r.ok ? r.json() : null; })
-      .then(function(arr){
-        if (pronto) return;
-        pronto = true; clearTimeout(t);
-        if (!Array.isArray(arr) || !arr.length) { resolve(null); return; }
-        var mapa = {};
-        arr.forEach(function(x){
-          var p = String(x.data||'').split('/');       // dd/mm/aaaa
-          if (p.length !== 3) return;
-          var v = parseFloat(String(x.valor).replace(',', '.'));
-          if (v > 0) mapa[p[2]+'-'+p[1]+'-'+p[0]] = v;
-        });
-        _ptaxMapa = mapa;
-        try { localStorage.setItem(_PTAX_CACHE, JSON.stringify({em:Date.now(), mapa:mapa})); } catch(e){}
-        console.log('[ptax] ' + Object.keys(mapa).length + ' cotações do BCB em cache (7 dias).');
-        resolve(mapa);
+  /* CASCATA — o BCB falha por CORS no browser com frequência. A primeira
+     versão desta função tinha só a chamada direta e devolvia null em
+     silêncio: o PTAX nunca carregava e os cards caíam no câmbio de hoje
+     sem avisar. Mesma cascata que a série 4391 do CDI já usa. */
+  function comTimeout(p, ms){
+    return Promise.race([p, new Promise(function(_,rej){
+      setTimeout(function(){ rej(new Error('timeout')); }, ms||12000); })]);
+  }
+  function buscar(u, rotulo){
+    return comTimeout(fetch(u))
+      .then(function(r){
+        if (!r || !r.ok) throw new Error((rotulo||'') + ' HTTP ' + (r ? r.status : '?'));
+        return r.json();
       })
-      .catch(function(){ if(!pronto){ pronto=true; clearTimeout(t); resolve(null); } });
-  });
+      .then(function(j){
+        if (typeof j === 'string') { try { j = JSON.parse(j); } catch(e){ throw new Error('json inválido'); } }
+        if (!Array.isArray(j) || !j.length) throw new Error((rotulo||'') + ' vazio');
+        return j;
+      });
+  }
+
+  return buscar(url, 'bcb-direto')
+    .catch(function(e1){
+      console.warn('[ptax] direto falhou (' + e1.message + '), tentando corsproxy');
+      return buscar('https://corsproxy.io/?' + encodeURIComponent(url), 'corsproxy');
+    })
+    .catch(function(e2){
+      console.warn('[ptax] corsproxy falhou (' + e2.message + '), tentando allorigins');
+      return buscar('https://api.allorigins.win/raw?url=' + encodeURIComponent(url), 'allorigins');
+    })
+    .then(function(arr){
+      var mapa = {};
+      arr.forEach(function(x){
+        var p = String(x.data||'').split('/');       // dd/mm/aaaa
+        if (p.length !== 3) return;
+        var v = parseFloat(String(x.valor).replace(',', '.'));
+        if (v > 0) mapa[p[2]+'-'+p[1]+'-'+p[0]] = v;
+      });
+      if (!Object.keys(mapa).length) throw new Error('série vazia após parse');
+      _ptaxMapa = mapa;
+      try { localStorage.setItem(_PTAX_CACHE, JSON.stringify({em:Date.now(), mapa:mapa})); } catch(e){
+        console.warn('[ptax] não coube no armazenamento:', e && e.message);
+      }
+      console.log('[ptax] ' + Object.keys(mapa).length + ' cotações do BCB em cache (7 dias).');
+      return mapa;
+    })
+    .catch(function(e){
+      console.warn('[ptax] indisponível (' + (e && e.message) + ') — proventos em dólar usam o câmbio corrente.');
+      return null;
+    });
 }
 window._ptaxCarregar = _ptaxCarregar;
 
