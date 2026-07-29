@@ -123,12 +123,76 @@ function _divsCarregar(){
         console.log('[proventos] +' + (juntos.length - doLS.length) +
                     ' da Carteira G20 somados à lista (total ' + juntos.length + ').');
       }
-      return juntos;
+      return _divsDedup(juntos);
     }
   } catch(e){}
 
-  return doLS;
+  return _divsDedup(doLS);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   DEDUPLICAÇÃO POR VALOR, NÃO POR DATA — SESSÃO 53
+
+   O card PROVENTOS MÊS somava R$ 115 onde o correto eram R$ 84. A lista
+   trazia o mesmo provento duas vezes:
+
+     O        2026-07-31   0,271
+     O        2026-07-15   0,271
+     SNID11   2026-07-24   0,110
+     SNID11   2026-07-15   0,110
+
+   Realty Income paga uma vez por mês. O que aconteceu foi a mesma fonte
+   devolvendo o pagamento com datas diferentes em importações distintas —
+   uma com a data real, outra com a data projetada do fim do mês.
+
+   A dedupe que existia usava ticker + data. Datas diferentes, chaves
+   diferentes, os dois passavam.
+
+   A chave nova é ticker + mês + valor por cota + tipo:
+   - mesmo mês, mesmo valor por cota  → é o mesmo pagamento, entra uma vez
+   - Dividendo e JCP no mesmo mês     → valores diferentes, os dois entram
+   - tipo no fim da chave             → protege caso o valor coincida
+
+   Entre duplicatas, fica a de data MENOR: a data real do pagamento vem
+   antes da projeção de fim de mês, e é ela que a Agenda precisa mostrar.
+   ═══════════════════════════════════════════════════════════════════════ */
+function _divsDedup(lista){
+  if (!Array.isArray(lista) || lista.length < 2) return lista || [];
+  var porChave = {}, ordem = [], removidos = 0;
+
+  lista.forEach(function(d){
+    if (!d || !d.ticker) { ordem.push(d); return; }
+    var data = String(d.data || '').substring(0,10);
+    if (!data) { ordem.push(d); return; }
+
+    var vc = parseFloat(d.valorCota) || parseFloat(d.valor) || parseFloat(d.value) ||
+             parseFloat(d.amount)    || parseFloat(d.rate)  || 0;
+    /* Sem valor por cota não há como comparar com segurança — deixa passar.
+       É melhor um duplicado eventual do que apagar provento legítimo. */
+    if (!vc) { ordem.push(d); return; }
+
+    var k = String(d.ticker).toUpperCase() + '|' + data.substring(0,7) + '|' +
+            vc.toFixed(6) + '|' + String(d.tipo || '').toUpperCase();
+
+    if (porChave[k] === undefined) {
+      porChave[k] = ordem.length;
+      ordem.push(d);
+    } else {
+      removidos++;
+      var i = porChave[k];
+      var atual = String(ordem[i].data || '').substring(0,10);
+      if (data < atual) ordem[i] = d;      // fica a data mais antiga
+    }
+  });
+
+  if (removidos && !window._g20AvisouDedup) {
+    window._g20AvisouDedup = true;
+    console.log('[proventos] ' + removidos + ' duplicata(s) removida(s) ' +
+                '(mesmo ticker, mês e valor por cota).');
+  }
+  return ordem;
+}
+window._divsDedup = _divsDedup;
 window._divsCarregar = _divsCarregar;
 
 function _importarProventosGestaoBackground(onEmpty){
@@ -19573,7 +19637,20 @@ window.G20DiagRF = function(dias){
           // Re-renderiza APENAS o gráfico de proventos (que pode ter novos dados)
           // Os outros 2 gráficos não mudam com novos proventos
           v21LoadProvChart();
+          /* SESSÃO 53 — O CARD "PROVENTOS MÊS" MOSTRAVA O MÊS PASSADO.
+
+             Aqui existia só o comentário abaixo, sem chamada nenhuma. O card
+             KPI pintava durante o boot e a importação terminava ~3s depois,
+             reescrevendo g20_dividendos sem repintar. Resultado: o número era
+             sempre o da sessão anterior — e como cada importação traz um
+             conjunto ligeiramente diferente (fonte que responde ou não), o
+             valor mudava a cada abertura sem motivo aparente.
+
+             v21LoadKpis() recalcula os quatro cards, não só o de proventos.
+             Os outros três leem snapshots que a importação não toca, então
+             repintar todos é inofensivo e mais simples que isolar um. */
           // Também atualiza outros cards que dependem de proventos
+          if (typeof v21LoadKpis === 'function') { try { v21LoadKpis(); } catch(e){} }
           if (window.lucide) lucide.createIcons();
           // Esconde o loader (se estiver visível por refresh manual)
           if (window.G20Loader) {
