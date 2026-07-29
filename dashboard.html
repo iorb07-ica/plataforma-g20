@@ -131,30 +131,32 @@ function _divsCarregar(){
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   DEDUPLICAÇÃO POR VALOR, NÃO POR DATA — SESSÃO 53
+   DUAS LINHAS PARA O MESMO PROVENTO — SESSÃO 53
 
-   O card PROVENTOS MÊS somava R$ 115 onde o correto eram R$ 84. A lista
-   trazia o mesmo provento duas vezes:
+   O importador grava DOIS registros por provento quando a data-com difere
+   da data de pagamento:
 
-     O        2026-07-31   0,271
-     O        2026-07-15   0,271
-     SNID11   2026-07-24   0,110
-     SNID11   2026-07-15   0,110
+     lista.push({ data: dataPag });                    // pagamento
+     lista.push({ data: dataEx, isExDate: true });     // data-com
 
-   Realty Income paga uma vez por mês. O que aconteceu foi a mesma fonte
-   devolvendo o pagamento com datas diferentes em importações distintas —
-   uma com a data real, outra com a data projetada do fim do mês.
+   O segundo existe só para a Agenda avisar "vai ficar ex amanhã". Mas
+   nenhum card de SOMA filtrava `isExDate` — só a Agenda, na linha 16001.
+   Resultado: todo provento com data-com distinta entrava duas vezes em
+   PROVENTOS MÊS, PROVENTOS 12 MESES e RENDA PASSIVA. O total de 12 meses
+   marcava R$ 25,0k onde o correto era ~R$ 13,7k.
 
-   A dedupe que existia usava ticker + data. Datas diferentes, chaves
-   diferentes, os dois passavam.
+   A correção real está nos três cards, que agora ignoram `isExDate`.
+   Esta dedupe continua aqui como rede de segurança para duplicatas de
+   outra origem — a mesma fonte devolvendo o pagamento com datas
+   diferentes em importações distintas.
 
-   A chave nova é ticker + mês + valor por cota + tipo:
-   - mesmo mês, mesmo valor por cota  → é o mesmo pagamento, entra uma vez
+   Chave: ticker + mês + valor por cota + tipo.
+   - mesmo mês, mesmo valor por cota  → mesmo pagamento, entra uma vez
    - Dividendo e JCP no mesmo mês     → valores diferentes, os dois entram
-   - tipo no fim da chave             → protege caso o valor coincida
 
-   Entre duplicatas, fica a de data MENOR: a data real do pagamento vem
-   antes da projeção de fim de mês, e é ela que a Agenda precisa mostrar.
+   Entre duplicatas fica o registro de PAGAMENTO. A versão anterior desta
+   função ficava com a data mais antiga, o que preservava a data-com e
+   jogava o provento para o mês errado — foi o que quebrou julho.
    ═══════════════════════════════════════════════════════════════════════ */
 function _divsDedup(lista){
   if (!Array.isArray(lista) || lista.length < 2) return lista || [];
@@ -180,8 +182,14 @@ function _divsDedup(lista){
     } else {
       removidos++;
       var i = porChave[k];
-      var atual = String(ordem[i].data || '').substring(0,10);
-      if (data < atual) ordem[i] = d;      // fica a data mais antiga
+      /* Entre os dois, fica o de pagamento. Só se ambos forem do mesmo
+         tipo é que a data mais antiga desempata. */
+      var guardado = ordem[i];
+      if (guardado.isExDate && !d.isExDate) {
+        ordem[i] = d;
+      } else if (!!guardado.isExDate === !!d.isExDate) {
+        if (data < String(guardado.data || '').substring(0,10)) ordem[i] = d;
+      }
     }
   });
 
@@ -16732,6 +16740,10 @@ window.G20DiagRF = function(dias){
       var tickersPagMes = {};
       var divsFiltrados = divs.filter(function(d){
         if (!d.fonte) return false;
+        /* SESSÃO 53: o importador grava um segundo registro na data-com,
+           marcado com isExDate, só para a Agenda avisar do prazo. Ele não é
+           dinheiro recebido — somá-lo contava todo provento duas vezes. */
+        if (d.isExDate) return false;
         var f = String(d.fonte).toLowerCase();
         var isAuto = (f === 'auto' || f.indexOf('auto-') === 0 || f.indexOf('auto_') === 0);
         var valor = getValorProvento(d);
@@ -17058,6 +17070,7 @@ window.G20DiagRF = function(dias){
         var totalProv12m = 0;
         divs.forEach(function(d){
           if (!d.fonte) return;
+          if (d.isExDate) return;   // SESSÃO 53: data-com não é dinheiro recebido
           var f = String(d.fonte).toLowerCase();
           var isAuto = (f === 'auto' || f.indexOf('auto-') === 0 || f.indexOf('auto_') === 0);
           if (!isAuto) return;
@@ -18361,6 +18374,7 @@ window.G20DiagRF = function(dias){
 
       divs.forEach(function(d){
         if (!d.fonte) return;
+        if (d.isExDate) return;   // SESSÃO 53: data-com não é dinheiro recebido
         var f = String(d.fonte).toLowerCase();
         var isAuto = (f === 'auto' || f.indexOf('auto-') === 0 || f.indexOf('auto_') === 0);
         if (!isAuto) return;
