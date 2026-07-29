@@ -198,42 +198,75 @@ function _ptaxCarregar(){
   } catch(e){}
 
   /* ═══════════════════════════════════════════════════════════════════
-     POR QUE NÃO O BCB DIRETO
+     DUAS FONTES, POR NECESSIDADE — SESSÃO 53
 
-     A API do SGS recusou as duas formas: HTTP 406 na consulta por
-     intervalo (o limite de janela das séries diárias) e HTTP 400 no
-     endpoint `ultimos/N`. O corsproxy recebeu o mesmo 406, o que provou
-     que a recusa era da própria API e não de CORS.
+     O caminho até aqui, para quem for mexer depois:
 
-     AwesomeAPI Economia entrega `USD-BRLPTAX`, que é a PTAX do Banco
-     Central redistribuída — mesmo dado oficial, com CORS liberado, sem
-     chave e sem cartão. Gratuita.
+       BCB SGS direto        HTTP 406 na consulta por intervalo (limite de
+                             janela das séries diárias) e HTTP 400 no
+                             endpoint `ultimos/N`. O corsproxy recebeu o
+                             mesmo 406 — a recusa é da API, não de CORS.
 
-     Limite de 360 dias por chamada, então a série vem em pedaços de um
-     ano. São 8 requisições, uma vez a cada 7 dias.
+       AwesomeAPI PTAX       Funciona, mas a série só começa em dez/2024.
+                             Sondagem ano a ano devolveu 200 com ZERO
+                             registros de 2016 a 2023.
+
+       Stooq                 10 anos, CORS liberado na origem, sem chave.
+                             É a mesma fonte de onde este dashboard já
+                             puxa IBOV e S&P500 com sucesso.
+
+     Então: Stooq para a espinha dorsal de 10 anos, e a PTAX da AwesomeAPI
+     sobreposta onde existe — ela é a taxa oficial do Banco Central, que é
+     a que a Receita exige para converter rendimento no exterior.
+
+     Ambas gratuitas, sem chave e sem cartão.
      ═══════════════════════════════════════════════════════════════════ */
-  var ANOS = 8;
-  var API = 'https://economia.awesomeapi.com.br/json/daily/';
-  var hoje = new Date();
-
-  function ymd(d){ return d.getFullYear() +
-    String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0'); }
-
-  function pedaco(par, ini, fim){
-    var url = API + par + '/360?start_date=' + ymd(ini) + '&end_date=' + ymd(fim);
-    return Promise.race([
-      fetch(url).then(function(r){ return r.ok ? r.json() : []; }).catch(function(){ return []; }),
-      new Promise(function(res){ setTimeout(function(){ res([]); }, 12000); })
-    ]);
+  function comTimeout(p, ms){
+    return Promise.race([p, new Promise(function(res){
+      setTimeout(function(){ res(null); }, ms||12000); })]);
   }
 
-  function baixar(par){
-    var jobs = [];
-    for (var a = 0; a < ANOS; a++) {
+  /* ── Stooq: CSV com Date,Open,High,Low,Close ── */
+  function viaStooq(){
+    var d = new Date(); d.setFullYear(d.getFullYear() - 10);
+    var d1 = d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') +
+             String(d.getDate()).padStart(2,'0');
+    var url = 'https://stooq.com/q/d/l/?s=usdbrl&i=d&d1=' + d1;
+    return comTimeout(fetch(url).then(function(r){ return r.ok ? r.text() : ''; })
+                                .catch(function(){ return ''; }))
+      .then(function(csv){
+        var mapa = {};
+        if (!csv) return mapa;
+        var linhas = String(csv).trim().split('\n');
+        if (linhas.length < 2) return mapa;
+        var cab = linhas[0].toLowerCase().split(',');
+        var iData = cab.indexOf('date'), iFech = cab.indexOf('close');
+        if (iData < 0 || iFech < 0) return mapa;
+        for (var k = 1; k < linhas.length; k++) {
+          var col = linhas[k].split(',');
+          var dt = (col[iData]||'').trim();
+          var v  = parseFloat(col[iFech]);
+          if (/^\d{4}-\d{2}-\d{2}$/.test(dt) && v > 0) mapa[dt] = v;
+        }
+        return mapa;
+      });
+  }
+
+  /* ── AwesomeAPI: PTAX oficial, mas só de dez/2024 em diante ── */
+  function viaAwesome(){
+    var hoje = new Date(), jobs = [];
+    function ymd(x){ return x.getFullYear() + String(x.getMonth()+1).padStart(2,'0') +
+                            String(x.getDate()).padStart(2,'0'); }
+    for (var a = 0; a < 3; a++) {
       var ano = hoje.getFullYear() - a;
       var ini = new Date(ano, 0, 1);
       var fim = (a === 0) ? hoje : new Date(ano, 11, 31);
-      jobs.push(pedaco(par, ini, fim));
+      jobs.push(comTimeout(
+        fetch('https://economia.awesomeapi.com.br/json/daily/USD-BRLPTAX/360?start_date=' +
+              ymd(ini) + '&end_date=' + ymd(fim))
+          .then(function(r){ return r.ok ? r.json() : []; })
+          .catch(function(){ return []; })
+      ));
     }
     return Promise.all(jobs).then(function(partes){
       var mapa = {};
@@ -242,9 +275,7 @@ function _ptaxCarregar(){
         arr.forEach(function(x){
           var ts = parseInt(x.timestamp, 10);
           if (!ts) return;
-          /* A API alterna entre segundos e milissegundos conforme o
-             endpoint. 13 dígitos já são ms; 10 precisam de ×1000. */
-          if (String(x.timestamp).length <= 11) ts = ts * 1000;
+          if (String(x.timestamp).length <= 11) ts *= 1000;
           var v = parseFloat(x.bid || x.ask || 0);
           if (!(v > 0)) return;
           var d = new Date(ts);
@@ -257,22 +288,25 @@ function _ptaxCarregar(){
     });
   }
 
-  return baixar('USD-BRLPTAX')
-    .then(function(m){
-      /* PTAX é o dado oficial. Se vier vazia, o dólar comercial resolve
-         com diferença de fração de centavo. */
-      if (Object.keys(m).length > 30) return m;
-      console.warn('[ptax] PTAX vazia, tentando dólar comercial');
-      return baixar('USD-BRL');
-    })
-    .then(function(mapa){
-      if (!mapa || Object.keys(mapa).length < 30) throw new Error('série insuficiente');
+  return Promise.all([viaStooq(), viaAwesome()])
+    .then(function(r){
+      var stooq = r[0] || {}, ptax = r[1] || {};
+      /* PTAX por cima: onde ela existe, é a taxa oficial e prevalece. */
+      var mapa = {};
+      Object.keys(stooq).forEach(function(k){ mapa[k] = stooq[k]; });
+      Object.keys(ptax ).forEach(function(k){ mapa[k] = ptax[k];  });
+
+      var n = Object.keys(mapa).length;
+      if (n < 30) throw new Error('série insuficiente (' + n + ' cotações)');
+
       _ptaxMapa = mapa;
       try { localStorage.setItem(_PTAX_CACHE, JSON.stringify({em:Date.now(), mapa:mapa})); }
       catch(e){ console.warn('[ptax] não coube no armazenamento:', e && e.message); }
+
       var ks = Object.keys(mapa).sort();
-      console.log('[ptax] ' + ks.length + ' cotações em cache (7 dias) — de ' +
-                  ks[0] + ' a ' + ks[ks.length-1] + '.');
+      console.log('[ptax] ' + n + ' cotações em cache (7 dias) — de ' + ks[0] +
+                  ' a ' + ks[ks.length-1] + '. Stooq: ' + Object.keys(stooq).length +
+                  ' · PTAX oficial: ' + Object.keys(ptax).length + '.');
       return mapa;
     })
     .catch(function(e){
