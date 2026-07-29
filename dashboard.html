@@ -306,15 +306,63 @@ function _importarTodosProventosBackground(onDone){
     var isBR = p.origem==='gestao' ? !US_TIPOS.includes(p.tipo) : (/\d$/.test(p.ticker)||p.ticker.endsWith('.SA'));
     var sym  = isBR ? p.ticker.replace(/\.SA$/i,'').toUpperCase()+'.SA' : p.ticker.replace(/\.SA$/i,'').toUpperCase();
     var ep   = isBR ? '/api/dividends-br' : '/api/dividends';
+    /* SESSÃO 53: `ok` distingue "a fonte respondeu" de "a busca falhou".
+       Antes as duas viravam raw:{} e eram indistinguíveis — e como a lista
+       era zerada antes de reconstruir, um ticker que falhasse desaparecia
+       do histórico inteiro até a próxima importação que desse certo. Era a
+       origem dos meses com um único provento. */
     return fetch(PROXY+ep+'?symbol='+encodeURIComponent(sym)+'&from='+fromStr)
-      .then(function(r){ return r.ok?r.json():{}; })
-      .then(function(d){ return {ticker:p.ticker,tipo:p.tipo||'',origem:p.origem,raw:d}; })
-      .catch(function(){ return {ticker:p.ticker,tipo:p.tipo||'',origem:p.origem,raw:{}}; });
+      .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+      .then(function(d){ return {ticker:p.ticker,tipo:p.tipo||'',origem:p.origem,raw:d,ok:true}; })
+      .catch(function(){ return {ticker:p.ticker,tipo:p.tipo||'',origem:p.origem,raw:{},ok:false}; });
   });
 
   Promise.all(fetches).then(function(results){
+    /* ═══════════════════════════════════════════════════════════════════
+       PRESERVAR O QUE NÃO VOLTOU — SESSÃO 53
+
+       Estava assim:
+
+         var lista = JSON.parse(...).filter(function(d){
+           return f!=='auto' && f.indexOf('Auto-')!==0;      // apaga TUDO
+         });
+
+       Apagava todos os proventos automáticos e reconstruía do zero. Se a
+       API falhasse para um ticker, ele sumia do histórico — e o mês ficava
+       com um provento só, como abril e julho de 2026 na base do Israel.
+
+       Agora só é substituído o ticker cuja busca voltou COM dados. Quem
+       falhou, e quem respondeu vazio tendo histórico, permanece intocado.
+       Assim a base se autocorrige quando a fonte responde e não se
+       autodestrói quando ela cai.
+       ═══════════════════════════════════════════════════════════════════ */
+    var substituir = {}, falharam = [], vazios = [];
+    results.forEach(function(r){
+      var n = 0;
+      if (Array.isArray(r.raw)) n = r.raw.length;
+      else if (Array.isArray(r.raw.dividends)) n = r.raw.dividends.length;
+
+      if (!r.ok)      { falharam.push(r.ticker); return; }
+      if (n === 0)    { vazios.push(r.ticker);   return; }
+      substituir[String(r.ticker).toUpperCase()] = true;
+    });
+
+    if (falharam.length) {
+      console.warn('[proventos] ' + falharam.length + ' ticker(s) sem resposta da fonte — ' +
+                   'histórico preservado: ' + falharam.join(', '));
+    }
+    if (vazios.length) {
+      console.log('[proventos] ' + vazios.length + ' ticker(s) responderam sem proventos — ' +
+                  'histórico preservado: ' + vazios.join(', '));
+    }
+
     var lista = JSON.parse(localStorage.getItem('g20_dividendos')||'[]')
-      .filter(function(d){ var f=d.fonte||''; return f!=='auto'&&f.indexOf('Auto-')!==0; });
+      .filter(function(d){
+        var f = d.fonte||'';
+        var ehAuto = (f === 'auto' || f.indexOf('Auto-') === 0);
+        if (!ehAuto) return true;                       // lançamento manual nunca sai
+        return !substituir[String(d.ticker||'').toUpperCase()];
+      });
 
     results.forEach(function(r){
       var divList=[];
