@@ -197,72 +197,87 @@ function _ptaxCarregar(){
     }
   } catch(e){}
 
-  /* POR QUE `ultimos/N` E NÃO INTERVALO DE DATAS
+  /* ═══════════════════════════════════════════════════════════════════
+     POR QUE NÃO O BCB DIRETO
 
-     A primeira versão pedia dataInicial de 10 anos atrás e o BCB devolvia
-     HTTP 406 — inclusive através do corsproxy, o que provou que a recusa
-     era da própria API e não de CORS. O SGS limita consultas por intervalo
-     nas séries DIÁRIAS, e a série 1 (dólar) é diária.
+     A API do SGS recusou as duas formas: HTTP 406 na consulta por
+     intervalo (o limite de janela das séries diárias) e HTTP 400 no
+     endpoint `ultimos/N`. O corsproxy recebeu o mesmo 406, o que provou
+     que a recusa era da própria API e não de CORS.
 
-     `ultimos/N` não tem esse limite. 2600 observações ≈ 10 anos de dias
-     úteis, e é o mesmo formato que Selic, CDI e IPCA já usam aqui. */
-  var url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.1/dados/ultimos/2600?formato=json';
+     AwesomeAPI Economia entrega `USD-BRLPTAX`, que é a PTAX do Banco
+     Central redistribuída — mesmo dado oficial, com CORS liberado, sem
+     chave e sem cartão. Gratuita.
 
-  /* CASCATA — o BCB falha por CORS no browser com frequência. A primeira
-     versão desta função tinha só a chamada direta e devolvia null em
-     silêncio: o PTAX nunca carregava e os cards caíam no câmbio de hoje
-     sem avisar. Mesma cascata que a série 4391 do CDI já usa. */
-  function comTimeout(p, ms){
-    return Promise.race([p, new Promise(function(_,rej){
-      setTimeout(function(){ rej(new Error('timeout')); }, ms||12000); })]);
-  }
-  function buscar(u, rotulo){
-    return comTimeout(fetch(u))
-      .then(function(r){
-        if (!r || !r.ok) throw new Error((rotulo||'') + ' HTTP ' + (r ? r.status : '?'));
-        return r.json();
-      })
-      .then(function(j){
-        if (typeof j === 'string') { try { j = JSON.parse(j); } catch(e){ throw new Error('json inválido'); } }
-        if (!Array.isArray(j) || !j.length) throw new Error((rotulo||'') + ' vazio');
-        return j;
-      });
+     Limite de 360 dias por chamada, então a série vem em pedaços de um
+     ano. São 8 requisições, uma vez a cada 7 dias.
+     ═══════════════════════════════════════════════════════════════════ */
+  var ANOS = 8;
+  var API = 'https://economia.awesomeapi.com.br/json/daily/';
+  var hoje = new Date();
+
+  function ymd(d){ return d.getFullYear() +
+    String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0'); }
+
+  function pedaco(par, ini, fim){
+    var url = API + par + '/360?start_date=' + ymd(ini) + '&end_date=' + ymd(fim);
+    return Promise.race([
+      fetch(url).then(function(r){ return r.ok ? r.json() : []; }).catch(function(){ return []; }),
+      new Promise(function(res){ setTimeout(function(){ res([]); }, 12000); })
+    ]);
   }
 
-  return buscar(url, 'bcb-direto')
-    .catch(function(e1){
-      console.warn('[ptax] direto falhou (' + e1.message + '), tentando corsproxy');
-      return buscar('https://corsproxy.io/?' + encodeURIComponent(url), 'corsproxy');
-    })
-    .catch(function(e2){
-      console.warn('[ptax] corsproxy falhou (' + e2.message + '), tentando allorigins');
-      return buscar('https://api.allorigins.win/raw?url=' + encodeURIComponent(url), 'allorigins');
-    })
-    .catch(function(e3){
-      /* Última tentativa com janela menor: 5 anos ainda cobrem quase todo
-         provento relevante, e um payload menor passa onde o grande não passa. */
-      var curta = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.1/dados/ultimos/1300?formato=json';
-      console.warn('[ptax] allorigins falhou (' + e3.message + '), tentando janela de 5 anos');
-      return buscar(curta, 'bcb-5anos');
-    })
-    .then(function(arr){
+  function baixar(par){
+    var jobs = [];
+    for (var a = 0; a < ANOS; a++) {
+      var ano = hoje.getFullYear() - a;
+      var ini = new Date(ano, 0, 1);
+      var fim = (a === 0) ? hoje : new Date(ano, 11, 31);
+      jobs.push(pedaco(par, ini, fim));
+    }
+    return Promise.all(jobs).then(function(partes){
       var mapa = {};
-      arr.forEach(function(x){
-        var p = String(x.data||'').split('/');       // dd/mm/aaaa
-        if (p.length !== 3) return;
-        var v = parseFloat(String(x.valor).replace(',', '.'));
-        if (v > 0) mapa[p[2]+'-'+p[1]+'-'+p[0]] = v;
+      partes.forEach(function(arr){
+        if (!Array.isArray(arr)) return;
+        arr.forEach(function(x){
+          var ts = parseInt(x.timestamp, 10);
+          if (!ts) return;
+          /* A API alterna entre segundos e milissegundos conforme o
+             endpoint. 13 dígitos já são ms; 10 precisam de ×1000. */
+          if (String(x.timestamp).length <= 11) ts = ts * 1000;
+          var v = parseFloat(x.bid || x.ask || 0);
+          if (!(v > 0)) return;
+          var d = new Date(ts);
+          var k = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') +
+                  '-' + String(d.getDate()).padStart(2,'0');
+          if (!mapa[k]) mapa[k] = v;
+        });
       });
-      if (!Object.keys(mapa).length) throw new Error('série vazia após parse');
+      return mapa;
+    });
+  }
+
+  return baixar('USD-BRLPTAX')
+    .then(function(m){
+      /* PTAX é o dado oficial. Se vier vazia, o dólar comercial resolve
+         com diferença de fração de centavo. */
+      if (Object.keys(m).length > 30) return m;
+      console.warn('[ptax] PTAX vazia, tentando dólar comercial');
+      return baixar('USD-BRL');
+    })
+    .then(function(mapa){
+      if (!mapa || Object.keys(mapa).length < 30) throw new Error('série insuficiente');
       _ptaxMapa = mapa;
-      try { localStorage.setItem(_PTAX_CACHE, JSON.stringify({em:Date.now(), mapa:mapa})); } catch(e){
-        console.warn('[ptax] não coube no armazenamento:', e && e.message);
-      }
-      console.log('[ptax] ' + Object.keys(mapa).length + ' cotações do BCB em cache (7 dias).');
+      try { localStorage.setItem(_PTAX_CACHE, JSON.stringify({em:Date.now(), mapa:mapa})); }
+      catch(e){ console.warn('[ptax] não coube no armazenamento:', e && e.message); }
+      var ks = Object.keys(mapa).sort();
+      console.log('[ptax] ' + ks.length + ' cotações em cache (7 dias) — de ' +
+                  ks[0] + ' a ' + ks[ks.length-1] + '.');
       return mapa;
     })
     .catch(function(e){
-      console.warn('[ptax] indisponível (' + (e && e.message) + ') — proventos em dólar usam o câmbio corrente.');
+      console.warn('[ptax] indisponível (' + (e && e.message) +
+                   ') — proventos em dólar usam o câmbio corrente.');
       return null;
     });
 }
