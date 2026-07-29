@@ -169,6 +169,125 @@ function _divsPessoais(){
 }
 window._divsPessoais = _divsPessoais;
 
+/* ═══════════════════════════════════════════════════════════════════════
+   DÓLAR DA DATA DO PAGAMENTO — SESSÃO 53
+
+   Provento em dólar era convertido pelo câmbio de HOJE, em qualquer época.
+   Um dividendo de 2019 recebido com o dólar a 3,90 aparecia convertido a
+   5,13 — 30% inflado. E o número mudava sozinho todo dia, junto do câmbio,
+   num card que descreve dinheiro que já entrou na conta.
+
+   FONTE: PTAX do Banco Central, série 1 (dólar comercial, venda). Pública,
+   gratuita, sem chave e sem cartão — o mesmo servidor de onde o dashboard
+   já lê CDI, Selic e IPCA. Uma chamada a cada 7 dias, guardada em cache.
+
+   A série só tem dia útil. Para provento pago em fim de semana ou feriado,
+   vale a última cotação anterior — que é a regra da própria PTAX.
+   ═══════════════════════════════════════════════════════════════════════ */
+var _PTAX_CACHE = 'g20_ptax';
+var _ptaxMapa = null;
+
+function _ptaxCarregar(){
+  if (_ptaxMapa) return Promise.resolve(_ptaxMapa);
+  try {
+    var c = JSON.parse(localStorage.getItem(_PTAX_CACHE) || 'null');
+    if (c && c.mapa && (Date.now() - (c.em||0)) < 7*24*3600*1000) {
+      _ptaxMapa = c.mapa;
+      return Promise.resolve(_ptaxMapa);
+    }
+  } catch(e){}
+
+  /* 10 anos cobrem qualquer histórico de aporte do aluno com folga. */
+  var ini = new Date(); ini.setFullYear(ini.getFullYear()-10);
+  function br(d){ return String(d.getDate()).padStart(2,'0') + '/' +
+                         String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear(); }
+  var url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.1/dados?formato=json' +
+            '&dataInicial=' + br(ini) + '&dataFinal=' + br(new Date());
+
+  return new Promise(function(resolve){
+    var pronto = false;
+    var t = setTimeout(function(){ if(!pronto){ pronto=true; resolve(null); } }, 10000);
+    fetch(url)
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(arr){
+        if (pronto) return;
+        pronto = true; clearTimeout(t);
+        if (!Array.isArray(arr) || !arr.length) { resolve(null); return; }
+        var mapa = {};
+        arr.forEach(function(x){
+          var p = String(x.data||'').split('/');       // dd/mm/aaaa
+          if (p.length !== 3) return;
+          var v = parseFloat(String(x.valor).replace(',', '.'));
+          if (v > 0) mapa[p[2]+'-'+p[1]+'-'+p[0]] = v;
+        });
+        _ptaxMapa = mapa;
+        try { localStorage.setItem(_PTAX_CACHE, JSON.stringify({em:Date.now(), mapa:mapa})); } catch(e){}
+        console.log('[ptax] ' + Object.keys(mapa).length + ' cotações do BCB em cache (7 dias).');
+        resolve(mapa);
+      })
+      .catch(function(){ if(!pronto){ pronto=true; clearTimeout(t); resolve(null); } });
+  });
+}
+window._ptaxCarregar = _ptaxCarregar;
+
+/* Cotação na data, recuando até 10 dias para cobrir feriado prolongado.
+   Devolve 0 quando não sabe — e quem chama decide o que fazer com isso.
+   Nunca inventa um valor aproximado para dinheiro. */
+function _ptaxNaData(dataStr){
+  if (!_ptaxMapa || !dataStr) return 0;
+  var d = new Date(String(dataStr).substring(0,10) + 'T12:00:00');
+  if (isNaN(d.getTime())) return 0;
+  for (var i = 0; i < 10; i++) {
+    var k = d.toISOString().substring(0,10);
+    if (_ptaxMapa[k] > 0) return _ptaxMapa[k];
+    d.setDate(d.getDate() - 1);
+  }
+  return 0;
+}
+window._ptaxNaData = _ptaxNaData;
+
+/* ═══════════════════════════════════════════════════════════════════════
+   CARIMBAR A MOEDA NOS REGISTROS ANTIGOS — SESSÃO 53
+
+   122 dos 350 proventos foram gravados antes de o campo `moeda` existir.
+   Nos brasileiros a ausência é lida como BRL e acerta por acidente. Num
+   americano antigo cujo tipo não esteja na lista conhecida, o valor entra
+   sem conversão — cinco vezes menor do que deveria.
+
+   Roda uma vez, no boot, e depois não tem mais o que fazer.
+   ═══════════════════════════════════════════════════════════════════════ */
+function _carimbarMoedaProventos(){
+  var USD = {'STOCK':1,'REIT':1,'ETF':1,'ETF US':1,'UCITS':1,'UCITs':1,'CRIPTO':1};
+  var lista, aportes;
+  try { lista = JSON.parse(localStorage.getItem('g20_rvDividendos')||'[]'); } catch(e){ return; }
+  try { aportes = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); } catch(e){ return; }
+  if (!Array.isArray(lista) || !lista.length) return;
+
+  var tipoDe = {};
+  aportes.forEach(function(a){
+    if (a && a.ticker) tipoDe[String(a.ticker).toUpperCase()] = String(a.tipo||'').toUpperCase();
+  });
+
+  var n = 0;
+  lista.forEach(function(d){
+    if (!d || d.moeda) return;
+    var t = String(d.ticker||'').toUpperCase();
+    /* Ticker brasileiro tem número no fim (PETR4, SNID11). O tipo do
+       cadastro manda; o formato só resolve o que ele não souber. */
+    var ehUSD = USD[tipoDe[t]] ? true : (tipoDe[t] ? false : !/\d$/.test(t));
+    d.moeda = ehUSD ? 'USD' : 'BRL';
+    n++;
+  });
+
+  if (n) {
+    try {
+      localStorage.setItem('g20_rvDividendos', JSON.stringify(lista));
+      console.log('[proventos] moeda carimbada em ' + n + ' registro(s) antigo(s).');
+    } catch(e){ console.warn('[proventos] não coube ao carimbar moeda:', e && e.message); }
+  }
+}
+window._carimbarMoedaProventos = _carimbarMoedaProventos;
+
 function _importarProventosGestaoBackground(onEmpty){
   if(_gestaoImportRunning) return;
   _gestaoImportRunning = true;
@@ -16861,8 +16980,14 @@ window.G20DiagRF = function(dias){
           (_tpProv === 'STOCK' || _tpProv === 'REIT' || _tpProv === 'ETF' ||
            _tpProv === 'ETF US' || _tpProv === 'UCITS' || _tpProv === 'CRIPTO'));
         if (_ehUSD) {
-          if (!(_fxMes > 0)) return;      // sem câmbio, fica de fora
-          total = total * _fxMes;
+          /* SESSÃO 53: câmbio da DATA DO PAGAMENTO (PTAX/BCB), não o de
+             hoje. Provento recebido é fato consumado — não deve mudar de
+             valor porque o dólar mexeu. Sem cotação da data, cai no câmbio
+             corrente em vez de sumir do card. */
+          var _fxD = (typeof _ptaxNaData === 'function') ? _ptaxNaData(dataPag) : 0;
+          var _fxUsar = _fxD > 0 ? _fxD : _fxMes;
+          if (!(_fxUsar > 0)) return;
+          total = total * _fxUsar;
         }
 
         sumProvMes += total;
@@ -17170,8 +17295,11 @@ window.G20DiagRF = function(dias){
           var total = parseFloat(d.total) || (valorCota * qtd);
           if (total <= 0) return;
           if (_proventoEmUSD(d)) {
-            if (!(_fx6 > 0)) return;        // sem câmbio, não inventa valor
-            total = total * _fx6;
+            /* SESSÃO 53: PTAX da data do pagamento. Sem ela, câmbio corrente. */
+            var _fxD3 = (typeof _ptaxNaData === 'function') ? _ptaxNaData(dataPag) : 0;
+            var _usar3 = _fxD3 > 0 ? _fxD3 : _fx6;
+            if (!(_usar3 > 0)) return;
+            total = total * _usar3;
           }
           totalProv12m += total;
         });
@@ -18491,8 +18619,11 @@ window.G20DiagRF = function(dias){
         if (total <= 0) return;
 
         if (_provUSD(d)) {
-          if (!(cotUSD > 0)) return;      // sem câmbio, fica de fora
-          total = total * cotUSD;
+          /* SESSÃO 53: PTAX da data do pagamento. Sem ela, câmbio corrente. */
+          var _fxD2 = (typeof _ptaxNaData === 'function') ? _ptaxNaData(dataPag) : 0;
+          var _usar2 = _fxD2 > 0 ? _fxD2 : cotUSD;
+          if (!(_usar2 > 0)) return;
+          total = total * _usar2;
         }
 
         var mesKey = dataPag.substring(0,7);
