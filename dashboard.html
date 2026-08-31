@@ -240,8 +240,14 @@ function _ptaxCarregar(){
   function viaYahoo(){
     var yUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' +
                encodeURIComponent('USDBRL=X') + '?range=10y&interval=1d';
+    /* Cascata: proxy G20 primeiro, públicos como último recurso.
+       Em 31/08/26 corsproxy.io passou a devolver 403 e o allorigins parou de
+       mandar o cabeçalho CORS — os dois no mesmo dia, e o câmbio ficou sem série. */
+    var urlG20 = 'https://g20-proxy.vercel.app/api/history?symbol=' +
+                 encodeURIComponent('USDBRL=X') + '&range=10y&interval=1d';
     var url  = 'https://corsproxy.io/?' + encodeURIComponent(yUrl);
-    return comTimeout(fetch(url).then(function(r){ return r.ok ? r.json() : null; })
+    return comTimeout(fetch(urlG20).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+                                .catch(function(){ return fetch(url).then(function(r){ return r.ok ? r.json() : null; }); })
                                 .catch(function(){ return null; }))
       .then(function(data){
         var mapa = {};
@@ -10891,15 +10897,21 @@ window.loadPatStrip = loadPatStrip;
       return pontos;
     }
 
-    // Cascata: corsproxy.io → allorigins → desiste (ativo fica sem série)
-    return comTimeout(fetch('https://corsproxy.io/?' + encodeURIComponent(yUrl)), 18000)
-      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(parseYahoo)
-      .catch(function () {
-        return comTimeout(fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(yUrl)), 18000)
-          .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-          .then(parseYahoo);
-      })
+    /* Cascata: proxy G20 → corsproxy.io → allorigins → desiste.
+       O proxy G20 vem primeiro porque é nosso: tem cache Redis de 6h e não
+       some sem aviso. Em 31/08/26 os dois públicos caíram no mesmo dia e
+       NENHUM ativo teve série — o dashboard inteiro caiu para estimativa. */
+    var urlG20 = PROXY_URL + '/api/history?symbol=' + encodeURIComponent(sym) +
+                 '&range=' + range + '&interval=1d';
+    function tentar(url) {
+      return comTimeout(fetch(url), 18000)
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(parseYahoo);
+    }
+
+    return tentar(urlG20)
+      .catch(function () { return tentar('https://corsproxy.io/?' + encodeURIComponent(yUrl)); })
+      .catch(function () { return tentar('https://api.allorigins.win/raw?url=' + encodeURIComponent(yUrl)); })
       .then(function (pontos) { gravarCache(sym, pontos); return pontos; })
       .catch(function () { return null; });
   }
@@ -17799,7 +17811,13 @@ window.G20DiagRF = function(dias){
          antes dele. Agora _v21InicioMax() devolve null enquanto os índices
          não chegam e ninguém desenha "Max" fora de hora — a troca é segura. */
       var yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(cfg.yahooSymbol) + '?range=10y&interval=1d';
-      var url = 'https://corsproxy.io/?' + encodeURIComponent(yahooUrl);      return fetchComTimeout(url)
+      /* Proxy G20 primeiro; corsproxy vira o plano B. */
+      var urlG20 = 'https://g20-proxy.vercel.app/api/history?symbol=' +
+                   encodeURIComponent(cfg.yahooSymbol) + '&range=10y&interval=1d';
+      var url = 'https://corsproxy.io/?' + encodeURIComponent(yahooUrl);
+      return fetchComTimeout(urlG20)
+        .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r; })
+        .catch(function(){ return fetchComTimeout(url); })
         .then(function(r){
           if (!r.ok) throw new Error('HTTP ' + r.status);
           return r.json();
