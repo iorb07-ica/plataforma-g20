@@ -210,48 +210,75 @@ function carregarDados() {
 
 function atualizarStats(totalAulas) {
   var perfil = _aluno.perfilPct || 0;
-  var aulas = totalAulas > 0 ? Math.round((totalAulas / 50) * 100) : 0; // ~50 aulas totais
+  var percentualAulas = totalAulas > 0 ? Math.round((totalAulas / 50) * 100) : 0; // ~50 aulas totais
   
   document.getElementById('statPerfil').textContent = perfil;
-  document.getElementById('statAulas').textContent = aulas;
-  document.getElementById('statTotalAulas').textContent = totalAulas + ' / ~50';
+  document.getElementById('statAulas').textContent = percentualAulas;
+  document.getElementById('statTotalAulas').textContent = totalAulas + ' aula' + (totalAulas !== 1 ? 's' : '') + ' concluída' + (totalAulas !== 1 ? 's' : '');
   document.getElementById('statUltima').textContent = '–';
+  
+  console.log('[Progresso] Stats atualizadas: ' + totalAulas + ' aulas = ' + percentualAulas + '%');
 }
 
 function renderizarTabela(aulas) {
   console.log('[Progresso] Renderizando ' + aulas.length + ' aulas...');
   
-  var html = '';
-  
   if (aulas.length === 0) {
-    html = '<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text3)">Nenhuma aula completada ainda</td></tr>';
-  } else {
+    var html = '<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text3)">Nenhuma aula completada ainda</td></tr>';
+    document.getElementById('tabelaBody').innerHTML = html;
+    return;
+  }
+
+  var html = '<tr class="modulo-header"><td colspan="3">📚 Aulas Completadas (' + aulas.length + ')</td></tr>';
+  
+  // Buscar nomes das aulas
+  var promises = aulas.map(aula => {
+    return db.collection('cursos').doc('g20-masterclass').collectionGroup('aulas')
+      .where(firebase.firestore.FieldPath.documentId(), '==', aula.aulaId)
+      .limit(1)
+      .get()
+      .then(snap => {
+        if (!snap.empty) {
+          var aulaData = snap.docs[0].data();
+          aula.titulo = aulaData.titulo || aula.aulaId;
+        } else {
+          aula.titulo = aula.aulaId;
+        }
+        return aula;
+      })
+      .catch(() => {
+        aula.titulo = aula.aulaId;
+        return aula;
+      });
+  });
+
+  Promise.all(promises).then(aulasComTitulo => {
     // Ordenar por data mais recente
-    aulas.sort((a, b) => {
+    aulasComTitulo.sort((a, b) => {
       var dataA = a.dataC ? new Date(a.dataC) : new Date(0);
       var dataB = b.dataC ? new Date(b.dataC) : new Date(0);
       return dataB - dataA;
     });
 
-    html = '<tr class="modulo-header"><td colspan="3">📚 Aulas Completadas (' + aulas.length + ')</td></tr>';
+    var htmlFinal = '<tr class="modulo-header"><td colspan="3">📚 Aulas Completadas (' + aulasComTitulo.length + ')</td></tr>';
     
-    aulas.forEach((aula, idx) => {
+    aulasComTitulo.forEach((aula, idx) => {
       var dataHtml = aula.dataC 
-        ? '<span class="data-conclusao">' + new Date(aula.dataC).toLocaleDateString('pt-BR') + '</span>'
+        ? '<span class="data-conclusao">' + new Date(aula.dataC).toLocaleDateString('pt-BR') + ' às ' + new Date(aula.dataC).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}) + '</span>'
         : '–';
       
-      html += '<tr style="background:rgba(46,204,113,.05)">'
-        + '<td style="padding-left:32px">' + (aula.aulaId || 'Aula ' + (idx + 1)) + '</td>'
+      htmlFinal += '<tr style="background:rgba(46,204,113,.05)">'
+        + '<td style="padding-left:32px"><strong>' + (aula.titulo || 'Aula ' + (idx + 1)) + '</strong></td>'
         + '<td><span class="status-badge status-done">✓ Concluída</span></td>'
         + '<td>' + dataHtml + '</td>'
         + '</tr>';
     });
-  }
 
-  var tabelaBody = document.getElementById('tabelaBody');
-  if (tabelaBody) {
-    tabelaBody.innerHTML = html;
-  }
+    var tabelaBody = document.getElementById('tabelaBody');
+    if (tabelaBody) {
+      tabelaBody.innerHTML = htmlFinal;
+    }
+  });
 }
 
 function atualizarHero() {
