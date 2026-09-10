@@ -58,13 +58,24 @@
   document.body.appendChild(overlay);
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 2. AGUARDA FIREBASE AUTH ESTAR PRONTO
+  // 2. AGUARDA FIREBASE AUTH ESTAR PRONTO (com retry)
   // ─────────────────────────────────────────────────────────────────────────
   
+  var attempts = 0;
+  var maxAttempts = 50; // 5 segundos com 100ms de delay
+  
   function checkAuth() {
+    attempts++;
+    
     // Aguarda Firebase estar disponível
     if (typeof firebase === 'undefined' || !firebase.auth) {
-      setTimeout(checkAuth, 100);
+      if (attempts < maxAttempts) {
+        setTimeout(checkAuth, 100);
+      } else {
+        // Firebase não respondeu em tempo - redireciona para segurança
+        console.warn('[Auth Guard] Firebase não respondeu');
+        window.location.href = 'login.html';
+      }
       return;
     }
 
@@ -94,12 +105,5 @@
   } else {
     checkAuth();
   }
-
-  // TIMEOUT DE SEGURANÇA: se Firebase não responder em 5s, força logout
-  setTimeout(function() {
-    if (overlay.parentNode && overlay.style.opacity !== '0') {
-      window.location.href = 'login.html';
-    }
-  }, 5000);
 
 })();
