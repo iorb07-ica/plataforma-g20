@@ -177,147 +177,199 @@ auth = firebase.auth();
 db = firebase.firestore();
 
 auth.onAuthStateChanged(function(user) {
-  if (!user) return;
+  if (!user) {
+    console.log('[Acompanhamento] Usuário não autenticado, redirecionando...');
+    window.location.href = 'login.html';
+    return;
+  }
+  
+  console.log('[Acompanhamento] Usuário autenticado:', user.uid);
   
   // Verificar se é admin
   db.collection('users').doc(user.uid).get().then(snap => {
     if (snap.exists && snap.data().role === 'admin') {
-      carregarDados();
+      console.log('[Acompanhamento] Usuário é admin, carregando dados...');
+      setTimeout(carregarDados, 500); // Aguarda 500ms pra DOM ficar pronto
     } else {
-      window.location.href = 'admin-hub.html';
+      console.log('[Acompanhamento] Usuário NÃO é admin');
+      window.location.href = 'dashboard.html';
     }
+  }).catch(err => {
+    console.error('[Acompanhamento] Erro ao verificar admin:', err);
+    window.location.href = 'dashboard.html';
   });
 });
 
 function carregarDados() {
-  db.collection('users').get().then(snap => {
-    _users = [];
-    snap.forEach(doc => {
-      var u = doc.data();
-      u.id = doc.id;
-      _users.push(u);
+  console.log('[Acompanhamento] Iniciando carregamento de dados...');
+  
+  try {
+    db.collection('users').get().then(snap => {
+      _users = [];
+      snap.forEach(doc => {
+        var u = doc.data();
+        u.id = doc.id;
+        _users.push(u);
+      });
+      
+      console.log('[Acompanhamento] ' + _users.length + ' usuários carregados');
+      atualizarDados();
+    }).catch(err => {
+      console.error('[Acompanhamento] Erro ao carregar usuários:', err);
     });
-    atualizarDados();
-  });
+  } catch(e) {
+    console.error('[Acompanhamento] Erro geral:', e);
+  }
 }
 
 function atualizarDados() {
-  var turmaFiltro = document.getElementById('filterTurma').value;
-  var alunosFiltrados = turmaFiltro 
-    ? _users.filter(u => u.turma === turmaFiltro)
-    : _users;
-
-  // Estatísticas
-  var perfilMedia = alunosFiltrados.reduce((sum, u) => sum + (u.perfilPct || 0), 0) / (alunosFiltrados.length || 1);
-  var aulasMedia = 0;
+  console.log('[Acompanhamento] Atualizando dados...');
   
-  // Contar aulas médias
-  Promise.all(alunosFiltrados.map(u => 
-    db.collection('users').doc(u.id).collection('progresso').get()
-  )).then(snaps => {
-    var totalAulas = 0;
-    snaps.forEach(snap => totalAulas += snap.size);
-    aulasMedia = alunosFiltrados.length > 0 ? (totalAulas / alunosFiltrados.length) : 0;
+  try {
+    var turmaFiltro = document.getElementById('filterTurma')?.value || '';
+    var alunosFiltrados = turmaFiltro 
+      ? _users.filter(u => u.turma === turmaFiltro)
+      : _users;
+
+    console.log('[Acompanhamento] ' + alunosFiltrados.length + ' alunos filtrados');
+
+    // Estatísticas
+    var perfilMedia = alunosFiltrados.reduce((sum, u) => sum + (u.perfilPct || 0), 0) / (alunosFiltrados.length || 1);
+    var aulasMedia = 0;
     
-    document.getElementById('statTotal').textContent = alunosFiltrados.length;
-    document.getElementById('statPerfilMed').textContent = Math.round(perfilMedia);
-    document.getElementById('statAulasMed').textContent = Math.round(aulasMedia * 10); // Aproximação
-    document.getElementById('statAtividade').textContent = Math.round((alunosFiltrados.filter(u => u.perfilPct > 0).length / (alunosFiltrados.length || 1)) * 100);
+    // Atualizar stats
+    var statTotal = document.getElementById('statTotal');
+    var statPerfilMed = document.getElementById('statPerfilMed');
+    var statAulasMed = document.getElementById('statAulasMed');
+    var statAtividade = document.getElementById('statAtividade');
     
+    if (statTotal) statTotal.textContent = alunosFiltrados.length;
+    if (statPerfilMed) statPerfilMed.textContent = Math.round(perfilMedia);
+    if (statAulasMed) statAulasMed.textContent = '–'; // Será atualizado depois
+    if (statAtividade) statAtividade.textContent = Math.round((alunosFiltrados.filter(u => u.perfilPct > 0).length / (alunosFiltrados.length || 1)) * 100);
+    
+    console.log('[Acompanhamento] Stats atualizadas');
     renderizarTopAlunos(alunosFiltrados);
     renderizarGraficos(alunosFiltrados);
-  });
+  } catch(e) {
+    console.error('[Acompanhamento] Erro em atualizarDados:', e);
+  }
 }
 
 function renderizarTopAlunos(alunos) {
-  var ordenados = alunos.sort((a, b) => {
-    var scoreA = (a.perfilPct || 0) + (a.aulasProgress || 0);
-    var scoreB = (b.perfilPct || 0) + (b.aulasProgress || 0);
-    return scoreB - scoreA;
-  }).slice(0, 10);
+  console.log('[Acompanhamento] Renderizando top alunos...');
+  
+  try {
+    var ordenados = alunos.sort((a, b) => {
+      var scoreA = (a.perfilPct || 0) + (a.aulasProgress || 0);
+      var scoreB = (b.perfilPct || 0) + (b.aulasProgress || 0);
+      return scoreB - scoreA;
+    }).slice(0, 10);
 
-  var html = '';
-  ordenados.forEach(u => {
-    var perfil = u.perfilPct || 0;
-    var aulas = u.aulasProgress || 0;
-    var status = perfil > 75 ? '✓ Ativo' : '⏳ Pendente';
-    html += `
-      <tr onclick="abrirDetalhes('${u.id}', '${u.name}')">
-        <td><span class="aluno-link">${u.name || '–'}</span></td>
-        <td><span class="turma-badge">${u.turma || 'N/A'}</span></td>
-        <td><div class="progress-bar"><div class="progress-fill" style="width:${perfil}%"></div></div>${perfil}%</td>
-        <td><div class="progress-bar"><div class="progress-fill" style="width:${aulas}%"></div></div>${aulas}%</td>
-        <td style="color:${perfil > 75 ? 'var(--green)' : 'var(--text3)'}">${status}</td>
-      </tr>
-    `;
-  });
+    var html = '';
+    ordenados.forEach(u => {
+      var perfil = u.perfilPct || 0;
+      var aulas = u.aulasProgress || 0;
+      var status = perfil > 75 ? '✓ Ativo' : '⏳ Pendente';
+      html += `
+        <tr onclick="abrirDetalhes('${u.id}', '${u.name}')">
+          <td><span class="aluno-link">${u.name || '–'}</span></td>
+          <td><span class="turma-badge">${u.turma || 'N/A'}</span></td>
+          <td><div class="progress-bar"><div class="progress-fill" style="width:${perfil}%"></div></div>${perfil}%</td>
+          <td><div class="progress-bar"><div class="progress-fill" style="width:${aulas}%"></div></div>${aulas}%</td>
+          <td style="color:${perfil > 75 ? 'var(--green)' : 'var(--text3)'}">${status}</td>
+        </tr>
+      `;
+    });
 
-  document.getElementById('topAlunosBody').innerHTML = html || '<tr><td colspan="5" style="text-align:center">Nenhum aluno</td></tr>';
+    var tabelaBody = document.getElementById('topAlunosBody');
+    if (tabelaBody) {
+      tabelaBody.innerHTML = html || '<tr><td colspan="5" style="text-align:center">Nenhum aluno</td></tr>';
+    }
+    
+    console.log('[Acompanhamento] Top alunos renderizados');
+  } catch(e) {
+    console.error('[Acompanhamento] Erro em renderizarTopAlunos:', e);
+  }
 }
 
 function renderizarGraficos(alunos) {
-  // Gráfico por turma
-  var turmas = [...new Set(alunos.map(u => u.turma))].sort();
-  var perfilPorTurma = turmas.map(t => {
-    var alunosTurma = alunos.filter(u => u.turma === t);
-    return alunosTurma.reduce((sum, u) => sum + (u.perfilPct || 0), 0) / (alunosTurma.length || 1);
-  });
+  console.log('[Acompanhamento] Renderizando gráficos...');
+  
+  try {
+    // Gráfico por turma
+    var turmas = [...new Set(alunos.map(u => u.turma))].sort();
+    var perfilPorTurma = turmas.map(t => {
+      var alunosTurma = alunos.filter(u => u.turma === t);
+      return alunosTurma.reduce((sum, u) => sum + (u.perfilPct || 0), 0) / (alunosTurma.length || 1);
+    });
 
-  var ctx1 = document.getElementById('chartTurmas').getContext('2d');
-  if (chartTurmas) chartTurmas.destroy();
-  chartTurmas = new Chart(ctx1, {
-    type: 'bar',
-    data: {
-      labels: turmas,
-      datasets: [{
-        label: 'Perfil Médio (%)',
-        data: perfilPorTurma,
-        backgroundColor: '#e8b84b',
-        borderRadius: 6
-      }]
-    },
-    options: {
-      indexAxis: 'y',
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { max: 100, ticks: { color: '#b0bac8' }, grid: { color: 'rgba(255,255,255,0.08)' } },
-        y: { ticks: { color: '#b0bac8' }, grid: { display: false } }
-      }
+    var ctx1 = document.getElementById('chartTurmas');
+    if (ctx1) {
+      if (chartTurmas) chartTurmas.destroy();
+      var ctxObj = ctx1.getContext('2d');
+      chartTurmas = new Chart(ctxObj, {
+        type: 'bar',
+        data: {
+          labels: turmas,
+          datasets: [{
+            label: 'Perfil Médio (%)',
+            data: perfilPorTurma,
+            backgroundColor: '#e8b84b',
+            borderRadius: 6
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { max: 100, ticks: { color: '#b0bac8' }, grid: { color: 'rgba(255,255,255,0.08)' } },
+            y: { ticks: { color: '#b0bac8' }, grid: { display: false } }
+          }
+        }
+      });
     }
-  });
 
-  // Scatter: Perfil vs Aulas
-  var dados = alunos.map(u => ({
-    x: u.perfilPct || 0,
-    y: u.aulasProgress || 0,
-    label: u.name
-  }));
+    // Scatter: Perfil vs Aulas
+    var dados = alunos.map(u => ({
+      x: u.perfilPct || 0,
+      y: u.aulasProgress || 0,
+      label: u.name
+    }));
 
-  var ctx2 = document.getElementById('chartScatter').getContext('2d');
-  if (chartScatter) chartScatter.destroy();
-  chartScatter = new Chart(ctx2, {
-    type: 'bubble',
-    data: {
-      datasets: [{
-        label: 'Alunos',
-        data: dados.map(d => ({ x: d.x, y: d.y, r: 5 })),
-        backgroundColor: '#e8b84b',
-        borderColor: '#f0c84a',
-        borderWidth: 1
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { enabled: false } },
-      scales: {
-        x: { min: 0, max: 100, title: { display: true, text: 'Perfil Preenchido (%)', color: '#b0bac8' }, ticks: { color: '#b0bac8' }, grid: { color: 'rgba(255,255,255,0.08)' } },
-        y: { min: 0, max: 100, title: { display: true, text: 'Aulas Completadas (%)', color: '#b0bac8' }, ticks: { color: '#b0bac8' }, grid: { color: 'rgba(255,255,255,0.08)' } }
-      }
+    var ctx2 = document.getElementById('chartScatter');
+    if (ctx2) {
+      if (chartScatter) chartScatter.destroy();
+      var ctxObj2 = ctx2.getContext('2d');
+      chartScatter = new Chart(ctxObj2, {
+        type: 'bubble',
+        data: {
+          datasets: [{
+            label: 'Alunos',
+            data: dados.map(d => ({ x: d.x, y: d.y, r: 5 })),
+            backgroundColor: '#e8b84b',
+            borderColor: '#f0c84a',
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { enabled: false } },
+          scales: {
+            x: { min: 0, max: 100, title: { display: true, text: 'Perfil Preenchido (%)', color: '#b0bac8' }, ticks: { color: '#b0bac8' }, grid: { color: 'rgba(255,255,255,0.08)' } },
+            y: { min: 0, max: 100, title: { display: true, text: 'Aulas Completadas (%)', color: '#b0bac8' }, ticks: { color: '#b0bac8' }, grid: { color: 'rgba(255,255,255,0.08)' } }
+          }
+        }
+      });
     }
-  });
+    
+    console.log('[Acompanhamento] Gráficos renderizados');
+  } catch(e) {
+    console.error('[Acompanhamento] Erro em renderizarGraficos:', e);
+  }
 }
 
 function abrirDetalhes(uid, nome) {
