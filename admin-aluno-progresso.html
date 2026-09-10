@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#090b0f">
 <title>Progresso do Aluno — G20 Masterclass</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script src="auth-guard.js"></script>
 <style>
 :root{--bg:#090b0f;--bg2:#0f1117;--bg3:#171b23;--surface:#1c2030;--sur2:#242838;--border:rgba(255,255,255,0.08);--gold:#e8b84b;--red:#e63946;--green:#2ecc71;--blue:#3498db;--text:#f4f6fa;--text2:#b0bac8;--text3:#6b7a94}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -136,7 +137,7 @@ tr:last-child td{border-bottom:none}
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
 <script>
-var db, auth;
+var db;
 var _aluno = {};
 var _uid = new URLSearchParams(window.location.search).get('uid') || sessionStorage.getItem('alunoUID');
 
@@ -147,36 +148,17 @@ firebase.initializeApp({
   storageBucket: 'g20-masterclass.appspot.com'
 });
 
-auth = firebase.auth();
 db = firebase.firestore();
 
-auth.onAuthStateChanged(function(user) {
-  if (!user) {
-    console.log('[Progresso] Usuário não autenticado');
-    window.location.href = 'login.html';
+// Carregar dados assim que página tiver pronta (auth-guard já verificou acesso)
+window.addEventListener('load', function() {
+  if (!_uid) {
+    console.log('[Progresso] UID não fornecido');
+    window.location.href = 'admin-acompanhamento.html';
     return;
   }
-  
-  console.log('[Progresso] Usuário autenticado:', user.uid);
-  
-  // Verificar se é admin
-  db.collection('users').doc(user.uid).get().then(snap => {
-    if (snap.exists && snap.data().role === 'admin') {
-      console.log('[Progresso] Usuário é admin, carregando...');
-      if (_uid) {
-        setTimeout(carregarDados, 500); // Aguarda 500ms pra DOM ficar pronto
-      } else {
-        console.log('[Progresso] UID não fornecido');
-        window.location.href = 'admin-acompanhamento.html';
-      }
-    } else {
-      console.log('[Progresso] Usuário NÃO é admin');
-      window.location.href = 'dashboard.html';
-    }
-  }).catch(err => {
-    console.error('[Progresso] Erro ao verificar admin:', err);
-    window.location.href = 'dashboard.html';
-  });
+  console.log('[Progresso] Carregando dados do aluno:', _uid);
+  setTimeout(carregarDados, 300);
 });
 
 function carregarDados() {
