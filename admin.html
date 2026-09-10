@@ -522,38 +522,55 @@ function abrirEdicao(uid) {
   // Hidden
   document.getElementById('editUid').value = uid;
 
+  // Helper para acessar elementos com segurança
+  const setText = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val || '–';
+  };
+  const setHtml = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = val || '';
+  };
+  const setValue = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.value = val || '';
+  };
+
   // Hero
   const nome = u.name || '–';
   const initials = nome.split(' ').map(w=>w[0]||'').slice(0,2).join('').toUpperCase() || 'G2';
-  document.getElementById('modalNomeHero').textContent = nome;
-  document.getElementById('modalEmail').textContent = u.email || '–';
-  document.getElementById('modalAvatarInitials').textContent = initials;
+  setText('modalNomeHero', nome);
+  setText('modalEmail', u.email);
+  setText('modalAvatarInitials', initials);
 
   // Avatar foto
-  const av = document.getElementById('modalAvatar');
   const foto = (p.foto || u.photo || '');
-  av.innerHTML = foto
+  setHtml('modalAvatar', foto
     ? '<img src="'+foto+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%">'
-    : '<span>'+initials+'</span>';
+    : '<span>'+initials+'</span>');
 
   // Badge turma e status
-  document.getElementById('modalBadgeTurma').textContent = u.turma || 'Turma 20';
+  setText('modalBadgeTurma', u.turma || 'Turma 20');
   const statusMap = {true:'✓ Aprovado',false:'⏳ Pendente',null:'⏳ Pendente',bloqueado:'✗ Bloqueado'};
   const statusClass = {true:'badge-approved',false:'badge-pending',null:'badge-pending',bloqueado:'badge-blocked'};
   const bs = document.getElementById('modalBadgeStatus');
-  bs.textContent = statusMap[u.aprovado] ?? '⏳ Pendente';
-  bs.className = 'badge ' + (statusClass[u.aprovado] ?? 'badge-pending');
+  if (bs) {
+    bs.textContent = statusMap[u.aprovado] ?? '⏳ Pendente';
+    bs.className = 'badge ' + (statusClass[u.aprovado] ?? 'badge-pending');
+  }
 
   // Data cadastro e % perfil
-  document.getElementById('modalDataCadastro').textContent = u.createdAt?.toDate?.()?.toLocaleDateString('pt-BR') || '–';
-  document.getElementById('modalPerfilPct').textContent = (u.perfilPct || 0) + '%';
+  setText('modalDataCadastro', u.createdAt?.toDate?.()?.toLocaleDateString('pt-BR'));
+  setText('modalPerfilPct', (u.perfilPct || 0) + '%');
 
   // Toggle Infinite
   const isInfinite = u.infinite === true;
-  document.getElementById('toggleInfinite').checked = isInfinite;
+  const toggleEl = document.getElementById('toggleInfinite');
+  if (toggleEl) toggleEl.checked = isInfinite;
   const box = document.getElementById('infiniteToggleBox');
-  box.classList.toggle('ativo', isInfinite);
-  document.getElementById('modalBadgeInfinite').style.display = isInfinite ? 'inline-flex' : 'none';
+  if (box) box.classList.toggle('ativo', isInfinite);
+  const badgeInf = document.getElementById('modalBadgeInfinite');
+  if (badgeInf) badgeInf.style.display = isInfinite ? 'inline-flex' : 'none';
 
   // Conquistas
   const setC = (id, earned) => {
@@ -614,9 +631,9 @@ function abrirEdicao(uid) {
   setPD('pd-favoritos',  p.favoritos);
 
   // Campos editáveis
-  document.getElementById('editNome').value  = u.name || '';
-  document.getElementById('editTurma').value = u.turma || 'Turma 20';
-  document.getElementById('editObs').value   = u.obs || '';
+  setValue('editNome', u.name);
+  setValue('editTurma', u.turma || 'Turma 20');
+  setValue('editObs', u.obs);
 
   // Abrir modal (já foi verificado no começo da função)
   if (modal) {
@@ -653,25 +670,45 @@ function fecharModal() {
 }
 
 async function toggleInfiniteAluno() {
-  const uid = document.getElementById('editUid').value;
-  const isInfinite = document.getElementById('toggleInfinite').checked;
+  const uidEl = document.getElementById('editUid');
+  const toggleEl = document.getElementById('toggleInfinite');
+  if (!uidEl || !toggleEl) {
+    showToast('Erro: Elementos não encontrados', 'err');
+    return;
+  }
+  
+  const uid = uidEl.value;
+  const isInfinite = toggleEl.checked;
   try {
     await db.collection('users').doc(uid).update({ infinite: isInfinite });
     const u = _users.find(x => x.id === uid);
     if (u) u.infinite = isInfinite;
-    document.getElementById('infiniteToggleBox').classList.toggle('ativo', isInfinite);
-    document.getElementById('modalBadgeInfinite').style.display = isInfinite ? 'inline-flex' : 'none';
-    document.getElementById('mc-infinite').className = 'badge-conquista' + (isInfinite ? ' earned' : '');
+    const box = document.getElementById('infiniteToggleBox');
+    if (box) box.classList.toggle('ativo', isInfinite);
+    const badgeInf = document.getElementById('modalBadgeInfinite');
+    if (badgeInf) badgeInf.style.display = isInfinite ? 'inline-flex' : 'none';
+    const mcInf = document.getElementById('mc-infinite');
+    if (mcInf) mcInf.className = 'badge-conquista' + (isInfinite ? ' earned' : '');
     renderTabela();
     showToast(isInfinite ? '∞ G20 Infinite ativado!' : 'G20 Infinite removido.', 'ok');
   } catch(e) { showToast('Erro ao atualizar', 'err'); }
 }
 
 async function salvarEdicao() {
-  const uid   = document.getElementById('editUid').value;
-  const nome  = document.getElementById('editNome').value.trim();
-  const turma = document.getElementById('editTurma').value;
-  const obs   = document.getElementById('editObs').value.trim();
+  const uidEl = document.getElementById('editUid');
+  const nomeEl = document.getElementById('editNome');
+  const turmaEl = document.getElementById('editTurma');
+  const obsEl = document.getElementById('editObs');
+  
+  if (!uidEl || !nomeEl || !turmaEl || !obsEl) {
+    showToast('Erro: Elementos do formulário não encontrados', 'err');
+    return;
+  }
+  
+  const uid   = uidEl.value;
+  const nome  = nomeEl.value.trim();
+  const turma = turmaEl.value;
+  const obs   = obsEl.value.trim();
   
   if (!uid) { showToast('Erro: UID não encontrado', 'err'); return; }
   if (!nome) { showToast('Nome não pode ser vazio', 'err'); return; }
