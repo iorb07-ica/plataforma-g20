@@ -512,8 +512,28 @@ async function tornarAdmin(uid) {
 }
 
 function abrirEdicao(uid) {
-  const u = _users.find(x => x.id === uid); if (!u) return;
+  const u = _users.find(x => x.id === uid); 
+  if (!u) { console.error('[Admin] Usuário não encontrado'); return; }
   const p = u.perfil || {};
+
+  // VERIFICAR se modal existe
+  const modal = document.getElementById('modalEditar');
+  if (!modal) { console.error('[Admin] Modal não encontrado!'); return; }
+
+  // Verificar se elementos principais existem
+  const elementosRequeridos = [
+    'editUid', 'modalNomeHero', 'modalEmail', 'modalAvatarInitials',
+    'modalAvatar', 'modalBadgeTurma', 'modalBadgeStatus', 'modalDataCadastro',
+    'modalPerfilPct', 'toggleInfinite', 'infiniteToggleBox', 'modalBadgeInfinite',
+    'editNome', 'editTurma', 'editObs'
+  ];
+  
+  for (let el of elementosRequeridos) {
+    if (!document.getElementById(el)) {
+      console.error('[Admin] Elemento faltando:', el);
+      return;
+    }
+  }
 
   // Hidden
   document.getElementById('editUid').value = uid;
@@ -618,46 +638,41 @@ function abrirEdicao(uid) {
   const modal = document.getElementById('modalEditar');
   if (!modal) { console.error('[Admin] Modal não encontrado!'); return; }
   
-  console.log('[Admin] Abrindo edição para:', uid, 'Modal classe atual:', modal.className);
+  console.log('[Admin] Abrindo edição para:', uid);
   
-  // Remove todas as classes e adiciona de novo (force refresh)
+  // Force reset - remove classe
   modal.classList.remove('show');
-  modal.style.display = ''; // Reset inline style
   
-  // Aguarda um ciclo de renderização
-  requestAnimationFrame(function() {
+  // Aguarda um pequeno delay e abre
+  setTimeout(function() {
     modal.classList.add('show');
-    console.log('[Admin] Modal aberto. Nova classe:', modal.className);
-  });
+    console.log('[Admin] Modal aberto. Classe:', modal.className);
+  }, 10);
+}
 }
 
 function fecharModal() { 
   const modal = document.getElementById('modalEditar');
-  if (!modal) { console.error('[Admin] Modal não encontrado ao fechar!'); return; }
+  if (!modal) return;
   
-  console.log('[Admin] Fechando modal. Classe atual:', modal.className);
+  console.log('[Admin] Fechando modal');
   
-  // Remove classe IMEDIATAMENTE
+  // Remove classe
   modal.classList.remove('show');
   
-  // Aguarda transição CSS
+  // Aguarda transição e limpa
   setTimeout(function() {
-    // FORÇA reset completo
     document.getElementById('editUid').value = '';
     document.getElementById('editNome').value = '';
     document.getElementById('editTurma').value = 'Turma 20';
     document.getElementById('editObs').value = '';
     document.getElementById('toggleInfinite').checked = false;
     
-    // Reset botão
     const btn = document.getElementById('admBtnSave');
     if (btn) { btn.disabled = false; btn.textContent = '💾 Salvar'; }
     
-    // FORÇA style display para garantir
-    modal.style.display = '';
-    
-    console.log('[Admin] Modal fechado e resetado. Nova classe:', modal.className);
-  }, 150);
+    console.log('[Admin] Modal fechado e limpo');
+  }, 100);
 }
 
 async function toggleInfiniteAluno() {
@@ -688,14 +703,23 @@ async function salvarEdicao() {
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Salvando...'; }
   
   try {
+    // 1. Salva no Firestore
     await db.collection('users').doc(uid).update({ name: nome, turma: turma, obs: obs });
+    console.log('[Admin] Aluno salvo com sucesso:', uid);
+    
+    // 2. Atualiza dados locais PRIMEIRO
     const u = _users.find(x => x.id === uid);
     if (u) { u.name = nome; u.turma = turma; u.obs = obs; }
-    document.getElementById('modalNomeHero').textContent = nome;
-    renderTabela();
+    
+    // 3. Fecha modal
     fecharModal();
     showToast('✓ Dados salvos!', 'ok');
-    console.log('[Admin] Aluno salvo com sucesso:', uid);
+    
+    // 4. Aguarda um ciclo de renderização e depois renderiza tabela
+    setTimeout(function() {
+      renderTabela();
+    }, 200);
+    
   } catch(e) { 
     console.error('[Admin] Erro ao salvar:', e.message);
     showToast('Erro ao salvar: ' + (e.message || 'desconhecido'), 'err'); 
@@ -732,7 +756,10 @@ function showToast(msg, tipo) {
 }
 
 document.getElementById('modalEditar').addEventListener('click', function(e) {
-  if (e.target === this) fecharModal();
+  // Só fecha se clicar NO OVERLAY, não dentro do modal
+  if (e.target === this) {
+    fecharModal();
+  }
 });
 
 function toggleModalSec(id) {
