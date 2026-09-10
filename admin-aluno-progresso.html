@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#090b0f">
+<title>Progresso do Aluno — G20 Masterclass</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#090b0f;--bg2:#0f1117;--bg3:#171b23;--surface:#1c2030;--sur2:#242838;--border:rgba(255,255,255,0.08);--gold:#e8b84b;--red:#e63946;--green:#2ecc71;--blue:#3498db;--text:#f4f6fa;--text2:#b0bac8;--text3:#6b7a94}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min-height:100svh;padding:24px}
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px}
+.page-title{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;color:var(--gold)}
+.page-sub{font-size:13px;color:var(--text3);margin-top:2px}
+.btn{padding:8px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:none;font-family:inherit;transition:all .2s}
+.btn-back{background:transparent;color:var(--gold);border:1px solid var(--gold)}
+.btn-back:hover{background:rgba(232,184,75,0.1)}
+.btn-gold{background:var(--gold);color:#000}
+.btn-gold:hover{background:#f0c84a}
+
+.hero{display:grid;grid-template-columns:80px 1fr;gap:16px;align-items:start;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:24px}
+.avatar{width:80px;height:80px;border-radius:50%;background:var(--surface);display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:800;flex-shrink:0}
+.avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.hero-info h1{font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:1px;color:var(--gold);margin-bottom:4px}
+.hero-info p{font-size:13px;color:var(--text2);margin-bottom:8px}
+.hero-badges{display:flex;gap:8px;flex-wrap:wrap}
+.badge{display:inline-block;padding:4px 10px;border-radius:12px;font-size:10px;font-weight:600;background:rgba(232,184,75,.15);color:var(--gold)}
+.badge.pending{background:rgba(52,152,219,.15);color:var(--blue)}
+.badge.approved{background:rgba(46,204,113,.15);color:var(--green)}
+.badge.blocked{background:rgba(230,57,70,.15);color:var(--red)}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px}
+.stat{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;position:relative;overflow:hidden}
+.stat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--sc,var(--gold))}
+.stat-label{font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3);margin-bottom:6px}
+.stat-val{font-size:22px;font-weight:800;color:var(--sc,var(--gold))}
+
+.table-wrap{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:auto;margin-bottom:24px}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:600px}
+th{text-align:left;font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text3);padding:12px 16px;border-bottom:1px solid var(--border)}
+td{padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.03);vertical-align:middle}
+tr:hover td{background:var(--sur2)}
+tr:last-child td{border-bottom:none}
+.modulo-header{background:var(--surface);font-weight:700;color:var(--gold)}
+.status-badge{display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;font-size:11px;font-weight:600}
+.status-done{background:rgba(46,204,113,.15);color:var(--green)}
+.status-pending{background:rgba(52,152,219,.15);color:var(--blue)}
+.data-conclusao{font-size:11px;color:var(--text3)}
+
+.acoes{display:flex;gap:8px;margin-top:24px}
+.acoes .btn{flex:1}
+
+.carregando{text-align:center;color:var(--text3);padding:40px 20px}
+.spinner{display:inline-block;width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div id="g20LoadingOverlay" style="position:fixed;inset:0;background:#090b0f;z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px">
+  <img src="G20_Masterclass_-_logo_dashboard.png" style="width:80px;opacity:0.8">
+  <div style="width:32px;height:32px;border-radius:50%;border:3px solid rgba(232,184,75,.2);border-top-color:#e8b84b;animation:spin .8s linear infinite"></div>
+</div>
+
+<div class="topbar">
+  <div>
+    <div class="page-title" id="pageTitle">📈 Progresso</div>
+    <div class="page-sub" id="pageSub">Evolução de um aluno</div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <button class="btn btn-back" onclick="voltarAcompanhamento()">← Voltar</button>
+    <button class="btn btn-gold" onclick="editarAluno()" id="btnEditar">✎ Editar</button>
+  </div>
+</div>
+
+<!-- HERO SECTION -->
+<div class="hero" id="heroSection">
+  <div class="avatar" id="avatar">G2</div>
+  <div class="hero-info">
+    <h1 id="alunoNome">–</h1>
+    <p id="alunoEmail">–</p>
+    <p id="alunoTurma">–</p>
+    <div class="hero-badges">
+      <span class="badge" id="badgePerfil">Perfil 0%</span>
+      <span class="badge approved" id="badgeStatus">Status</span>
+      <span class="badge" id="badgeInfinite" style="display:none">∞ G20 Infinite</span>
+    </div>
+  </div>
+</div>
+
+<!-- ESTATÍSTICAS -->
+<div class="stats">
+  <div class="stat" style="--sc:var(--gold)">
+    <div class="stat-label">Perfil Preenchido</div>
+    <div class="stat-val" id="statPerfil">–</div><span style="font-size:14px">%</span>
+  </div>
+  <div class="stat" style="--sc:var(--green)">
+    <div class="stat-label">Aulas Completadas</div>
+    <div class="stat-val" id="statAulas">–</div><span style="font-size:14px">%</span>
+  </div>
+  <div class="stat" style="--sc:var(--blue)">
+    <div class="stat-label">Total de Aulas Feitas</div>
+    <div class="stat-val" id="statTotalAulas">–</div>
+  </div>
+  <div class="stat" style="--sc:var(--gold)">
+    <div class="stat-label">Última Atividade</div>
+    <div class="stat-val" id="statUltima" style="font-size:12px">–</div>
+  </div>
+</div>
+
+<!-- TABELA DE PROGRESSO -->
+<div class="table-wrap">
+  <table id="tabelaProgresso">
+    <thead>
+      <tr>
+        <th>Módulo / Aula</th>
+        <th>Status</th>
+        <th>Data de Conclusão</th>
+      </tr>
+    </thead>
+    <tbody id="tabelaBody">
+      <tr><td colspan="3" class="carregando"><div class="spinner"></div> Carregando progresso…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- AÇÕES -->
+<div class="acoes">
+  <button class="btn btn-back" onclick="voltarAcompanhamento()">Voltar ao Acompanhamento</button>
+  <button class="btn btn-gold" onclick="editarAluno()">Editar Aluno</button>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<script>
+var db, auth;
+var _aluno = {};
+var _uid = new URLSearchParams(window.location.search).get('uid') || sessionStorage.getItem('alunoUID');
+
+firebase.initializeApp({
+  apiKey: 'AIzaSyAUDHqP1w7AqF9H9v3H_PXvC5wZ-KpXqKw',
+  authDomain: 'g20-masterclass.firebaseapp.com',
+  projectId: 'g20-masterclass',
+  storageBucket: 'g20-masterclass.appspot.com'
+});
+
+auth = firebase.auth();
+db = firebase.firestore();
+
+auth.onAuthStateChanged(function(user) {
+  if (!user) return;
+  
+  // Verificar se é admin
+  db.collection('users').doc(user.uid).get().then(snap => {
+    if (snap.exists && snap.data().role === 'admin') {
+      if (_uid) carregarDados();
+      else window.location.href = 'admin-acompanhamento.html';
+    } else {
+      window.location.href = 'dashboard.html';
+    }
+  });
+});
+
+function carregarDados() {
+  // 1. Carregar dados do aluno
+  db.collection('users').doc(_uid).get().then(snap => {
+    if (!snap.exists) {
+      document.getElementById('tabelaBody').innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--red)">Aluno não encontrado</td></tr>';
+      return;
+    }
+
+    _aluno = snap.data();
+    _aluno.id = _uid;
+
+    // Atualizar UI com dados do aluno
+    atualizarHero();
+    atualizarStats();
+
+    // 2. Carregar progresso de aulas
+    db.collection('users').doc(_uid).collection('progresso').get().then(progSnap => {
+      var progresso = {};
+      progSnap.forEach(doc => {
+        progresso[doc.id] = doc.data();
+      });
+
+      // 3. Carregar estrutura de módulos e aulas
+      carregarModulosEAulas(progresso);
+    });
+  });
+}
+
+function atualizarHero() {
+  var nome = _aluno.name || '–';
+  var iniciais = nome.split(' ').map(w=>w[0]||'').slice(0,2).join('').toUpperCase() || 'G2';
+  var foto = _aluno.foto || _aluno.photo || '';
+
+  document.getElementById('avatar').innerHTML = foto
+    ? '<img src="'+foto+'" alt="'+nome+'">'
+    : iniciais;
+
+  document.getElementById('alunoNome').textContent = nome;
+  document.getElementById('alunoEmail').textContent = _aluno.email || '–';
+  document.getElementById('alunoTurma').textContent = _aluno.turma || 'N/A';
+  document.getElementById('badgePerfil').textContent = 'Perfil ' + ((_aluno.perfilPct || 0) + '%');
+
+  // Status
+  var statusEl = document.getElementById('badgeStatus');
+  if (_aluno.aprovado === true) {
+    statusEl.textContent = '✓ Aprovado';
+    statusEl.className = 'badge approved';
+  } else if (_aluno.aprovado === 'bloqueado') {
+    statusEl.textContent = '✗ Bloqueado';
+    statusEl.className = 'badge blocked';
+  } else {
+    statusEl.textContent = '⏳ Pendente';
+    statusEl.className = 'badge pending';
+  }
+
+  // G20 Infinite
+  if (_aluno.infinite === true) {
+    document.getElementById('badgeInfinite').style.display = 'inline-block';
+  }
+}
+
+function atualizarStats() {
+  document.getElementById('statPerfil').textContent = _aluno.perfilPct || 0;
+  
+  // Aulas - será atualizado ao carregar progresso
+  document.getElementById('statAulas').textContent = _aluno.aulasProgress || 0;
+  document.getElementById('statTotalAulas').textContent = '–';
+  document.getElementById('statUltima').textContent = '–';
+}
+
+function carregarModulosEAulas(progresso) {
+  db.collection('cursos').doc('g20-masterclass').collection('modulos').orderBy('numero').get().then(modSnap => {
+    var html = '';
+    var totalAulas = 0;
+    var totalConcluidas = 0;
+    var ultimaData = null;
+
+    modSnap.forEach(modDoc => {
+      var mod = modDoc.data();
+      var modNumero = mod.numero || modDoc.id;
+
+      html += '<tr class="modulo-header"><td colspan="3">📚 Módulo ' + modNumero + ' — ' + (mod.titulo || 'Sem título') + '</td></tr>';
+
+      // Carregar aulas do módulo
+      db.collection('cursos').doc('g20-masterclass').collection('modulos').doc(modDoc.id)
+        .collection('aulas').orderBy('numero').get().then(aulasSnap => {
+
+        aulasSnap.forEach(aulaDoc => {
+          var aula = aulaDoc.data();
+          var aulaId = aulaDoc.id;
+          var aulaNumero = aula.numero || aulaId;
+          var completed = progresso[aulaId];
+
+          totalAulas++;
+          if (completed) totalConcluidas++;
+
+          var statusHtml = completed 
+            ? '<span class="status-badge status-done">✓ Concluída</span>'
+            : '<span class="status-badge status-pending">⏳ Pendente</span>';
+
+          var dataHtml = completed && completed.dataC
+            ? '<span class="data-conclusao">' + new Date(completed.dataC).toLocaleDateString('pt-BR') + '</span>'
+            : '–';
+
+          if (completed && completed.dataC) {
+            var dataAula = new Date(completed.dataC);
+            if (!ultimaData || dataAula > ultimaData) ultimaData = dataAula;
+          }
+
+          html += '<tr style="background:' + (completed ? 'rgba(46,204,113,.05)' : 'transparent') + '">'
+            + '<td style="padding-left:32px">' + (aula.titulo || 'Aula ' + aulaNumero) + '</td>'
+            + '<td>' + statusHtml + '</td>'
+            + '<td>' + dataHtml + '</td>'
+            + '</tr>';
+        });
+
+        // Atualizar tabela e stats após carregar tudo
+        atualizarTabelaCompleta();
+      });
+    });
+
+    // Atualizar stats
+    document.getElementById('statTotalAulas').textContent = totalConcluidas + ' / ' + totalAulas;
+    if (ultimaData) {
+      document.getElementById('statUltima').textContent = ultimaData.toLocaleDateString('pt-BR');
+    }
+
+    atualizarTabelaCompleta();
+  });
+}
+
+var _tabelaHTML = '';
+
+function atualizarTabelaCompleta() {
+  // Função auxiliar que será chamada quando tudo está carregado
+  // Por enquanto, carrega progresso de forma simplificada
+  
+  db.collection('cursos').doc('g20-masterclass').collection('modulos').orderBy('numero').get().then(modSnap => {
+    var html = '';
+    var totalAulas = 0;
+    var totalConcluidas = 0;
+    var ultimaData = null;
+
+    var promises = [];
+
+    modSnap.forEach(modDoc => {
+      var mod = modDoc.data();
+      var modNumero = mod.numero || modDoc.id;
+
+      html += '<tr class="modulo-header"><td colspan="3">📚 Módulo ' + modNumero + ' — ' + (mod.titulo || 'Sem título') + '</td></tr>';
+
+      var promiseAulas = db.collection('users').doc(_uid).collection('progresso').get().then(progSnap => {
+        var progresso = {};
+        progSnap.forEach(doc => progresso[doc.id] = doc.data());
+
+        return db.collection('cursos').doc('g20-masterclass').collection('modulos').doc(modDoc.id)
+          .collection('aulas').orderBy('numero').get().then(aulasSnap => {
+
+          var htmlAulas = '';
+          aulasSnap.forEach(aulaDoc => {
+            var aula = aulaDoc.data();
+            var aulaId = aulaDoc.id;
+            var aulaNumero = aula.numero || aulaId;
+            var completed = progresso[aulaId];
+
+            totalAulas++;
+            if (completed) totalConcluidas++;
+
+            var statusHtml = completed 
+              ? '<span class="status-badge status-done">✓ Concluída</span>'
+              : '<span class="status-badge status-pending">⏳ Pendente</span>';
+
+            var dataHtml = completed && completed.dataC
+              ? '<span class="data-conclusao">' + new Date(completed.dataC).toLocaleDateString('pt-BR') + '</span>'
+              : '–';
+
+            if (completed && completed.dataC) {
+              var dataAula = new Date(completed.dataC);
+              if (!ultimaData || dataAula > ultimaData) ultimaData = dataAula;
+            }
+
+            htmlAulas += '<tr style="background:' + (completed ? 'rgba(46,204,113,.05)' : 'transparent') + '">'
+              + '<td style="padding-left:32px">' + (aula.titulo || 'Aula ' + aulaNumero) + '</td>'
+              + '<td>' + statusHtml + '</td>'
+              + '<td>' + dataHtml + '</td>'
+              + '</tr>';
+          });
+
+          return { html: htmlAulas, total: aulasSnap.size, concluidas: aulasSnap.docs.filter(d => progresso[d.id]).length, ultima: ultimaData };
+        });
+      });
+
+      promises.push(promiseAulas);
+    });
+
+    Promise.all(promises).then(resultados => {
+      var htmlFinal = '';
+      var totalAulasFinal = 0;
+      var totalConcluasFinal = 0;
+      var indiceModulo = 0;
+
+      modSnap.forEach(modDoc => {
+        var mod = modDoc.data();
+        var modNumero = mod.numero || modDoc.id;
+
+        htmlFinal += '<tr class="modulo-header"><td colspan="3">📚 Módulo ' + modNumero + ' — ' + (mod.titulo || 'Sem título') + '</td></tr>';
+        
+        if (resultados[indiceModulo]) {
+          htmlFinal += resultados[indiceModulo].html;
+          totalAulasFinal += resultados[indiceModulo].total;
+          totalConcluasFinal += resultados[indiceModulo].concluidas;
+        }
+
+        indiceModulo++;
+      });
+
+      document.getElementById('tabelaBody').innerHTML = htmlFinal || '<tr><td colspan="3" style="text-align:center">Nenhuma aula encontrada</td></tr>';
+      
+      var percentualAulas = totalAulasFinal > 0 ? Math.round((totalConcluasFinal / totalAulasFinal) * 100) : 0;
+      document.getElementById('statAulas').textContent = percentualAulas;
+      document.getElementById('statTotalAulas').textContent = totalConcluasFinal + ' / ' + totalAulasFinal;
+    });
+  });
+}
+
+function voltarAcompanhamento() {
+  window.location.href = 'admin-acompanhamento.html';
+}
+
+function editarAluno() {
+  window.location.href = 'admin.html?edit=' + _uid;
+}
+
+// Remover overlay ao carregar
+window.addEventListener('load', function() {
+  var ol = document.getElementById('g20LoadingOverlay');
+  if (ol) ol.style.display = 'none';
+});
+</script>
+
+</body>
+</html>
