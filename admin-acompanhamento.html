@@ -225,22 +225,36 @@ function atualizarDados() {
 
     // Estatísticas
     var perfilMedia = alunosFiltrados.reduce((sum, u) => sum + (u.perfilPct || 0), 0) / (alunosFiltrados.length || 1);
-    var aulasMedia = 0;
     
-    // Atualizar stats
-    var statTotal = document.getElementById('statTotal');
-    var statPerfilMed = document.getElementById('statPerfilMed');
-    var statAulasMed = document.getElementById('statAulasMed');
-    var statAtividade = document.getElementById('statAtividade');
+    // Buscar progresso de todos para calcular média de aulas
+    var promises = alunosFiltrados.map(u => {
+      return db.collection('users').doc(u.id).collection('progresso').get().then(snap => {
+        u.aulasFeitas = snap.size;
+        u.aulasProgress = Math.round((snap.size / 50) * 100); // ~50 aulas total
+        return snap.size;
+      });
+    });
     
-    if (statTotal) statTotal.textContent = alunosFiltrados.length;
-    if (statPerfilMed) statPerfilMed.textContent = Math.round(perfilMedia);
-    if (statAulasMed) statAulasMed.textContent = '–'; // Será atualizado depois
-    if (statAtividade) statAtividade.textContent = Math.round((alunosFiltrados.filter(u => u.perfilPct > 0).length / (alunosFiltrados.length || 1)) * 100);
-    
-    console.log('[Acompanhamento] Stats atualizadas');
-    renderizarTopAlunos(alunosFiltrados);
-    renderizarGraficos(alunosFiltrados);
+    Promise.all(promises).then(aulasFeitas => {
+      var aulasMedia = alunosFiltrados.length > 0 
+        ? Math.round(aulasFeitas.reduce((a,b) => a+b, 0) / alunosFiltrados.length)
+        : 0;
+      
+      // Atualizar stats
+      var statTotal = document.getElementById('statTotal');
+      var statPerfilMed = document.getElementById('statPerfilMed');
+      var statAulasMed = document.getElementById('statAulasMed');
+      var statAtividade = document.getElementById('statAtividade');
+      
+      if (statTotal) statTotal.textContent = alunosFiltrados.length;
+      if (statPerfilMed) statPerfilMed.textContent = Math.round(perfilMedia);
+      if (statAulasMed) statAulasMed.textContent = aulasMedia;
+      if (statAtividade) statAtividade.textContent = Math.round((alunosFiltrados.filter(u => u.perfilPct > 0).length / (alunosFiltrados.length || 1)) * 100);
+      
+      console.log('[Acompanhamento] Stats atualizadas');
+      renderizarTopAlunos(alunosFiltrados);
+      renderizarGraficos(alunosFiltrados);
+    });
   } catch(e) {
     console.error('[Acompanhamento] Erro em atualizarDados:', e);
   }
@@ -250,34 +264,45 @@ function renderizarTopAlunos(alunos) {
   console.log('[Acompanhamento] Renderizando top alunos...');
   
   try {
-    var ordenados = alunos.sort((a, b) => {
-      var scoreA = (a.perfilPct || 0) + (a.aulasProgress || 0);
-      var scoreB = (b.perfilPct || 0) + (b.aulasProgress || 0);
-      return scoreB - scoreA;
-    }).slice(0, 10);
-
-    var html = '';
-    ordenados.forEach(u => {
-      var perfil = u.perfilPct || 0;
-      var aulas = u.aulasProgress || 0;
-      var status = perfil > 75 ? '✓ Ativo' : '⏳ Pendente';
-      html += `
-        <tr onclick="abrirDetalhes('${u.id}', '${u.name}')">
-          <td><span class="aluno-link">${u.name || '–'}</span></td>
-          <td><span class="turma-badge">${u.turma || 'N/A'}</span></td>
-          <td><div class="progress-bar"><div class="progress-fill" style="width:${perfil}%"></div></div>${perfil}%</td>
-          <td><div class="progress-bar"><div class="progress-fill" style="width:${aulas}%"></div></div>${aulas}%</td>
-          <td style="color:${perfil > 75 ? 'var(--green)' : 'var(--text3)'}">${status}</td>
-        </tr>
-      `;
+    // Buscar progresso de TODOS os alunos
+    var promises = alunos.map(u => {
+      return db.collection('users').doc(u.id).collection('progresso').get().then(snap => {
+        u.aulasFeitas = snap.size; // Número de aulas completadas
+        u.aulasProgress = Math.round((snap.size / 50) * 100); // Assume ~50 aulas no total (ajusta conforme necessário)
+        return u;
+      });
     });
 
-    var tabelaBody = document.getElementById('topAlunosBody');
-    if (tabelaBody) {
-      tabelaBody.innerHTML = html || '<tr><td colspan="5" style="text-align:center">Nenhum aluno</td></tr>';
-    }
-    
-    console.log('[Acompanhamento] Top alunos renderizados');
+    Promise.all(promises).then(alunosComAulas => {
+      var ordenados = alunosComAulas.sort((a, b) => {
+        var scoreA = (a.perfilPct || 0) + (a.aulasProgress || 0);
+        var scoreB = (b.perfilPct || 0) + (b.aulasProgress || 0);
+        return scoreB - scoreA;
+      }).slice(0, 10);
+
+      var html = '';
+      ordenados.forEach(u => {
+        var perfil = u.perfilPct || 0;
+        var aulas = u.aulasProgress || 0;
+        var status = perfil > 75 ? '✓ Ativo' : '⏳ Pendente';
+        html += `
+          <tr onclick="abrirDetalhes('${u.id}', '${u.name}')">
+            <td><span class="aluno-link">${u.name || '–'}</span></td>
+            <td><span class="turma-badge">${u.turma || 'N/A'}</span></td>
+            <td><div class="progress-bar"><div class="progress-fill" style="width:${perfil}%"></div></div>${perfil}%</td>
+            <td><div class="progress-bar"><div class="progress-fill" style="width:${aulas}%"></div></div>${aulas}%</td>
+            <td style="color:${perfil > 75 ? 'var(--green)' : 'var(--text3)'}">${status}</td>
+          </tr>
+        `;
+      });
+
+      var tabelaBody = document.getElementById('topAlunosBody');
+      if (tabelaBody) {
+        tabelaBody.innerHTML = html || '<tr><td colspan="5" style="text-align:center">Nenhum aluno</td></tr>';
+      }
+      
+      console.log('[Acompanhamento] Top alunos renderizados');
+    });
   } catch(e) {
     console.error('[Acompanhamento] Erro em renderizarTopAlunos:', e);
   }
