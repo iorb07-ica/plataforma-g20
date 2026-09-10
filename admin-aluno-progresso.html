@@ -229,56 +229,31 @@ function renderizarTabela(aulas) {
     return;
   }
 
+  // Ordenar por data mais recente
+  aulas.sort((a, b) => {
+    var dataA = a.dataC ? new Date(a.dataC) : new Date(0);
+    var dataB = b.dataC ? new Date(b.dataC) : new Date(0);
+    return dataB - dataA;
+  });
+
   var html = '<tr class="modulo-header"><td colspan="3">📚 Aulas Completadas (' + aulas.length + ')</td></tr>';
   
-  // Buscar nomes das aulas
-  var promises = aulas.map(aula => {
-    return db.collection('cursos').doc('g20-masterclass').collectionGroup('aulas')
-      .where(firebase.firestore.FieldPath.documentId(), '==', aula.aulaId)
-      .limit(1)
-      .get()
-      .then(snap => {
-        if (!snap.empty) {
-          var aulaData = snap.docs[0].data();
-          aula.titulo = aulaData.titulo || aula.aulaId;
-        } else {
-          aula.titulo = aula.aulaId;
-        }
-        return aula;
-      })
-      .catch(() => {
-        aula.titulo = aula.aulaId;
-        return aula;
-      });
-  });
-
-  Promise.all(promises).then(aulasComTitulo => {
-    // Ordenar por data mais recente
-    aulasComTitulo.sort((a, b) => {
-      var dataA = a.dataC ? new Date(a.dataC) : new Date(0);
-      var dataB = b.dataC ? new Date(b.dataC) : new Date(0);
-      return dataB - dataA;
-    });
-
-    var htmlFinal = '<tr class="modulo-header"><td colspan="3">📚 Aulas Completadas (' + aulasComTitulo.length + ')</td></tr>';
+  aulas.forEach((aula, idx) => {
+    var dataHtml = aula.dataC 
+      ? '<span class="data-conclusao">' + new Date(aula.dataC).toLocaleDateString('pt-BR') + ' às ' + new Date(aula.dataC).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}) + '</span>'
+      : '–';
     
-    aulasComTitulo.forEach((aula, idx) => {
-      var dataHtml = aula.dataC 
-        ? '<span class="data-conclusao">' + new Date(aula.dataC).toLocaleDateString('pt-BR') + ' às ' + new Date(aula.dataC).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}) + '</span>'
-        : '–';
-      
-      htmlFinal += '<tr style="background:rgba(46,204,113,.05)">'
-        + '<td style="padding-left:32px"><strong>' + (aula.titulo || 'Aula ' + (idx + 1)) + '</strong></td>'
-        + '<td><span class="status-badge status-done">✓ Concluída</span></td>'
-        + '<td>' + dataHtml + '</td>'
-        + '</tr>';
-    });
-
-    var tabelaBody = document.getElementById('tabelaBody');
-    if (tabelaBody) {
-      tabelaBody.innerHTML = htmlFinal;
-    }
+    html += '<tr style="background:rgba(46,204,113,.05)">'
+      + '<td style="padding-left:32px"><strong>' + aula.aulaId + '</strong></td>'
+      + '<td><span class="status-badge status-done">✓ Concluída</span></td>'
+      + '<td>' + dataHtml + '</td>'
+      + '</tr>';
   });
+
+  var tabelaBody = document.getElementById('tabelaBody');
+  if (tabelaBody) {
+    tabelaBody.innerHTML = html;
+  }
 }
 
 function atualizarHero() {
