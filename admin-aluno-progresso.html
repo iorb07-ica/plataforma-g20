@@ -171,31 +171,87 @@ auth.onAuthStateChanged(async function(user) {
 });
 
 function carregarDados() {
-  // 1. Carregar dados do aluno
+  console.log('[Progresso] Carregando aluno:', _uid);
+  
   db.collection('users').doc(_uid).get().then(snap => {
     if (!snap.exists) {
-      document.getElementById('tabelaBody').innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--red)">Aluno não encontrado</td></tr>';
+      console.error('[Progresso] Aluno não encontrado');
       return;
     }
 
     _aluno = snap.data();
     _aluno.id = _uid;
 
-    // Atualizar UI com dados do aluno
     atualizarHero();
-    atualizarStats();
 
-    // 2. Carregar progresso de aulas
+    // Buscar aulas completadas
     db.collection('users').doc(_uid).collection('progresso').get().then(progSnap => {
-      var progresso = {};
+      console.log('[Progresso] ' + progSnap.size + ' aulas encontradas');
+      
+      var aulas = [];
       progSnap.forEach(doc => {
-        progresso[doc.id] = doc.data();
+        var data = doc.data();
+        aulas.push({
+          aulaId: doc.id,
+          dataC: data.dataC
+        });
       });
 
-      // 3. Carregar estrutura de módulos e aulas
-      carregarModulosEAulas(progresso);
+      atualizarStats(aulas.length);
+      renderizarTabela(aulas);
+    }).catch(err => {
+      console.error('[Progresso] Erro ao buscar progresso:', err);
+      document.getElementById('tabelaBody').innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--red)">Erro ao carregar aulas</td></tr>';
     });
+  }).catch(err => {
+    console.error('[Progresso] Erro ao carregar aluno:', err);
   });
+}
+
+function atualizarStats(totalAulas) {
+  var perfil = _aluno.perfilPct || 0;
+  var aulas = totalAulas > 0 ? Math.round((totalAulas / 50) * 100) : 0; // ~50 aulas totais
+  
+  document.getElementById('statPerfil').textContent = perfil;
+  document.getElementById('statAulas').textContent = aulas;
+  document.getElementById('statTotalAulas').textContent = totalAulas + ' / ~50';
+  document.getElementById('statUltima').textContent = '–';
+}
+
+function renderizarTabela(aulas) {
+  console.log('[Progresso] Renderizando ' + aulas.length + ' aulas...');
+  
+  var html = '';
+  
+  if (aulas.length === 0) {
+    html = '<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text3)">Nenhuma aula completada ainda</td></tr>';
+  } else {
+    // Ordenar por data mais recente
+    aulas.sort((a, b) => {
+      var dataA = a.dataC ? new Date(a.dataC) : new Date(0);
+      var dataB = b.dataC ? new Date(b.dataC) : new Date(0);
+      return dataB - dataA;
+    });
+
+    html = '<tr class="modulo-header"><td colspan="3">📚 Aulas Completadas (' + aulas.length + ')</td></tr>';
+    
+    aulas.forEach((aula, idx) => {
+      var dataHtml = aula.dataC 
+        ? '<span class="data-conclusao">' + new Date(aula.dataC).toLocaleDateString('pt-BR') + '</span>'
+        : '–';
+      
+      html += '<tr style="background:rgba(46,204,113,.05)">'
+        + '<td style="padding-left:32px">' + (aula.aulaId || 'Aula ' + (idx + 1)) + '</td>'
+        + '<td><span class="status-badge status-done">✓ Concluída</span></td>'
+        + '<td>' + dataHtml + '</td>'
+        + '</tr>';
+    });
+  }
+
+  var tabelaBody = document.getElementById('tabelaBody');
+  if (tabelaBody) {
+    tabelaBody.innerHTML = html;
+  }
 }
 
 function atualizarHero() {
