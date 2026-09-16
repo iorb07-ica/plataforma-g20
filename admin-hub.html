@@ -47,8 +47,18 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (max-width:600px){.page-title{font-size:32px}body{padding:16px;padding-top:max(16px, env(safe-area-inset-top))}}
 
-.btn-marcar { background: rgba(46,204,113,.2); border: 1px solid #2ecc71; color: #2ecc71; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; font-weight: 700; margin-right: 8px; }
-.btn-marcar:hover { background: rgba(46,204,113,.3); }
+.com-card{padding:16px 18px;margin-bottom:11px;border-radius:12px;transition:background .18s ease,border-color .18s ease}
+.com-card.is-nao-lido{background:rgba(46,204,113,.07);border:1px solid rgba(46,204,113,.28)}
+.com-card.is-lido{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)}
+.com-tag-status{padding:2px 8px;border-radius:9px;font-size:10px;font-weight:800;letter-spacing:.8px}
+.is-nao-lido .com-tag-status{background:#2ecc71;color:#0d0c10}
+.is-lido .com-tag-status{background:rgba(255,255,255,.08);color:#8b93a7}
+.com-acoes{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:13px;flex-wrap:wrap}
+.com-btn-toggle{margin-left:auto;border-radius:7px;padding:6px 13px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:background .18s ease}
+.is-nao-lido .com-btn-toggle{background:rgba(46,204,113,.16);border:1px solid rgba(46,204,113,.45);color:#2ecc71}
+.is-nao-lido .com-btn-toggle:hover{background:rgba(46,204,113,.28)}
+.is-lido .com-btn-toggle{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);color:#8b93a7}
+.is-lido .com-btn-toggle:hover{background:rgba(255,255,255,.1)}
 
 </style>
 </head>
@@ -442,24 +452,26 @@ function carregarComentarios(){
 
       box.innerHTML = itens.map(function(c){
         var link = 'sala-de-aula.html#aula=' + c._modulo + '~' + c._aula;
-        return '<div style="padding:16px 18px;margin-bottom:11px;border-radius:12px;' +
-          'background:' + (c._novo ? 'rgba(46,204,113,.07)' : 'rgba(255,255,255,.03)') + ';' +
-          'border:1px solid ' + (c._novo ? 'rgba(46,204,113,.26)' : 'rgba(255,255,255,.06)') + '"' +
-          ' data-comment-id="' + c._id + '">' +
+        var lido = !!(c.lidoPor && c.lidoPor.indexOf(uid) >= 0);
+        var pathEsc = c._path.replace(/'/g, "\\'");
+        return '<div class="com-card ' + (lido ? 'is-lido' : 'is-nao-lido') + '"' +
+          ' data-comment-id="' + c._id + '" data-path="' + c._path + '">' +
           '<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;flex-wrap:wrap">' +
             '<span style="font-size:14px;font-weight:700;color:#e8eaf0">' + _comEsc(c.autorNome) + '</span>' +
             (c.admin ? '<span style="padding:2px 8px;border-radius:9px;background:rgba(201,169,97,.18);' +
                        'color:#e8b84b;font-size:10px;font-weight:800;letter-spacing:.8px">VOCÊ</span>' : '') +
-            (c._novo ? '<span style="padding:2px 8px;border-radius:9px;background:#2ecc71;' +
-                       'color:#0d0c10;font-size:10px;font-weight:800;letter-spacing:.8px">NOVO</span>' : '') +
+            '<span class="com-tag-status">' + (lido ? 'LIDO' : 'NÃO LIDO') + '</span>' +
             (c.respostaDe ? '<span style="font-size:11px;color:#6b7280">↳ resposta</span>' : '') +
             '<span style="margin-left:auto;font-size:11px;color:#6b7280">' + _comQuando(c.criadoEm) + '</span>' +
           '</div>' +
           '<div style="font-size:14px;line-height:1.65;color:#c9c6c1;white-space:pre-wrap">' +
             _comEsc(c.texto) + '</div>' +
-          '<button class="btn-marcar" onclick="marcarLido(\'' + c._path.replace(/'/g, "\\'") + '\')">✓ Marcar como Lido</button>' +
-            '<a href="javascript:void(0)" onclick="abrirAulaParaResponder(\'' + link + '&scrollTo=' + c._id + '\', \'' + c._id + '\', \'' + c._path.replace(/'/g, "\\'") + '\')" style="display:inline-block;margin-top:11px;font-size:12.5px;' +
+          '<div class="com-acoes">' +
+            '<a href="javascript:void(0)" onclick="abrirAulaParaResponder(\'' + link + '&scrollTo=' + c._id + '\', \'' + c._id + '\', \'' + pathEsc + '\')" style="font-size:12.5px;' +
             'color:#e8b84b;font-weight:700;text-decoration:none;cursor:pointer">Abrir a aula e responder →</a>' +
+            '<button class="com-btn-toggle" onclick="toggleLido(this)">' +
+              (lido ? 'Marcar como não lido' : 'Marcar como lido') + '</button>' +
+          '</div>' +
         '</div>';
       }).join('');
     })
@@ -469,6 +481,35 @@ function carregarComentarios(){
         'republique o firestore.rules — a consulta collectionGroup precisa da regra por curinga.</span>';
     })
     .then(function(){ btn.disabled = false; btn.style.opacity = '1'; });
+}
+
+function toggleLido(btn){
+  var card = btn.closest('.com-card');
+  if (!card) return;
+  var uid = auth.currentUser ? auth.currentUser.uid : null;
+  if (!uid) return;
+  var path = card.getAttribute('data-path');
+  var eraLido = card.classList.contains('is-lido');
+
+  // 1) muda a UI na hora
+  card.classList.toggle('is-lido', !eraLido);
+  card.classList.toggle('is-nao-lido', eraLido);
+  var tag = card.querySelector('.com-tag-status');
+  if (tag) tag.textContent = eraLido ? 'NÃO LIDO' : 'LIDO';
+  btn.textContent = eraLido ? 'Marcar como lido' : 'Marcar como não lido';
+
+  // 2) grava no Firestore em segundo plano
+  var FV = firebase.firestore.FieldValue;
+  db.doc(path).update({
+    lidoPor: eraLido ? FV.arrayRemove(uid) : FV.arrayUnion(uid)
+  }).catch(function(e){
+    // desfaz se o servidor recusar
+    card.classList.toggle('is-lido', eraLido);
+    card.classList.toggle('is-nao-lido', !eraLido);
+    if (tag) tag.textContent = eraLido ? 'LIDO' : 'NÃO LIDO';
+    btn.textContent = eraLido ? 'Marcar como não lido' : 'Marcar como lido';
+    console.log('Erro ao gravar lido:', e);
+  });
 }
 
 function marcarComentarioLido(commentPath, commentId) {
@@ -565,23 +606,3 @@ if(window.lucide && lucide.createIcons) lucide.createIcons();
 
 
 </body></html>
-
-<script>
-function marcarLido(path) {
-  if (typeof auth === 'undefined' || !auth.currentUser) {
-    alert('Autenticação não pronta');
-    return;
-  }
-  
-  var uid = auth.currentUser.uid;
-  db.doc(path).update({
-    lidoPor: firebase.firestore.FieldValue.arrayUnion(uid)
-  }).then(function() {
-    alert('Marcado como lido!');
-    location.reload();
-  }).catch(function(e) {
-    alert('Erro: ' + e.message);
-  });
-}
-</script>
-

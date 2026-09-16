@@ -3451,59 +3451,39 @@ setInterval(function() {
 
 
 <script>
-// Scroll até comentário específico
-document.addEventListener('DOMContentLoaded', function() {
-  var hash = window.location.hash;
-  var scrollTo = null;
-  
-  if (hash.includes('scrollTo=')) {
-    var parts = hash.split('&scrollTo=');
-    if (parts.length > 1) {
-      scrollTo = parts[1];
-    }
+// Scroll até o comentário indicado em #...&scrollTo=ID
+// A lista de comentários carrega de forma assíncrona (SPA), então
+// ficamos observando o DOM até o elemento existir, em vez de usar um timeout fixo.
+(function(){
+  function alvoDoHash(){
+    var m = /[#&]scrollTo=([^&]+)/.exec(window.location.hash || '');
+    return m ? decodeURIComponent(m[1]) : null;
   }
-  
-  if (scrollTo) {
-    setTimeout(function() {
-      var elem = document.querySelector('[data-id="' + scrollTo + '"]');
-      if (elem) {
-        elem.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        elem.style.boxShadow = '0 0 0 2px #e8b84b';
-        setTimeout(function() {
-          elem.style.boxShadow = '';
-        }, 2000);
-      }
-    }, 500);
-  }
-});
-</script>
 
-
-<script>
-// Marcar como lido quando abrir comentário via link
-document.addEventListener('DOMContentLoaded', function() {
-  var hash = window.location.hash;
-  var scrollTo = null;
-  
-  if (hash.includes('scrollTo=')) {
-    var parts = hash.split('&scrollTo=');
-    if (parts.length > 1) {
-      scrollTo = parts[1];
+  function irAte(id, tentativa){
+    tentativa = tentativa || 0;
+    var el = document.querySelector('.sa-disc-item[data-id="' + id + '"]');
+    if (!el) {
+      if (tentativa < 60) setTimeout(function(){ irAte(id, tentativa + 1); }, 250);
+      return;
     }
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.style.transition = 'box-shadow .3s ease';
+    el.style.boxShadow = '0 0 0 2px #e8b84b';
+    setTimeout(function(){ el.style.boxShadow = ''; }, 2600);
   }
-  
-  if (scrollTo && typeof auth !== 'undefined' && auth.currentUser && typeof db !== 'undefined') {
-    setTimeout(function() {
-      var uid = auth.currentUser.uid;
-      var path = 'cursos/g20-masterclass/modulos/' + currentModuloId + '/aulas/' + currentAulaId + '/comentarios/' + scrollTo;
-      
-      db.doc(path).update({
-        lidoPor: firebase.firestore.FieldValue.arrayUnion(uid)
-      }).catch(function(e) {
-        console.log('Marcado como lido');
-      });
-    }, 1000);
+
+  function disparar(){
+    var id = alvoDoHash();
+    if (id) irAte(id, 0);
   }
-});
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', disparar);
+  } else {
+    disparar();
+  }
+  window.addEventListener('hashchange', disparar);
+})();
 </script>
 
