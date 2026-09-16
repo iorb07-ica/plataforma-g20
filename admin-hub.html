@@ -450,6 +450,7 @@ function carregarComentarios(){
                        'color:#0d0c10;font-size:10px;font-weight:800;letter-spacing:.8px">NOVO</span>' : '') +
             (c.respostaDe ? '<span style="font-size:11px;color:#6b7280">↳ resposta</span>' : '') +
             '<span style="margin-left:auto;font-size:11px;color:#6b7280">' + _comQuando(c.criadoEm) + '</span>' +
+            (function(){ var uid = auth.currentUser ? auth.currentUser.uid : null; var jaLi = c.lidoPor && uid && c.lidoPor.indexOf(uid) >= 0; return '<button onclick="toggleComentarioLido(this, \'' + c._path.replace(/'/g, "\'") + '\')" style="background:none;border:none;cursor:pointer;font-size:16px;padding:4px 8px;margin-left:8px;opacity:' + (jaLi ? '1' : '0.5') + ';transition:opacity .2s" title="' + (jaLi ? 'Marcar como não lido' : 'Marcar como lido') + '">' + (jaLi ? '👁️' : '👁️‍🗨️') + '</button>'; })() +
           '</div>' +
           '<div style="font-size:14px;line-height:1.65;color:#c9c6c1;white-space:pre-wrap">' +
             _comEsc(c.texto) + '</div>' +
@@ -464,6 +465,31 @@ function carregarComentarios(){
         'republique o firestore.rules — a consulta collectionGroup precisa da regra por curinga.</span>';
     })
     .then(function(){ btn.disabled = false; btn.style.opacity = '1'; });
+}
+
+function toggleComentarioLido(btn, commentPath) {
+  var uid = auth.currentUser ? auth.currentUser.uid : null;
+  if (!uid) return;
+  
+  var jaLi = btn.textContent.includes("👁️") && !btn.textContent.includes("🗨️");
+  
+  if (jaLi) {
+    db.doc(commentPath).update({
+      lidoPor: firebase.firestore.FieldValue.arrayRemove(uid)
+    }).then(function() {
+      btn.textContent = "👁️‍🗨️";
+      btn.style.opacity = "0.5";
+      btn.title = "Marcar como lido";
+    });
+  } else {
+    db.doc(commentPath).update({
+      lidoPor: firebase.firestore.FieldValue.arrayUnion(uid)
+    }).then(function() {
+      btn.textContent = "👁️";
+      btn.style.opacity = "1";
+      btn.title = "Marcar como não lido";
+    });
+  }
 }
 
 function marcarComentarioLido(commentPath, commentId) {
