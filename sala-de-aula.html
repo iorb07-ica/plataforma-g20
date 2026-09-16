@@ -2625,7 +2625,7 @@ function renderDiscussao(itens){
                '</div>' +
                '<div class="sa-disc-texto">' + _esc2(c.texto) + '</div>' +
                '<div class="sa-disc-rodape">' +
-                 (ehResposta ? '' : '<button class="sa-disc-acao" onclick="mostrarEmojis(this, \'' + c.id + '\')" style="background:none">👍</button>' +
+                 (ehResposta ? '' : '<button class="sa-disc-acao" style="background:none;border:none;padding:0;margin-right:8px;font-size:16px" onclick="var emojis=[\"👍\",\"❤️\",\"😂\",\"😮\",\"😡\"];var picker=document.createElement(\"div\");picker.className=\"emoji-picker\";picker.style.position=\"absolute\";picker.style.top=this.offsetHeight+\"px\";emojis.forEach(function(e){var btn=document.createElement(\"button\");btn.textContent=e;btn.onclick=function(ev){ev.preventDefault();salvarReacao(e,\'' + c.id + '\');picker.remove();};picker.appendChild(btn);});this.parentElement.insertBefore(picker,this.nextSibling);">👍</button>' +
                  '<button class="sa-disc-acao" onclick="discResponder(\'' + c.id + '\')">Responder</button>') +
                  (podeApagar ? '<button class="sa-disc-acao excluir" onclick="discExcluir(\'' + c.id + '\')">Excluir</button>' : '') +
                '</div>' +
@@ -3324,136 +3324,97 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
 </body>
 </html>
 
+<style>
+.emoji-picker { position:absolute; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:8px; display:flex; gap:4px; z-index:1000; }
+.emoji-picker button { background:none; border:none; cursor:pointer; font-size:18px; padding:4px; transition:transform .2s; }
+.emoji-picker button:hover { transform:scale(1.2); }
+.emoji-count { background:rgba(232,184,75,0.1); border:1px solid rgba(232,184,75,0.3); cursor:pointer; color:var(--text); padding:4px 8px; border-radius:4px; font-size:12px; margin-right:4px; }
+</style>
+
 <script>
-// Armazenar reações em memória (estado local)
-var emojiState = {};
+var emojiStorage = {};
 
-// Mostrar picker de emojis
-window.mostrarEmojis = function(btn, commentId) {
-  if (!firebaseReady) {
-    setTimeout(function() { mostrarEmojis(btn, commentId); }, 100);
-    return;
-  }
-  var emojis = ['👍', '❤️', '😂', '😮', '😡'];
-  var div = document.createElement('div');
-  div.style.cssText = 'position:absolute;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;display:flex;gap:4px;z-index:1000';
-  
-  emojis.forEach(function(emoji) {
-    var e = document.createElement('button');
-    e.textContent = emoji;
-    e.style.cssText = 'background:none;border:none;cursor:pointer;font-size:18px;padding:4px';
-    e.onclick = function() {
-      clicouEmoji(emoji, commentId, btn);
-      div.remove();
-    };
-    div.appendChild(e);
-  });
-  
-  btn.parentElement.appendChild(div);
-};
-
-// Quando clica no emoji
-window.clicouEmoji = function(emoji, commentId, btn) {
-  if (!emojiState[commentId]) emojiState[commentId] = {};
-  if (!emojiState[commentId][emoji]) emojiState[commentId][emoji] = [];
-  
-  // Verifica se auth está pronto
-  if (typeof auth === 'undefined' || !auth.currentUser) {
-    console.log('Auth não pronto, aguardando...');
-    setTimeout(function() { clicouEmoji(emoji, commentId, btn); }, 100);
+function salvarReacao(emoji, commentId) {
+  // Verifica se Firebase tá pronto
+  if (typeof auth === 'undefined' || typeof db === 'undefined' || !auth.currentUser) {
+    setTimeout(function() { salvarReacao(emoji, commentId); }, 100);
     return;
   }
   
   var uid = auth.currentUser.uid;
-  var users = emojiState[commentId][emoji];
+  
+  // Estado local
+  if (!emojiStorage[commentId]) emojiStorage[commentId] = {};
+  if (!emojiStorage[commentId][emoji]) emojiStorage[commentId][emoji] = [];
+  
+  var users = emojiStorage[commentId][emoji];
   var idx = users.indexOf(uid);
   
-  // Toggle instantâneo
+  // Toggle
   if (idx >= 0) {
     users.splice(idx, 1);
   } else {
     users.push(uid);
   }
   
-  // Renderizar imediatamente
-  renderizarReacoes(commentId);
+  // Renderiza instantaneamente
+  renderReacoes(commentId);
   
-  // Salvar no Firestore em background (sem bloquear)
-  setTimeout(function() {
-    salvarNoFirestore(emoji, commentId, users);
-  }, 0);
-};
-
-// Renderizar reações
-window.renderizarReacoes = function(commentId) {
-  var item = document.querySelector('[data-id="' + commentId + '"]');
-  if (!item) return;
-  
-  var rodape = item.querySelector('.sa-disc-rodape');
-  if (!rodape) return;
-  
-  // Remove botões de emoji antigos
-  rodape.querySelectorAll('[data-emoji-btn]').forEach(function(b) { b.remove(); });
-  
-  // Adiciona novos
-  var reactions = emojiState[commentId] || {};
-  Object.keys(reactions).forEach(function(emoji) {
-    var count = reactions[emoji].length;
-    if (count === 0) return;
-    
-    var btn = document.createElement('button');
-    btn.setAttribute('data-emoji-btn', 'true');
-    btn.style.cssText = 'background:rgba(232,184,75,0.1);border:1px solid rgba(232,184,75,0.3);cursor:pointer;color:var(--text);padding:4px 8px;border-radius:4px;font-size:12px;margin-right:4px';
-    btn.textContent = emoji + ' ' + count;
-    btn.onclick = function(e) {
-      e.preventDefault();
-      clicouEmoji(emoji, commentId, btn);
-    };
-    rodape.appendChild(btn);
-  });
-};
-
-// Salvar no Firestore (sem bloquear)
-window.salvarNoFirestore = function(emoji, commentId, users) {
-  if (typeof db === 'undefined' || typeof auth === 'undefined' || !auth.currentUser) {
-    console.log('DB ou auth não pronto, tentando novamente...');
-    setTimeout(function() { salvarNoFirestore(emoji, commentId, users); }, 200);
-    return;
-  }
-  
-  var uid = auth.currentUser.uid;
+  // Salva no Firestore em background
   var path = 'cursos/g20-masterclass/modulos/' + currentModuloId + '/aulas/' + currentAulaId + '/comentarios/' + commentId;
-  
   var update = {};
   if (users.length > 0) {
     update['emojiReactions.' + emoji] = users;
   } else {
     update['emojiReactions.' + emoji] = firebase.firestore.FieldValue.delete();
   }
-  
-  db.doc(path).update(update).catch(function(e) {
-    console.error('Erro ao sincronizar emoji:', e);
-  });
-};
+  db.doc(path).update(update);
+}
 
-// Carregar reações ao abrir página
+function renderReacoes(commentId) {
+  var item = document.querySelector('[data-id="' + commentId + '"]');
+  if (!item) return;
+  
+  var rodape = item.querySelector('.sa-disc-rodape');
+  if (!rodape) return;
+  
+  // Remove emoji buttons antigos
+  rodape.querySelectorAll('[data-emoji-btn]').forEach(function(el) { el.remove(); });
+  
+  // Adiciona novos
+  var reactions = emojiStorage[commentId] || {};
+  Object.keys(reactions).forEach(function(emoji) {
+    var count = reactions[emoji].length;
+    if (count === 0) return;
+    
+    var btn = document.createElement('button');
+    btn.setAttribute('data-emoji-btn', '1');
+    btn.className = 'emoji-count';
+    btn.textContent = emoji + ' ' + count;
+    btn.onclick = function(e) {
+      e.preventDefault();
+      salvarReacao(emoji, commentId);
+    };
+    rodape.appendChild(btn);
+  });
+}
+
+// Carrega reações ao abrir
 setInterval(function() {
+  if (typeof db === 'undefined' || typeof currentModuloId === 'undefined') return;
+  
   document.querySelectorAll('.sa-disc-item[data-id]:not([data-emoji-loaded])').forEach(function(item) {
-    item.setAttribute('data-emoji-loaded', 'true');
+    item.setAttribute('data-emoji-loaded', '1');
     var commentId = item.getAttribute('data-id');
-    
-    if (typeof db === 'undefined' || typeof currentModuloId === 'undefined') return;
-    
     var path = 'cursos/g20-masterclass/modulos/' + currentModuloId + '/aulas/' + currentAulaId + '/comentarios/' + commentId;
+    
     db.doc(path).get().then(function(doc) {
-      if (!doc.exists) return;
-      var reactions = doc.data().emojiReactions;
-      if (!reactions) return;
-      
-      emojiState[commentId] = reactions;
-      renderizarReacoes(commentId);
+      if (doc.exists && doc.data().emojiReactions) {
+        emojiStorage[commentId] = doc.data().emojiReactions;
+        renderReacoes(commentId);
+      }
     });
   });
-}, 200);
+}, 500);
 </script>
 
