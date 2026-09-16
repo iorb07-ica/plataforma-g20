@@ -3330,6 +3330,10 @@ var emojiState = {};
 
 // Mostrar picker de emojis
 window.mostrarEmojis = function(btn, commentId) {
+  if (!firebaseReady) {
+    setTimeout(function() { mostrarEmojis(btn, commentId); }, 100);
+    return;
+  }
   var emojis = ['👍', '❤️', '😂', '😮', '😡'];
   var div = document.createElement('div');
   div.style.cssText = 'position:absolute;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;display:flex;gap:4px;z-index:1000';
@@ -3353,7 +3357,14 @@ window.clicouEmoji = function(emoji, commentId, btn) {
   if (!emojiState[commentId]) emojiState[commentId] = {};
   if (!emojiState[commentId][emoji]) emojiState[commentId][emoji] = [];
   
-  var uid = auth && auth.currentUser ? auth.currentUser.uid : 'anonimo';
+  // Verifica se auth está pronto
+  if (typeof auth === 'undefined' || !auth.currentUser) {
+    console.log('Auth não pronto, aguardando...');
+    setTimeout(function() { clicouEmoji(emoji, commentId, btn); }, 100);
+    return;
+  }
+  
+  var uid = auth.currentUser.uid;
   var users = emojiState[commentId][emoji];
   var idx = users.indexOf(uid);
   
@@ -3404,7 +3415,11 @@ window.renderizarReacoes = function(commentId) {
 
 // Salvar no Firestore (sem bloquear)
 window.salvarNoFirestore = function(emoji, commentId, users) {
-  if (typeof db === 'undefined' || typeof auth === 'undefined' || !auth.currentUser) return;
+  if (typeof db === 'undefined' || typeof auth === 'undefined' || !auth.currentUser) {
+    console.log('DB ou auth não pronto, tentando novamente...');
+    setTimeout(function() { salvarNoFirestore(emoji, commentId, users); }, 200);
+    return;
+  }
   
   var uid = auth.currentUser.uid;
   var path = 'cursos/g20-masterclass/modulos/' + currentModuloId + '/aulas/' + currentAulaId + '/comentarios/' + commentId;
