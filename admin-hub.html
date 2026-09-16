@@ -51,6 +51,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
 .com-card.is-nao-lido{background:rgba(46,204,113,.07);border:1px solid rgba(46,204,113,.28)}
 .com-card.is-lido{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)}
 .com-tag-status{padding:2px 8px;border-radius:9px;font-size:10px;font-weight:800;letter-spacing:.8px}
+.com-tag-resp{padding:2px 8px;border-radius:9px;font-size:10px;font-weight:800;letter-spacing:.8px;
+  background:rgba(201,169,97,.16);color:#c9a961;border:1px solid rgba(201,169,97,.3)}
 .is-nao-lido .com-tag-status{background:#2ecc71;color:#0d0c10}
 .is-lido .com-tag-status{background:rgba(255,255,255,.08);color:#8b93a7}
 .com-acoes{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:13px;flex-wrap:wrap}
@@ -429,22 +431,40 @@ function carregarComentarios(){
         var v = doc.data().em;
         _comVistoEm = v.toDate ? v.toDate().getTime() : v;
       }
-      return db.collectionGroup('comentarios').orderBy('criadoEm','desc').limit(50).get();
+      /* Busca com folga porque a lista exibida é só de alunos, mas as suas
+         respostas precisam vir junto para sabermos o que já foi respondido.
+         Com 150 documentos sobram 50 comentários de aluno com margem larga,
+         e ainda é uma consulta só por abertura do modal. */
+      return db.collectionGroup('comentarios').orderBy('criadoEm','desc').limit(150).get();
     })
     .then(function(snap){
-      var itens = [];
+      var todos = [];
       snap.forEach(function(d){
         var c = d.data() || {}; c._id = d.id; c._path = d.ref.path;
         var p = d.ref.path.split('/');
         c._modulo = p[3] || ''; c._aula = p[5] || '';
         c._ts = c.criadoEm && c.criadoEm.toDate ? c.criadoEm.toDate().getTime() : 0;
         c._novo = !c.admin && c._ts > _comVistoEm;
-        itens.push(c);
+        todos.push(c);
       });
+
+      /* Quais comentários de aluno já receberam resposta sua. A resposta é
+         um comentário com admin=true apontando para o pai em respostaDe. */
+      var respondidos = {};
+      todos.forEach(function(c){
+        if (c.admin && c.respostaDe) respondidos[c.respostaDe] = true;
+      });
+
+      /* A lista mostra só o que os alunos escreveram. Suas próprias
+         respostas viram apenas o selo "RESPONDIDO" no comentário de origem
+         — elas ocupavam metade do painel sem dizer nada que você já não
+         soubesse. */
+      var itens = todos.filter(function(c){ return !c.admin; }).slice(0, 50);
+      itens.forEach(function(c){ c._respondido = !!respondidos[c._id]; });
 
       if (!itens.length) {
         box.innerHTML = '<div style="padding:24px 2px;color:#8b93a7;font-size:14px">' +
-                        'Nenhum comentário nas aulas ainda.</div>';
+                        'Nenhum comentário de aluno nas aulas ainda.</div>';
         _comAtualizarStatus(0);
         return;
       }
@@ -457,9 +477,8 @@ function carregarComentarios(){
           ' data-comment-id="' + c._id + '" data-path="' + c._path + '">' +
           '<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;flex-wrap:wrap">' +
             '<span style="font-size:14px;font-weight:700;color:#e8eaf0">' + _comEsc(c.autorNome) + '</span>' +
-            (c.admin ? '<span style="padding:2px 8px;border-radius:9px;background:rgba(201,169,97,.18);' +
-                       'color:#e8b84b;font-size:10px;font-weight:800;letter-spacing:.8px">VOCÊ</span>' : '') +
             '<span class="com-tag-status">' + (lido ? 'LIDO' : 'NÃO LIDO') + '</span>' +
+            (c._respondido ? '<span class="com-tag-resp" title="Você já respondeu este comentário">✓ RESPONDIDO</span>' : '') +
             (c.respostaDe ? '<span style="font-size:11px;color:#6b7280">↳ resposta</span>' : '') +
             '<span style="margin-left:auto;font-size:11px;color:#6b7280">' + _comQuando(c.criadoEm) + '</span>' +
           '</div>' +
@@ -467,7 +486,8 @@ function carregarComentarios(){
             _comEsc(c.texto) + '</div>' +
           '<div class="com-acoes">' +
             '<a href="javascript:void(0)" onclick="abrirAulaParaResponder(\'' + link + '&scrollTo=' + c._id + '\', \'' + c._id + '\', \'' + pathEsc + '\')" style="font-size:12.5px;' +
-            'color:#e8b84b;font-weight:700;text-decoration:none;cursor:pointer">Abrir a aula e responder →</a>' +
+            'color:#e8b84b;font-weight:700;text-decoration:none;cursor:pointer">' +
+            (c._respondido ? 'Abrir a aula →' : 'Abrir a aula e responder →') + '</a>' +
             '<button class="com-btn-toggle" onclick="toggleLido(this)">' +
               (lido ? 'Marcar como não lido' : 'Marcar como lido') + '</button>' +
           '</div>' +
@@ -496,7 +516,7 @@ function _comAtualizarStatus(total){
   if (typeof total !== 'number') total = cards.length;
   var naoLidos = document.querySelectorAll('#comLista .com-card.is-nao-lido').length;
 
-  st.innerHTML = total + ' comentário(s) · ' +
+  st.innerHTML = total + ' de alunos · ' +
     (naoLidos
       ? '<b style="color:#2ecc71">' + naoLidos + ' não lido(s)</b>'
       : 'todos lidos');
@@ -568,16 +588,68 @@ function abrirAulaParaResponder(aulPath, commentId, commentPathFirestore) {
   });
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   MARCAR TUDO COMO VISTO
+
+   Havia dois controles concorrentes na mesma tela: este botão gravava um
+   HORÁRIO de última visita (`comentariosVistos`), enquanto cada card lia
+   `lidoPor` por comentário. O resultado é que clicar aqui não mexia em
+   nada visível, e os comentários antigos — que nunca tiveram `lidoPor` —
+   apareciam eternamente como não lidos.
+
+   Agora o botão faz as duas coisas: grava o horário (que ainda alimenta o
+   alerta da topbar do dashboard) e marca como lido cada comentário que
+   está na lista, num único lote.
+
+   CUSTO: até 50 escritas, e só quando o botão é clicado de propósito.
+   O lote do Firestore aceita 500 operações, então cabe folgado.
+   ═══════════════════════════════════════════════════════════════════════ */
 function marcarTudoVisto(){
   var uid = auth.currentUser ? auth.currentUser.uid : null;
   if (!uid) return;
-  db.collection('users').doc(uid).collection('config').doc('comentariosVistos')
-    .set({ em: firebase.firestore.FieldValue.serverTimestamp() })
-    .then(function(){
-      try { localStorage.removeItem('g20_comVigia'); } catch(e){}
-      carregarComentarios();
-    })
-    .catch(function(e){ alert('Erro: ' + (e && e.message)); });
+
+  var btn = document.getElementById('comBtnVisto');
+  var txtOriginal = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.style.opacity = '.6'; btn.textContent = 'Marcando…'; }
+
+  /* Pega os cards que ainda estão como não lidos — não adianta reescrever
+     os que já estão marcados. */
+  var pendentes = [];
+  document.querySelectorAll('#comLista .com-card.is-nao-lido').forEach(function(card){
+    var p = card.getAttribute('data-path');
+    if (p) pendentes.push({ path: p, card: card });
+  });
+
+  var lote = db.batch();
+  var FV = firebase.firestore.FieldValue;
+  pendentes.forEach(function(it){
+    lote.update(db.doc(it.path), { lidoPor: FV.arrayUnion(uid) });
+  });
+
+  var gravaLote = pendentes.length ? lote.commit() : Promise.resolve();
+
+  Promise.all([
+    gravaLote,
+    db.collection('users').doc(uid).collection('config').doc('comentariosVistos')
+      .set({ em: FV.serverTimestamp() })
+  ]).then(function(){
+    try { localStorage.removeItem('g20_comVigia'); } catch(e){}
+    /* Atualiza a tela sem recarregar a lista: os cards já estão aqui. */
+    pendentes.forEach(function(it){
+      it.card.classList.remove('is-nao-lido');
+      it.card.classList.add('is-lido');
+      var tag = it.card.querySelector('.com-tag-status');
+      if (tag) tag.textContent = 'LIDO';
+      var b = it.card.querySelector('.com-btn-toggle');
+      if (b) b.textContent = 'Marcar como não lido';
+    });
+    _comAtualizarStatus();
+  }).catch(function(e){
+    alert('Erro: ' + (e && e.message));
+    carregarComentarios();
+  }).then(function(){
+    if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.textContent = txtOriginal; }
+  });
 }
 
 /* Abre direto no painel quando vem do alerta do dashboard. */
