@@ -599,8 +599,7 @@ body.preview-aluno-mode .sa-admin-topbar-btn { display: none !important; }
 // Detecta se voltou dos comentários e adiciona botão "Voltar aos Comentários"
 // ═══════════════════════════════════════════════════════════════════════════════
 (function() {
-  var voltarDe = new URLSearchParams(location.search).get('voltarDe');
-  if (voltarDe === 'comentarios' || voltarDe === 'admin-hub') {
+  if (location.search.indexOf('voltarDe=comentarios') > -1) {
     // Remove o parâmetro da URL (limpa a barra de endereços)
     window.history.replaceState({}, document.title, location.pathname + location.hash);
     
@@ -2617,7 +2616,7 @@ function renderDiscussao(itens){
     var podeApagar = (c.autorId === meu) || SA_IS_ADMIN;
     var respostas  = porPai[c.id] || [];
     return '<div class="sa-disc-item' + (ehResposta ? ' resp' : '') +
-             (c.admin ? ' admin' : '') + '" data-id="' + c.id + '" data-autor-id="' + c.autorId + '">' +
+             (c.admin ? ' admin' : '') + '" data-id="' + c.id + '" data-autor-id="' + (c.autorId || '') + '">' +
              _discAvatarHtml(c.autorNome, c.autorFoto) +
              '<div class="sa-disc-item-corpo">' +
                '<div class="sa-disc-autor">' +
@@ -2626,7 +2625,6 @@ function renderDiscussao(itens){
                '</div>' +
                '<div class="sa-disc-texto">' + _esc2(c.texto) + '</div>' +
                '<div class="sa-disc-rodape">' +
-                 '<button class="emoji-btn" onclick="mostrarEmojiPicker(event, \'' + c.id + '\')" title="Reagir">👍</button>' +
                  (ehResposta ? '' : '<button class="sa-disc-acao" onclick="discResponder(\'' + c.id + '\')">Responder</button>') +
                  (podeApagar ? '<button class="sa-disc-acao excluir" onclick="discExcluir(\'' + c.id + '\')">Excluir</button>' : '') +
                '</div>' +
@@ -3325,255 +3323,50 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
 </body>
 </html>
 
-</html>
-
-<!-- MELHORIAS: Perfil Clicável + Emoji Reactions -->
-<div id="profileModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:10000;justify-content:center;align-items:center"></div>
-
-<style>
-/* Nome e foto clicáveis */
-.sa-disc-nome-clickable { cursor: pointer; }
-.sa-disc-nome-clickable:hover { color: var(--gold); }
-.sa-disc-avatar-clickable { cursor: pointer; }
-
-/* Botão emoji */
-.emoji-btn { background: none; border: none; cursor: pointer; font-size: 16px; padding: 4px 8px; color: var(--text2); margin-left: 8px; }
-.emoji-btn:hover { color: var(--gold); }
-.emoji-picker-menu { position: absolute; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: flex; gap: 4px; z-index: 1000; }
-
-/* Nome e Avatar clicáveis */
-.sa-disc-nome-clickable { cursor: pointer; }
-.sa-disc-nome-clickable:hover { color: var(--gold); }
-.sa-disc-avatar-clickable { cursor: pointer; }
-</style>
-
-<script>
-// FUNÇÃO GLOBAL: Abrir perfil do aluno
-window.abrirPerfilAluno = function(uid) {
-  if (!uid || typeof db === 'undefined') return;
-  var modal = document.getElementById('profileModal');
-  
-  db.collection('networking_public').doc(uid).get().then(function(doc) {
-    if (!doc.exists) { alert('Perfil não encontrado'); return; }
-    var p = doc.data();
-    var foto = p.foto || '';
-    var html = '<div style="background:var(--surface);border-radius:12px;max-width:500px;width:90%;padding:24px;border:1px solid var(--border)">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">' +
-        '<h2 style="margin:0">Perfil</h2>' +
-        '<button onclick="document.getElementById(\'profileModal\').style.display=\'none\'" style="background:none;border:none;font-size:28px;cursor:pointer;color:var(--text2)">×</button>' +
-      '</div>' +
-      (foto ? '<img src="' + foto + '" style="width:80px;height:80px;border-radius:50%;object-fit:cover;margin-bottom:16px">' : '') +
-      '<div style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:16px">' + (p.nome || 'Sem nome') + '</div>' +
-      (p.profissao ? '<div style="margin-bottom:12px;font-size:14px;color:var(--text)"><span style="font-size:11px;color:var(--text2);text-transform:uppercase">Profissão:</span> ' + p.profissao + '</div>' : '') +
-      (p.empresa ? '<div style="margin-bottom:12px;font-size:14px;color:var(--text)"><span style="font-size:11px;color:var(--text2);text-transform:uppercase">Empresa:</span> ' + p.empresa + '</div>' : '') +
-      (p.area ? '<div style="margin-bottom:12px;font-size:14px;color:var(--text)"><span style="font-size:11px;color:var(--text2);text-transform:uppercase">Área:</span> ' + p.area + '</div>' : '') +
-      '</div>';
-    modal.innerHTML = html;
-    modal.style.display = 'flex';
-  }).catch(function(e) { console.error('Erro:', e); });
-};
-
-// Fechar modal ao clicar fora
-document.getElementById('profileModal').addEventListener('click', function(e) {
-  if (e.target === this) this.style.display = 'none';
-});
-
-// FUNÇÃO GLOBAL: Toggle emoji reaction
-window.toggleEmojiReaction = function(btn, commentPath, emoji) {
-  var uid = auth.currentUser ? auth.currentUser.uid : null;
-  if (!uid) return;
-  
-  var reacoes = btn.dataset.reacoes ? JSON.parse(btn.dataset.reacoes) : [];
-  var temMinho = reacoes.indexOf(uid) >= 0;
-  
-  if (temMinho) {
-    reacoes = reacoes.filter(u => u !== uid);
-  } else {
-    reacoes.push(uid);
-  }
-  
-  db.doc(commentPath).update({
-    ['emojiReactions.' + emoji]: reacoes.length > 0 ? reacoes : firebase.firestore.FieldValue.delete()
-  }).then(function() {
-    if (reacoes.length > 0) {
-      btn.textContent = emoji + ' ' + reacoes.length;
-      btn.dataset.reacoes = JSON.stringify(reacoes);
-    } else {
-      btn.remove();
-    }
-  }).catch(function(e) { console.error('Erro:', e); });
-};
-
-// Observar mudanças no DOM e adicionar interatividade
-document.addEventListener('DOMContentLoaded', function() {
-  var observer = new MutationObserver(function() {
-    // Tornar nomes clicáveis
-    document.querySelectorAll('.sa-disc-nome:not([data-clickable])').forEach(function(nome) {
-      nome.setAttribute('data-clickable', 'true');
-      nome.classList.add('sa-disc-nome-clickable');
-      
-      var item = nome.closest('.sa-disc-item');
-      if (!item) return;
-      
-      var autorId = item.getAttribute('data-autor-id');
-      if (!autorId) return;
-      
-      nome.onclick = function(e) {
-        e.preventDefault();
-        window.abrirPerfilAluno(autorId);
-        return false;
-      };
-    });
-    
-    // Tornar avatares clicáveis
-    document.querySelectorAll('.sa-disc-item[data-autor-id]').forEach(function(item) {
-      var avatar = item.querySelector('[data-id="' + item.getAttribute('data-id') + '"]');
-      if (!avatar || avatar._avatar_clickable) return;
-      
-      avatar._avatar_clickable = true;
-      avatar.classList.add('sa-disc-avatar-clickable');
-      var autorId = item.getAttribute('data-autor-id');
-      
-      avatar.onclick = function(e) {
-        e.preventDefault();
-        window.abrirPerfilAluno(autorId);
-        return false;
-      };
-    });
-  });
-  
-  observer.observe(document.body, { childList: true, subtree: true });
-});
-</script>
-
-
-<script>
-// Função para mostrar picker de emojis
-window.mostrarEmojiPicker = function(event, commentId) {
-  event.preventDefault();
-  var btn = event.target;
-  var menu = btn.nextElementSibling;
-  
-  // Se já existe menu, fecha
-  if (menu && menu.classList && menu.classList.contains('emoji-picker-menu')) {
-    menu.remove();
-    return;
-  }
-  
-  // Remove menus antigos
-  document.querySelectorAll('.emoji-picker-menu').forEach(m => m.remove());
-  
-  // Cria novo menu
-  var emojis = ['👍', '❤️', '😂', '😮', '😡'];
-  var menuDiv = document.createElement('div');
-  menuDiv.className = 'emoji-picker-menu';
-  menuDiv.innerHTML = emojis.map(emoji => 
-    '<button onclick="adicionarEmoji(\'' + emoji + '\', \'' + commentId + '\'); this.parentElement.remove();" style="background:none;border:none;cursor:pointer;font-size:18px;padding:4px;border-radius:4px;" onmouseover="this.style.background=\'rgba(232,184,75,0.2)\'" onmouseout="this.style.background=\'none\'">' + emoji + '</button>'
-  ).join('');
-  
-  btn.parentElement.insertBefore(menuDiv, btn.nextSibling);
-};
-
-// Função para adicionar emoji reaction
-    if (emojiUsers.length > 0) {
-      update['emojiReactions.' + emoji] = emojiUsers;
-    } else {
-      update['emojiReactions.' + emoji] = firebase.firestore.FieldValue.delete();
-    }
-    
-    return db.doc(path).update(update);
-  }).catch(function(e) {
-    console.error('Erro ao adicionar emoji:', e);
-  });
-};
-</script>
-
-
-<script>
-// Detecta se veio de admin-hub e salva em sessionStorage
-(function() {
-  var voltarDe = new URLSearchParams(location.search).get('voltarDe');
-  if (voltarDe === 'admin-hub') {
-    sessionStorage.setItem('g20_voltarDe', 'admin-hub');
-  }
-})();
-
-// Monitora quando um comentário é postado e redireciona
-var originalDiscEnviar = window.discEnviar;
-if (typeof discEnviar === 'function') {
-  window.discEnviar = function(ehResposta) {
-    var voltarDe = sessionStorage.getItem('g20_voltarDe');
-    
-    // Chama a função original
-    originalDiscEnviar.call(this, ehResposta);
-    
-    // Se veio de admin-hub, volta após 1 segundo
-    if (voltarDe === 'admin-hub') {
-      setTimeout(function() {
-        window.location.href = 'admin-hub.html?voltarDe=sala-de-aula';
-        sessionStorage.removeItem('g20_voltarDe');
-      }, 1000);
-    }
-  };
-}
-</script>
-
-
-<!-- MODAL DE PERFIL DO ALUNO (LOCAL) -->
+<!-- MODAL PERFIL ALUNO -->
 <div id="perfilAlunoModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:10000;justify-content:center;align-items:center;padding:20px">
-  <div id="perfilAlunoConteudo" style="background:var(--surface);border-radius:12px;max-width:500px;width:100%;padding:24px;border:1px solid var(--border);max-height:80vh;overflow-y:auto">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-      <h2 style="margin:0">Perfil do Aluno</h2>
+  <div style="background:var(--surface);border-radius:12px;max-width:500px;width:100%;padding:24px;border:1px solid var(--border);max-height:80vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;margin-bottom:20px">
+      <h2 style="margin:0">Perfil</h2>
       <button onclick="document.getElementById('perfilAlunoModal').style.display='none'" style="background:none;border:none;font-size:28px;cursor:pointer;color:var(--text2)">×</button>
     </div>
-    <div id="perfilAlunoBody"></div>
+    <div id="perfilAlunoConteudo" style="color:var(--text)">Carregando...</div>
   </div>
 </div>
 
 <style>
-.sa-disc-nome { cursor: pointer; }
-.sa-disc-nome:hover { color: var(--gold); }
-.sa-disc-avatar { cursor: pointer; }
+.sa-disc-nome-click { cursor: pointer; }
+.sa-disc-nome-click:hover { color: var(--gold); }
+.sa-disc-avatar-click { cursor: pointer; }
+.emoji-btn { background: none; border: none; cursor: pointer; font-size: 14px; padding: 4px 6px; color: var(--text2); margin-left: 8px; }
+.emoji-btn:hover { color: var(--gold); }
 </style>
 
 <script>
-// Abrir perfil em modal (sem redirecionar)
-window.abrirPerfilAlunoModal = function(uid) {
+// Abrir perfil em modal
+window.abrirPerfilAluno = function(uid) {
   if (!uid) return;
   var modal = document.getElementById('perfilAlunoModal');
-  var body = document.getElementById('perfilAlunoBody');
+  var conteudo = document.getElementById('perfilAlunoConteudo');
   
-  if (typeof db === 'undefined') {
-    body.innerHTML = '<div style="color:red">Erro: Firestore não carregado</div>';
-    modal.style.display = 'flex';
-    return;
-  }
+  conteudo.innerHTML = 'Carregando...';
+  modal.style.display = 'flex';
   
   db.collection('networking_public').doc(uid).get().then(function(doc) {
     if (!doc.exists) {
-      body.innerHTML = '<div style="color:red">Perfil não encontrado</div>';
-      modal.style.display = 'flex';
+      conteudo.innerHTML = '<div style="color:red">Perfil não encontrado</div>';
       return;
     }
-    
     var p = doc.data();
-    var foto = p.foto || '';
-    
-    var html = '<div>' +
-      (foto ? '<img src="' + foto + '" style="width:100px;height:100px;border-radius:50%;object-fit:cover;margin-bottom:16px">' : '') +
-      '<div style="font-size:24px;font-weight:700;color:var(--text);margin-bottom:16px">' + (p.nome || 'Sem nome') + '</div>' +
-      (p.profissao ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Profissão</div><div style="font-size:14px;color:var(--text)">' + p.profissao + '</div></div>' : '') +
-      (p.empresa ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Empresa</div><div style="font-size:14px;color:var(--text)">' + p.empresa + '</div></div>' : '') +
-      (p.area ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Área</div><div style="font-size:14px;color:var(--text)">' + p.area + '</div></div>' : '') +
-      (p.sobre ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Sobre</div><div style="font-size:14px;color:var(--text)">' + p.sobre + '</div></div>' : '') +
-      '</div>';
-    
-    body.innerHTML = html;
-    modal.style.display = 'flex';
+    var html = (p.foto ? '<img src="' + p.foto + '" style="width:100px;height:100px;border-radius:50%;object-fit:cover;margin-bottom:16px">' : '') +
+      '<div style="font-size:22px;font-weight:700;margin-bottom:16px">' + (p.nome || 'Sem nome') + '</div>' +
+      (p.profissao ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase">Profissão</div><div>' + p.profissao + '</div></div>' : '') +
+      (p.empresa ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase">Empresa</div><div>' + p.empresa + '</div></div>' : '') +
+      (p.area ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase">Área</div><div>' + p.area + '</div></div>' : '') +
+      (p.sobre ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase">Sobre</div><div>' + p.sobre + '</div></div>' : '');
+    conteudo.innerHTML = html;
   }).catch(function(e) {
-    console.error('Erro ao carregar perfil:', e);
-    body.innerHTML = '<div style="color:red">Erro: ' + e.message + '</div>';
-    modal.style.display = 'flex';
+    conteudo.innerHTML = '<div style="color:red">Erro: ' + e.message + '</div>';
   });
 };
 
@@ -3582,35 +3375,54 @@ document.getElementById('perfilAlunoModal').addEventListener('click', function(e
   if (e.target === this) this.style.display = 'none';
 });
 
-// Melhorar função de emoji com debug
+// Mostrar picker de emojis
+window.mostrarEmojiPicker = function(event, commentId) {
+  event.preventDefault();
+  event.stopPropagation();
+  
+  var btn = event.target;
+  var menu = document.getElementById('emojiPicker-' + commentId);
+  
+  if (menu) {
+    menu.style.display = menu.style.display === 'none' ? 'flex' : 'none';
+  } else {
+    var emojis = ['👍', '❤️', '😂', '😮', '😡'];
+    var menuDiv = document.createElement('div');
+    menuDiv.id = 'emojiPicker-' + commentId;
+    menuDiv.style.cssText = 'position:absolute;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;display:flex;gap:4px;z-index:1000';
+    
+    emojis.forEach(function(emoji) {
+      var emojiBtn = document.createElement('button');
+      emojiBtn.textContent = emoji;
+      emojiBtn.onclick = function() {
+        adicionarEmoji(emoji, commentId);
+        menuDiv.style.display = 'none';
+      };
+      emojiBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:18px;padding:4px';
+      menuDiv.appendChild(emojiBtn);
+    });
+    
+    btn.parentElement.appendChild(menuDiv);
+  }
+};
+
+// Adicionar emoji (salvar no Firestore)
 window.adicionarEmoji = function(emoji, commentId) {
   var uid = auth.currentUser ? auth.currentUser.uid : null;
-  if (!uid) { console.log('Sem autenticação'); return; }
+  if (!uid) return;
   
-  var modId = currentModuloId;
-  var aulaId = currentAulaId;
-  var path = 'cursos/g20-masterclass/modulos/' + modId + '/aulas/' + aulaId + '/comentarios/' + commentId;
-  
-  console.log('Adicionando emoji:', emoji, 'Path:', path, 'UID:', uid);
+  var path = 'cursos/g20-masterclass/modulos/' + currentModuloId + '/aulas/' + currentAulaId + '/comentarios/' + commentId;
   
   db.doc(path).get().then(function(doc) {
-    if (!doc.exists) { 
-      console.log('Documento não existe:', path);
-      return; 
-    }
+    if (!doc.exists) return;
     
-    var data = doc.data();
-    var reactions = data.emojiReactions || {};
-    var emojiUsers = reactions[emoji] || [];
+    var emojiUsers = (doc.data().emojiReactions || {})[emoji] || [];
+    var idx = emojiUsers.indexOf(uid);
     
-    console.log('Reações atuais:', reactions);
-    
-    if (emojiUsers.indexOf(uid) >= 0) {
-      emojiUsers = emojiUsers.filter(u => u !== uid);
-      console.log('Removendo emoji');
+    if (idx >= 0) {
+      emojiUsers.splice(idx, 1);
     } else {
       emojiUsers.push(uid);
-      console.log('Adicionando emoji');
     }
     
     var update = {};
@@ -3620,72 +3432,128 @@ window.adicionarEmoji = function(emoji, commentId) {
       update['emojiReactions.' + emoji] = firebase.firestore.FieldValue.delete();
     }
     
-    console.log('Update:', update);
-    return db.doc(path).update(update);
-  }).then(function() {
-    console.log('✅ Emoji salvo!');
-  }).catch(function(e) {
-    console.error('❌ Erro ao adicionar emoji:', e);
+    db.doc(path).update(update).catch(function(e) {
+      console.error('Erro:', e);
+    });
   });
 };
 
-// Adicionar interatividade aos nomes e avatares (DOMContentLoaded)
-document.addEventListener('DOMContentLoaded', function() {
-  setTimeout(function() {
-    // Tornar nomes clicáveis
-    document.querySelectorAll('.sa-disc-nome').forEach(function(nome) {
-      if (nome._clickable) return;
+// Tornar nomes e avatares clicáveis
+setInterval(function() {
+  document.querySelectorAll('.sa-disc-item[data-autor-id]').forEach(function(item) {
+    var uid = item.getAttribute('data-autor-id');
+    if (!uid) return;
+    
+    // Nome
+    var nome = item.querySelector('.sa-disc-nome');
+    if (nome && !nome._clickable) {
       nome._clickable = true;
-      
-      var item = nome.closest('.sa-disc-item');
-      if (!item) return;
-      
-      var autorId = item.getAttribute('data-autor-id');
-      if (!autorId) return;
-      
+      nome.classList.add('sa-disc-nome-click');
       nome.onclick = function(e) {
         e.preventDefault();
-        console.log('Clicou no nome:', autorId);
-        window.abrirPerfilAlunoModal(autorId);
+        window.abrirPerfilAluno(uid);
         return false;
       };
-    });
+    }
     
-    // Tornar avatares clicáveis
-    document.querySelectorAll('.sa-disc-item[data-autor-id]').forEach(function(item) {
-      var autorId = item.getAttribute('data-autor-id');
-      var img = item.querySelector('img');
-      
-      if (!img || img._clickable) return;
+    // Avatar (primeira img)
+    var img = item.querySelector('img');
+    if (img && !img._clickable) {
       img._clickable = true;
-      img.classList.add('sa-disc-avatar');
-      
+      img.classList.add('sa-disc-avatar-click');
       img.onclick = function(e) {
         e.preventDefault();
-        console.log('Clicou na foto:', autorId);
-        window.abrirPerfilAlunoModal(autorId);
-        return false;
-      };
-    });
-  }, 100);
-});
-
-// Observer para quando comentários são renderizados dinamicamente
-var observer = new MutationObserver(function() {
-  document.querySelectorAll('.sa-disc-nome:not([data-interactive])').forEach(function(nome) {
-    nome.setAttribute('data-interactive', 'true');
-    var item = nome.closest('.sa-disc-item');
-    var autorId = item ? item.getAttribute('data-autor-id') : null;
-    if (autorId) {
-      nome.onclick = function(e) {
-        e.preventDefault();
-        window.abrirPerfilAlunoModal(autorId);
+        window.abrirPerfilAluno(uid);
         return false;
       };
     }
   });
+}, 500);
+
+// Adicionar botão de emoji (ao renderizar comentários)
+setInterval(function() {
+  document.querySelectorAll('.sa-disc-rodape:not([data-emoji-btn])').forEach(function(rodape) {
+    rodape.setAttribute('data-emoji-btn', 'true');
+    var commentId = rodape.closest('.sa-disc-item').getAttribute('data-id');
+    
+    var emojiBtn = document.createElement('button');
+    emojiBtn.className = 'emoji-btn';
+    emojiBtn.textContent = '👍';
+    emojiBtn.title = 'Reagir';
+    emojiBtn.onclick = function(e) {
+      window.mostrarEmojiPicker(e, commentId);
+    };
+    
+    rodape.insertBefore(emojiBtn, rodape.firstChild);
+  });
+}, 500);
+</script>
+
+
+<script>
+// Quando responde um comentário, marca automaticamente como lido
+var originalDiscEnviar = window.discEnviar;
+window.discEnviar = function(ehResposta) {
+  if (ehResposta && _discRespondendo) {
+    // Marca o comentário pai como lido
+    var uid = auth.currentUser ? auth.currentUser.uid : null;
+    if (uid) {
+      var path = 'cursos/g20-masterclass/modulos/' + currentModuloId + '/aulas/' + currentAulaId + '/comentarios/' + _discRespondendo;
+      db.doc(path).update({
+        lidoPor: firebase.firestore.FieldValue.arrayUnion(uid)
+      }).catch(function(e) { console.log('Erro ao marcar como lido:', e); });
+    }
+  }
+  
+  // Chama original
+  if (originalDiscEnviar) {
+    return originalDiscEnviar.call(this, ehResposta);
+  }
+};
+</script>
+
+
+<script>
+// Modificar abrirAulaParaResponder para passar voltarDe=admin-hub
+var originalAbrirAula = window.abrirAulaParaResponder;
+if (typeof originalAbrirAula === 'function') {
+  window.abrirAulaParaResponder = function(aulPath, commentId, commentPathFirestore) {
+    marcarComentarioLido(commentPathFirestore, commentId).then(function() {
+      window.location.href = aulPath + '&voltarDe=admin-hub';
+      setTimeout(function() { fecharComentarios(); }, 100);
+    });
+  };
+}
+</script>
+
+
+<script>
+// Detectar e redirecionar de volta para admin-hub
+window.addEventListener('load', function() {
+  var params = new URLSearchParams(window.location.search);
+  var voltarDe = params.get('voltarDe');
+  
+  if (voltarDe === 'admin-hub') {
+    sessionStorage.setItem('g20_voltarDe', 'admin-hub');
+  }
 });
 
-observer.observe(document.body, { childList: true, subtree: true });
+// Quando um comentário é postado, voltar para admin-hub
+var originalDiscEnviarGlobal = window.discEnviar;
+window.discEnviar = function(ehResposta) {
+  var voltarDe = sessionStorage.getItem('g20_voltarDe');
+  
+  if (originalDiscEnviarGlobal) {
+    originalDiscEnviarGlobal.call(this, ehResposta);
+  }
+  
+  // Se veio de admin-hub, volta após postar
+  if (voltarDe === 'admin-hub') {
+    setTimeout(function() {
+      window.location.href = 'admin-hub.html?voltarDe=sala-de-aula';
+      sessionStorage.removeItem('g20_voltarDe');
+    }, 1500);
+  }
+};
 </script>
 
