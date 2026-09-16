@@ -84,7 +84,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
 
     <a href="admin.html" class="card" style="--ac:#e8b84b;--acbg:rgba(232,184,75,.12);--acbd:rgba(232,184,75,.25)">
       <div class="card-ico"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="users" aria-hidden="true" class="lucide lucide-users"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><path d="M16 3.128a4 4 0 0 1 0 7.744"></path><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><circle cx="9" cy="7" r="4"></circle></svg></div>
-      <div class="card-title">Alunos &amp; Acessos</div>
+      <div class="card-title">Alunos &amp; Acessos <span id="pendBadge" style="display:none"></span></div>
       <div class="card-desc">Aprovar, bloquear e editar alunos. Gerenciar turmas, tier Infinite e liberacao de acesso.</div>
       <span class="card-go">Abrir painel <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="arrow-right" aria-hidden="true" class="lucide lucide-arrow-right"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></span>
     </a>
@@ -140,7 +140,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
 
     <a href="admin-feedback.html" class="card" style="--ac:#1abc9c;--acbg:rgba(26,188,156,.12);--acbd:rgba(26,188,156,.25)">
       <div class="card-ico"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="message-square" aria-hidden="true" class="lucide lucide-message-square"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"></path></svg></div>
-      <div class="card-title">Feedback</div>
+      <div class="card-title">Feedback <span id="fbBadge" style="display:none"></span></div>
       <div class="card-desc">Sugestoes, bugs e feedback enviados pelos alunos pela plataforma.</div>
       <span class="card-go">Abrir painel <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="arrow-right" aria-hidden="true" class="lucide lucide-arrow-right"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></span>
     </a>
@@ -384,6 +384,17 @@ function fecharComentarios(){
   document.getElementById('comModal').style.display = 'none';
 }
 
+/* ESC fecha o modal que estiver aberto. Os dois modais desta página usam
+   display:flex quando abertos, então basta olhar para isso — nada de
+   variável de estado paralela, que sempre acaba dessincronizada. */
+document.addEventListener('keydown', function(e){
+  if (e.key !== 'Escape' && e.keyCode !== 27) return;
+  var com  = document.getElementById('comModal');
+  var armz = document.getElementById('armzModal');
+  if (com && com.style.display === 'flex') { fecharComentarios(); return; }
+  if (armz && armz.style.display === 'flex') { fecharArmazenamento(); }
+});
+
 function _comEsc(t){
   return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
@@ -582,6 +593,100 @@ firebase.initializeApp({
 const auth = firebase.auth();
 const db   = firebase.firestore();
 
+/* ═══════════════════════════════════════════════════════════════════════
+   VIGIA DE PENDÊNCIAS — alunos esperando aprovação e feedback sem resposta
+
+   Duas contagens que o admin precisa ver sem entrar em cada painel:
+   quantos alunos aguardam liberação de acesso e quantos feedbacks ainda
+   não foram respondidos.
+
+   CUSTO
+   Uma varredura de cada coleção por DIA, guardada no localStorage. Com
+   ~21 alunos e algumas dezenas de sugestões, são poucas dezenas de
+   leituras diárias por admin — irrisório perto da cota de 50.000/dia.
+
+   POR QUE VARRER EM VEZ DE FILTRAR NO SERVIDOR
+   "Pendente" inclui documentos onde o campo `aprovado` simplesmente não
+   existe (cadastros antigos), e o Firestore não sabe consultar ausência
+   de campo. O mesmo vale para `sugestoes` sem `status`. Varrer e contar
+   no cliente é o único jeito honesto com o volume atual.
+   ═══════════════════════════════════════════════════════════════════════ */
+var _PEND_CACHE = 'g20_pendVigia';
+var _PEND_INTERV = 24 * 60 * 60 * 1000;   // 1 dia
+
+function _pendPintar(res){
+  if (!res) return;
+
+  var fb = document.getElementById('fbBadge');
+  if (fb) {
+    if (res.feedback) {
+      fb.style.display = 'inline-block';
+      fb.textContent = res.feedback;
+      fb.style.cssText = 'display:inline-block;margin-left:8px;padding:2px 9px;' +
+        'border-radius:11px;background:#1abc9c;color:#0d0c10;font-size:12px;font-weight:800';
+    } else {
+      fb.style.display = 'none';
+    }
+  }
+
+  var pd = document.getElementById('pendBadge');
+  if (pd) {
+    if (res.pendentes) {
+      pd.style.display = 'inline-block';
+      pd.textContent = res.pendentes;
+      pd.style.cssText = 'display:inline-block;margin-left:8px;padding:2px 9px;' +
+        'border-radius:11px;background:#e8b84b;color:#0d0c10;font-size:12px;font-weight:800';
+    } else {
+      pd.style.display = 'none';
+    }
+  }
+}
+
+function _pendConsultar(){
+  var res = { em: Date.now(), pendentes: 0, feedback: 0 };
+
+  var pUsers = db.collection('users').get().then(function(snap){
+    var n = 0;
+    snap.forEach(function(d){
+      var u = d.data() || {};
+      if (u.aprovado !== true && u.aprovado !== 'bloqueado') n++;
+    });
+    res.pendentes = n;
+  }).catch(function(){});
+
+  var pSug = db.collection('sugestoes').get().then(function(snap){
+    var n = 0;
+    snap.forEach(function(d){
+      var s = d.data() || {};
+      var st = s.status || 'novo';
+      if (st !== 'respondido' && st !== 'resolvido') n++;
+    });
+    res.feedback = n;
+  }).catch(function(){});
+
+  return Promise.all([pUsers, pSug]).then(function(){
+    try { localStorage.setItem(_PEND_CACHE, JSON.stringify(res)); } catch(e){}
+    _pendPintar(res);
+  });
+}
+
+function _pendVigia(forcar){
+  var cache = null;
+  try { cache = JSON.parse(localStorage.getItem(_PEND_CACHE) || 'null'); } catch(e){}
+  if (cache) _pendPintar(cache);                 // mostra o que já sabe, na hora
+
+  if (forcar || !cache || (Date.now() - (cache.em || 0)) > _PEND_INTERV) {
+    setTimeout(_pendConsultar, forcar ? 0 : 1200);
+  }
+}
+
+/* Diagnóstico: G20DiagPend() recontagem na hora, ignorando o cache. */
+window.G20DiagPend = function(){
+  try { localStorage.removeItem(_PEND_CACHE); } catch(e){}
+  _pendVigia(true);
+  return 'recontando pendências…';
+};
+
 auth.onAuthStateChanged(async function(user){
   if(!user){ window.location.href = 'login.html'; return; }
   try{
@@ -596,6 +701,7 @@ auth.onAuthStateChanged(async function(user){
     var ol = document.getElementById('g20LoadingOverlay');
     if(ol) ol.style.display = 'none';
     if(window.lucide && lucide.createIcons) lucide.createIcons();
+    _pendVigia();
   }catch(e){
     window.location.href = 'dashboard.html';
   }

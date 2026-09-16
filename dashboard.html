@@ -7967,17 +7967,30 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
     <div class="g20-tabs"></div>
 
     <div class="topbar-right">
-      <!-- Alerta de comentários novos — só admin, e só quando há novidade.
-           Nasce escondido; quem o mostra é o pintar() do vigia, lá no fim
-           do arquivo. Fica aqui em cima porque a faixa do rodapé exigia
-           rolar o dashboard inteiro para ser vista. -->
-      <a id="comTopAlerta" href="admin-hub.html?comentarios=1" title="Comentários novos nas aulas"
+      <!-- Atalho de comentários das aulas — só admin. Nasce escondido e
+           quem o revela é o pintarTopo() do vigia, lá no fim do arquivo,
+           depois de confirmar que o perfil é admin. Ao contrário da faixa
+           do rodapé, este NÃO some quando não há novidade: vira um botão
+           cinza "Nenhum comentário novo", porque serve de acesso
+           permanente ao modal de comentários. -->
+      <a id="comTopAlerta" href="admin-hub.html?comentarios=1" title="Abrir comentários das aulas"
          style="display:none;align-items:center;gap:7px;height:38px;padding:0 13px;border-radius:10px;
                 text-decoration:none;background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.35);
                 color:#4ade80;font-size:13px;font-weight:700;white-space:nowrap;
                 box-shadow:0 0 0 0 rgba(74,222,128,.4);animation:comPulse 2.4s ease-out infinite">
         <span style="font-size:15px;line-height:1">💬</span>
         <span id="comTopAlertaTxt"></span>
+      </a>
+      <!-- Feedback sem resposta — só admin, e só quando existe algo
+           pendente. Diferente da pílula de comentários, esta SOME quando
+           está tudo respondido: feedback já tem card fixo no admin-hub,
+           então aqui ela é puro alerta. -->
+      <a id="fbTopAlerta" href="admin-feedback.html" title="Feedback sem resposta"
+         style="display:none;align-items:center;gap:7px;height:38px;padding:0 13px;border-radius:10px;
+                text-decoration:none;background:rgba(26,188,156,.12);border:1px solid rgba(26,188,156,.35);
+                color:#1abc9c;font-size:13px;font-weight:700;white-space:nowrap">
+        <span style="font-size:15px;line-height:1">📮</span>
+        <span id="fbTopAlertaTxt"></span>
       </a>
       <button class="btn-gsearch" onclick="gsearchAbrir()" title="Buscar (Ctrl+K)" aria-label="Buscar">
         <i data-lucide="search"></i>
@@ -21302,25 +21315,43 @@ html body .topbar {
   var CACHE   = 'g20_comVigia';
   var INTERV  = 30 * 60 * 1000;   // 30 min entre consultas
 
+  /* Pinta a pílula da topbar. Diferente da faixa do rodapé, ela NÃO some
+     quando não há novidade: o admin usa esse botão como atalho permanente
+     para o modal de comentários, então ele fica sempre lá, só trocando de
+     roupa. Verde pulsante com contador quando há algo novo; cinza parado
+     dizendo "nenhum comentário novo" quando está em dia. */
+  function pintarTopo(novos){
+    var topEl  = document.getElementById('comTopAlerta');
+    var topTxt = document.getElementById('comTopAlertaTxt');
+    if (!topEl || !topTxt) return;
+
+    topEl.style.display = 'inline-flex';
+
+    if (novos) {
+      topEl.style.background   = 'rgba(74,222,128,.12)';
+      topEl.style.borderColor  = 'rgba(74,222,128,.35)';
+      topEl.style.color        = '#4ade80';
+      topEl.style.animation    = 'comPulse 2.4s ease-out infinite';
+      topEl.title              = 'Comentários novos nas aulas';
+      topTxt.textContent       = novos === 1
+        ? '1 comentário novo'
+        : novos + ' comentários novos';
+    } else {
+      topEl.style.background   = 'rgba(255,255,255,.04)';
+      topEl.style.borderColor  = 'rgba(255,255,255,.10)';
+      topEl.style.color        = '#8b93a7';
+      topEl.style.animation    = 'none';
+      topEl.style.boxShadow    = 'none';
+      topEl.title              = 'Abrir comentários das aulas';
+      topTxt.textContent       = 'Nenhum comentário novo';
+    }
+  }
+
   function pintar(res){
     var el  = document.getElementById('comAlerta');
     var txt = document.getElementById('comAlertaTxt');
 
-    /* Espelho na topbar: mesma informação, resumida, sem precisar rolar
-       a página até o rodapé. Tratado antes da faixa porque um pode existir
-       sem o outro (a faixa é exclusiva do dashboard). */
-    var topEl  = document.getElementById('comTopAlerta');
-    var topTxt = document.getElementById('comTopAlertaTxt');
-    if (topEl && topTxt && res) {
-      if (res.novos) {
-        topEl.style.display = 'inline-flex';
-        topTxt.textContent  = res.novos === 1
-          ? '1 comentário novo'
-          : res.novos + ' comentários novos';
-      } else {
-        topEl.style.display = 'none';
-      }
-    }
+    pintarTopo(res && res.novos ? res.novos : 0);
 
     if (!el || !txt || !res) return;
     if (!res.novos) { el.style.display = 'none'; return; }
@@ -21410,10 +21441,67 @@ html body .topbar {
       .catch(function(e){ console.warn('[G20 comentários]', e && e.message); });
   }
 
+  /* ─── FEEDBACK SEM RESPOSTA ─────────────────────────────────────────────
+     Mora aqui dentro para reaproveitar o gate de admin do vigia. Cache de
+     um dia: feedback não é conversa de minuto a minuto, e uma varredura
+     diária da coleção `sugestoes` custa poucas dezenas de leituras.
+
+     "Sem resposta" é status diferente de respondido/resolvido. Documentos
+     antigos podem não ter o campo, e o Firestore não consulta ausência —
+     por isso a contagem é feita no cliente, como no admin-hub. */
+  var FBCACHE  = 'g20_fbVigia';
+  var FBINTERV = 24 * 60 * 60 * 1000;
+
+  function pintarFeedback(n){
+    var el  = document.getElementById('fbTopAlerta');
+    var txt = document.getElementById('fbTopAlertaTxt');
+    if (!el || !txt) return;
+    if (!n) { el.style.display = 'none'; return; }
+    el.style.display = 'inline-flex';
+    txt.textContent = n === 1 ? '1 feedback sem resposta'
+                              : n + ' feedbacks sem resposta';
+  }
+
+  function consultarFeedback(){
+    var db;
+    try { db = firebase.firestore(); } catch(e){ return; }
+    db.collection('sugestoes').get().then(function(snap){
+      var n = 0;
+      snap.forEach(function(d){
+        var s  = d.data() || {};
+        var st = s.status || 'novo';
+        if (st !== 'respondido' && st !== 'resolvido') n++;
+      });
+      try { localStorage.setItem(FBCACHE, JSON.stringify({ em: Date.now(), n: n })); } catch(e){}
+      pintarFeedback(n);
+    }).catch(function(e){ console.warn('[G20 feedback]', e && e.message); });
+  }
+
+  function vigiaFeedback(forcar){
+    var cache = null;
+    try { cache = JSON.parse(localStorage.getItem(FBCACHE) || 'null'); } catch(e){}
+    if (cache) pintarFeedback(cache.n);
+    if (forcar || !cache || (Date.now() - (cache.em || 0)) > FBINTERV) {
+      setTimeout(consultarFeedback, forcar ? 0 : 6000);
+    }
+  }
+
+  window.G20DiagFeedback = function(){
+    try { localStorage.removeItem(FBCACHE); } catch(e){}
+    vigiaFeedback(true);
+    return 'consultando feedback — acompanhe o console';
+  };
+
   window._g20ComVigia = function(forcar){
     var ehAdmin = false;
     try { ehAdmin = (JSON.parse(localStorage.getItem('g20_user_profile') || '{}').role === 'admin'); } catch(e){}
     if (!ehAdmin) return;
+
+    /* O botão da topbar aparece na hora, em estado neutro, antes mesmo de
+       consultar. Sem isso ele só nasceria depois da primeira consulta —
+       e num boot sem cache o admin ficaria sem o atalho por 5 segundos. */
+    pintarTopo(0);
+    vigiaFeedback(forcar);
 
     var cache = null;
     try { cache = JSON.parse(localStorage.getItem(CACHE) || 'null'); } catch(e){}
