@@ -47,9 +47,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (max-width:600px){.page-title{font-size:32px}body{padding:16px;padding-top:max(16px, env(safe-area-inset-top))}}
 
-.comentario-novo { background: rgba(46,204,113,.07) !important; border-color: rgba(46,204,113,.26) !important; cursor: pointer; }
-.comentario-lido { background: rgba(255,255,255,.03) !important; border-color: rgba(255,255,255,.06) !important; cursor: pointer; }
-
+.com-novo { background: rgba(46,204,113,.07) !important; border-color: rgba(46,204,113,.26) !important; }
+.com-lido { background: rgba(255,255,255,.03) !important; border-color: rgba(255,255,255,.06) !important; }
 </style>
 </head>
 <body>
@@ -442,10 +441,10 @@ function carregarComentarios(){
 
       box.innerHTML = itens.map(function(c){
         var link = 'sala-de-aula.html#aula=' + c._modulo + '~' + c._aula;
-        var meuid = auth.currentUser ? auth.currentUser.uid : null;
-        var jaLi = c.lidoPor && meuid && c.lidoPor.indexOf(meuid) >= 0;
-        var classe = jaLi ? 'comentario-lido' : 'comentario-novo';
-        return '<div class="' + classe + '" style="padding:16px 18px;margin-bottom:11px;border-radius:12px;border:1px solid var(--border)" data-comment-id="' + c._id + '" data-comment-path="' + c._path.replace(/"/g, '\\\"') + '" data-lido="' + (jaLi ? 'true' : 'false') + '" onclick="toggleCommentarioLidoSimples(this, '' + c._path.replace(/'/g, "\\'") + '')" style="border:1px solid var(--border)">' +
+        var uid = auth.currentUser ? auth.currentUser.uid : null;
+        var jaLi = c.lidoPor && uid && c.lidoPor.indexOf(uid) >= 0;
+        var cls = jaLi ? 'com-lido' : 'com-novo';
+        return '<div class="' + cls + '" style="padding:16px 18px;margin-bottom:11px;border-radius:12px;border:1px solid var(--border);cursor:pointer" data-comment-id="' + c._id + '" data-path="' + c._path.replace(/"/g, '\\\"') + '" onclick="marcarComolido(this, \'' + c._path.replace(/'/g, "\\'") + '\', \'' + uid + '\')">' +
           '<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;flex-wrap:wrap">' +
             '<span style="font-size:14px;font-weight:700;color:#e8eaf0">' + _comEsc(c.autorNome) + '</span>' +
             (c.admin ? '<span style="padding:2px 8px;border-radius:9px;background:rgba(201,169,97,.18);' +
@@ -563,35 +562,22 @@ if(window.lucide && lucide.createIcons) lucide.createIcons();
 </script>
 
 
-</body></html>
 
 <script>
-// Toggle simples de lido/não lido
-function toggleCommentarioLidoSimples(elemento, commentPath) {
-  var uid = auth.currentUser ? auth.currentUser.uid : null;
+function marcarComolido(elem, path, uid) {
   if (!uid) return;
-  
-  var jaLi = elemento.getAttribute('data-lido') === 'true';
-  
+  var jaLi = elem.classList.contains('com-lido');
   if (jaLi) {
-    // Remover do array
-    db.doc(commentPath).update({
-      lidoPor: firebase.firestore.FieldValue.arrayRemove(uid)
-    }).then(function() {
-      elemento.classList.remove('comentario-lido');
-      elemento.classList.add('comentario-novo');
-      elemento.setAttribute('data-lido', 'false');
+    db.doc(path).update({ lidoPor: firebase.firestore.FieldValue.arrayRemove(uid) }).then(function() {
+      elem.classList.remove('com-lido');
+      elem.classList.add('com-novo');
     });
   } else {
-    // Adicionar ao array
-    db.doc(commentPath).update({
-      lidoPor: firebase.firestore.FieldValue.arrayUnion(uid)
-    }).then(function() {
-      elemento.classList.remove('comentario-novo');
-      elemento.classList.add('comentario-lido');
-      elemento.setAttribute('data-lido', 'true');
+    db.doc(path).update({ lidoPor: firebase.firestore.FieldValue.arrayUnion(uid) }).then(function() {
+      elem.classList.remove('com-novo');
+      elem.classList.add('com-lido');
     });
   }
 }
 </script>
-
+</body></html>
