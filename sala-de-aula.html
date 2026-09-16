@@ -511,7 +511,12 @@ body.preview-aluno-mode .sa-admin-topbar-btn { display: none !important; }
 .sa-disc-acao.excluir:hover{color:#f87171}
 
 /* Reações — a contagem fica no rodapé, ao lado de Responder */
-.sa-reagir-btn{font-size:15px;line-height:1}
+.sa-reagir-btn{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:20px;
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#c9c6c1;
+  font-size:12.5px;font-weight:600;transition:background .15s,border-color .15s,color .15s}
+.sa-reagir-btn:hover{background:rgba(232,184,75,.12);border-color:rgba(232,184,75,.4);color:#e8b84b}
+.sa-reagir-btn.ativo{background:rgba(232,184,75,.14);border-color:rgba(232,184,75,.45);color:#e8b84b}
+.sa-reagir-ico{font-size:16px;line-height:1}
 .sa-reacao{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.05);
   border:1px solid rgba(255,255,255,.1);color:#c9c6c1;font-family:inherit;font-size:12.5px;
   padding:3px 9px;border-radius:20px;cursor:pointer;transition:background .15s,border-color .15s}
@@ -524,6 +529,7 @@ body.preview-aluno-mode .sa-admin-topbar-btn { display: none !important; }
 .sa-picker button{background:none;border:none;cursor:pointer;font-size:21px;line-height:1;
   padding:5px 7px;border-radius:8px;transition:transform .12s,background .12s}
 .sa-picker button:hover{transform:scale(1.25);background:rgba(255,255,255,.07)}
+.sa-picker button.atual{background:rgba(232,184,75,.18);box-shadow:inset 0 0 0 1px rgba(232,184,75,.45)}
 
 /* Resposta: um nível só, recuada */
 .sa-disc-respostas{margin-top:16px;padding-left:20px;display:flex;flex-direction:column;gap:18px;
@@ -2632,19 +2638,42 @@ function renderDiscussao(itens){
      renderizar aqui não custa leitura nenhuma. Tentativas anteriores
      buscavam comentário por comentário depois de montar a lista — N
      leituras a mais, e tudo se perdia no próximo render. */
+  function minhaReacao(c){
+    var r = c.emojiReactions || {};
+    var achou = null;
+    Object.keys(r).forEach(function(e){
+      if ((r[e] || []).indexOf(meu) >= 0) achou = e;
+    });
+    return achou;
+  }
+
   function reacoesHtml(c){
     var r = c.emojiReactions || {};
+    var minha = minhaReacao(c);
     var out = '';
     SA_EMOJIS.forEach(function(e){
       var us = r[e] || [];
       if (!us.length) return;
-      var euReagi = us.indexOf(meu) >= 0;
+      var euReagi = (minha === e);
       out += '<button class="sa-reacao' + (euReagi ? ' minha' : '') + '"' +
              ' onclick="discReagir(\'' + c.id + '\',\'' + e + '\')"' +
-             ' title="' + (euReagi ? 'Remover sua reação' : 'Reagir') + '">' +
+             ' title="' + (euReagi ? 'Remover sua reação' : 'Reagir assim') + '">' +
              e + ' <span>' + us.length + '</span></button>';
     });
     return out;
+  }
+
+  /* O gatilho mostra 👍 por padrão — assim o aluno reconhece de cara que
+     ali se curte. Depois de reagir, ele passa a exibir a reação escolhida,
+     virando também o indicador do próprio voto. */
+  function botaoReagir(c){
+    var minha = minhaReacao(c);
+    return '<button class="sa-disc-acao sa-reagir-btn' + (minha ? ' ativo' : '') + '"' +
+           ' onclick="discAbrirPicker(event,\'' + c.id + '\')"' +
+           ' title="Reagir a este comentário">' +
+           '<span class="sa-reagir-ico">' + (minha || '👍') + '</span>' +
+           '<span class="sa-reagir-lbl">' + (minha ? 'Reagiu' : 'Curtir') + '</span>' +
+           '</button>';
   }
 
   function bloco(c, ehResposta){
@@ -2660,7 +2689,7 @@ function renderDiscussao(itens){
                '</div>' +
                '<div class="sa-disc-texto">' + _esc2(c.texto) + '</div>' +
                '<div class="sa-disc-rodape">' +
-                 '<button class="sa-disc-acao sa-reagir-btn" onclick="discAbrirPicker(event,\'' + c.id + '\')" title="Reagir">☺</button>' +
+                 botaoReagir(c) +
                  (ehResposta ? '' : '<button class="sa-disc-acao" onclick="discResponder(\'' + c.id + '\')">Responder</button>') +
                  (podeApagar ? '<button class="sa-disc-acao excluir" onclick="discExcluir(\'' + c.id + '\')">Excluir</button>' : '') +
                  reacoesHtml(c) +
@@ -2703,6 +2732,22 @@ function discAbrirPicker(ev, id){
   discFecharPicker();
   if (mesmo) return;               // clicar de novo no mesmo botão fecha
 
+  /* Descobre qual reação é a sua neste comentário, para destacá-la no
+     picker — clicar nela de novo desmarca. */
+  var minhaAqui = null;
+  try {
+    var _uidMeu = _discPerfil().uid;
+    var _its = _discCache[currentAulaId] || [];
+    for (var k = 0; k < _its.length; k++) {
+      if (_its[k].id !== id) continue;
+      var _r = _its[k].emojiReactions || {};
+      Object.keys(_r).forEach(function(e){
+        if ((_r[e] || []).indexOf(_uidMeu) >= 0) minhaAqui = e;
+      });
+      break;
+    }
+  } catch(e){}
+
   var box = document.createElement('div');
   box.id = 'saPicker';
   box.className = 'sa-picker';
@@ -2710,6 +2755,10 @@ function discAbrirPicker(ev, id){
   SA_EMOJIS.forEach(function(e){
     var b = document.createElement('button');
     b.textContent = e;
+    if (e === minhaAqui) {
+      b.className = 'atual';
+      b.title = 'Sua reação — clique para remover';
+    }
     b.onclick = function(evt){
       evt.preventDefault();
       evt.stopPropagation();
@@ -2749,30 +2798,43 @@ function discReagir(id, emoji){
   if (!c) return;
 
   if (!c.emojiReactions) c.emojiReactions = {};
-  var us = c.emojiReactions[emoji] || [];
-  var pos = us.indexOf(pf.uid);
-  var tirando = pos >= 0;
+  var antes = JSON.parse(JSON.stringify(c.emojiReactions));   // para desfazer
 
-  if (tirando) us.splice(pos, 1);
-  else us.push(pf.uid);
+  /* Uma reação por pessoa. Descobre onde o voto está hoje e tira de lá,
+     seja qual for o emoji — inclusive de um emoji que já saiu do picker,
+     porque varremos o que está gravado, não a lista fixa. */
+  var atual = null;
+  Object.keys(c.emojiReactions).forEach(function(e){
+    var us = c.emojiReactions[e] || [];
+    var p = us.indexOf(pf.uid);
+    if (p >= 0) {
+      atual = e;
+      us.splice(p, 1);
+      if (us.length) c.emojiReactions[e] = us;
+      else delete c.emojiReactions[e];
+    }
+  });
 
-  if (us.length) c.emojiReactions[emoji] = us;
-  else delete c.emojiReactions[emoji];
+  /* Clicar na reação que já era a sua desmarca. Clicar noutra troca. */
+  var trocando = (atual !== emoji);
+  if (trocando) {
+    var novos = c.emojiReactions[emoji] || [];
+    novos.push(pf.uid);
+    c.emojiReactions[emoji] = novos;
+  }
 
   renderDiscussao(itens);          // instantâneo, a partir do cache
 
   var FV = firebase.firestore.FieldValue;
   var patch = {};
-  patch['emojiReactions.' + emoji] = tirando ? FV.arrayRemove(pf.uid) : FV.arrayUnion(pf.uid);
+  if (atual) patch['emojiReactions.' + atual] = FV.arrayRemove(pf.uid);
+  if (trocando) patch['emojiReactions.' + emoji] = FV.arrayUnion(pf.uid);
+  if (!Object.keys(patch).length) return;
+
   try {
     _discRef().doc(id).update(patch).catch(function(err){
       console.warn('[SA] reação não gravou:', err && err.message);
-      /* Desfaz para a tela não mentir sobre o que está salvo. */
-      var u2 = c.emojiReactions[emoji] || [];
-      if (tirando) u2.push(pf.uid);
-      else { var p2 = u2.indexOf(pf.uid); if (p2 >= 0) u2.splice(p2, 1); }
-      if (u2.length) c.emojiReactions[emoji] = u2;
-      else delete c.emojiReactions[emoji];
+      c.emojiReactions = antes;    // volta ao estado exato de antes do clique
       renderDiscussao(itens);
     });
   } catch(e){}
