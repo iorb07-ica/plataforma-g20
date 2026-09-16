@@ -510,6 +510,14 @@ body.preview-aluno-mode .sa-admin-topbar-btn { display: none !important; }
 .sa-disc-acao:hover{color:#e8b84b}
 .sa-disc-acao.excluir:hover{color:#f87171}
 
+/* Edição no lugar do próprio comentário */
+.sa-disc-edit{width:100%;min-height:70px;padding:11px 13px;border-radius:10px;
+  background:rgba(0,0,0,.28);border:1px solid rgba(232,184,75,.35);color:#e8eaf0;
+  font-family:inherit;font-size:15px;line-height:1.7;resize:none;overflow:hidden;
+  margin-bottom:9px}
+.sa-disc-edit:focus{outline:none;border-color:rgba(232,184,75,.65)}
+.sa-disc-edit-acoes{display:flex;gap:9px;justify-content:flex-end;margin-bottom:4px}
+
 /* Reações — a contagem fica no rodapé, ao lado de Responder */
 .sa-reagir-btn{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:20px;
   background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#c9c6c1;
@@ -2678,6 +2686,10 @@ function renderDiscussao(itens){
 
   function bloco(c, ehResposta){
     var podeApagar = (c.autorId === meu) || SA_IS_ADMIN;
+    /* Editar só o que é seu, e só admin: se o aluno pudesse reescrever o
+       comentário depois de respondido, a sua resposta ficaria pendurada
+       num texto que não existe mais. */
+    var podeEditar = SA_IS_ADMIN && (c.autorId === meu);
     var respostas  = porPai[c.id] || [];
     return '<div class="sa-disc-item' + (ehResposta ? ' resp' : '') +
              (c.admin ? ' admin' : '') + '" data-id="' + c.id + '">' +
@@ -2691,6 +2703,7 @@ function renderDiscussao(itens){
                '<div class="sa-disc-rodape">' +
                  botaoReagir(c) +
                  (ehResposta ? '' : '<button class="sa-disc-acao" onclick="discResponder(\'' + c.id + '\')">Responder</button>') +
+                 (podeEditar ? '<button class="sa-disc-acao" onclick="discEditar(\'' + c.id + '\')">Editar</button>' : '') +
                  (podeApagar ? '<button class="sa-disc-acao excluir" onclick="discExcluir(\'' + c.id + '\')">Excluir</button>' : '') +
                  reacoesHtml(c) +
                '</div>' +
@@ -2838,6 +2851,90 @@ function discReagir(id, emoji){
       renderDiscussao(itens);
     });
   } catch(e){}
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   EDITAR O PRÓPRIO COMENTÁRIO
+
+   Troca o texto por uma caixa de edição no lugar, sem modal e sem sair da
+   conversa. O cache em memória é atualizado junto com o Firestore, senão o
+   próximo render (uma reação, por exemplo) traria o texto antigo de volta.
+   ═══════════════════════════════════════════════════════════════════════ */
+function discEditar(id){
+  var item = document.querySelector('.sa-disc-item[data-id="' + id + '"]');
+  if (!item) return;
+  if (item.querySelector('.sa-disc-edit')) return;      // já está editando
+
+  var txtEl = item.querySelector('.sa-disc-texto');
+  var rodape = item.querySelector('.sa-disc-rodape');
+  if (!txtEl || !rodape) return;
+
+  var original = txtEl.textContent;
+
+  var ta = document.createElement('textarea');
+  ta.className = 'sa-disc-edit';
+  ta.value = original;
+  txtEl.style.display = 'none';
+  rodape.parentNode.insertBefore(ta, rodape);
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(320, ta.scrollHeight + 4) + 'px';
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+  ta.oninput = function(){
+    this.style.height = 'auto';
+    this.style.height = Math.min(320, this.scrollHeight + 4) + 'px';
+  };
+
+  var acoes = document.createElement('div');
+  acoes.className = 'sa-disc-edit-acoes';
+  acoes.innerHTML =
+    '<button class="sa-disc-cancelar" onclick="discEditarCancelar(\'' + id + '\')">Cancelar</button>' +
+    '<button class="sa-disc-enviar" onclick="discEditarSalvar(\'' + id + '\')">Salvar</button>';
+  rodape.parentNode.insertBefore(acoes, rodape);
+  rodape.style.display = 'none';
+}
+
+function discEditarCancelar(id){
+  var item = document.querySelector('.sa-disc-item[data-id="' + id + '"]');
+  if (!item) return;
+  var ta = item.querySelector('.sa-disc-edit');
+  var acoes = item.querySelector('.sa-disc-edit-acoes');
+  if (ta) ta.remove();
+  if (acoes) acoes.remove();
+  var txtEl = item.querySelector('.sa-disc-texto');
+  if (txtEl) txtEl.style.display = '';
+  var rodape = item.querySelector('.sa-disc-rodape');
+  if (rodape) rodape.style.display = '';
+}
+
+function discEditarSalvar(id){
+  var item = document.querySelector('.sa-disc-item[data-id="' + id + '"]');
+  if (!item) return;
+  var ta = item.querySelector('.sa-disc-edit');
+  if (!ta) return;
+
+  var novo = (ta.value || '').trim();
+  if (!novo) { alert('O comentário não pode ficar vazio.'); ta.focus(); return; }
+  if (novo.length > 2000) { alert('Comentário muito longo (máximo 2000 caracteres).'); return; }
+
+  var txtEl = item.querySelector('.sa-disc-texto');
+  if (novo === txtEl.textContent) { discEditarCancelar(id); return; }
+
+  var btn = item.querySelector('.sa-disc-edit-acoes .sa-disc-enviar');
+  if (btn) { btn.disabled = true; btn.textContent = 'Salvando…'; }
+
+  _discRef().doc(id).update({ texto: novo }).then(function(){
+    /* Mantém o cache em dia: é dele que sai todo render seguinte. */
+    var itens = _discCache[currentAulaId] || [];
+    for (var i = 0; i < itens.length; i++) {
+      if (itens[i].id === id) { itens[i].texto = novo; break; }
+    }
+    discEditarCancelar(id);
+    renderDiscussao(itens);
+  }).catch(function(e){
+    alert('Não consegui salvar: ' + (e && e.message));
+    if (btn) { btn.disabled = false; btn.textContent = 'Salvar'; }
+  });
 }
 
 function discResponder(id){

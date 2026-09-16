@@ -50,6 +50,23 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
 .com-card{padding:16px 18px;margin-bottom:11px;border-radius:12px;transition:background .18s ease,border-color .18s ease}
 .com-card.is-nao-lido{background:rgba(46,204,113,.07);border:1px solid rgba(46,204,113,.28)}
 .com-card.is-lido{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)}
+.com-btn-resp{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);
+  color:#8b93a7;padding:6px 13px;border-radius:7px;font-size:12px;font-weight:700;
+  cursor:pointer;font-family:inherit;transition:background .18s ease}
+.com-btn-resp:hover{background:rgba(255,255,255,.1);color:#c9c6c1}
+.com-btn-resp.salvar{background:rgba(46,204,113,.16);border-color:rgba(46,204,113,.45);color:#2ecc71}
+.com-btn-resp.salvar:hover{background:rgba(46,204,113,.26)}
+.com-resp-box{margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.07)}
+.com-resp{padding:12px 14px;border-radius:10px;background:rgba(201,169,97,.06);
+  border:1px solid rgba(201,169,97,.18);margin-bottom:9px}
+.com-resp:last-child{margin-bottom:0}
+.com-resp-lbl{font-size:10px;font-weight:800;letter-spacing:.8px;color:#c9a961;margin-bottom:6px}
+.com-resp-txt{font-size:13.5px;line-height:1.6;color:#c9c6c1;white-space:pre-wrap}
+.com-resp-edit{width:100%;min-height:80px;padding:10px 12px;border-radius:8px;
+  background:rgba(0,0,0,.28);border:1px solid rgba(201,169,97,.35);color:#e8eaf0;
+  font-family:inherit;font-size:13.5px;line-height:1.6;resize:vertical}
+.com-resp-edit:focus{outline:none;border-color:rgba(201,169,97,.65)}
+.com-resp-acoes{display:flex;gap:8px;margin-top:9px}
 .com-tag-status{padding:2px 8px;border-radius:9px;font-size:10px;font-weight:800;letter-spacing:.8px}
 .com-tag-resp{padding:2px 8px;border-radius:9px;font-size:10px;font-weight:800;letter-spacing:.8px;
   background:rgba(201,169,97,.16);color:#c9a961;border:1px solid rgba(201,169,97,.3)}
@@ -448,11 +465,16 @@ function carregarComentarios(){
         todos.push(c);
       });
 
-      /* Quais comentários de aluno já receberam resposta sua. A resposta é
-         um comentário com admin=true apontando para o pai em respostaDe. */
+      /* Quais comentários de aluno já receberam resposta sua, e qual é o
+         texto de cada uma — guardamos para poder exibir e editar aqui sem
+         precisar abrir a aula. A consulta vem em ordem decrescente, então
+         desempilhamos para a leitura ficar na ordem em que foi escrita. */
       var respondidos = {};
       todos.forEach(function(c){
-        if (c.admin && c.respostaDe) respondidos[c.respostaDe] = true;
+        if (!c.admin || !c.respostaDe) return;
+        (respondidos[c.respostaDe] = respondidos[c.respostaDe] || []).unshift({
+          id: c._id, path: c._path, texto: c.texto || ''
+        });
       });
 
       /* A lista mostra só o que os alunos escreveram. Suas próprias
@@ -460,7 +482,10 @@ function carregarComentarios(){
          — elas ocupavam metade do painel sem dizer nada que você já não
          soubesse. */
       var itens = todos.filter(function(c){ return !c.admin; }).slice(0, 50);
-      itens.forEach(function(c){ c._respondido = !!respondidos[c._id]; });
+      itens.forEach(function(c){
+        c._respostas  = respondidos[c._id] || [];
+        c._respondido = c._respostas.length > 0;
+      });
 
       if (!itens.length) {
         box.innerHTML = '<div style="padding:24px 2px;color:#8b93a7;font-size:14px">' +
@@ -488,9 +513,23 @@ function carregarComentarios(){
             '<a href="javascript:void(0)" onclick="abrirAulaParaResponder(\'' + link + '&scrollTo=' + c._id + '\', \'' + c._id + '\', \'' + pathEsc + '\')" style="font-size:12.5px;' +
             'color:#e8b84b;font-weight:700;text-decoration:none;cursor:pointer">' +
             (c._respondido ? 'Abrir a aula →' : 'Abrir a aula e responder →') + '</a>' +
+            (c._respondido
+              ? '<button class="com-btn-resp" onclick="toggleResposta(this)">Exibir resposta</button>'
+              : '') +
             '<button class="com-btn-toggle" onclick="toggleLido(this)">' +
               (lido ? 'Marcar como não lido' : 'Marcar como lido') + '</button>' +
           '</div>' +
+          (c._respondido ? '<div class="com-resp-box" style="display:none">' +
+            c._respostas.map(function(r){
+              return '<div class="com-resp" data-resp-path="' + r.path + '">' +
+                       '<div class="com-resp-lbl">Sua resposta</div>' +
+                       '<div class="com-resp-txt">' + _comEsc(r.texto) + '</div>' +
+                       '<div class="com-resp-acoes">' +
+                         '<button class="com-btn-resp" onclick="editarResposta(this)">Editar</button>' +
+                       '</div>' +
+                     '</div>';
+            }).join('') +
+          '</div>' : '') +
         '</div>';
       }).join('');
 
@@ -529,6 +568,78 @@ function _comAtualizarStatus(total){
     badge.style.cssText += ';margin-left:8px;padding:2px 9px;border-radius:11px;' +
       'background:#2ecc71;color:#0d0c10;font-size:12px;font-weight:800';
   }
+}
+
+/* Mostra ou esconde a resposta que você deu, sem sair do painel. Nasce
+   fechada de propósito: com 30 e poucos comentários, abrir todas de uma
+   vez dobraria a altura da lista e atrapalharia a varredura. */
+function toggleResposta(btn){
+  var card = btn.closest('.com-card');
+  if (!card) return;
+  var box = card.querySelector('.com-resp-box');
+  if (!box) return;
+  var aberta = box.style.display !== 'none';
+  box.style.display = aberta ? 'none' : 'block';
+  btn.textContent = aberta ? 'Exibir resposta' : 'Ocultar resposta';
+}
+
+/* Edição no lugar: troca o texto por uma caixa, com salvar e cancelar. */
+function editarResposta(btn){
+  var bloco = btn.closest('.com-resp');
+  if (!bloco || bloco.querySelector('textarea')) return;
+
+  var txtEl = bloco.querySelector('.com-resp-txt');
+  var acoes = bloco.querySelector('.com-resp-acoes');
+  var original = txtEl.textContent;
+
+  var ta = document.createElement('textarea');
+  ta.className = 'com-resp-edit';
+  ta.value = original;
+  ta.rows = Math.min(10, Math.max(3, Math.ceil(original.length / 70)));
+  txtEl.style.display = 'none';
+  bloco.insertBefore(ta, acoes);
+  ta.focus();
+
+  acoes.innerHTML =
+    '<button class="com-btn-resp salvar" onclick="salvarResposta(this)">Salvar</button>' +
+    '<button class="com-btn-resp" onclick="cancelarResposta(this)">Cancelar</button>';
+  acoes.setAttribute('data-original', original);
+}
+
+function cancelarResposta(btn){
+  var bloco = btn.closest('.com-resp');
+  var acoes = bloco.querySelector('.com-resp-acoes');
+  var ta = bloco.querySelector('textarea');
+  if (ta) ta.remove();
+  bloco.querySelector('.com-resp-txt').style.display = '';
+  acoes.innerHTML = '<button class="com-btn-resp" onclick="editarResposta(this)">Editar</button>';
+  acoes.removeAttribute('data-original');
+}
+
+function salvarResposta(btn){
+  var bloco = btn.closest('.com-resp');
+  var ta    = bloco.querySelector('textarea');
+  var acoes = bloco.querySelector('.com-resp-acoes');
+  var txtEl = bloco.querySelector('.com-resp-txt');
+  var path  = bloco.getAttribute('data-resp-path');
+  if (!ta || !path) return;
+
+  var novo = (ta.value || '').trim();
+  if (!novo) { alert('A resposta não pode ficar vazia.'); ta.focus(); return; }
+  if (novo === acoes.getAttribute('data-original')) { cancelarResposta(btn); return; }
+
+  btn.disabled = true; btn.textContent = 'Salvando…';
+
+  db.doc(path).update({ texto: novo }).then(function(){
+    txtEl.textContent = novo;
+    ta.remove();
+    txtEl.style.display = '';
+    acoes.innerHTML = '<button class="com-btn-resp" onclick="editarResposta(this)">Editar</button>';
+    acoes.removeAttribute('data-original');
+  }).catch(function(e){
+    alert('Não consegui salvar: ' + (e && e.message));
+    btn.disabled = false; btn.textContent = 'Salvar';
+  });
 }
 
 function toggleLido(btn){
