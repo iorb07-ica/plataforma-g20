@@ -599,7 +599,8 @@ body.preview-aluno-mode .sa-admin-topbar-btn { display: none !important; }
 // Detecta se voltou dos comentários e adiciona botão "Voltar aos Comentários"
 // ═══════════════════════════════════════════════════════════════════════════════
 (function() {
-  if (location.search.indexOf('voltarDe=comentarios') > -1) {
+  var voltarDe = new URLSearchParams(location.search).get('voltarDe');
+  if (voltarDe === 'comentarios' || voltarDe === 'admin-hub') {
     // Remove o parâmetro da URL (limpa a barra de endereços)
     window.history.replaceState({}, document.title, location.pathname + location.hash);
     
@@ -3505,5 +3506,35 @@ window.adicionarEmoji = function(emoji, commentId) {
     console.error('Erro ao adicionar emoji:', e);
   });
 };
+</script>
+
+
+<script>
+// Detecta se veio de admin-hub e salva em sessionStorage
+(function() {
+  var voltarDe = new URLSearchParams(location.search).get('voltarDe');
+  if (voltarDe === 'admin-hub') {
+    sessionStorage.setItem('g20_voltarDe', 'admin-hub');
+  }
+})();
+
+// Monitora quando um comentário é postado e redireciona
+var originalDiscEnviar = window.discEnviar;
+if (typeof discEnviar === 'function') {
+  window.discEnviar = function(ehResposta) {
+    var voltarDe = sessionStorage.getItem('g20_voltarDe');
+    
+    // Chama a função original
+    originalDiscEnviar.call(this, ehResposta);
+    
+    // Se veio de admin-hub, volta após 1 segundo
+    if (voltarDe === 'admin-hub') {
+      setTimeout(function() {
+        window.location.href = 'admin-hub.html?voltarDe=sala-de-aula';
+        sessionStorage.removeItem('g20_voltarDe');
+      }, 1000);
+    }
+  };
+}
 </script>
 

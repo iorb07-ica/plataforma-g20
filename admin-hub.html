@@ -46,6 +46,19 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
 
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (max-width:600px){.page-title{font-size:32px}body{padding:16px;padding-top:max(16px, env(safe-area-inset-top))}}
+
+/* Comentários lido/não lido */
+.comentario-novo { 
+  background: rgba(46,204,113,.07) !important;
+  border-color: rgba(46,204,113,.26) !important;
+  transition: background 0.3s, border-color 0.3s;
+}
+
+.comentario-lido {
+  background: rgba(255,255,255,.03) !important;
+  border-color: rgba(255,255,255,.06) !important;
+}
+
 </style>
 </head>
 <body>
@@ -438,10 +451,11 @@ function carregarComentarios(){
 
       box.innerHTML = itens.map(function(c){
         var link = 'sala-de-aula.html#aula=' + c._modulo + '~' + c._aula;
-        return '<div style="padding:16px 18px;margin-bottom:11px;border-radius:12px;' +
-          'background:' + (c._novo ? 'rgba(46,204,113,.07)' : 'rgba(255,255,255,.03)') + ';' +
-          'border:1px solid ' + (c._novo ? 'rgba(46,204,113,.26)' : 'rgba(255,255,255,.06)') + '"' +
-          ' data-comment-id="' + c._id + '">' +
+        var meuid = auth.currentUser ? auth.currentUser.uid : null;
+        var jaLi = c.lidoPor && meuid && c.lidoPor.indexOf(meuid) >= 0;
+        var classeEstilo = jaLi ? 'comentario-lido' : 'comentario-novo';
+        return '<div class="' + classeEstilo + '" style="padding:16px 18px;margin-bottom:11px;border-radius:12px;border:1px solid rgba(255,255,255,.06)"' +
+          ' data-comment-id="' + c._id + '" data-comment-path="' + c._path.replace(/"/g, '\\\"') + '" onclick="marcarLidoAoClicar(event, this)">' +
           '<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;flex-wrap:wrap">' +
             '<span style="font-size:14px;font-weight:700;color:#e8eaf0">' + _comEsc(c.autorNome) + '</span>' +
             (c.admin ? '<span style="padding:2px 8px;border-radius:9px;background:rgba(201,169,97,.18);' +
@@ -450,7 +464,6 @@ function carregarComentarios(){
                        'color:#0d0c10;font-size:10px;font-weight:800;letter-spacing:.8px">NOVO</span>' : '') +
             (c.respostaDe ? '<span style="font-size:11px;color:#6b7280">↳ resposta</span>' : '') +
             '<span style="margin-left:auto;font-size:11px;color:#6b7280">' + _comQuando(c.criadoEm) + '</span>' +
-            (function(){ var uid = auth.currentUser ? auth.currentUser.uid : null; var jaLi = c.lidoPor && uid && c.lidoPor.indexOf(uid) >= 0; return '<button onclick="toggleComentarioLido(this, \'' + c._path.replace(/'/g, "\'") + '\')" style="background:none;border:none;cursor:pointer;font-size:16px;padding:4px 8px;margin-left:8px;opacity:' + (jaLi ? '1' : '0.5') + ';transition:opacity .2s" title="' + (jaLi ? 'Marcar como não lido' : 'Marcar como lido') + '">' + (jaLi ? '👁️' : '👁️‍🗨️') + '</button>'; })() +
           '</div>' +
           '<div style="font-size:14px;line-height:1.65;color:#c9c6c1;white-space:pre-wrap">' +
             _comEsc(c.texto) + '</div>' +
@@ -465,31 +478,6 @@ function carregarComentarios(){
         'republique o firestore.rules — a consulta collectionGroup precisa da regra por curinga.</span>';
     })
     .then(function(){ btn.disabled = false; btn.style.opacity = '1'; });
-}
-
-function toggleComentarioLido(btn, commentPath) {
-  var uid = auth.currentUser ? auth.currentUser.uid : null;
-  if (!uid) return;
-  
-  var jaLi = btn.textContent.includes("👁️") && !btn.textContent.includes("🗨️");
-  
-  if (jaLi) {
-    db.doc(commentPath).update({
-      lidoPor: firebase.firestore.FieldValue.arrayRemove(uid)
-    }).then(function() {
-      btn.textContent = "👁️‍🗨️";
-      btn.style.opacity = "0.5";
-      btn.title = "Marcar como lido";
-    });
-  } else {
-    db.doc(commentPath).update({
-      lidoPor: firebase.firestore.FieldValue.arrayUnion(uid)
-    }).then(function() {
-      btn.textContent = "👁️";
-      btn.style.opacity = "1";
-      btn.title = "Marcar como não lido";
-    });
-  }
 }
 
 function marcarComentarioLido(commentPath, commentId) {
@@ -512,7 +500,7 @@ function abrirAulaParaResponder(aulPath, commentId, commentPathFirestore) {
   // Marca como lido no Firestore
   marcarComentarioLido(commentPathFirestore, commentId).then(function(){
     // Redireciona para a aula
-    window.location.href = aulPath + '&voltarDe=comentarios';
+    window.location.href = aulPath + '&voltarDe=admin-hub';
     // Fecha o modal após redirecionar
     setTimeout(function(){ fecharComentarios(); }, 100);
   });
@@ -586,3 +574,59 @@ if(window.lucide && lucide.createIcons) lucide.createIcons();
 
 
 </body></html>
+
+<script>
+// Função para marcar comentário como lido e mudar a cor
+function marcarComoLido(commentPath) {
+  var uid = auth.currentUser ? auth.currentUser.uid : null;
+  if (!uid) return;
+  
+  db.doc(commentPath).update({
+    lidoPor: firebase.firestore.FieldValue.arrayUnion(uid)
+  }).then(function() {
+    console.log('Marcado como lido');
+  }).catch(function(e) {
+    console.error('Erro:', e);
+  });
+}
+
+// Verificar se voltou da sala-de-aula
+document.addEventListener('DOMContentLoaded', function() {
+  var params = new URLSearchParams(window.location.search);
+  if (params.get('voltarDe') === 'sala-de-aula') {
+    // Abre o modal novamente
+    setTimeout(function() {
+      document.getElementById('comModal').style.display = 'flex';
+    }, 500);
+    
+    // Remove o parâmetro da URL
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+});
+
+// Marca como lido ao clicar no comentário
+function marcarLidoAoClicar(event, elemento) {
+  // Se clicou no link "Abrir a aula", deixa ele funcionar normal
+  if (event.target.tagName === 'A' || event.target.closest('a')) {
+    return;
+  }
+  
+  var commentPath = elemento.getAttribute('data-comment-path');
+  if (!commentPath) return;
+  
+  var uid = auth.currentUser ? auth.currentUser.uid : null;
+  if (!uid) return;
+  
+  // Marca como lido
+  db.doc(commentPath).update({
+    lidoPor: firebase.firestore.FieldValue.arrayUnion(uid)
+  }).then(function() {
+    // Muda a classe visualmente
+    elemento.classList.remove('comentario-novo');
+    elemento.classList.add('comentario-lido');
+  }).catch(function(e) {
+    console.error('Erro:', e);
+  });
+}
+
+</script>
