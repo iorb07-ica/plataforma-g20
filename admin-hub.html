@@ -47,12 +47,9 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (max-width:600px){.page-title{font-size:32px}body{padding:16px;padding-top:max(16px, env(safe-area-inset-top))}}
 
-/* Estilos de lido/não lido */
 .com-novo { background: rgba(46,204,113,.08) !important; border-color: rgba(46,204,113,.3) !important; }
 .com-lido { background: rgba(255,255,255,.02) !important; border-color: rgba(255,255,255,.08) !important; }
-.com-status { display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 3px; font-weight: 700; text-transform: uppercase; margin-right: 8px; }
-.status-novo { background: #2ecc71; color: #0d0c10; }
-.status-lido { background: rgba(255,255,255,.1); color: var(--text2); }
+
 </style>
 </head>
 <body>
@@ -445,13 +442,10 @@ function carregarComentarios(){
 
       box.innerHTML = itens.map(function(c){
         var link = 'sala-de-aula.html#aula=' + c._modulo + '~' + c._aula;
-        var uid = auth.currentUser ? auth.currentUser.uid : null;
-        var jaLi = c.lidoPor && uid && c.lidoPor.indexOf(uid) >= 0;
-        var isNovo = c._novo || false;
-        var classe = (jaLi || !isNovo) ? 'com-lido' : 'com-novo';
-        var statusLabel = jaLi ? '<span class="com-status status-lido">Lido</span>' : (isNovo ? '<span class="com-status status-novo">Não Lido</span>' : '<span class="com-status status-lido">Lido (antigo)</span>');
-        return '<div class="' + classe + '" style="padding:16px 18px;margin-bottom:11px;border-radius:12px;border:1px solid var(--border);cursor:pointer" data-comment-id="' + c._id + '" data-path="' + c._path.replace(/"/g, '\\\"') + '" data-lido="' + (jaLi ? 'true' : 'false') + '" onclick="toggleLido(this, \'' + c._path.replace(/'/g, "\\'") + '\', \'' + uid + '\')">
-          <div style="margin-bottom:12px">' + statusLabel + '</div>' +
+        return '<div style="padding:16px 18px;margin-bottom:11px;border-radius:12px;' +
+          'background:' + (c._novo ? 'rgba(46,204,113,.07)' : 'rgba(255,255,255,.03)') + ';' +
+          'border:1px solid ' + (c._novo ? 'rgba(46,204,113,.26)' : 'rgba(255,255,255,.06)') + '"' +
+          ' data-comment-id="' + c._id + '">' +
           '<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;flex-wrap:wrap">' +
             '<span style="font-size:14px;font-weight:700;color:#e8eaf0">' + _comEsc(c.autorNome) + '</span>' +
             (c.admin ? '<span style="padding:2px 8px;border-radius:9px;background:rgba(201,169,97,.18);' +
@@ -579,26 +573,20 @@ function toggleLido(elem, path, uid) {
   var jaLi = elem.getAttribute('data-lido') === 'true';
   
   if (jaLi) {
-    // Marcar como NÃO lido
     db.doc(path).update({
       lidoPor: firebase.firestore.FieldValue.arrayRemove(uid)
     }).then(function() {
       elem.classList.remove('com-lido');
       elem.classList.add('com-novo');
       elem.setAttribute('data-lido', 'false');
-      elem.querySelector('.com-status').className = 'com-status status-novo';
-      elem.querySelector('.com-status').textContent = 'Não Lido';
     });
   } else {
-    // Marcar como LIDO
     db.doc(path).update({
       lidoPor: firebase.firestore.FieldValue.arrayUnion(uid)
     }).then(function() {
       elem.classList.remove('com-novo');
       elem.classList.add('com-lido');
       elem.setAttribute('data-lido', 'true');
-      elem.querySelector('.com-status').className = 'com-status status-lido';
-      elem.querySelector('.com-status').textContent = 'Lido';
     });
   }
 }
