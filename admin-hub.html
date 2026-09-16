@@ -47,11 +47,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (max-width:600px){.page-title{font-size:32px}body{padding:16px;padding-top:max(16px, env(safe-area-inset-top))}}
 
-/* Estilos de lido/não lido */
-.comentario-novo { background: rgba(46,204,113,.07) !important; border-color: rgba(46,204,113,.26) !important; }
-.comentario-lido { background: rgba(255,255,255,.03) !important; border-color: rgba(255,255,255,.06) !important; }
-.botao-lido { background: none; border: none; cursor: pointer; font-size: 18px; padding: 4px 8px; color: var(--text2); transition: opacity 0.2s; }
-.botao-lido:hover { opacity: 1 !important; }
+.comentario-novo { background: rgba(46,204,113,.07) !important; border-color: rgba(46,204,113,.26) !important; cursor: pointer; }
+.comentario-lido { background: rgba(255,255,255,.03) !important; border-color: rgba(255,255,255,.06) !important; cursor: pointer; }
 
 </style>
 </head>
@@ -447,9 +444,8 @@ function carregarComentarios(){
         var link = 'sala-de-aula.html#aula=' + c._modulo + '~' + c._aula;
         var meuid = auth.currentUser ? auth.currentUser.uid : null;
         var jaLi = c.lidoPor && meuid && c.lidoPor.indexOf(meuid) >= 0;
-        var classeLido = jaLi ? 'comentario-lido' : 'comentario-novo';
-        return '<div class="' + classeLido + '" style="padding:16px 18px;margin-bottom:11px;border-radius:12px;border:1px solid var(--border)"' +
-          ' data-comment-id="' + c._id + '" data-comment-path="' + c._path.replace(/"/g, '\\\"') + '" data-lido="' + (jaLi ? 'true' : 'false') + '">' +
+        var classe = jaLi ? 'comentario-lido' : 'comentario-novo';
+        return '<div class="' + classe + '" style="padding:16px 18px;margin-bottom:11px;border-radius:12px;border:1px solid var(--border)" data-comment-id="' + c._id + '" data-comment-path="' + c._path.replace(/"/g, '\\\"') + '" data-lido="' + (jaLi ? 'true' : 'false') + '" onclick="toggleCommentarioLidoSimples(this, '' + c._path.replace(/'/g, "\\'") + '')" style="border:1px solid var(--border)">' +
           '<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;flex-wrap:wrap">' +
             '<span style="font-size:14px;font-weight:700;color:#e8eaf0">' + _comEsc(c.autorNome) + '</span>' +
             (c.admin ? '<span style="padding:2px 8px;border-radius:9px;background:rgba(201,169,97,.18);' +
@@ -458,7 +454,6 @@ function carregarComentarios(){
                        'color:#0d0c10;font-size:10px;font-weight:800;letter-spacing:.8px">NOVO</span>' : '') +
             (c.respostaDe ? '<span style="font-size:11px;color:#6b7280">↳ resposta</span>' : '') +
             '<span style="margin-left:auto;font-size:11px;color:#6b7280">' + _comQuando(c.criadoEm) + '</span>' +
-            '<button class="botao-lido" onclick="toggleCommentarioLido(this, '' + c._path.replace(/'/g, "\\'") + '')" style="opacity:' + (jaLi ? '1' : '0.5') + '" title="' + (jaLi ? 'Marcar como não lido' : 'Marcar como lido') + '">' + (jaLi ? '👁️' : '👁️‍🗨️') + '</button>' +
           '</div>' +
           '<div style="font-size:14px;line-height:1.65;color:#c9c6c1;white-space:pre-wrap">' +
             _comEsc(c.texto) + '</div>' +
@@ -571,85 +566,32 @@ if(window.lucide && lucide.createIcons) lucide.createIcons();
 </body></html>
 
 <script>
-// Toggle de lido/não lido com atualização visual
-function toggleCommentarioLido(btn, commentPath) {
+// Toggle simples de lido/não lido
+function toggleCommentarioLidoSimples(elemento, commentPath) {
   var uid = auth.currentUser ? auth.currentUser.uid : null;
   if (!uid) return;
   
-  var comentarioDiv = btn.closest('[data-comment-path]');
-  var jaLi = comentarioDiv.getAttribute('data-lido') === 'true';
+  var jaLi = elemento.getAttribute('data-lido') === 'true';
   
   if (jaLi) {
-    // Desmarcar como lido (remover do array)
+    // Remover do array
     db.doc(commentPath).update({
       lidoPor: firebase.firestore.FieldValue.arrayRemove(uid)
     }).then(function() {
-      // Atualizar visualmente
-      comentarioDiv.classList.remove('comentario-lido');
-      comentarioDiv.classList.add('comentario-novo');
-      comentarioDiv.setAttribute('data-lido', 'false');
-      btn.textContent = '👁️‍🗨️';
-      btn.style.opacity = '0.5';
-      btn.title = 'Marcar como lido';
+      elemento.classList.remove('comentario-lido');
+      elemento.classList.add('comentario-novo');
+      elemento.setAttribute('data-lido', 'false');
     });
   } else {
-    // Marcar como lido (adicionar ao array)
+    // Adicionar ao array
     db.doc(commentPath).update({
       lidoPor: firebase.firestore.FieldValue.arrayUnion(uid)
     }).then(function() {
-      // Atualizar visualmente
-      comentarioDiv.classList.remove('comentario-novo');
-      comentarioDiv.classList.add('comentario-lido');
-      comentarioDiv.setAttribute('data-lido', 'true');
-      btn.textContent = '👁️';
-      btn.style.opacity = '1';
-      btn.title = 'Marcar como não lido';
+      elemento.classList.remove('comentario-novo');
+      elemento.classList.add('comentario-lido');
+      elemento.setAttribute('data-lido', 'true');
     });
   }
 }
-
-// Modificar abrirAulaParaResponder para marcar como lido automaticamente
-var originalAbrirAula = window.abrirAulaParaResponder;
-window.abrirAulaParaResponder = function(aulPath, commentId, commentPathFirestore) {
-  var uid = auth.currentUser ? auth.currentUser.uid : null;
-  if (uid) {
-    // Marca como lido
-    db.doc(commentPathFirestore).update({
-      lidoPor: firebase.firestore.FieldValue.arrayUnion(uid)
-    });
-  }
-  // Chama função original
-  if (originalAbrirAula) {
-    originalAbrirAula.call(this, aulPath, commentId, commentPathFirestore);
-  }
-};
-
-// Detectar retorno de sala-de-aula e reabrir modal
-document.addEventListener('DOMContentLoaded', function() {
-  var params = new URLSearchParams(window.location.search);
-  if (params.get('voltarDe') === 'sala-de-aula') {
-    setTimeout(function() {
-      var modal = document.getElementById('comModal');
-      if (modal) modal.style.display = 'flex';
-    }, 500);
-    window.history.replaceState({}, document.title, window.location.pathname);
-  }
-});
-</script>
-
-
-<script>
-// Quando volta de sala-de-aula, recarrega os comentários (refresh automático)
-window.addEventListener('load', function() {
-  var params = new URLSearchParams(window.location.search);
-  if (params.get('voltarDe') === 'sala-de-aula') {
-    // Aguarda um pouco e recarrega comentários
-    setTimeout(function() {
-      if (window.carregarComentarios) {
-        window.carregarComentarios();
-      }
-    }, 500);
-  }
-});
 </script>
 

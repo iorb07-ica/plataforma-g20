@@ -3323,14 +3323,14 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
 </body>
 </html>
 
-<!-- MODAL PERFIL ALUNO -->
-<div id="perfilAlunoModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:10000;justify-content:center;align-items:center;padding:20px">
-  <div style="background:var(--surface);border-radius:12px;max-width:500px;width:100%;padding:24px;border:1px solid var(--border);max-height:80vh;overflow-y:auto">
+<!-- MODAL PERFIL SIMPLES -->
+<div id="perfilModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:9999;justify-content:center;align-items:center">
+  <div style="background:var(--surface);border-radius:12px;max-width:500px;width:90%;padding:24px;border:1px solid var(--border);max-height:80vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;margin-bottom:20px">
-      <h2 style="margin:0">Perfil</h2>
-      <button onclick="document.getElementById('perfilAlunoModal').style.display='none'" style="background:none;border:none;font-size:28px;cursor:pointer;color:var(--text2)">×</button>
+      <h2 style="margin:0;color:var(--text)">Perfil</h2>
+      <button onclick="document.getElementById('perfilModal').style.display='none'" style="background:none;border:none;font-size:28px;cursor:pointer;color:var(--text2)">×</button>
     </div>
-    <div id="perfilAlunoConteudo" style="color:var(--text)">Carregando...</div>
+    <div id="perfilConteudo" style="color:var(--text)">Carregando...</div>
   </div>
 </div>
 
@@ -3338,222 +3338,104 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
 .sa-disc-nome-click { cursor: pointer; }
 .sa-disc-nome-click:hover { color: var(--gold); }
 .sa-disc-avatar-click { cursor: pointer; }
-.emoji-btn { background: none; border: none; cursor: pointer; font-size: 14px; padding: 4px 6px; color: var(--text2); margin-left: 8px; }
-.emoji-btn:hover { color: var(--gold); }
 </style>
 
 <script>
-// Abrir perfil em modal
-window.abrirPerfilAluno = function(uid) {
+// Função para abrir perfil (após Firebase estar pronto)
+function abrirPerfilAluno(uid) {
   if (!uid) return;
-  var modal = document.getElementById('perfilAlunoModal');
-  var conteudo = document.getElementById('perfilAlunoConteudo');
+  console.log('Abrindo perfil:', uid);
+  
+  var modal = document.getElementById('perfilModal');
+  var conteudo = document.getElementById('perfilConteudo');
   
   conteudo.innerHTML = 'Carregando...';
   modal.style.display = 'flex';
+  
+  // Aguarda Firebase estar pronto
+  if (typeof db === 'undefined' || typeof firebase === 'undefined') {
+    conteudo.innerHTML = 'Firebase não carregado';
+    return;
+  }
   
   db.collection('networking_public').doc(uid).get().then(function(doc) {
     if (!doc.exists) {
       conteudo.innerHTML = '<div style="color:red">Perfil não encontrado</div>';
       return;
     }
+    
     var p = doc.data();
-    var html = (p.foto ? '<img src="' + p.foto + '" style="width:100px;height:100px;border-radius:50%;object-fit:cover;margin-bottom:16px">' : '') +
-      '<div style="font-size:22px;font-weight:700;margin-bottom:16px">' + (p.nome || 'Sem nome') + '</div>' +
-      (p.profissao ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase">Profissão</div><div>' + p.profissao + '</div></div>' : '') +
-      (p.empresa ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase">Empresa</div><div>' + p.empresa + '</div></div>' : '') +
-      (p.area ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase">Área</div><div>' + p.area + '</div></div>' : '') +
-      (p.sobre ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase">Sobre</div><div>' + p.sobre + '</div></div>' : '');
+    var html = '<div>';
+    if (p.foto) {
+      html += '<img src="' + p.foto + '" style="width:100px;height:100px;border-radius:50%;object-fit:cover;margin-bottom:16px">';
+    }
+    html += '<div style="font-size:22px;font-weight:700;margin-bottom:16px;color:var(--text)">' + (p.nome || 'Sem nome') + '</div>';
+    if (p.profissao) {
+      html += '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Profissão</div><div style="color:var(--text)">' + p.profissao + '</div></div>';
+    }
+    if (p.empresa) {
+      html += '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Empresa</div><div style="color:var(--text)">' + p.empresa + '</div></div>';
+    }
+    if (p.area) {
+      html += '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Área</div><div style="color:var(--text)">' + p.area + '</div></div>';
+    }
+    if (p.sobre) {
+      html += '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Sobre</div><div style="color:var(--text)">' + p.sobre + '</div></div>';
+    }
+    html += '</div>';
+    
     conteudo.innerHTML = html;
   }).catch(function(e) {
+    console.error('Erro ao carregar perfil:', e);
     conteudo.innerHTML = '<div style="color:red">Erro: ' + e.message + '</div>';
   });
-};
+}
 
 // Fechar modal ao clicar fora
-document.getElementById('perfilAlunoModal').addEventListener('click', function(e) {
-  if (e.target === this) this.style.display = 'none';
+document.getElementById('perfilModal').addEventListener('click', function(e) {
+  if (e.target === this) {
+    this.style.display = 'none';
+  }
 });
 
-// Mostrar picker de emojis
-window.mostrarEmojiPicker = function(event, commentId) {
-  event.preventDefault();
-  event.stopPropagation();
-  
-  var btn = event.target;
-  var menu = document.getElementById('emojiPicker-' + commentId);
-  
-  if (menu) {
-    menu.style.display = menu.style.display === 'none' ? 'flex' : 'none';
-  } else {
-    var emojis = ['👍', '❤️', '😂', '😮', '😡'];
-    var menuDiv = document.createElement('div');
-    menuDiv.id = 'emojiPicker-' + commentId;
-    menuDiv.style.cssText = 'position:absolute;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;display:flex;gap:4px;z-index:1000';
-    
-    emojis.forEach(function(emoji) {
-      var emojiBtn = document.createElement('button');
-      emojiBtn.textContent = emoji;
-      emojiBtn.onclick = function() {
-        adicionarEmoji(emoji, commentId);
-        menuDiv.style.display = 'none';
-      };
-      emojiBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:18px;padding:4px';
-      menuDiv.appendChild(emojiBtn);
-    });
-    
-    btn.parentElement.appendChild(menuDiv);
-  }
-};
-
-// Adicionar emoji (salvar no Firestore)
-window.adicionarEmoji = function(emoji, commentId) {
-  var uid = auth.currentUser ? auth.currentUser.uid : null;
-  if (!uid) return;
-  
-  var path = 'cursos/g20-masterclass/modulos/' + currentModuloId + '/aulas/' + currentAulaId + '/comentarios/' + commentId;
-  
-  db.doc(path).get().then(function(doc) {
-    if (!doc.exists) return;
-    
-    var emojiUsers = (doc.data().emojiReactions || {})[emoji] || [];
-    var idx = emojiUsers.indexOf(uid);
-    
-    if (idx >= 0) {
-      emojiUsers.splice(idx, 1);
-    } else {
-      emojiUsers.push(uid);
-    }
-    
-    var update = {};
-    if (emojiUsers.length > 0) {
-      update['emojiReactions.' + emoji] = emojiUsers;
-    } else {
-      update['emojiReactions.' + emoji] = firebase.firestore.FieldValue.delete();
-    }
-    
-    db.doc(path).update(update).catch(function(e) {
-      console.error('Erro:', e);
-    });
-  });
-};
-
-// Tornar nomes e avatares clicáveis
+// Adicionar interatividade aos nomes e avatares (verificar a cada 500ms)
 setInterval(function() {
   document.querySelectorAll('.sa-disc-item[data-autor-id]').forEach(function(item) {
     var uid = item.getAttribute('data-autor-id');
     if (!uid) return;
     
-    // Nome
+    // Nome clicável
     var nome = item.querySelector('.sa-disc-nome');
-    if (nome && !nome._clickable) {
-      nome._clickable = true;
+    if (nome && !nome.getAttribute('data-click-added')) {
+      nome.setAttribute('data-click-added', 'true');
       nome.classList.add('sa-disc-nome-click');
-      nome.onclick = function(e) {
+      nome.style.cursor = 'pointer';
+      
+      nome.addEventListener('click', function(e) {
         e.preventDefault();
-        window.abrirPerfilAluno(uid);
+        e.stopPropagation();
+        console.log('Clicou no nome:', uid);
+        abrirPerfilAluno(uid);
         return false;
-      };
+      });
     }
     
-    // Avatar (primeira img)
+    // Avatar clicável
     var img = item.querySelector('img');
-    if (img && !img._clickable) {
-      img._clickable = true;
+    if (img && !img.getAttribute('data-click-added')) {
+      img.setAttribute('data-click-added', 'true');
       img.classList.add('sa-disc-avatar-click');
-      img.onclick = function(e) {
+      img.style.cursor = 'pointer';
+      
+      img.addEventListener('click', function(e) {
         e.preventDefault();
-        window.abrirPerfilAluno(uid);
+        e.stopPropagation();
+        console.log('Clicou na foto:', uid);
+        abrirPerfilAluno(uid);
         return false;
-      };
+      });
     }
   });
-}, 500);
-
-// Adicionar botão de emoji (ao renderizar comentários)
-setInterval(function() {
-  document.querySelectorAll('.sa-disc-rodape:not([data-emoji-btn])').forEach(function(rodape) {
-    rodape.setAttribute('data-emoji-btn', 'true');
-    var commentId = rodape.closest('.sa-disc-item').getAttribute('data-id');
-    
-    var emojiBtn = document.createElement('button');
-    emojiBtn.className = 'emoji-btn';
-    emojiBtn.textContent = '👍';
-    emojiBtn.title = 'Reagir';
-    emojiBtn.onclick = function(e) {
-      window.mostrarEmojiPicker(e, commentId);
-    };
-    
-    rodape.insertBefore(emojiBtn, rodape.firstChild);
-  });
-}, 500);
-</script>
-
-
-<script>
-// Quando responde um comentário, marca automaticamente como lido
-var originalDiscEnviar = window.discEnviar;
-window.discEnviar = function(ehResposta) {
-  if (ehResposta && _discRespondendo) {
-    // Marca o comentário pai como lido
-    var uid = auth.currentUser ? auth.currentUser.uid : null;
-    if (uid) {
-      var path = 'cursos/g20-masterclass/modulos/' + currentModuloId + '/aulas/' + currentAulaId + '/comentarios/' + _discRespondendo;
-      db.doc(path).update({
-        lidoPor: firebase.firestore.FieldValue.arrayUnion(uid)
-      }).catch(function(e) { console.log('Erro ao marcar como lido:', e); });
-    }
-  }
-  
-  // Chama original
-  if (originalDiscEnviar) {
-    return originalDiscEnviar.call(this, ehResposta);
-  }
-};
-</script>
-
-
-<script>
-// Modificar abrirAulaParaResponder para passar voltarDe=admin-hub
-var originalAbrirAula = window.abrirAulaParaResponder;
-if (typeof originalAbrirAula === 'function') {
-  window.abrirAulaParaResponder = function(aulPath, commentId, commentPathFirestore) {
-    marcarComentarioLido(commentPathFirestore, commentId).then(function() {
-      window.location.href = aulPath + '&voltarDe=admin-hub';
-      setTimeout(function() { fecharComentarios(); }, 100);
-    });
-  };
-}
-</script>
-
-
-<script>
-// Detectar e redirecionar de volta para admin-hub
-window.addEventListener('load', function() {
-  var params = new URLSearchParams(window.location.search);
-  var voltarDe = params.get('voltarDe');
-  
-  if (voltarDe === 'admin-hub') {
-    sessionStorage.setItem('g20_voltarDe', 'admin-hub');
-  }
-});
-
-// Quando um comentário é postado, voltar para admin-hub
-var originalDiscEnviarGlobal = window.discEnviar;
-window.discEnviar = function(ehResposta) {
-  var voltarDe = sessionStorage.getItem('g20_voltarDe');
-  
-  if (originalDiscEnviarGlobal) {
-    originalDiscEnviarGlobal.call(this, ehResposta);
-  }
-  
-  // Se veio de admin-hub, volta após postar
-  if (voltarDe === 'admin-hub') {
-    setTimeout(function() {
-      window.location.href = 'admin-hub.html?voltarDe=sala-de-aula';
-      sessionStorage.removeItem('g20_voltarDe');
-    }, 1500);
-  }
-};
+}, 300);
 </script>
 
