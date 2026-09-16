@@ -440,7 +440,8 @@ function carregarComentarios(){
         var link = 'sala-de-aula.html#aula=' + c._modulo + '~' + c._aula;
         return '<div style="padding:16px 18px;margin-bottom:11px;border-radius:12px;' +
           'background:' + (c._novo ? 'rgba(46,204,113,.07)' : 'rgba(255,255,255,.03)') + ';' +
-          'border:1px solid ' + (c._novo ? 'rgba(46,204,113,.26)' : 'rgba(255,255,255,.06)') + '">' +
+          'border:1px solid ' + (c._novo ? 'rgba(46,204,113,.26)' : 'rgba(255,255,255,.06)') + '"' +
+          ' data-comment-id="' + c._id + '">' +
           '<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;flex-wrap:wrap">' +
             '<span style="font-size:14px;font-weight:700;color:#e8eaf0">' + _comEsc(c.autorNome) + '</span>' +
             (c.admin ? '<span style="padding:2px 8px;border-radius:9px;background:rgba(201,169,97,.18);' +
@@ -452,8 +453,8 @@ function carregarComentarios(){
           '</div>' +
           '<div style="font-size:14px;line-height:1.65;color:#c9c6c1;white-space:pre-wrap">' +
             _comEsc(c.texto) + '</div>' +
-          '<a href="' + link + '" style="display:inline-block;margin-top:11px;font-size:12.5px;' +
-            'color:#e8b84b;font-weight:700;text-decoration:none">Abrir a aula e responder →</a>' +
+          '<a href="javascript:void(0)" onclick="abrirAulaParaResponder(\'' + link + '\', \'' + c._id + '\', \'' + c._path.replace(/'/g, "\\'") + '\')" style="display:inline-block;margin-top:11px;font-size:12.5px;' +
+            'color:#e8b84b;font-weight:700;text-decoration:none;cursor:pointer">Abrir a aula e responder →</a>' +
         '</div>';
       }).join('');
     })
@@ -463,6 +464,32 @@ function carregarComentarios(){
         'republique o firestore.rules — a consulta collectionGroup precisa da regra por curinga.</span>';
     })
     .then(function(){ btn.disabled = false; btn.style.opacity = '1'; });
+}
+
+function marcarComentarioLido(commentPath, commentId) {
+  var uid = auth.currentUser ? auth.currentUser.uid : null;
+  if (!uid) return Promise.resolve();
+  
+  // Salva em sessionStorage que este comentário foi aberto
+  try { sessionStorage.setItem('g20_commentAberto', commentId); } catch(e){}
+  
+  // Marca no Firestore: adiciona o admin atual ao array 'lidoPor' do comentário
+  return db.doc(commentPath).update({
+    lidoPor: firebase.firestore.FieldValue.arrayUnion(uid),
+    ultimaLeitura: firebase.firestore.FieldValue.serverTimestamp()
+  }).catch(function(e){
+    console.log('Erro ao marcar como lido:', e);
+  });
+}
+
+function abrirAulaParaResponder(aulPath, commentId, commentPathFirestore) {
+  // Marca como lido no Firestore
+  marcarComentarioLido(commentPathFirestore, commentId).then(function(){
+    // Redireciona para a aula
+    window.location.href = aulPath + '&voltarDe=comentarios';
+    // Fecha o modal após redirecionar
+    setTimeout(function(){ fecharComentarios(); }, 100);
+  });
 }
 
 function marcarTudoVisto(){
@@ -480,6 +507,17 @@ function marcarTudoVisto(){
 /* Abre direto no painel quando vem do alerta do dashboard. */
 if (location.search.indexOf('comentarios=1') > -1) {
   setTimeout(function(){ abrirComentarios(); }, 900);
+}
+
+/* Verifica se voltou da sala-de-aula (abriu um comentário para responder) */
+if (location.search.indexOf('voltarDe=comentarios') > -1) {
+  // Remove o parâmetro da URL para limpar
+  window.history.replaceState({}, document.title, location.pathname);
+  // Abre modal novamente e recarrega comentários
+  setTimeout(function(){ 
+    abrirComentarios();
+    carregarComentarios();
+  }, 300);
 }
 </script>
 
