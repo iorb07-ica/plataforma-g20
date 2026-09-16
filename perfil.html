@@ -1959,15 +1959,35 @@ let _avatarBase64 = null;
 // ── AUTH ──────────────────────────────────────────────────────
 auth.onAuthStateChanged(async function(user) {
   if (!user) { window.location.href = 'login.html'; return; }
-  const doc = await db.collection('users').doc(user.uid).get();
-  if (!doc.exists || (doc.data().aprovado !== true && doc.data().role !== 'admin')) {
+  
+  // Verificar acesso ao usuário logado
+  const docUser = await db.collection('users').doc(user.uid).get();
+  if (!docUser.exists || (docUser.data().aprovado !== true && docUser.data().role !== 'admin')) {
     window.location.href = 'login.html'; return;
   }
+  
+  // SEGURANÇA: Detectar se tentou acessar outro UID via URL
+  var params = new URLSearchParams(window.location.search);
+  var uidNaURL = params.get('uid');
+  if (uidNaURL && uidNaURL !== user.uid) {
+    // Tentou acessar perfil de outro? Redireciona para dashboard
+    // Para ver perfil de outro aluno, use o modal de networking
+    window.location.href = 'dashboard.html';
+    return;
+  }
+  
+  // Carregar APENAS o próprio perfil
+  var doc = await db.collection('users').doc(user.uid).get();
+  if (!doc.exists) {
+    window.location.href = 'dashboard.html'; return;
+  }
+  
   var ol = document.getElementById('g20LoadingOverlay');
   if (ol) ol.style.display = 'none';
   _uid = user.uid;
   _userData = doc.data() || {};
-  preencherFormulario(_userData, user);
+  
+  preencherFormulario(_userData, { displayName: doc.data().nome, photoURL: doc.data().foto });
 });
 
 // ── PREENCHER FORMULÁRIO ──────────────────────────────────────
@@ -2055,6 +2075,8 @@ function preencherFormulario(data, user) {
   // Verificar se perfil já foi completado
   if (data.perfilCompleto === true) {
     document.getElementById('requiredNotice').classList.add('hidden');
+  }
+
   }
 
   // Ouvir mudanças
