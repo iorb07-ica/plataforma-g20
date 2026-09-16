@@ -3325,10 +3325,12 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
 </html>
 
 <script>
+// Armazenar reações em memória (estado local)
+var emojiState = {};
+
 // Mostrar picker de emojis
 window.mostrarEmojis = function(btn, commentId) {
   var emojis = ['👍', '❤️', '😂', '😮', '😡'];
-  
   var div = document.createElement('div');
   div.style.cssText = 'position:absolute;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;display:flex;gap:4px;z-index:1000';
   
@@ -3337,7 +3339,7 @@ window.mostrarEmojis = function(btn, commentId) {
     e.textContent = emoji;
     e.style.cssText = 'background:none;border:none;cursor:pointer;font-size:18px;padding:4px';
     e.onclick = function() {
-      salvarEmoji(emoji, commentId);
+      clicouEmoji(emoji, commentId, btn);
       div.remove();
     };
     div.appendChild(e);
@@ -3346,65 +3348,85 @@ window.mostrarEmojis = function(btn, commentId) {
   btn.parentElement.appendChild(div);
 };
 
-// Salvar emoji no Firestore
-window.salvarEmoji = function(emoji, commentId) {
-  var tentativas = 0;
-  var interval = setInterval(function() {
-    tentativas++;
-    
-    // Verifica se Firebase está pronto
-    if (typeof db === 'undefined' || typeof auth === 'undefined' || !auth.currentUser) {
-      if (tentativas > 30) { // 3 segundos máximo
-        clearInterval(interval);
-        console.error('Firebase não carregou a tempo');
-      }
-      return;
-    }
-    
-    clearInterval(interval);
-    
-    var uid = auth.currentUser.uid;
-    var path = 'cursos/g20-masterclass/modulos/' + currentModuloId + '/aulas/' + currentAulaId + '/comentarios/' + commentId;
-    
-    db.doc(path).get().then(function(doc) {
-      if (!doc.exists) return;
-      
-      var reactions = doc.data().emojiReactions || {};
-      var users = reactions[emoji] || [];
-      var idx = users.indexOf(uid);
-      
-      if (idx >= 0) {
-        users.splice(idx, 1);
-      } else {
-        users.push(uid);
-      }
-      
-      var update = {};
-      if (users.length > 0) {
-        update['emojiReactions.' + emoji] = users;
-      } else {
-        update['emojiReactions.' + emoji] = firebase.firestore.FieldValue.delete();
-      }
-      
-      return db.doc(path).update(update);
-    }).catch(function(e) {
-      console.error('Erro ao salvar emoji:', e);
-    });
-  }, 100);
+// Quando clica no emoji
+window.clicouEmoji = function(emoji, commentId, btn) {
+  if (!emojiState[commentId]) emojiState[commentId] = {};
+  if (!emojiState[commentId][emoji]) emojiState[commentId][emoji] = [];
+  
+  var uid = auth && auth.currentUser ? auth.currentUser.uid : 'anonimo';
+  var users = emojiState[commentId][emoji];
+  var idx = users.indexOf(uid);
+  
+  // Toggle instantâneo
+  if (idx >= 0) {
+    users.splice(idx, 1);
+  } else {
+    users.push(uid);
+  }
+  
+  // Renderizar imediatamente
+  renderizarReacoes(commentId);
+  
+  // Salvar no Firestore em background (sem bloquear)
+  setTimeout(function() {
+    salvarNoFirestore(emoji, commentId, users);
+  }, 0);
 };
-</script>
 
+// Renderizar reações
+window.renderizarReacoes = function(commentId) {
+  var item = document.querySelector('[data-id="' + commentId + '"]');
+  if (!item) return;
+  
+  var rodape = item.querySelector('.sa-disc-rodape');
+  if (!rodape) return;
+  
+  // Remove botões de emoji antigos
+  rodape.querySelectorAll('[data-emoji-btn]').forEach(function(b) { b.remove(); });
+  
+  // Adiciona novos
+  var reactions = emojiState[commentId] || {};
+  Object.keys(reactions).forEach(function(emoji) {
+    var count = reactions[emoji].length;
+    if (count === 0) return;
+    
+    var btn = document.createElement('button');
+    btn.setAttribute('data-emoji-btn', 'true');
+    btn.style.cssText = 'background:rgba(232,184,75,0.1);border:1px solid rgba(232,184,75,0.3);cursor:pointer;color:var(--text);padding:4px 8px;border-radius:4px;font-size:12px;margin-right:4px';
+    btn.textContent = emoji + ' ' + count;
+    btn.onclick = function(e) {
+      e.preventDefault();
+      clicouEmoji(emoji, commentId, btn);
+    };
+    rodape.appendChild(btn);
+  });
+};
 
-<script>
-// Renderizar reações ao carregar comentários
-var originalBloco = window.bloco;
+// Salvar no Firestore (sem bloquear)
+window.salvarNoFirestore = function(emoji, commentId, users) {
+  if (typeof db === 'undefined' || typeof auth === 'undefined' || !auth.currentUser) return;
+  
+  var uid = auth.currentUser.uid;
+  var path = 'cursos/g20-masterclass/modulos/' + currentModuloId + '/aulas/' + currentAulaId + '/comentarios/' + commentId;
+  
+  var update = {};
+  if (users.length > 0) {
+    update['emojiReactions.' + emoji] = users;
+  } else {
+    update['emojiReactions.' + emoji] = firebase.firestore.FieldValue.delete();
+  }
+  
+  db.doc(path).update(update).catch(function(e) {
+    console.error('Erro ao sincronizar emoji:', e);
+  });
+};
+
+// Carregar reações ao abrir página
 setInterval(function() {
-  document.querySelectorAll('.sa-disc-rodape:not([data-reactions-rendered])').forEach(function(rodape) {
-    rodape.setAttribute('data-reactions-rendered', 'true');
-    var item = rodape.closest('.sa-disc-item');
+  document.querySelectorAll('.sa-disc-item[data-id]:not([data-emoji-loaded])').forEach(function(item) {
+    item.setAttribute('data-emoji-loaded', 'true');
     var commentId = item.getAttribute('data-id');
     
-    // Busca reações no Firestore
     if (typeof db === 'undefined' || typeof currentModuloId === 'undefined') return;
     
     var path = 'cursos/g20-masterclass/modulos/' + currentModuloId + '/aulas/' + currentAulaId + '/comentarios/' + commentId;
@@ -3413,32 +3435,10 @@ setInterval(function() {
       var reactions = doc.data().emojiReactions;
       if (!reactions) return;
       
-      Object.keys(reactions).forEach(function(emoji) {
-        var count = reactions[emoji].length;
-        var btn = document.createElement('button');
-        btn.style.cssText = 'background:rgba(232,184,75,0.1);border:1px solid rgba(232,184,75,0.3);cursor:pointer;color:var(--text);padding:4px 8px;border-radius:4px;font-size:12px;margin-right:4px';
-        btn.textContent = emoji + ' ' + count;
-        btn.title = 'Remover reação';
-        btn.onclick = function(e) {
-          e.preventDefault();
-          var uid = auth.currentUser.uid;
-          var users = reactions[emoji] || [];
-          var idx = users.indexOf(uid);
-          if (idx >= 0) {
-            users.splice(idx, 1);
-            var update = {};
-            if (users.length > 0) {
-              update['emojiReactions.' + emoji] = users;
-            } else {
-              update['emojiReactions.' + emoji] = firebase.firestore.FieldValue.delete();
-            }
-            db.doc(path).update(update);
-          }
-        };
-        rodape.appendChild(btn);
-      });
+      emojiState[commentId] = reactions;
+      renderizarReacoes(commentId);
     });
   });
-}, 500);
+}, 200);
 </script>
 
