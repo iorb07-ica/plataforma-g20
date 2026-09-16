@@ -403,7 +403,7 @@ function carregarComentarios(){
   btn.disabled = true; btn.style.opacity = '.5';
   st.textContent = 'Carregando…';
 
-  var uid = auth.currentUser ? auth.currentUser.uid : null;
+  var uid = auth.currentUser ? uid : null;
   if (!uid) { st.textContent = 'Sessão expirada.'; return; }
 
   db.collection('users').doc(uid).collection('config').doc('comentariosVistos').get()
@@ -446,10 +446,11 @@ function carregarComentarios(){
       }
 
       box.innerHTML = itens.map(function(c){
-        var link = 'sala-de-aula.html#aula=' + c._modulo + '~' + c._aula;
-        return '<div class="' + (c.lidoPor && auth.currentUser && c.lidoPor.indexOf(auth.currentUser.uid) >= 0 ? 'com-lido' : 'com-nao-lido') + '" style="padding:16px 18px;margin-bottom:11px;border-radius:12px;border:1px solid var(--border)" data-comment-id="' + c._id + '" data-comment-path="' + c._path.replace(/"/g, '\\"') + '">' +
+        var uid = (typeof auth !== 'undefined' && auth.currentUser) ? uid : 'anonymous';
+        var link = 'sala-de-aula.html#aula=' + c._modulo + '~' + c._aula + '&scrollTo=' + c._id;
+        return '<div class="' + (c.lidoPor && auth.currentUser && c.lidoPor.indexOf(uid) >= 0 ? 'com-lido' : 'com-nao-lido') + '" style="padding:16px 18px;margin-bottom:11px;border-radius:12px;border:1px solid var(--border)" data-comment-id="' + c._id + '" data-comment-path="' + c._path.replace(/"/g, '\\"') + '">' +
           '<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;flex-wrap:wrap">' +
-            (!(c.lidoPor && auth.currentUser && c.lidoPor.indexOf(auth.currentUser.uid) >= 0) ? '<span class="tag-nao-lido">NÃO LIDO</span>' : '') +
+            (!(c.lidoPor && auth.currentUser && c.lidoPor.indexOf(uid) >= 0) ? '<span class="tag-nao-lido">NÃO LIDO</span>' : '') +
             '<span style="font-size:14px;font-weight:700;color:#e8eaf0">' + _comEsc(c.autorNome) + '</span>' +
             (c.admin ? '<span style="padding:2px 8px;border-radius:9px;background:rgba(201,169,97,.18);color:#e8b84b;font-size:10px;font-weight:800;letter-spacing:.8px">VOCÊ</span>' : '') +
             (c.respostaDe ? '<span style="font-size:11px;color:#6b7280">↳ resposta</span>' : '') +
@@ -457,7 +458,7 @@ function carregarComentarios(){
           '</div>' +
           '<div style="font-size:14px;line-height:1.65;color:#c9c6c1;white-space:pre-wrap">' + _comEsc(c.texto) + '</div>' +
           '<div style="margin-top:11px;display:flex;gap:8px;flex-wrap:wrap">' +
-            '<button class="' + (c.lidoPor && auth.currentUser && c.lidoPor.indexOf(auth.currentUser.uid) >= 0 ? 'btn-nao-lido' : 'btn-lido') + '" onclick="toggleLido(this, \'' + c._path.replace(/'/g, "\\'") + '\', \'' + (auth.currentUser ? auth.currentUser.uid : '') + '\')"> ' + (c.lidoPor && auth.currentUser && c.lidoPor.indexOf(auth.currentUser.uid) >= 0 ? 'Marcar como não lido' : 'Marcar como lido') + '</button>' +
+            '<button class="' + (c.lidoPor && auth.currentUser && c.lidoPor.indexOf(uid) >= 0 ? 'btn-nao-lido' : 'btn-lido') + '" onclick="toggleLido(this, \'' + c._path.replace(/'/g, "\\'") + '\', \'' + (auth.currentUser ? uid : '') + '\')"> ' + (c.lidoPor && auth.currentUser && c.lidoPor.indexOf(uid) >= 0 ? 'Marcar como não lido' : 'Marcar como lido') + '</button>' +
             '<a href="javascript:void(0)" onclick="abrirAulaParaResponder(\'' + ('sala-de-aula.html#aula=' + c._modulo + '~' + c._aula + '&scrollTo=' + c._id).replace(/'/g, "\\'") + '\', \'' + c._id + '\', \'' + c._path.replace(/'/g, "\\'") + '\')\" style="display:inline-block;margin-top:0;font-size:12.5px;color:#e8b84b;font-weight:700;text-decoration:none;cursor:pointer">Abrir a aula e responder →</a>' +
           '</div>' +
         '</div>';
@@ -472,7 +473,7 @@ function carregarComentarios(){
 }
 
 function marcarComentarioLido(commentPath, commentId) {
-  var uid = auth.currentUser ? auth.currentUser.uid : null;
+  var uid = auth.currentUser ? uid : null;
   if (!uid) return Promise.resolve();
   
   // Salva em sessionStorage que este comentário foi aberto
@@ -498,7 +499,7 @@ function abrirAulaParaResponder(aulPath, commentId, commentPathFirestore) {
 }
 
 function marcarTudoVisto(){
-  var uid = auth.currentUser ? auth.currentUser.uid : null;
+  var uid = auth.currentUser ? uid : null;
   if (!uid) return;
   db.collection('users').doc(uid).collection('config').doc('comentariosVistos')
     .set({ em: firebase.firestore.FieldValue.serverTimestamp() })
@@ -565,3 +566,61 @@ if(window.lucide && lucide.createIcons) lucide.createIcons();
 
 
 </body></html>
+
+<script>
+function toggleLido(btn, path, uid) {
+  if (!uid) return;
+  
+  var elem = btn.closest('[data-comment-path]');
+  if (!elem) return;
+  
+  var jaLi = elem.classList.contains('com-lido');
+  
+  if (jaLi) {
+    db.doc(path).update({
+      lidoPor: firebase.firestore.FieldValue.arrayRemove(uid)
+    }).then(function() {
+      elem.classList.remove('com-lido');
+      elem.classList.add('com-nao-lido');
+      btn.className = 'btn-lido';
+      btn.textContent = 'Marcar como lido';
+      
+      var tag = document.createElement('span');
+      tag.className = 'tag-nao-lido';
+      tag.textContent = 'NÃO LIDO';
+      elem.querySelector('[style*="display:flex"]').insertBefore(tag, elem.querySelector('[style*="display:flex"]').firstChild);
+    });
+  } else {
+    db.doc(path).update({
+      lidoPor: firebase.firestore.FieldValue.arrayUnion(uid)
+    }).then(function() {
+      elem.classList.remove('com-nao-lido');
+      elem.classList.add('com-lido');
+      btn.className = 'btn-nao-lido';
+      btn.textContent = 'Marcar como não lido';
+      
+      var tag = elem.querySelector('.tag-nao-lido');
+      if (tag) tag.remove();
+    });
+  }
+}
+
+// Override abrirAulaParaResponder para capturar scrollTo
+var originalAbrir = window.abrirAulaParaResponder;
+window.abrirAulaParaResponder = function(link, commentId, path) {
+  if (typeof db === 'undefined' || !auth.currentUser) {
+    window.location.href = link;
+    return;
+  }
+  
+  var uid = uid;
+  db.doc(path).update({
+    lidoPor: firebase.firestore.FieldValue.arrayUnion(uid)
+  }).then(function() {
+    window.location.href = link;
+  }).catch(function() {
+    window.location.href = link;
+  });
+};
+</script>
+
