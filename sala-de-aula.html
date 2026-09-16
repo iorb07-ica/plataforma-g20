@@ -504,11 +504,26 @@ body.preview-aluno-mode .sa-admin-topbar-btn { display: none !important; }
 .sa-disc-selo{padding:2px 9px;border-radius:10px;background:rgba(201,169,97,.16);
   color:#e8b84b;font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase}
 .sa-disc-texto{font-size:15px;line-height:1.7;color:#c9c6c1;white-space:pre-wrap;word-break:break-word}
-.sa-disc-rodape{display:flex;gap:16px;margin-top:8px}
+.sa-disc-rodape{display:flex;gap:16px;margin-top:8px;align-items:center;flex-wrap:wrap}
 .sa-disc-acao{background:none;border:none;color:#8b93a7;font-family:inherit;font-size:12.5px;
   font-weight:600;cursor:pointer;padding:0}
 .sa-disc-acao:hover{color:#e8b84b}
 .sa-disc-acao.excluir:hover{color:#f87171}
+
+/* Reações — a contagem fica no rodapé, ao lado de Responder */
+.sa-reagir-btn{font-size:15px;line-height:1}
+.sa-reacao{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.1);color:#c9c6c1;font-family:inherit;font-size:12.5px;
+  padding:3px 9px;border-radius:20px;cursor:pointer;transition:background .15s,border-color .15s}
+.sa-reacao:hover{background:rgba(255,255,255,.09)}
+.sa-reacao.minha{background:rgba(232,184,75,.14);border-color:rgba(232,184,75,.45);color:#e8b84b}
+.sa-reacao span{font-weight:700;font-size:12px}
+.sa-picker{position:absolute;z-index:9999;display:flex;gap:2px;padding:6px;
+  background:#27252c;border:1px solid rgba(255,255,255,.12);border-radius:12px;
+  box-shadow:0 12px 32px rgba(0,0,0,.55)}
+.sa-picker button{background:none;border:none;cursor:pointer;font-size:21px;line-height:1;
+  padding:5px 7px;border-radius:8px;transition:transform .12s,background .12s}
+.sa-picker button:hover{transform:scale(1.25);background:rgba(255,255,255,.07)}
 
 /* Resposta: um nível só, recuada */
 .sa-disc-respostas{margin-top:16px;padding-left:20px;display:flex;flex-direction:column;gap:18px;
@@ -2505,6 +2520,7 @@ var _saAdminCtx = {}; // { type: 'aula'|'modulo', moduloId, aulaId, data }
 
 var SA_CURSO_ID   = 'g20-masterclass';
 var _discCache    = {};      // aulaId -> lista já carregada
+var SA_EMOJIS     = ['👍','❤️','😂','😮','🙏'];   // reações oferecidas no picker
 var _discRespondendo = null; // id do comentário sendo respondido
 
 function _discRef(){
@@ -2612,6 +2628,25 @@ function renderDiscussao(itens){
     (porPai[c.respostaDe] = porPai[c.respostaDe] || []).push(c);
   });
 
+  /* As reações já vêm no documento do comentário (emojiReactions), então
+     renderizar aqui não custa leitura nenhuma. Tentativas anteriores
+     buscavam comentário por comentário depois de montar a lista — N
+     leituras a mais, e tudo se perdia no próximo render. */
+  function reacoesHtml(c){
+    var r = c.emojiReactions || {};
+    var out = '';
+    SA_EMOJIS.forEach(function(e){
+      var us = r[e] || [];
+      if (!us.length) return;
+      var euReagi = us.indexOf(meu) >= 0;
+      out += '<button class="sa-reacao' + (euReagi ? ' minha' : '') + '"' +
+             ' onclick="discReagir(\'' + c.id + '\',\'' + e + '\')"' +
+             ' title="' + (euReagi ? 'Remover sua reação' : 'Reagir') + '">' +
+             e + ' <span>' + us.length + '</span></button>';
+    });
+    return out;
+  }
+
   function bloco(c, ehResposta){
     var podeApagar = (c.autorId === meu) || SA_IS_ADMIN;
     var respostas  = porPai[c.id] || [];
@@ -2625,9 +2660,10 @@ function renderDiscussao(itens){
                '</div>' +
                '<div class="sa-disc-texto">' + _esc2(c.texto) + '</div>' +
                '<div class="sa-disc-rodape">' +
-                 (ehResposta ? '' : '<button class="sa-disc-acao" data-emoji-btn="' + c.id + '" style="background:none;border:none;padding:0;margin-right:8px">👍</button>' +
-                 '<button class="sa-disc-acao" onclick="discResponder(\'' + c.id + '\')">Responder</button>') +
+                 '<button class="sa-disc-acao sa-reagir-btn" onclick="discAbrirPicker(event,\'' + c.id + '\')" title="Reagir">☺</button>' +
+                 (ehResposta ? '' : '<button class="sa-disc-acao" onclick="discResponder(\'' + c.id + '\')">Responder</button>') +
                  (podeApagar ? '<button class="sa-disc-acao excluir" onclick="discExcluir(\'' + c.id + '\')">Excluir</button>' : '') +
+                 reacoesHtml(c) +
                '</div>' +
                (respostas.length
                  ? '<div class="sa-disc-respostas">' + respostas.map(function(r){ return bloco(r, true); }).join('') + '</div>'
@@ -2637,6 +2673,109 @@ function renderDiscussao(itens){
   }
 
   lista.innerHTML = raiz.map(function(c){ return bloco(c, false); }).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   REAÇÕES NOS COMENTÁRIOS
+
+   O estado mora em `emojiReactions` no próprio documento do comentário:
+   { "👍": [uid, uid], "❤️": [uid] }. Ele já chega junto com o comentário
+   em carregarDiscussao(), então mostrar as reações não custa uma leitura
+   sequer a mais.
+
+   O clique altera o cache em memória e redesenha na hora; a gravação no
+   Firestore vai depois, sem segurar a interface. Como o redesenho lê do
+   mesmo cache, a reação sobrevive a qualquer re-render — que foi onde as
+   tentativas anteriores se perdiam: elas injetavam botões por fora, e o
+   próximo render jogava tudo fora.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function discFecharPicker(){
+  var p = document.getElementById('saPicker');
+  if (p) p.remove();
+}
+
+function discAbrirPicker(ev, id){
+  ev.preventDefault();
+  ev.stopPropagation();
+  var jaAberto = document.getElementById('saPicker');
+  var mesmo = jaAberto && jaAberto.getAttribute('data-alvo') === id;
+  discFecharPicker();
+  if (mesmo) return;               // clicar de novo no mesmo botão fecha
+
+  var box = document.createElement('div');
+  box.id = 'saPicker';
+  box.className = 'sa-picker';
+  box.setAttribute('data-alvo', id);
+  SA_EMOJIS.forEach(function(e){
+    var b = document.createElement('button');
+    b.textContent = e;
+    b.onclick = function(evt){
+      evt.preventDefault();
+      evt.stopPropagation();
+      discFecharPicker();
+      discReagir(id, e);
+    };
+    box.appendChild(b);
+  });
+
+  /* Preso ao body com posição absoluta calculada a partir do botão: dentro
+     do rodapé ele seria cortado pelo overflow do card em telas estreitas. */
+  document.body.appendChild(box);
+  var r = ev.currentTarget.getBoundingClientRect();
+  var topo = r.bottom + window.scrollY + 6;
+  var esq  = r.left + window.scrollX;
+  var larg = box.offsetWidth || 210;
+  if (esq + larg > window.innerWidth - 12) esq = window.innerWidth - larg - 12;
+  box.style.top  = topo + 'px';
+  box.style.left = Math.max(12, esq) + 'px';
+}
+
+document.addEventListener('click', function(e){
+  if (!e.target.closest('#saPicker') && !e.target.closest('.sa-reagir-btn')) discFecharPicker();
+});
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape') discFecharPicker();
+});
+
+function discReagir(id, emoji){
+  var pf = _discPerfil();
+  if (!pf.uid) { alert('Faça login para reagir.'); return; }
+
+  var itens = _discCache[currentAulaId];
+  if (!itens) return;
+  var c = null;
+  for (var i = 0; i < itens.length; i++) { if (itens[i].id === id) { c = itens[i]; break; } }
+  if (!c) return;
+
+  if (!c.emojiReactions) c.emojiReactions = {};
+  var us = c.emojiReactions[emoji] || [];
+  var pos = us.indexOf(pf.uid);
+  var tirando = pos >= 0;
+
+  if (tirando) us.splice(pos, 1);
+  else us.push(pf.uid);
+
+  if (us.length) c.emojiReactions[emoji] = us;
+  else delete c.emojiReactions[emoji];
+
+  renderDiscussao(itens);          // instantâneo, a partir do cache
+
+  var FV = firebase.firestore.FieldValue;
+  var patch = {};
+  patch['emojiReactions.' + emoji] = tirando ? FV.arrayRemove(pf.uid) : FV.arrayUnion(pf.uid);
+  try {
+    _discRef().doc(id).update(patch).catch(function(err){
+      console.warn('[SA] reação não gravou:', err && err.message);
+      /* Desfaz para a tela não mentir sobre o que está salvo. */
+      var u2 = c.emojiReactions[emoji] || [];
+      if (tirando) u2.push(pf.uid);
+      else { var p2 = u2.indexOf(pf.uid); if (p2 >= 0) u2.splice(p2, 1); }
+      if (u2.length) c.emojiReactions[emoji] = u2;
+      else delete c.emojiReactions[emoji];
+      renderDiscussao(itens);
+    });
+  } catch(e){}
 }
 
 function discResponder(id){
@@ -3324,130 +3463,7 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
 </body>
 </html>
 
-<style>
-.emoji-picker { position:absolute; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:8px; display:flex; gap:4px; z-index:1000; top:0; left:0; }
-.emoji-picker button { background:none; border:none; cursor:pointer; font-size:18px; padding:4px; }
-.emoji-count { background:rgba(232,184,75,0.1); border:1px solid rgba(232,184,75,0.3); cursor:pointer; color:var(--text); padding:4px 8px; border-radius:4px; font-size:12px; margin-right:4px; }
-</style>
 
-<script>
-var emojiStorage = {};
-
-document.addEventListener('click', function(e) {
-  var btn = e.target.closest('[data-emoji-btn]');
-  if (btn) {
-    e.preventDefault();
-    var commentId = btn.getAttribute('data-emoji-btn');
-    var emojis = ['👍', '❤️', '😂', '😮', '😡'];
-    var picker = document.querySelector('[data-emoji-picker="' + commentId + '"]');
-    
-    if (picker) {
-      picker.remove();
-      return;
-    }
-    
-    var div = document.createElement('div');
-    div.setAttribute('data-emoji-picker', commentId);
-    div.className = 'emoji-picker';
-    
-    emojis.forEach(function(emoji) {
-      var btn = document.createElement('button');
-      btn.textContent = emoji;
-      btn.onclick = function(ev) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        salvarReacao(emoji, commentId);
-        div.remove();
-      };
-      div.appendChild(btn);
-    });
-    
-    e.target.parentElement.insertBefore(div, e.target.nextSibling);
-  }
-});
-
-function salvarReacao(emoji, commentId) {
-  if (typeof auth === 'undefined' || !auth.currentUser) {
-    setTimeout(function() { salvarReacao(emoji, commentId); }, 100);
-    return;
-  }
-  
-  var uid = auth.currentUser.uid;
-  
-  if (!emojiStorage[commentId]) emojiStorage[commentId] = {};
-  if (!emojiStorage[commentId][emoji]) emojiStorage[commentId][emoji] = [];
-  
-  var users = emojiStorage[commentId][emoji];
-  var idx = users.indexOf(uid);
-  
-  if (idx >= 0) {
-    users.splice(idx, 1);
-  } else {
-    users.push(uid);
-  }
-  
-  renderReacoes(commentId);
-  
-  if (typeof db === 'undefined' || !db) {
-    setTimeout(function() { salvarReacao(emoji, commentId); }, 100);
-    return;
-  }
-  
-  var path = 'cursos/g20-masterclass/modulos/' + currentModuloId + '/aulas/' + currentAulaId + '/comentarios/' + commentId;
-  var update = {};
-  if (users.length > 0) {
-    update['emojiReactions.' + emoji] = users;
-  } else {
-    update['emojiReactions.' + emoji] = firebase.firestore.FieldValue.delete();
-  }
-  db.doc(path).update(update).catch(function(e) {
-    console.error('Erro emoji:', e);
-  });
-}
-
-function renderReacoes(commentId) {
-  var item = document.querySelector('[data-id="' + commentId + '"]');
-  if (!item) return;
-  
-  var rodape = item.querySelector('.sa-disc-rodape');
-  if (!rodape) return;
-  
-  rodape.querySelectorAll('[data-emoji-render]').forEach(function(el) { el.remove(); });
-  
-  var reactions = emojiStorage[commentId] || {};
-  Object.keys(reactions).forEach(function(emoji) {
-    var count = reactions[emoji].length;
-    if (count === 0) return;
-    
-    var btn = document.createElement('button');
-    btn.setAttribute('data-emoji-render', '1');
-    btn.className = 'emoji-count';
-    btn.textContent = emoji + ' ' + count;
-    btn.onclick = function(e) {
-      e.preventDefault();
-      salvarReacao(emoji, commentId);
-    };
-    rodape.appendChild(btn);
-  });
-}
-
-setInterval(function() {
-  if (typeof db === 'undefined' || typeof currentModuloId === 'undefined') return;
-  
-  document.querySelectorAll('.sa-disc-item[data-id]:not([data-emoji-load])').forEach(function(item) {
-    item.setAttribute('data-emoji-load', '1');
-    var commentId = item.getAttribute('data-id');
-    var path = 'cursos/g20-masterclass/modulos/' + currentModuloId + '/aulas/' + currentAulaId + '/comentarios/' + commentId;
-    
-    db.doc(path).get().then(function(doc) {
-      if (doc.exists && doc.data().emojiReactions) {
-        emojiStorage[commentId] = doc.data().emojiReactions;
-        renderReacoes(commentId);
-      }
-    }).catch(function(e) { });
-  });
-}, 500);
-</script>
 
 
 <script>
