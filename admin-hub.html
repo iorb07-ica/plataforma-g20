@@ -442,22 +442,10 @@ function carregarComentarios(){
         itens.push(c);
       });
 
-      var novos = itens.filter(function(c){ return c._novo; }).length;
-      st.innerHTML = itens.length + ' comentário(s) · ' +
-        (novos ? '<b style="color:#2ecc71">' + novos + ' novo(s) desde sua última visita</b>'
-               : 'nenhum novo desde sua última visita');
-
-      var badge = document.getElementById('comBadge');
-      if (badge) {
-        badge.style.display = novos ? 'inline-block' : 'none';
-        badge.textContent = novos;
-        badge.style.cssText += ';margin-left:8px;padding:2px 9px;border-radius:11px;' +
-          'background:#2ecc71;color:#0d0c10;font-size:12px;font-weight:800';
-      }
-
       if (!itens.length) {
         box.innerHTML = '<div style="padding:24px 2px;color:#8b93a7;font-size:14px">' +
                         'Nenhum comentário nas aulas ainda.</div>';
+        _comAtualizarStatus(0);
         return;
       }
 
@@ -485,6 +473,9 @@ function carregarComentarios(){
           '</div>' +
         '</div>';
       }).join('');
+
+      /* Só agora os cards existem no DOM — contar antes daria zero. */
+      _comAtualizarStatus(itens.length);
     })
     .catch(function(e){
       st.innerHTML = '<span style="color:#f87171">Falhou: ' + (e && e.message ? e.message : e) +
@@ -492,6 +483,32 @@ function carregarComentarios(){
         'republique o firestore.rules — a consulta collectionGroup precisa da regra por curinga.</span>';
     })
     .then(function(){ btn.disabled = false; btn.style.opacity = '1'; });
+}
+
+/* O contador do topo lê os cards já renderizados em vez de uma variável
+   paralela. Assim ele nunca dessincroniza do que está na tela: o toggle
+   muda a classe do card e manda recontar, ponto. O total é opcional —
+   quando não vem, é recontado junto. */
+function _comAtualizarStatus(total){
+  var st = document.getElementById('comStatus');
+  if (!st) return;
+  var cards = document.querySelectorAll('#comLista .com-card');
+  if (typeof total !== 'number') total = cards.length;
+  var naoLidos = document.querySelectorAll('#comLista .com-card.is-nao-lido').length;
+
+  st.innerHTML = total + ' comentário(s) · ' +
+    (naoLidos
+      ? '<b style="color:#2ecc71">' + naoLidos + ' não lido(s)</b>'
+      : 'todos lidos');
+
+  /* O selo do card do painel acompanha a mesma contagem. */
+  var badge = document.getElementById('comBadge');
+  if (badge) {
+    badge.style.display = naoLidos ? 'inline-block' : 'none';
+    badge.textContent = naoLidos;
+    badge.style.cssText += ';margin-left:8px;padding:2px 9px;border-radius:11px;' +
+      'background:#2ecc71;color:#0d0c10;font-size:12px;font-weight:800';
+  }
 }
 
 function toggleLido(btn){
@@ -508,6 +525,7 @@ function toggleLido(btn){
   var tag = card.querySelector('.com-tag-status');
   if (tag) tag.textContent = eraLido ? 'NÃO LIDO' : 'LIDO';
   btn.textContent = eraLido ? 'Marcar como lido' : 'Marcar como não lido';
+  _comAtualizarStatus();
 
   // 2) grava no Firestore em segundo plano
   var FV = firebase.firestore.FieldValue;
@@ -519,6 +537,7 @@ function toggleLido(btn){
     card.classList.toggle('is-nao-lido', !eraLido);
     if (tag) tag.textContent = eraLido ? 'LIDO' : 'NÃO LIDO';
     btn.textContent = eraLido ? 'Marcar como não lido' : 'Marcar como lido';
+    _comAtualizarStatus();
     console.log('Erro ao gravar lido:', e);
   });
 }
