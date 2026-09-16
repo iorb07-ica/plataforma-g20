@@ -2656,7 +2656,99 @@ function renderDiscussao(itens){
            '</div>';
   }
 
-  lista.innerHTML = raiz.map(function(c){ return bloco(c, false); }).join('');
+  var _comentariosData = {};
+  raiz.forEach(function(c) { _comentariosData[c.id] = c; });
+  
+  lista.innerHTML = raiz.map(function(c){ 
+    var html = bloco(c, false);
+    // Adicionar data-autor-id sem quebrar HTML
+    return html.replace('data-id="' + c.id + '"', 'data-id="' + c.id + '" data-autor-id="' + c.autorId + '"');
+  }).join('');
+  
+  // ─── ATIVAR MELHORIAS APÓS RENDERIZAR ───
+  setTimeout(function() {
+    document.querySelectorAll('.sa-disc-item').forEach(function(item) {
+      var autorId = item.getAttribute('data-autor-id');
+      if (!autorId) return;
+      
+      // Nome clicável
+      var nomeSpan = item.querySelector('.sa-disc-nome');
+      if (nomeSpan && nomeSpan.parentElement && !nomeSpan.classList.contains('sa-disc-nome-clicavel')) {
+        var link = document.createElement('a');
+        link.className = 'sa-disc-nome-clicavel';
+        link.style.cursor = 'pointer';
+        link.style.color = 'var(--text)';
+        link.style.fontWeight = '700';
+        link.style.transition = 'color 0.2s';
+        link.textContent = nomeSpan.textContent;
+        link.onclick = function(e) { e.preventDefault(); abrirPerfilAluno(autorId); return false; };
+        nomeSpan.parentElement.replaceChild(link, nomeSpan);
+      }
+      
+      // Botão emoji
+      var rodape = item.querySelector('.sa-disc-rodape');
+      if (rodape && !rodape.querySelector('.sa-disc-emoji-btn')) {
+        var emojiBtn = document.createElement('button');
+        emojiBtn.className = 'sa-disc-emoji-btn';
+        emojiBtn.textContent = '👍';
+        emojiBtn.style.position = 'relative';
+        emojiBtn.style.display = 'inline-flex';
+        emojiBtn.style.alignItems = 'center';
+        emojiBtn.style.gap = '6px';
+        emojiBtn.style.background = 'none';
+        emojiBtn.style.border = '1px solid var(--gold-border)';
+        emojiBtn.style.color = 'var(--gold)';
+        emojiBtn.style.padding = '6px 12px';
+        emojiBtn.style.borderRadius = '6px';
+        emojiBtn.style.fontSize = '13px';
+        emojiBtn.style.cursor = 'pointer';
+        emojiBtn.style.marginLeft = '8px';
+        emojiBtn.onclick = function(e) { e.preventDefault(); toggleEmojiPicker(this); return false; };
+        
+        var picker = document.createElement('div');
+        picker.className = 'emoji-picker';
+        picker.style.display = 'none';
+        picker.style.position = 'absolute';
+        picker.style.background = 'var(--surface)';
+        picker.style.border = '1px solid var(--border)';
+        picker.style.borderRadius = '8px';
+        picker.style.padding = '8px';
+        picker.style.zIndex = '1000';
+        picker.style.bottom = '100%';
+        picker.style.left = '0';
+        picker.style.marginBottom = '4px';
+        picker.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
+        
+        ['👍', '❤️', '😂', '😮', '😡'].forEach(function(emoji) {
+          var btn = document.createElement('button');
+          btn.textContent = emoji;
+          btn.style.background = 'none';
+          btn.style.border = 'none';
+          btn.style.fontSize = '24px';
+          btn.style.cursor = 'pointer';
+          btn.style.padding = '4px';
+          btn.style.borderRadius = '4px';
+          btn.style.transition = 'background 0.2s';
+          btn.onclick = function(e) { 
+            e.preventDefault(); 
+            var itemId = item.getAttribute('data-id');
+            // Usar variáveis globais da sala-de-aula
+            if (typeof currentModuloId !== 'undefined' && typeof currentAulaId !== 'undefined') {
+              var comentarioRef = 'cursos/TODO/modulos/' + currentModuloId + '/aulas/' + currentAulaId + '/comentarios/' + itemId;
+              adicionarEmoji(emoji, comentarioRef);
+            }
+            return false; 
+          };
+          btn.onmouseover = function() { this.style.background = 'rgba(201,169,97,0.15)'; };
+          btn.onmouseout = function() { this.style.background = 'none'; };
+          picker.appendChild(btn);
+        });
+        
+        emojiBtn.appendChild(picker);
+        rodape.insertBefore(emojiBtn, rodape.firstChild);
+      }
+    });
+  }, 50);
 }
 
 function discResponder(id){
