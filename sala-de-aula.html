@@ -2625,7 +2625,7 @@ function renderDiscussao(itens){
                '</div>' +
                '<div class="sa-disc-texto">' + _esc2(c.texto) + '</div>' +
                '<div class="sa-disc-rodape">' +
-                 (ehResposta ? '' : '<button class="sa-disc-acao" style="background:none;border:none;padding:0;margin-right:8px;font-size:16px" onclick="var emojis=[\"👍\",\"❤️\",\"😂\",\"😮\",\"😡\"];var picker=document.createElement(\"div\");picker.className=\"emoji-picker\";picker.style.position=\"absolute\";picker.style.top=this.offsetHeight+\"px\";emojis.forEach(function(e){var btn=document.createElement(\"button\");btn.textContent=e;btn.onclick=function(ev){ev.preventDefault();salvarReacao(e,\'' + c.id + '\');picker.remove();};picker.appendChild(btn);});this.parentElement.insertBefore(picker,this.nextSibling);">👍</button>' +
+                 (ehResposta ? '' : '<button class="sa-disc-acao" data-emoji-btn="' + c.id + '" style="background:none;border:none;padding:0;margin-right:8px">👍</button>' +
                  '<button class="sa-disc-acao" onclick="discResponder(\'' + c.id + '\')">Responder</button>') +
                  (podeApagar ? '<button class="sa-disc-acao excluir" onclick="discExcluir(\'' + c.id + '\')">Excluir</button>' : '') +
                '</div>' +
@@ -3325,42 +3325,73 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
 </html>
 
 <style>
-.emoji-picker { position:absolute; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:8px; display:flex; gap:4px; z-index:1000; }
-.emoji-picker button { background:none; border:none; cursor:pointer; font-size:18px; padding:4px; transition:transform .2s; }
-.emoji-picker button:hover { transform:scale(1.2); }
+.emoji-picker { position:absolute; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:8px; display:flex; gap:4px; z-index:1000; top:0; left:0; }
+.emoji-picker button { background:none; border:none; cursor:pointer; font-size:18px; padding:4px; }
 .emoji-count { background:rgba(232,184,75,0.1); border:1px solid rgba(232,184,75,0.3); cursor:pointer; color:var(--text); padding:4px 8px; border-radius:4px; font-size:12px; margin-right:4px; }
 </style>
 
 <script>
 var emojiStorage = {};
 
+document.addEventListener('click', function(e) {
+  if (e.target.hasAttribute('data-emoji-btn')) {
+    e.preventDefault();
+    var commentId = e.target.getAttribute('data-emoji-btn');
+    var emojis = ['👍', '❤️', '😂', '😮', '😡'];
+    var picker = document.querySelector('[data-emoji-picker="' + commentId + '"]');
+    
+    if (picker) {
+      picker.remove();
+      return;
+    }
+    
+    var div = document.createElement('div');
+    div.setAttribute('data-emoji-picker', commentId);
+    div.className = 'emoji-picker';
+    
+    emojis.forEach(function(emoji) {
+      var btn = document.createElement('button');
+      btn.textContent = emoji;
+      btn.onclick = function(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        salvarReacao(emoji, commentId);
+        div.remove();
+      };
+      div.appendChild(btn);
+    });
+    
+    e.target.parentElement.insertBefore(div, e.target.nextSibling);
+  }
+});
+
 function salvarReacao(emoji, commentId) {
-  // Verifica se Firebase tá pronto
-  if (typeof auth === 'undefined' || typeof db === 'undefined' || !auth.currentUser) {
+  if (typeof auth === 'undefined' || !auth.currentUser) {
     setTimeout(function() { salvarReacao(emoji, commentId); }, 100);
     return;
   }
   
   var uid = auth.currentUser.uid;
   
-  // Estado local
   if (!emojiStorage[commentId]) emojiStorage[commentId] = {};
   if (!emojiStorage[commentId][emoji]) emojiStorage[commentId][emoji] = [];
   
   var users = emojiStorage[commentId][emoji];
   var idx = users.indexOf(uid);
   
-  // Toggle
   if (idx >= 0) {
     users.splice(idx, 1);
   } else {
     users.push(uid);
   }
   
-  // Renderiza instantaneamente
   renderReacoes(commentId);
   
-  // Salva no Firestore em background
+  if (typeof db === 'undefined' || !db) {
+    setTimeout(function() { salvarReacao(emoji, commentId); }, 100);
+    return;
+  }
+  
   var path = 'cursos/g20-masterclass/modulos/' + currentModuloId + '/aulas/' + currentAulaId + '/comentarios/' + commentId;
   var update = {};
   if (users.length > 0) {
@@ -3368,7 +3399,9 @@ function salvarReacao(emoji, commentId) {
   } else {
     update['emojiReactions.' + emoji] = firebase.firestore.FieldValue.delete();
   }
-  db.doc(path).update(update);
+  db.doc(path).update(update).catch(function(e) {
+    console.error('Erro emoji:', e);
+  });
 }
 
 function renderReacoes(commentId) {
@@ -3378,17 +3411,15 @@ function renderReacoes(commentId) {
   var rodape = item.querySelector('.sa-disc-rodape');
   if (!rodape) return;
   
-  // Remove emoji buttons antigos
-  rodape.querySelectorAll('[data-emoji-btn]').forEach(function(el) { el.remove(); });
+  rodape.querySelectorAll('[data-emoji-render]').forEach(function(el) { el.remove(); });
   
-  // Adiciona novos
   var reactions = emojiStorage[commentId] || {};
   Object.keys(reactions).forEach(function(emoji) {
     var count = reactions[emoji].length;
     if (count === 0) return;
     
     var btn = document.createElement('button');
-    btn.setAttribute('data-emoji-btn', '1');
+    btn.setAttribute('data-emoji-render', '1');
     btn.className = 'emoji-count';
     btn.textContent = emoji + ' ' + count;
     btn.onclick = function(e) {
@@ -3399,12 +3430,11 @@ function renderReacoes(commentId) {
   });
 }
 
-// Carrega reações ao abrir
 setInterval(function() {
   if (typeof db === 'undefined' || typeof currentModuloId === 'undefined') return;
   
-  document.querySelectorAll('.sa-disc-item[data-id]:not([data-emoji-loaded])').forEach(function(item) {
-    item.setAttribute('data-emoji-loaded', '1');
+  document.querySelectorAll('.sa-disc-item[data-id]:not([data-emoji-load])').forEach(function(item) {
+    item.setAttribute('data-emoji-load', '1');
     var commentId = item.getAttribute('data-id');
     var path = 'cursos/g20-masterclass/modulos/' + currentModuloId + '/aulas/' + currentAulaId + '/comentarios/' + commentId;
     
@@ -3413,7 +3443,7 @@ setInterval(function() {
         emojiStorage[commentId] = doc.data().emojiReactions;
         renderReacoes(commentId);
       }
-    });
+    }).catch(function(e) { });
   });
 }, 500);
 </script>
