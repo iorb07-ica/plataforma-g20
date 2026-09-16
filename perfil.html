@@ -1008,6 +1008,17 @@ body.light .ptipo-opt small{ color:#5c6580 }
 body.light .netpub-cta{ background:rgba(200,148,58,.1); border-color:rgba(200,148,58,.3); color:#3d465c }
 body.light .netpub-cta b{ color:#a5741a }
 
+/* Medidor do campo "negócio": o card do Networking mostra duas linhas,
+   então passar de ~180 caracteres é escrever para ninguém ler. Não bloqueia
+   — avisa, e diz para onde o texto extra deve ir. */
+.neg-medidor{display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap}
+.neg-conta{font-size:11.5px;color:#6b7280;font-variant-numeric:tabular-nums;flex-shrink:0}
+.neg-conta.perto{color:#e8b84b}
+.neg-conta.passou{color:#f0a868;font-weight:600}
+.neg-aviso{font-size:11.5px;color:#f0a868;line-height:1.45}
+.neg-aviso button{background:none;border:none;padding:0;color:#e8b84b;font-family:inherit;
+  font-size:11.5px;text-decoration:underline;cursor:pointer}
+
 .prof-drop{
   display:none; position:absolute; left:0; right:0; top:100%; margin-top:6px; z-index:200;
   max-height:336px; overflow-y:auto; padding:4px 0;
@@ -1758,8 +1769,12 @@ if(localStorage.getItem('g20_uid')){
           <div class="netpub-fields">
             <div class="field full">
               <label>O que você oferece / seu negócio</label>
-              <div class="netpub-cta" style="margin:0 0 10px">💼 <b>Divulgue seu trabalho para a turma!</b> Não é a sua profissão — é o serviço ou negócio que você oferece e que outros G20s podem contratar. Capriche: é a sua vitrine na comunidade.</div>
-              <textarea id="f-negocio" rows="4" placeholder="Ex: Consultoria nutricional e planos online. Descreva o que você faz, para quem, e o que te diferencia."></textarea>
+              <div class="netpub-cta" style="margin:0 0 10px">💼 <b>Uma frase que dê vontade de saber mais.</b> Não é a sua profissão — é o serviço que outros G20s podem contratar. Escreva curto: é o que aparece no seu card do Networking. O resto da sua história cabe em "Sobre você".</div>
+              <textarea id="f-negocio" rows="2" maxlength="400" oninput="contarNegocio()" placeholder="Ex: Consultoria nutricional com planos online para quem treina."></textarea>
+              <div class="neg-medidor">
+                <span class="neg-conta" id="negConta">0 / 180</span>
+                <span class="neg-aviso" id="negAviso"></span>
+              </div>
             </div>
           </div>
         </div>
@@ -2054,6 +2069,10 @@ function preencherFormulario(data, user) {
   setVal('f-twitter',       p.twitter || '');
   setVal('f-youtube',       p.youtube || '');
   setVal('f-negocio',          p.negocio || '');
+  /* Quem já preencheu antes deste limite existir vê o aviso assim que
+     abre a aba — sem precisar digitar nada para descobrir. */
+  if (typeof contarNegocio === 'function') contarNegocio();
+  if (typeof _notifNegocioLongo === 'function') _notifNegocioLongo(p.negocio || '');
   setVal('f-site',             p.site || '');
   var _pubEl = document.getElementById('f-perfil-publico');
   // Padrão LIGADO para quem ainda não definiu (perfil novo); respeita quem já desligou
@@ -2491,6 +2510,97 @@ function calcularCompletion() {
    exatamente a mesma coisa, mas sem nada que sequestre a tela de quem
    ainda está digitando — nem toast de campo faltando, nem rolagem até o
    campo, nem foco forçado, nem redirecionamento. */
+/* ═══════════════════════════════════════════════════════════════════════
+   MEDIDOR DO CAMPO "NEGÓCIO"
+
+   O card do Networking mostra duas linhas. Texto maior que isso é cortado
+   lá — não some, vai para o perfil, mas ninguém lê na vitrine.
+
+   De propósito NÃO bloqueia a digitação: quem já escreveu um parágrafo
+   veria o texto sumindo enquanto lê o aviso, o que é pior. Avisa, mostra
+   o tamanho e oferece o caminho certo para o excedente.
+   ═══════════════════════════════════════════════════════════════════════ */
+var NEG_IDEAL = 180;   // o card do Networking mostra ~2 linhas
+
+/* A notificação do dashboard, em vez de um aviso na cara de quem entrou
+   para ver outra coisa. Pop-up a pessoa fecha no automático e nunca mais
+   vê; a notificação fica até resolver, e sai sozinha quando o texto
+   encurta. Tom de convite, não de erro: ninguém escreveu demais por
+   descuido, a orientação antiga é que pedia isso. */
+function _notifNegocioLongo(negocio){
+  try {
+    var chave = 'g20_notifications';
+    var lista = JSON.parse(localStorage.getItem(chave) || 'null') || [];
+    var id = 'negocio-longo';
+    var tem = lista.some(function(n){ return n.id === id; });
+    var longo = (negocio || '').trim().length > NEG_IDEAL;
+
+    if (longo && !tem) {
+      lista.unshift({
+        id: id, tipo: 'aviso', ico: '✨',
+        bg: 'rgba(232,184,75,.12)',
+        titulo: 'Seu card do Networking pode render mais',
+        desc: 'Sua descrição de negócio está longa e o card mostra só o começo. ' +
+              'Uma frase curta e forte chama mais atenção — o texto completo continua no seu perfil.',
+        ts: Date.now(), link: 'perfil.html'
+      });
+      localStorage.setItem(chave, JSON.stringify(lista));
+    } else if (!longo && tem) {
+      /* Resolveu: a notificação some sem a pessoa precisar dispensar. */
+      localStorage.setItem(chave, JSON.stringify(
+        lista.filter(function(n){ return n.id !== id; })
+      ));
+    }
+  } catch(e){}
+}
+
+
+function contarNegocio(){
+  var ta = document.getElementById('f-negocio');
+  var ct = document.getElementById('negConta');
+  var av = document.getElementById('negAviso');
+  if (!ta || !ct || !av) return;
+
+  var n = (ta.value || '').trim().length;
+  ct.textContent = n + ' / ' + NEG_IDEAL;
+  ct.className = 'neg-conta' + (n > NEG_IDEAL ? ' passou' : (n > NEG_IDEAL * 0.8 ? ' perto' : ''));
+
+  if (n > NEG_IDEAL) {
+    av.innerHTML = 'No card do Networking aparecem só as primeiras linhas. ' +
+      '<button type="button" onclick="moverParaSobre()">mover o excedente para “Sobre você”</button>';
+  } else {
+    av.textContent = '';
+  }
+}
+
+/* Um clique resolve em vez de mandar a pessoa recortar na mão: corta o
+   negócio numa fronteira de frase e emenda o resto no fim do "sobre". */
+function moverParaSobre(){
+  var ta = document.getElementById('f-negocio');
+  var so = document.getElementById('f-sobre');
+  if (!ta || !so) return;
+
+  var txt = (ta.value || '').trim();
+  if (txt.length <= NEG_IDEAL) return;
+
+  /* Procura o último ponto final antes do limite, para não cortar no meio
+     de uma frase. Sem ponto, cai no último espaço. */
+  var corte = txt.lastIndexOf('.', NEG_IDEAL);
+  if (corte < NEG_IDEAL * 0.4) corte = txt.lastIndexOf(' ', NEG_IDEAL);
+  if (corte < 0) corte = NEG_IDEAL;
+
+  var fica = txt.slice(0, corte + 1).trim();
+  var vai  = txt.slice(corte + 1).trim();
+  if (!vai) return;
+
+  ta.value = fica;
+  so.value = ((so.value || '').trim() + '\n\n' + vai).trim();
+
+  contarNegocio();
+  if (typeof onFieldChange === 'function') onFieldChange();
+  showToast('Movido para “Sobre você”. Confira o texto antes de salvar.', 'ok');
+}
+
 async function salvarPerfil(opts) {
   opts = opts || {};
   var silencioso = opts.silencioso === true;
@@ -2738,6 +2848,8 @@ async function salvarPerfil(opts) {
 
     _dirty = false;
     _userData.perfil = perfil;
+    /* Reavalia a notificação do card: some assim que o texto encurta. */
+    try { _notifNegocioLongo(perfil.negocio || ''); } catch(e){}
     // As preferências de notificação são salvas junto — um botão só na tela
     try { if (typeof gravarNotifPrefs === 'function') gravarNotifPrefs(false); } catch(e){}
     // Selo de liberação lido pelo guard do g20-sidebar.js em todas as páginas
