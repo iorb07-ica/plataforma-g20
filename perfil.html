@@ -2077,8 +2077,6 @@ function preencherFormulario(data, user) {
     document.getElementById('requiredNotice').classList.add('hidden');
   }
 
-  }
-
   // Ouvir mudanças
   document.querySelectorAll('input,select,textarea').forEach(function(el) {
     el.addEventListener('change', onFieldChange);
@@ -2196,9 +2194,83 @@ function onAreaChange(area) {
 }
 
 
+/* ═══════════════════════════════════════════════════════════════════════
+   SALVAMENTO AUTOMÁTICO
+
+   O perfil só subia ao Firestore quando o aluno clicava em salvar. Quem
+   preenchia e fechava a aba — ou trocava de aparelho — perdia tudo, e foi
+   exatamente essa a reclamação que chegou pelo feedback.
+
+   Agora grava sozinho ~3s depois que a digitação para. Espera a PAUSA em
+   vez de gravar a cada tecla: uma frase de cinquenta caracteres vira uma
+   escrita, não cinquenta. Preencher o perfil inteiro custa algo como duas
+   dezenas de escritas.
+
+   O botão continua lá para quem quiser confirmar na hora.
+
+   A FOTO FICA DE FORA. O avatar é gravado em base64 dentro do documento,
+   então cada autosave carregaria a imagem inteira junto. Trocar de foto
+   continua exigindo o clique — é uma ação deliberada, não digitação.
+   ═══════════════════════════════════════════════════════════════════════ */
+var _AUTO_DELAY = 3000;
+var _autoTimer  = null;
+var _autoEmCurso = false;
+var _autoPendente = false;
+
+function _autoStatus(estado){
+  var hint = document.getElementById('saveHint');
+  var bar  = document.getElementById('saveBar');
+  if (!hint || !bar) return;
+  bar.classList.add('visible');
+  if (estado === 'salvando') {
+    hint.textContent = 'Salvando…';
+  } else if (estado === 'salvo') {
+    var h = new Date();
+    var hh = ('0'+h.getHours()).slice(-2) + ':' + ('0'+h.getMinutes()).slice(-2);
+    hint.textContent = '✓ Salvo automaticamente às ' + hh;
+  } else if (estado === 'erro') {
+    hint.textContent = '⚠ Não consegui salvar. Use o botão ao lado.';
+  } else {
+    hint.textContent = 'Você tem alterações não salvas';
+  }
+}
+
+/* Uma gravação de cada vez. Se o aluno continuar digitando enquanto uma
+   está em voo, a próxima fica marcada como pendente e dispara ao fim —
+   assim nenhuma alteração fica para trás nem duas escritas se cruzam. */
+function _autoSalvar(){
+  if (!_uid || !_dirty) return;
+  if (_autoEmCurso) { _autoPendente = true; return; }
+  _autoEmCurso = true;
+  Promise.resolve(salvarPerfil({ silencioso: true }))
+    .catch(function(){ _autoStatus('erro'); })
+    .then(function(){
+      _autoEmCurso = false;
+      if (_autoPendente) { _autoPendente = false; _autoAgendar(); }
+    });
+}
+
+function _autoAgendar(){
+  if (_autoTimer) clearTimeout(_autoTimer);
+  _autoTimer = setTimeout(_autoSalvar, _AUTO_DELAY);
+}
+
+/* No celular, fechar a aba quase nunca dispara beforeunload. O evento que
+   realmente chega é este, quando a página vai para segundo plano — trocar
+   de app, atender uma ligação, bloquear a tela. É a rede de segurança que
+   importa no mobile. */
+document.addEventListener('visibilitychange', function(){
+  if (document.visibilityState === 'hidden' && _dirty && _uid) {
+    if (_autoTimer) clearTimeout(_autoTimer);
+    _autoSalvar();
+  }
+});
+
 function onFieldChange() {
   _dirty = true;
   document.getElementById('saveBar').classList.add('visible');
+  _autoStatus('pendente');
+  _autoAgendar();
   calcularCompletion();
   atualizarHeroNome();
 }
@@ -2235,6 +2307,11 @@ function handleAvatarChange(event) {
       _avatarBase64 = canvas.toDataURL('image/jpeg', 0.7);
       setAvatar(_avatarBase64);
       _dirty = true;
+      /* De propósito não agenda o autosave: a foto vai em base64 dentro do
+         documento, e mandá-la a cada pausa de digitação seria caro. Aqui a
+         barra pede o clique explícito. */
+      var _h = document.getElementById('saveHint');
+      if (_h) _h.textContent = 'Foto trocada — clique em salvar para confirmar';
       document.getElementById('saveBar').classList.add('visible');
     };
     img.src = e.target.result;
@@ -2410,18 +2487,27 @@ function calcularCompletion() {
 }
 
 // ── SALVAR ────────────────────────────────────────────────────
-async function salvarPerfil() {
+/* `opts.silencioso` é o modo usado pelo salvamento automático: grava
+   exatamente a mesma coisa, mas sem nada que sequestre a tela de quem
+   ainda está digitando — nem toast de campo faltando, nem rolagem até o
+   campo, nem foco forçado, nem redirecionamento. */
+async function salvarPerfil(opts) {
+  opts = opts || {};
+  var silencioso = opts.silencioso === true;
+
   // Validar obrigatórios pelas regras centrais (inclui tamanho mínimo, data e WhatsApp)
   var pendentes = reqPendentes();
   var vazios = pendentes.map(function(r){ return r.campo; });
 
   // Limpa erros anteriores
-  document.querySelectorAll('.field.invalid, .social-row.invalid').forEach(function(f){
-    f.classList.remove('invalid');
-    var m = f.querySelector('.field-error-msg'); if(m) m.textContent = '';
-  });
+  if (!silencioso) {
+    document.querySelectorAll('.field.invalid, .social-row.invalid').forEach(function(f){
+      f.classList.remove('invalid');
+      var m = f.querySelector('.field-error-msg'); if(m) m.textContent = '';
+    });
+  }
 
-  if (vazios.length > 0) {
+  if (vazios.length > 0 && !silencioso) {
     // Salva mesmo assim (não perde o que já foi escrito), mas não libera o acesso.
     showToast('Faltam ' + vazios.length + ' campo(s). Comece por: ' + pendentes[0].rotulo + '.', 'err');
 
@@ -2460,8 +2546,17 @@ async function salvarPerfil() {
   }
 
   var btn = document.getElementById('btnSave');
-  btn.disabled = true;
-  btn.textContent = 'Salvando...';
+  if (!silencioso) {
+    /* Cancela um autosave que esteja a caminho: quem clicou quer agora, e
+       duas gravações seguidas do mesmo conteúdo só gastariam escrita. */
+    if (_autoTimer) { clearTimeout(_autoTimer); _autoTimer = null; }
+    var _h = document.getElementById('saveHint');
+    if (_h) _h.textContent = 'Você tem alterações não salvas';
+    btn.disabled = true;
+    btn.textContent = 'Salvando...';
+  } else {
+    _autoStatus('salvando');
+  }
 
   try {
     var pct = calcularCompletion();
@@ -2657,23 +2752,41 @@ async function salvarPerfil() {
     }
     if (typeof atualizarBannerObrigatorio === 'function') atualizarBannerObrigatorio();
 
-    document.getElementById('saveBar').classList.remove('visible');
-    // Perfil completo pela primeira vez: celebra e leva pro dashboard
-    if (perfilCompleto && !_userData.perfilCompleto) {
-      _userData.perfilCompleto = true;
-      abrirCelebracao();
-    } else if (perfilCompleto && _MODO_OBRIGATORIO) {
-      setTimeout(function() { window.location.href = 'dashboard.html'; }, 1200);
+    if (silencioso) {
+      /* A barra não some: vira confirmação discreta, para o aluno enxergar
+         que o sistema está guardando sozinho. */
+      _autoStatus('salvo');
+      /* Ficar completo é um marco único na vida do aluno — vale celebrar
+         mesmo quando quem gravou foi o autosave, porque nesse instante ele
+         acabou de preencher o último campo. O que NUNCA acontece aqui é o
+         redirecionamento do modo obrigatório: jogar alguém para fora da
+         página sem ele ter pedido seria pior que não salvar. */
+      if (perfilCompleto && !_userData.perfilCompleto) {
+        _userData.perfilCompleto = true;
+        abrirCelebracao();
+      }
     } else {
-      showToast('✅ Perfil salvo com sucesso!', 'ok');
+      document.getElementById('saveBar').classList.remove('visible');
+      // Perfil completo pela primeira vez: celebra e leva pro dashboard
+      if (perfilCompleto && !_userData.perfilCompleto) {
+        _userData.perfilCompleto = true;
+        abrirCelebracao();
+      } else if (perfilCompleto && _MODO_OBRIGATORIO) {
+        setTimeout(function() { window.location.href = 'dashboard.html'; }, 1200);
+      } else {
+        showToast('✅ Perfil salvo com sucesso!', 'ok');
+      }
     }
 
   } catch(e) {
     console.error(e);
-    showToast('Erro ao salvar. Tente novamente.', 'err');
+    if (silencioso) { _autoStatus('erro'); }
+    else { showToast('Erro ao salvar. Tente novamente.', 'err'); }
   } finally {
-    btn.disabled = false;
-    btn.textContent = '💾 Salvar Perfil';
+    if (!silencioso) {
+      btn.disabled = false;
+      btn.textContent = '💾 Salvar Perfil';
+    }
   }
 }
 
