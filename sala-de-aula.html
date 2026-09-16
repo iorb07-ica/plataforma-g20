@@ -594,6 +594,89 @@ body.preview-aluno-mode .sa-admin-topbar-btn { display: none !important; }
   <link rel="prefetch" href="carteira.html">
   <link rel="prefetch" href="gestao-patrimonial.html">
   <link rel="prefetch" href="g20cast.html">
+<script>
+// ═══════════════════════════════════════════════════════════════════════════════
+// Detecta se voltou dos comentários e adiciona botão "Voltar aos Comentários"
+// ═══════════════════════════════════════════════════════════════════════════════
+(function() {
+  if (location.search.indexOf('voltarDe=comentarios') > -1) {
+    // Remove o parâmetro da URL (limpa a barra de endereços)
+    window.history.replaceState({}, document.title, location.pathname + location.hash);
+    
+    // Aguarda a página carregar completamente
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', adicionarBotaoVoltar);
+    } else {
+      setTimeout(adicionarBotaoVoltar, 100);
+    }
+  }
+
+  function adicionarBotaoVoltar() {
+    // Evita adicionar o botão duas vezes
+    if (document.getElementById('btnVoltarComentarios')) return;
+
+    // Tenta encontrar o topbar/header onde o botão deve ir
+    var topbar = document.querySelector('.topbar') || 
+                 document.querySelector('.sidebar-top') ||
+                 document.querySelector('header') || 
+                 document.querySelector('[class*="top"]') ||
+                 document.body;
+
+    // Cria o botão
+    var btn = document.createElement('a');
+    btn.id = 'btnVoltarComentarios';
+    btn.href = 'admin-hub.html?comentarios=1';
+    btn.innerHTML = '← Voltar aos Comentários';
+    
+    // Estilos (mesmo padrão do admin-hub)
+    btn.style.cssText = `
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #0d0c10;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 800;
+      padding: 11px 22px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #e8b84b, #c9a961);
+      box-shadow: 0 8px 24px rgba(232, 184, 75, 0.28);
+      letter-spacing: 0.3px;
+      transition: all 0.2s;
+      cursor: pointer;
+      margin-right: 12px;
+      border: none;
+      font-family: 'DM Sans', sans-serif;
+      z-index: 1000;
+    `;
+
+    // Hover effect
+    btn.onmouseover = function() {
+      this.style.transform = 'translateY(-2px)';
+      this.style.boxShadow = '0 12px 32px rgba(232, 184, 75, 0.4)';
+    };
+    
+    btn.onmouseout = function() {
+      this.style.transform = 'translateY(0)';
+      this.style.boxShadow = '0 8px 24px rgba(232, 184, 75, 0.28)';
+    };
+
+    // Tenta adicionar no topbar (melhor lugar)
+    var container = document.querySelector('.topbar-left') || 
+                    document.querySelector('.topbar') ||
+                    topbar;
+    
+    if (container && container.firstChild) {
+      container.insertBefore(btn, container.firstChild);
+    } else if (container) {
+      container.appendChild(btn);
+    }
+
+    console.log('✅ Botão "Voltar aos Comentários" adicionado!');
+  }
+})();
+// ═══════════════════════════════════════════════════════════════════════════════
+</script>
 </head>
 <body>
 
@@ -2258,8 +2341,7 @@ function toggleConcluir() {
     concluidas[currentAulaId] = true;
     aula.concluida = true;
   }
-  var uid = firebase.auth().currentUser ? firebase.auth().currentUser.uid : null;
-  saveConcluidas(uid, window._saDb);
+  saveConcluidas();
   showAula(currentModuloId, currentAulaId);
 }
 
@@ -2267,8 +2349,7 @@ function autoMarcarConcluida(aulaId) {
   concluidas[aulaId] = true;
   var aula = getAula(currentModuloId, aulaId);
   if (aula) aula.concluida = true;
-  var uid = firebase.auth().currentUser ? firebase.auth().currentUser.uid : null;
-  saveConcluidas(uid, window._saDb);
+  saveConcluidas();
   setTimeout(function(){
     var btn = document.getElementById('btnConcluir');
     if (btn) { btn.className = 'sa-btn-concluir done'; document.getElementById('btnConcluirLabel').textContent = 'Concluída ✓'; }
