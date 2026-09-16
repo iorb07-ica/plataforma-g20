@@ -2625,6 +2625,7 @@ function renderDiscussao(itens){
                '</div>' +
                '<div class="sa-disc-texto">' + _esc2(c.texto) + '</div>' +
                '<div class="sa-disc-rodape">' +
+                 '<button class="emoji-btn" onclick="mostrarEmojiPicker(event, \'' + c.id + '\')" title="Reagir">👍</button>' +
                  (ehResposta ? '' : '<button class="sa-disc-acao" onclick="discResponder(\'' + c.id + '\')">Responder</button>') +
                  (podeApagar ? '<button class="sa-disc-acao excluir" onclick="discExcluir(\'' + c.id + '\')">Excluir</button>' : '') +
                '</div>' +
@@ -3323,80 +3324,186 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
 </body>
 </html>
 
-<!-- MODAL PARA PERFIL -->
+<!-- MELHORIAS: Perfil Clicável + Emoji Reactions -->
 <div id="profileModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:10000;justify-content:center;align-items:center"></div>
 
 <style>
-.sa-disc-nome:hover { color: var(--gold) !important; cursor: pointer !important; }
-.sa-disc-item img:hover { cursor: pointer !important; }
+/* Nome e foto clicáveis */
+.sa-disc-nome-clickable { cursor: pointer; }
+.sa-disc-nome-clickable:hover { color: var(--gold); }
+.sa-disc-avatar-clickable { cursor: pointer; }
+
+/* Botão emoji */
+.emoji-btn { background: none; border: none; cursor: pointer; font-size: 16px; padding: 4px 8px; color: var(--text2); margin-left: 8px; }
+.emoji-btn:hover { color: var(--gold); }
+.emoji-picker-menu { position: absolute; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: flex; gap: 4px; z-index: 1000; }
+
+/* Nome e Avatar clicáveis */
+.sa-disc-nome-clickable { cursor: pointer; }
+.sa-disc-nome-clickable:hover { color: var(--gold); }
+.sa-disc-avatar-clickable { cursor: pointer; }
 </style>
 
 <script>
-// Função global para abrir perfil
+// FUNÇÃO GLOBAL: Abrir perfil do aluno
 window.abrirPerfilAluno = function(uid) {
-  if (!uid) return;
+  if (!uid || typeof db === 'undefined') return;
   var modal = document.getElementById('profileModal');
-  if (typeof db === 'undefined') { alert('Firestore não carregado'); return; }
   
   db.collection('networking_public').doc(uid).get().then(function(doc) {
     if (!doc.exists) { alert('Perfil não encontrado'); return; }
     var p = doc.data();
-    var html = '<div style="background:var(--surface);border-radius:12px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;padding:24px;border:1px solid var(--border)">' +
-      '<div style="display:flex;justify-content:space-between;margin-bottom:20px">' +
+    var foto = p.foto || '';
+    var html = '<div style="background:var(--surface);border-radius:12px;max-width:500px;width:90%;padding:24px;border:1px solid var(--border)">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">' +
         '<h2 style="margin:0">Perfil</h2>' +
-        '<button style="background:none;border:none;font-size:28px;cursor:pointer;color:var(--text2)" onclick="document.getElementById(\\\"profileModal\\\").style.display=\\\"none\\\"\">×</button>' +
+        '<button onclick="document.getElementById(\'profileModal\').style.display=\'none\'" style="background:none;border:none;font-size:28px;cursor:pointer;color:var(--text2)">×</button>' +
       '</div>' +
-      (p.foto ? '<img src="' + p.foto + '" style="width:80px;height:80px;border-radius:50%;object-fit:cover;margin-bottom:16px">' : '') +
+      (foto ? '<img src="' + foto + '" style="width:80px;height:80px;border-radius:50%;object-fit:cover;margin-bottom:16px">' : '') +
       '<div style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:16px">' + (p.nome || 'Sem nome') + '</div>' +
-      (p.profissao ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Profissão</div><div style="color:var(--text)">' + p.profissao + '</div></div>' : '') +
-      (p.empresa ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Empresa</div><div style="color:var(--text)">' + p.empresa + '</div></div>' : '') +
-      (p.area ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Área</div><div style="color:var(--text)">' + p.area + '</div></div>' : '') +
-      (p.sobre ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Sobre</div><div style="color:var(--text)">' + p.sobre + '</div></div>' : '') +
+      (p.profissao ? '<div style="margin-bottom:12px;font-size:14px;color:var(--text)"><span style="font-size:11px;color:var(--text2);text-transform:uppercase">Profissão:</span> ' + p.profissao + '</div>' : '') +
+      (p.empresa ? '<div style="margin-bottom:12px;font-size:14px;color:var(--text)"><span style="font-size:11px;color:var(--text2);text-transform:uppercase">Empresa:</span> ' + p.empresa + '</div>' : '') +
+      (p.area ? '<div style="margin-bottom:12px;font-size:14px;color:var(--text)"><span style="font-size:11px;color:var(--text2);text-transform:uppercase">Área:</span> ' + p.area + '</div>' : '') +
       '</div>';
     modal.innerHTML = html;
     modal.style.display = 'flex';
   }).catch(function(e) { console.error('Erro:', e); });
 };
 
-// Adicionar listeners quando renderizar
+// Fechar modal ao clicar fora
+document.getElementById('profileModal').addEventListener('click', function(e) {
+  if (e.target === this) this.style.display = 'none';
+});
+
+// FUNÇÃO GLOBAL: Toggle emoji reaction
+window.toggleEmojiReaction = function(btn, commentPath, emoji) {
+  var uid = auth.currentUser ? auth.currentUser.uid : null;
+  if (!uid) return;
+  
+  var reacoes = btn.dataset.reacoes ? JSON.parse(btn.dataset.reacoes) : [];
+  var temMinho = reacoes.indexOf(uid) >= 0;
+  
+  if (temMinho) {
+    reacoes = reacoes.filter(u => u !== uid);
+  } else {
+    reacoes.push(uid);
+  }
+  
+  db.doc(commentPath).update({
+    ['emojiReactions.' + emoji]: reacoes.length > 0 ? reacoes : firebase.firestore.FieldValue.delete()
+  }).then(function() {
+    if (reacoes.length > 0) {
+      btn.textContent = emoji + ' ' + reacoes.length;
+      btn.dataset.reacoes = JSON.stringify(reacoes);
+    } else {
+      btn.remove();
+    }
+  }).catch(function(e) { console.error('Erro:', e); });
+};
+
+// Observar mudanças no DOM e adicionar interatividade
 document.addEventListener('DOMContentLoaded', function() {
   var observer = new MutationObserver(function() {
-    // Nomes clicáveis
-    document.querySelectorAll('.sa-disc-item[data-autor-id]').forEach(function(item) {
-      var nome = item.querySelector('.sa-disc-nome');
-      if (nome && !nome._clickhandler) {
-        nome._clickhandler = true;
-        var autorId = item.getAttribute('data-autor-id');
-        nome.onclick = function(e) { 
-          e.preventDefault();
-          window.abrirPerfilAluno(autorId);
-          return false;
-        };
-      }
+    // Tornar nomes clicáveis
+    document.querySelectorAll('.sa-disc-nome:not([data-clickable])').forEach(function(nome) {
+      nome.setAttribute('data-clickable', 'true');
+      nome.classList.add('sa-disc-nome-clickable');
       
-      // Avatar clicável
-      var avatar = item.querySelector('[data-id="' + item.getAttribute('data-id') + '"] + img') || item.querySelector('[role="img"]');
-      if (avatar && !avatar._clickhandler) {
-        avatar._clickhandler = true;
-        var autorId = item.getAttribute('data-autor-id');
-        avatar.onclick = function(e) {
-          e.preventDefault();
-          window.abrirPerfilAluno(autorId);
-          return false;
-        };
-      }
+      var item = nome.closest('.sa-disc-item');
+      if (!item) return;
+      
+      var autorId = item.getAttribute('data-autor-id');
+      if (!autorId) return;
+      
+      nome.onclick = function(e) {
+        e.preventDefault();
+        window.abrirPerfilAluno(autorId);
+        return false;
+      };
+    });
+    
+    // Tornar avatares clicáveis
+    document.querySelectorAll('.sa-disc-item[data-autor-id]').forEach(function(item) {
+      var avatar = item.querySelector('[data-id="' + item.getAttribute('data-id') + '"]');
+      if (!avatar || avatar._avatar_clickable) return;
+      
+      avatar._avatar_clickable = true;
+      avatar.classList.add('sa-disc-avatar-clickable');
+      var autorId = item.getAttribute('data-autor-id');
+      
+      avatar.onclick = function(e) {
+        e.preventDefault();
+        window.abrirPerfilAluno(autorId);
+        return false;
+      };
     });
   });
   
   observer.observe(document.body, { childList: true, subtree: true });
 });
+</script>
 
-// Fechar modal ao clicar fora
-document.addEventListener('click', function(e) {
-  var modal = document.getElementById('profileModal');
-  if (e.target === modal) {
-    modal.style.display = 'none';
+
+<script>
+// Função para mostrar picker de emojis
+window.mostrarEmojiPicker = function(event, commentId) {
+  event.preventDefault();
+  var btn = event.target;
+  var menu = btn.nextElementSibling;
+  
+  // Se já existe menu, fecha
+  if (menu && menu.classList && menu.classList.contains('emoji-picker-menu')) {
+    menu.remove();
+    return;
   }
-});
+  
+  // Remove menus antigos
+  document.querySelectorAll('.emoji-picker-menu').forEach(m => m.remove());
+  
+  // Cria novo menu
+  var emojis = ['👍', '❤️', '😂', '😮', '😡'];
+  var menuDiv = document.createElement('div');
+  menuDiv.className = 'emoji-picker-menu';
+  menuDiv.innerHTML = emojis.map(emoji => 
+    '<button onclick="adicionarEmoji(\'' + emoji + '\', \'' + commentId + '\'); this.parentElement.remove();" style="background:none;border:none;cursor:pointer;font-size:18px;padding:4px;border-radius:4px;" onmouseover="this.style.background=\'rgba(232,184,75,0.2)\'" onmouseout="this.style.background=\'none\'">' + emoji + '</button>'
+  ).join('');
+  
+  btn.parentElement.insertBefore(menuDiv, btn.nextSibling);
+};
+
+// Função para adicionar emoji reaction
+window.adicionarEmoji = function(emoji, commentId) {
+  var uid = auth.currentUser ? auth.currentUser.uid : null;
+  if (!uid) return;
+  
+  var path = 'cursos/g20-masterclass/modulos/' + currentModuloId + '/aulas/' + currentAulaId + '/comentarios/' + commentId;
+  
+  db.doc(path).get().then(function(doc) {
+    if (!doc.exists) return;
+    
+    var data = doc.data();
+    var reactions = data.emojiReactions || {};
+    var emojiUsers = reactions[emoji] || [];
+    
+    if (emojiUsers.indexOf(uid) >= 0) {
+      // Remove reação
+      emojiUsers = emojiUsers.filter(u => u !== uid);
+    } else {
+      // Adiciona reação
+      emojiUsers.push(uid);
+    }
+    
+    var update = {};
+    if (emojiUsers.length > 0) {
+      update['emojiReactions.' + emoji] = emojiUsers;
+    } else {
+      update['emojiReactions.' + emoji] = firebase.firestore.FieldValue.delete();
+    }
+    
+    return db.doc(path).update(update);
+  }).catch(function(e) {
+    console.error('Erro ao adicionar emoji:', e);
+  });
+};
 </script>
 
