@@ -3325,6 +3325,8 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
 </body>
 </html>
 
+</html>
+
 <!-- MELHORIAS: Perfil Clicável + Emoji Reactions -->
 <div id="profileModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:10000;justify-content:center;align-items:center"></div>
 
@@ -3473,28 +3475,6 @@ window.mostrarEmojiPicker = function(event, commentId) {
 };
 
 // Função para adicionar emoji reaction
-window.adicionarEmoji = function(emoji, commentId) {
-  var uid = auth.currentUser ? auth.currentUser.uid : null;
-  if (!uid) return;
-  
-  var path = 'cursos/g20-masterclass/modulos/' + currentModuloId + '/aulas/' + currentAulaId + '/comentarios/' + commentId;
-  
-  db.doc(path).get().then(function(doc) {
-    if (!doc.exists) return;
-    
-    var data = doc.data();
-    var reactions = data.emojiReactions || {};
-    var emojiUsers = reactions[emoji] || [];
-    
-    if (emojiUsers.indexOf(uid) >= 0) {
-      // Remove reação
-      emojiUsers = emojiUsers.filter(u => u !== uid);
-    } else {
-      // Adiciona reação
-      emojiUsers.push(uid);
-    }
-    
-    var update = {};
     if (emojiUsers.length > 0) {
       update['emojiReactions.' + emoji] = emojiUsers;
     } else {
@@ -3536,5 +3516,176 @@ if (typeof discEnviar === 'function') {
     }
   };
 }
+</script>
+
+
+<!-- MODAL DE PERFIL DO ALUNO (LOCAL) -->
+<div id="perfilAlunoModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:10000;justify-content:center;align-items:center;padding:20px">
+  <div id="perfilAlunoConteudo" style="background:var(--surface);border-radius:12px;max-width:500px;width:100%;padding:24px;border:1px solid var(--border);max-height:80vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h2 style="margin:0">Perfil do Aluno</h2>
+      <button onclick="document.getElementById('perfilAlunoModal').style.display='none'" style="background:none;border:none;font-size:28px;cursor:pointer;color:var(--text2)">×</button>
+    </div>
+    <div id="perfilAlunoBody"></div>
+  </div>
+</div>
+
+<style>
+.sa-disc-nome { cursor: pointer; }
+.sa-disc-nome:hover { color: var(--gold); }
+.sa-disc-avatar { cursor: pointer; }
+</style>
+
+<script>
+// Abrir perfil em modal (sem redirecionar)
+window.abrirPerfilAlunoModal = function(uid) {
+  if (!uid) return;
+  var modal = document.getElementById('perfilAlunoModal');
+  var body = document.getElementById('perfilAlunoBody');
+  
+  if (typeof db === 'undefined') {
+    body.innerHTML = '<div style="color:red">Erro: Firestore não carregado</div>';
+    modal.style.display = 'flex';
+    return;
+  }
+  
+  db.collection('networking_public').doc(uid).get().then(function(doc) {
+    if (!doc.exists) {
+      body.innerHTML = '<div style="color:red">Perfil não encontrado</div>';
+      modal.style.display = 'flex';
+      return;
+    }
+    
+    var p = doc.data();
+    var foto = p.foto || '';
+    
+    var html = '<div>' +
+      (foto ? '<img src="' + foto + '" style="width:100px;height:100px;border-radius:50%;object-fit:cover;margin-bottom:16px">' : '') +
+      '<div style="font-size:24px;font-weight:700;color:var(--text);margin-bottom:16px">' + (p.nome || 'Sem nome') + '</div>' +
+      (p.profissao ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Profissão</div><div style="font-size:14px;color:var(--text)">' + p.profissao + '</div></div>' : '') +
+      (p.empresa ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Empresa</div><div style="font-size:14px;color:var(--text)">' + p.empresa + '</div></div>' : '') +
+      (p.area ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Área</div><div style="font-size:14px;color:var(--text)">' + p.area + '</div></div>' : '') +
+      (p.sobre ? '<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Sobre</div><div style="font-size:14px;color:var(--text)">' + p.sobre + '</div></div>' : '') +
+      '</div>';
+    
+    body.innerHTML = html;
+    modal.style.display = 'flex';
+  }).catch(function(e) {
+    console.error('Erro ao carregar perfil:', e);
+    body.innerHTML = '<div style="color:red">Erro: ' + e.message + '</div>';
+    modal.style.display = 'flex';
+  });
+};
+
+// Fechar modal ao clicar fora
+document.getElementById('perfilAlunoModal').addEventListener('click', function(e) {
+  if (e.target === this) this.style.display = 'none';
+});
+
+// Melhorar função de emoji com debug
+window.adicionarEmoji = function(emoji, commentId) {
+  var uid = auth.currentUser ? auth.currentUser.uid : null;
+  if (!uid) { console.log('Sem autenticação'); return; }
+  
+  var modId = currentModuloId;
+  var aulaId = currentAulaId;
+  var path = 'cursos/g20-masterclass/modulos/' + modId + '/aulas/' + aulaId + '/comentarios/' + commentId;
+  
+  console.log('Adicionando emoji:', emoji, 'Path:', path, 'UID:', uid);
+  
+  db.doc(path).get().then(function(doc) {
+    if (!doc.exists) { 
+      console.log('Documento não existe:', path);
+      return; 
+    }
+    
+    var data = doc.data();
+    var reactions = data.emojiReactions || {};
+    var emojiUsers = reactions[emoji] || [];
+    
+    console.log('Reações atuais:', reactions);
+    
+    if (emojiUsers.indexOf(uid) >= 0) {
+      emojiUsers = emojiUsers.filter(u => u !== uid);
+      console.log('Removendo emoji');
+    } else {
+      emojiUsers.push(uid);
+      console.log('Adicionando emoji');
+    }
+    
+    var update = {};
+    if (emojiUsers.length > 0) {
+      update['emojiReactions.' + emoji] = emojiUsers;
+    } else {
+      update['emojiReactions.' + emoji] = firebase.firestore.FieldValue.delete();
+    }
+    
+    console.log('Update:', update);
+    return db.doc(path).update(update);
+  }).then(function() {
+    console.log('✅ Emoji salvo!');
+  }).catch(function(e) {
+    console.error('❌ Erro ao adicionar emoji:', e);
+  });
+};
+
+// Adicionar interatividade aos nomes e avatares (DOMContentLoaded)
+document.addEventListener('DOMContentLoaded', function() {
+  setTimeout(function() {
+    // Tornar nomes clicáveis
+    document.querySelectorAll('.sa-disc-nome').forEach(function(nome) {
+      if (nome._clickable) return;
+      nome._clickable = true;
+      
+      var item = nome.closest('.sa-disc-item');
+      if (!item) return;
+      
+      var autorId = item.getAttribute('data-autor-id');
+      if (!autorId) return;
+      
+      nome.onclick = function(e) {
+        e.preventDefault();
+        console.log('Clicou no nome:', autorId);
+        window.abrirPerfilAlunoModal(autorId);
+        return false;
+      };
+    });
+    
+    // Tornar avatares clicáveis
+    document.querySelectorAll('.sa-disc-item[data-autor-id]').forEach(function(item) {
+      var autorId = item.getAttribute('data-autor-id');
+      var img = item.querySelector('img');
+      
+      if (!img || img._clickable) return;
+      img._clickable = true;
+      img.classList.add('sa-disc-avatar');
+      
+      img.onclick = function(e) {
+        e.preventDefault();
+        console.log('Clicou na foto:', autorId);
+        window.abrirPerfilAlunoModal(autorId);
+        return false;
+      };
+    });
+  }, 100);
+});
+
+// Observer para quando comentários são renderizados dinamicamente
+var observer = new MutationObserver(function() {
+  document.querySelectorAll('.sa-disc-nome:not([data-interactive])').forEach(function(nome) {
+    nome.setAttribute('data-interactive', 'true');
+    var item = nome.closest('.sa-disc-item');
+    var autorId = item ? item.getAttribute('data-autor-id') : null;
+    if (autorId) {
+      nome.onclick = function(e) {
+        e.preventDefault();
+        window.abrirPerfilAlunoModal(autorId);
+        return false;
+      };
+    }
+  });
+});
+
+observer.observe(document.body, { childList: true, subtree: true });
 </script>
 
