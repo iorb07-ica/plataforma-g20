@@ -412,11 +412,67 @@ function iniciais(nome){
   return (nome||'?').split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase()||'?';
 }
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-function linkUrl(v){
-  if(!v) return '';
-  v=String(v).trim();
-  if(/^https?:\/\//i.test(v)) return v;
-  return 'https://'+v.replace(/^@/,'');
+/* ═══════════════════════════════════════════════════════════════════════
+   LINKS DE REDE — o domínio é NOSSO, o aluno só fornece o usuário
+
+   Os campos do perfil são livres, e o valor ia direto para a URL. Um aluno
+   digitou "inkedin.com" sem o L e o link levou para um site de apostas —
+   esse domínio existe justamente para capturar quem erra ao digitar. Com
+   17 alunos preenchendo à mão, isso se repetiria.
+
+   Agora extraímos só o identificador e montamos a URL com o domínio fixo.
+   Se não der para reconhecer o que foi digitado, não vira link: melhor um
+   ícone apagado do que mandar a turma para um lugar desconhecido.
+   ═══════════════════════════════════════════════════════════════════════ */
+function _soHost(v){
+  return String(v||'').trim()
+    .replace(/^https?:\/\//i,'')
+    .replace(/^www\./i,'')
+    .replace(/^@/,'')
+    .replace(/\/+$/,'');
+}
+
+function urlInstagram(v){
+  var s=_soHost(v);
+  if(!s) return '';
+  /* Aceita o perfil colado inteiro ou só o usuário. */
+  var m=s.match(/^instagram\.com\/([^/?#]+)/i);
+  var user=m?m[1]:s.split(/[/?#]/)[0];
+  /* Usuário do Instagram pode ter ponto (joao.silva), então o ponto não
+     serve de filtro. Descartamos só o que termina em extensão de domínio
+     de verdade — pega "instagran.com" sem recusar "joao.silva". */
+  if(!m && /\.(com|net|org|br|io|co|me|app|site|xyz|info|biz)$/i.test(user)) return '';
+  if(!/^[A-Za-z0-9._]{1,30}$/.test(user)) return '';
+  return 'https://instagram.com/'+user;
+}
+
+function urlLinkedin(v){
+  var s=_soHost(v);
+  if(!s) return '';
+  /* linkedin.com/in/fulano, /company/x, ou só "fulano". */
+  var m=s.match(/^(?:[a-z]{2,3}\.)?linkedin\.com\/((?:in|company|school|pub)\/[^?#]+)/i);
+  if(m) return 'https://www.linkedin.com/'+m[1].replace(/\/+$/,'');
+  var user=s.split(/[/?#]/)[0];
+  /* Um host digitado errado (inkedin.com, linkedln.com) cai aqui — e é
+     descartado, porque nome de usuário não contém ponto. */
+  if(!/^[A-Za-z0-9\-]{3,100}$/.test(user)) return '';
+  return 'https://www.linkedin.com/in/'+user;
+}
+
+function urlWhatsapp(v){
+  var d=String(v||'').replace(/\D/g,'');
+  if(d.length<10||d.length>15) return '';
+  if(d.length<=11) d='55'+d;          // número nacional sem DDI
+  return 'https://wa.me/'+d;
+}
+
+function urlSite(v){
+  var s=_soHost(v);
+  if(!s) return '';
+  /* Site precisa ter cara de domínio — sem isso vira "https://qualquer
+     coisa que a pessoa escreveu". */
+  if(!/^[A-Za-z0-9.\-]+\.[A-Za-z]{2,}(\/.*)?$/.test(s)) return '';
+  return 'https://'+s;
 }
 
 // ─── AUTH ───
@@ -644,10 +700,12 @@ function cardHtml(a){
     ? '<div class="cmn-av"><img src="'+a.foto+'" onerror="this.parentNode.textContent=\''+iniciais(a.nome)+'\'"></div>'
     : '<div class="cmn-av" style="background:'+corDe(a.nome)+'">'+iniciais(a.nome)+'</div>';
   var vb=a.visib||{};
+  /* Acende só quando o link resolve de verdade: um ícone aceso que não
+     leva a lugar nenhum no perfil é promessa quebrada. */
   var soc=''
-    +socIco(a.instagram && vb.instagram!==false,'instagram','Instagram')
-    +socIco(a.whatsapp  && vb.whatsapp !==false,'whatsapp', 'WhatsApp')
-    +socIco(a.site      && vb.site     !==false,'globe',    'Site');
+    +socIco(!!urlInstagram(a.instagram) && vb.instagram!==false,'instagram','Instagram')
+    +socIco(!!urlWhatsapp(a.whatsapp)   && vb.whatsapp !==false,'whatsapp', 'WhatsApp')
+    +socIco(!!urlSite(a.site)           && vb.site     !==false,'globe',    'Site');
 
   /* Profissão, empresa e cidade cabem numa linha só agora que o card é
      horizontal — antes a coluna estreita só comportava a profissão. */
@@ -727,10 +785,10 @@ function abrirMiniPerfil(uid){
       + '</div></div>' : '';
   var vb=a.visib||{};
   var soc=''
-    +mpSoc(a.instagram && vb.instagram!==false,'instagram',linkUrl(a.instagram?'instagram.com/'+a.instagram.replace(/^@/,'').replace(/^https?:\/\/(www\.)?instagram\.com\//i,''):''))
-    +mpSoc(a.linkedin  && vb.linkedin !==false,'linkedin', linkUrl(a.linkedin))
-    +mpSoc(a.site      && vb.site     !==false,'globe',    linkUrl(a.site))
-    +mpSoc(a.whatsapp  && vb.whatsapp !==false,'whatsapp', a.whatsapp?'https://wa.me/'+String(a.whatsapp).replace(/\D/g,''):'');
+    +mpSoc(vb.instagram!==false, 'instagram', urlInstagram(a.instagram))
+    +mpSoc(vb.linkedin !==false, 'linkedin',  urlLinkedin(a.linkedin))
+    +mpSoc(vb.site     !==false, 'globe',     urlSite(a.site))
+    +mpSoc(vb.whatsapp !==false, 'whatsapp',  urlWhatsapp(a.whatsapp));
   document.getElementById('mpModal').innerHTML=
     '<div class="mp-band"><button class="mp-close" onclick="fecharMiniPerfil()"><i data-lucide="x"></i></button></div>'
     +'<div class="mp-body">'
