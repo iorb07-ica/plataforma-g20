@@ -21393,7 +21393,7 @@ html body .topbar {
               if (c.admin) return;                       // os meus não contam
               var t = c.criadoEm && c.criadoEm.toDate ? c.criadoEm.toDate().getTime() : 0;
               if (!t || t <= visto) return;
-              // NOVO (v58.1): só conta comentários não lidos
+              // NOVO (v58.2): só conta comentários não lidos
               // lidoPor é um array de UIDs que já marcaram como lido
               if (c.lidoPor && c.lidoPor.indexOf(uid) >= 0) return;
               novos.push(c);
@@ -21473,7 +21473,8 @@ html body .topbar {
       snap.forEach(function(d){
         var s  = d.data() || {};
         var st = s.status || 'novo';
-        if (st !== 'respondido' && st !== 'resolvido') n++;
+        // NOVO (v58.2): só conta feedback que NÃO foi respondido ainda
+        if (st !== 'respondido' && st !== 'resolvido' && st !== 'RESPONDIDO') n++;
       });
       try { localStorage.setItem(FBCACHE, JSON.stringify({ em: Date.now(), n: n })); } catch(e){}
       pintarFeedback(n);
@@ -21522,16 +21523,21 @@ html body .topbar {
     return 'consultando comentários — acompanhe o console';
   };
 
-  /* ─── AUTODISPARO (v58.1) ───────────────────────────────────────────────
-     PROBLEMA: localStorage pode não estar pronto na primeira carga, então
-     comentários não apareciam até atualizar a página.
-     SOLUÇÃO: usar firebase.auth().onAuthStateChanged() que dispara assim que
-     o usuário tá autenticado — GARANTE que roda mesmo na primeira carga. */
+  /* ─── AUTODISPARO (v58.2) ───────────────────────────────────────────────
+     PROBLEMA: Na primeira carga, Firestore pode não estar totalmente pronto,
+     causando race condition (aparecia vazio, depois aparecia número).
+     SOLUÇÃO: disparar com forcar: true e delay de 100ms pra garantir que
+     Firestore tá pronto. Assim comentários e feedback aparecem corretos
+     já na primeira carga. */
   try {
     firebase.auth().onAuthStateChanged(function(user){
       if (user) {
         var _perfil = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
-        if (_perfil.role === 'admin') window._g20ComVigia();
+        if (_perfil.role === 'admin') {
+          setTimeout(function(){
+            window._g20ComVigia(true);  // forcar: true - consulta imediata
+          }, 100);  // delay pequeno pra Firestore ficar pronto
+        }
       }
     });
   } catch(e){}
