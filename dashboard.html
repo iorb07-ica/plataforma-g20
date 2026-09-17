@@ -21523,20 +21523,24 @@ html body .topbar {
     return 'consultando comentários — acompanhe o console';
   };
 
-  /* ─── AUTODISPARO (v59.2 — CORRIGIDO) ───────────────────────────────────
-     PROBLEMA: Na primeira carga, Auth pode estar pronto mas localStorage não,
-     causando race condition. Comentários e feedback não apareciam.
-     SOLUÇÃO: Disparar com forcar:true e delay de 200ms (aumentado de 100ms),
-     garantindo que tudo esteja pronto. Funciona sempre na primeira carga. */
+  /* ─── AUTODISPARO (v59.3 — AMBAS AS CONSULTAS) ────────────────────────────
+     PROBLEMA: Comentários e feedback não apareciam na primeira carga porque
+     localStorage + Firestore não estavam prontos ao mesmo tempo.
+     SOLUÇÃO: Disparar AMBAS as funções (_g20ComVigia E vigiaFeedback) com
+     delay de 500ms garantido. Força true em ambas pra consulta imediata. */
   try {
     firebase.auth().onAuthStateChanged(function(user){
       if (user) {
         var _perfil = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
         if (_perfil.role === 'admin') {
+          // Delay de 500ms garante que localStorage + Firestore estão prontos
           setTimeout(function(){
-            console.log('[G20 Dashboard] Disparando vigia com forcar:true (bootstrap)');
-            window._g20ComVigia(true);  // forcar: true - consulta imediata
-          }, 200);  // delay 200ms pra garantir Firestore + localStorage pronto
+            console.log('[G20 Dashboard Boot] Disparando AMBAS as consultas...');
+            console.log('[G20 Dashboard Boot] 1. Comentários (forcar:true)');
+            window._g20ComVigia(true);
+            console.log('[G20 Dashboard Boot] 2. Feedback (forcar:true)');
+            vigiaFeedback(true);
+          }, 500);
         }
       }
     });
