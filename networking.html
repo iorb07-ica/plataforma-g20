@@ -94,16 +94,23 @@ body.is-admin .btn-preview{display:inline-flex}
 .cmn-nudge i{width:19px;height:19px;color:var(--gold);flex-shrink:0}
 .cmn-nudge-txt{flex:1;font-size:13px;color:var(--text-2);line-height:1.5;min-width:0}
 .cmn-nudge-txt strong{color:var(--text);font-weight:600}
+.cmn-nudge-acoes{display:flex;gap:8px;align-items:center;flex-shrink:0}
 .cmn-nudge-cta{flex-shrink:0;height:38px;padding:0 16px;border-radius:9px;background:var(--gold);
   color:#0f0e12;font-size:12.5px;font-weight:700;text-decoration:none;display:flex;align-items:center}
 .cmn-nudge-cta:hover{background:var(--gold-light)}
-.cmn-nudge-x{flex-shrink:0;width:30px;height:30px;border-radius:8px;background:none;border:none;
-  color:var(--text-3);font-size:19px;line-height:1;cursor:pointer;font-family:inherit}
-.cmn-nudge-x:hover{color:var(--text-2);background:rgba(255,255,255,.05)}
+/* "Agora não" em vez de um × sem rótulo: dizer o que o botão faz evita o
+   clique por engano. Vale a sessão — na próxima visita o aviso volta,
+   porque o objetivo é o cartão ficar completo. */
+.cmn-nudge-x{flex-shrink:0;height:38px;padding:0 13px;border-radius:9px;background:none;
+  border:1px solid rgba(255,255,255,.12);color:var(--text-2);font-size:12.5px;font-weight:600;
+  cursor:pointer;font-family:inherit}
+.cmn-nudge-x:hover{color:var(--text);background:rgba(255,255,255,.05)}
 @media(max-width:640px){
   .cmn-nudge{flex-wrap:wrap}
   .cmn-nudge-txt{flex-basis:100%;order:2}
-  .cmn-nudge-cta{order:3;width:100%;justify-content:center;height:44px}
+  .cmn-nudge-acoes{order:3;width:100%}
+  .cmn-nudge-cta{flex:1;justify-content:center;height:44px}
+  .cmn-nudge-x{height:44px}
 }
 
 .cmn-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:14px}
@@ -321,16 +328,16 @@ document.addEventListener('DOMContentLoaded', function(){
     </div>
   </div>
 
-  <!-- Aparece só para quem ainda não tem foto no perfil. Some sozinha
-       assim que a pessoa sobe uma, e pode ser dispensada nesta sessão. -->
+  <!-- Faixa de aviso do próprio cartão — foto faltando ou contato que não
+       resolve. Quem preenche o texto é _avisarPerfil(). Some sozinha
+       quando não há nada a dizer. -->
   <div class="cmn-nudge" id="cmnNudge" style="display:none">
-    <i data-lucide="camera"></i>
-    <div class="cmn-nudge-txt">
-      <strong>Seu cartão está sem foto.</strong>
-      Quem tem foto aparece no topo da área e recebe mais contato dos colegas.
+    <i data-lucide="camera" id="cmnNudgeIco"></i>
+    <div class="cmn-nudge-txt" id="cmnNudgeTxt"></div>
+    <div class="cmn-nudge-acoes">
+      <button type="button" class="cmn-nudge-x" onclick="fecharNudge()">Agora não</button>
+      <a href="perfil.html" class="cmn-nudge-cta">Corrigir</a>
     </div>
-    <a href="perfil.html" class="cmn-nudge-cta">Adicionar foto</a>
-    <button type="button" class="cmn-nudge-x" onclick="fecharNudge()" aria-label="Dispensar aviso">×</button>
   </div>
 
   <div class="cmn-tools">
@@ -495,15 +502,10 @@ auth.onAuthStateChanged(function(user){
       var _foto=(d.perfil&&d.perfil.foto)||d.photo||user.photoURL||'';
       var _inf=d.infinite===true;
 
-      /* Só 3 dos 17 tinham foto quando isto foi escrito. O aviso aparece
-         apenas para quem ainda não subiu a sua, e some sozinho depois. */
-      try{
-        var dispensou=sessionStorage.getItem('g20_nudgeFoto')==='1';
-        if(!_foto && !dispensou){
-          var nd=document.getElementById('cmnNudge');
-          if(nd) nd.style.display='flex';
-        }
-      }catch(e){}
+      /* A faixa serve a dois avisos, e o card é do próprio aluno: ou falta
+         foto, ou algum contato dele não está aparecendo para a turma. Só
+         aparece para ele, e só quando há o que dizer. */
+      try{ _avisarPerfil(d.perfil||{}, _foto); }catch(e){}
       try{localStorage.setItem('g20_user_profile',JSON.stringify({
         name:_nome, role:_role, turma:_turma, photo:_foto, infinite:_inf
       }));}catch(e){}
@@ -679,12 +681,73 @@ function renderDiretorio(lista){
   if(window.lucide) lucide.createIcons();
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   AVISO DO PRÓPRIO CARTÃO
+
+   Aparece no Networking porque é aqui que a consequência é visível: o
+   aluno está olhando os cartões dos colegas e o dele tem um ícone apagado.
+   Avisar no dashboard seria longe do problema, e notificação demais vira
+   ruído que ninguém lê.
+
+   Dois casos, por ordem de impacto: falta de foto (muda o cartão inteiro)
+   e contato que não resolve (some do cartão sem a pessoa saber).
+   ═══════════════════════════════════════════════════════════════════════ */
+function _avisarPerfil(p, foto){
+  var nd = document.getElementById('cmnNudge');
+  if (!nd) return;
+
+  var txt = document.getElementById('cmnNudgeTxt');
+  var ico = document.getElementById('cmnNudgeIco');
+  var cta = nd.querySelector('.cmn-nudge-cta');
+  if (!txt || !cta) return;
+
+  try { if (sessionStorage.getItem('g20_nudge')==='1') return; } catch(e){}
+
+  /* Um contato "quebrado" é o que a pessoa preencheu mas não vira link.
+     Campo em branco não conta: ela escolheu não informar. */
+  var checas = [
+    ['instagram','Instagram', urlInstagram],
+    ['linkedin', 'LinkedIn',  urlLinkedin],
+    ['site',     'site',      urlSite],
+    ['whatsapp', 'WhatsApp',  urlWhatsapp]
+  ];
+  var quebrados = [];
+  checas.forEach(function(c){
+    var v = p[c[0]];
+    if (v && String(v).trim() && !c[2](v)) quebrados.push(c[1]);
+  });
+
+  /* Ordem por impacto: a foto muda o cartão inteiro e é o que mais pesa
+     na ordenação da área. Link quebrado só afeta quem clicar. Um aviso
+     por vez — a faixa não pode virar lista de cobranças. */
+  if (!foto) {
+    if (ico) ico.setAttribute('data-lucide','camera');
+    txt.innerHTML = '<strong>Seu cartão está sem foto.</strong> ' +
+      'Quem tem foto aparece no topo da área e recebe mais contato dos colegas.';
+    cta.textContent = 'Adicionar foto';
+    nd.style.display = 'flex';
+  } else if (quebrados.length) {
+    if (ico) ico.setAttribute('data-lucide','unlink');
+    var lista = quebrados.length === 1
+      ? 'Seu <strong>' + quebrados[0] + '</strong> não está aparecendo para a turma.'
+      : 'Alguns contatos seus não estão aparecendo para a turma: <strong>' +
+        quebrados.join(', ') + '</strong>.';
+    txt.innerHTML = lista + ' O endereço salvo não foi reconhecido — dá para corrigir em um minuto.';
+    cta.textContent = 'Corrigir';
+    nd.style.display = 'flex';
+  } else {
+    nd.style.display = 'none';
+    return;
+  }
+  if (window.lucide) lucide.createIcons();
+}
+
 function fecharNudge(){
   var nd=document.getElementById('cmnNudge');
   if(nd) nd.style.display='none';
-  /* sessionStorage, não local: volta a lembrar na próxima visita,
-     porque o objetivo é que a foto seja preenchida. */
-  try{ sessionStorage.setItem('g20_nudgeFoto','1'); }catch(e){}
+  /* sessionStorage, não local: volta a lembrar na próxima visita, porque
+     o objetivo é que o cartão fique completo. */
+  try{ sessionStorage.setItem('g20_nudge','1'); }catch(e){}
 }
 
 function mpVerMais(btn){
