@@ -143,20 +143,12 @@ const TIPO_LBL={bug:'🐛 Bug',sugestao:'💡 Sugestão',duvida:'❓ Dúvida',ou
 const STATUS_LBL={novo:'Novo',respondido:'Respondido',resolvido:'✓ Resolvido'};
 var db,auth,_itens=[],_categoriaSelecionada='Todas';
 
-// ── INIT (v59.2 — SEM LOGOUT) ──
 firebase.initializeApp({apiKey:"AIzaSyBGPo-MtdPCBbUvYc8nKtVBxSy4pJN-0GA",projectId:"g20-masterclass",authDomain:"g20-masterclass.firebaseapp.com",databaseURL:"https://g20-masterclass.firebaseio.com",storageBucket:"g20-masterclass.appspot.com",messagingSenderId:"803089651789",appId:"1:803089651789:web:ef72c36b3a2d42c0cd3a46"});
 db=firebase.firestore();
 auth=firebase.auth();
 
-// NUNCA redireciona pra login, só carrega dados se autenticado
 auth.onAuthStateChanged(function(user){
-  console.log('[Admin Feedback] onAuthStateChanged:', user ? 'logged in ('+user.email+')' : 'NOT logged in');
-  if(!user){
-    console.log('[Admin Feedback] Não autenticado — esperando login...');
-    return;
-  }
-  console.log('[Admin Feedback] Carregando dados...');
-  carregarDados();
+  if(user)carregarDados();
 });
 
 function carregarDados(){
@@ -164,29 +156,15 @@ function carregarDados(){
   lista.innerHTML='<div class="loading">Carregando feedback...</div>';
   db.collection('sugestoes').get().then(function(snap){
     _itens=[];
-    snap.forEach(function(d){
-      _itens.push({_id:d.id,...d.data()});
-    });
-    console.log('[Admin Feedback] '+_itens.length+' feedback(s) carregado(s)');
+    snap.forEach(function(d){_itens.push({_id:d.id,...d.data()});});
     render();
-  }).catch(function(e){
-    console.error('[Admin Feedback] Erro ao carregar:', e);
-    lista.innerHTML='<div class="empty-state">Erro ao carregar: '+escHtml(e.message)+'</div>';
-  });
+  }).catch(function(e){lista.innerHTML='<div class="empty-state">Erro: '+escHtml(e.message)+'</div>';});
 }
 
 function render(){
   var stats={total:_itens.length,novos:0,respondidos:0,resolvidos:0};
-  _itens.forEach(function(it){
-    if(it.status==='novo')stats.novos++;
-    if(it.status==='respondido')stats.respondidos++;
-    if(it.status==='resolvido')stats.resolvidos++;
-  });
-  document.getElementById('statsGrid').innerHTML=
-    '<div class="stat-card"><div class="stat-num">'+stats.total+'</div><div class="stat-lbl">Total recebidos</div></div>'+
-    '<div class="stat-card"><div class="stat-num">'+stats.novos+'</div><div class="stat-lbl">Novos (não lido)</div></div>'+
-    '<div class="stat-card"><div class="stat-num">'+stats.respondidos+'</div><div class="stat-lbl">Respondidos</div></div>'+
-    '<div class="stat-card"><div class="stat-num">'+stats.resolvidos+'</div><div class="stat-lbl">Resolvidos</div></div>';
+  _itens.forEach(function(it){if(it.status==='novo')stats.novos++;if(it.status==='respondido')stats.respondidos++;if(it.status==='resolvido')stats.resolvidos++;});
+  document.getElementById('statsGrid').innerHTML='<div class="stat-card"><div class="stat-num">'+stats.total+'</div><div class="stat-lbl">Total recebidos</div></div><div class="stat-card"><div class="stat-num">'+stats.novos+'</div><div class="stat-lbl">Novos (não lido)</div></div><div class="stat-card"><div class="stat-num">'+stats.respondidos+'</div><div class="stat-lbl">Respondidos</div></div><div class="stat-card"><div class="stat-num">'+stats.resolvidos+'</div><div class="stat-lbl">Resolvidos</div></div>';
   filtrar();
 }
 
@@ -211,127 +189,21 @@ function renderCard(d){
   if(d.email)meta.push('<b>Email:</b> '+escHtml(d.email));
   if(d.pagina)meta.push('<b>Página:</b> '+escHtml(d.pagina));
   if(d.tela)meta.push('<b>Tela:</b> '+escHtml(d.tela));
-  
   var respSection='';
-  if(d.resposta){
-    respSection='<div class="fb-resp-section"><div class="fb-resp-lbl">✓ Resposta enviada</div><div class="fb-resp-saved">'+escHtml(d.resposta);
-    if(d.respondidoEm)respSection+='<div class="fb-resp-meta">'+fmtData(d.respondidoEm)+'</div>';
-    respSection+='</div><div class="fb-resp-row"><button class="fb-btn" onclick="editarResposta(\''+d._id+'\')">Editar</button></div></div>';
-  } else {
-    respSection='<div class="fb-resp-section"><div class="fb-resp-lbl">Responda</div><textarea id="resp-'+d._id+'" placeholder="Escreva sua resposta para este aluno..."></textarea><div class="fb-resp-row"><button class="fb-btn-resp" onclick="salvarResposta(\''+d._id+'\')">Salvar e enviar</button></div></div>';
-  }
-
-  return '<div class="fb-card '+(status==='novo'?'novo':'')+'">'
-    +'<div class="fb-top"><span class="fb-tipo '+tipo+'">'+(TIPO_LBL[tipo]||'💬 Outro')+'</span><span class="fb-status '+status+'">'+(STATUS_LBL[status]||'Novo')+'</span><span class="fb-data">'+fmtData(d.criadoEm)+'</span></div>'
-    +(d.titulo?'<div class="fb-titulo">'+escHtml(d.titulo)+'</div>':'')
-    +'<div class="fb-msg">'+escHtml(d.mensagem||'(sem mensagem)')+'</div>'
-    +(prints?'<div class="fb-prints">'+prints+'</div>':'')
-    +(meta.length?'<div class="fb-meta">'+meta.join(' • ')+'</div>':'')
-    +respSection
-    +'<div class="fb-actions">'
-    +'<button class="fb-btn '+(status==='novo'?'active':'')+'" onclick="setStatus(\''+d._id+'\',\'novo\')">Novo</button>'
-    +'<button class="fb-btn '+(status==='respondido'?'active':'')+'" onclick="setStatus(\''+d._id+'\',\'respondido\')">Respondido</button>'
-    +'<button class="fb-btn '+(status==='resolvido'?'active':'')+'" onclick="setStatus(\''+d._id+'\',\'resolvido\')">✓ Resolvido</button>'
-    +'<button class="fb-btn danger" style="margin-left:auto" onclick="apagar(\''+d._id+'\')">Excluir</button>'
-    +'</div>'
-    +'</div>';
+  if(d.resposta){respSection='<div class="fb-resp-section"><div class="fb-resp-lbl">✓ Resposta enviada</div><div class="fb-resp-saved">'+escHtml(d.resposta);if(d.respondidoEm)respSection+='<div class="fb-resp-meta">'+fmtData(d.respondidoEm)+'</div>';respSection+='</div><div class="fb-resp-row"><button class="fb-btn" onclick="editarResposta(\''+d._id+'\')">Editar</button></div></div>';}else{respSection='<div class="fb-resp-section"><div class="fb-resp-lbl">Responda</div><textarea id="resp-'+d._id+'" placeholder="Escreva sua resposta para este aluno..."></textarea><div class="fb-resp-row"><button class="fb-btn-resp" onclick="salvarResposta(\''+d._id+'\')">Salvar e enviar</button></div></div>';}
+  return '<div class="fb-card '+(status==='novo'?'novo':'')+'">'+'<div class="fb-top"><span class="fb-tipo '+tipo+'">'+(TIPO_LBL[tipo]||'💬 Outro')+'</span><span class="fb-status '+status+'">'+(STATUS_LBL[status]||'Novo')+'</span><span class="fb-data">'+fmtData(d.criadoEm)+'</span></div>'+(d.titulo?'<div class="fb-titulo">'+escHtml(d.titulo)+'</div>':'')+' <div class="fb-msg">'+escHtml(d.mensagem||'(sem mensagem)')+'</div>'+(prints?'<div class="fb-prints">'+prints+'</div>':'')+( meta.length?'<div class="fb-meta">'+meta.join(' • ')+'</div>':'')+respSection+'<div class="fb-actions">'+'<button class="fb-btn '+(status==='novo'?'active':'')+'" onclick="setStatus(\''+d._id+'\',\'novo\')">Novo</button>'+'<button class="fb-btn '+(status==='respondido'?'active':'')+'" onclick="setStatus(\''+d._id+'\',\'respondido\')">Respondido</button>'+'<button class="fb-btn '+(status==='resolvido'?'active':'')+'" onclick="setStatus(\''+d._id+'\',\'resolvido\')">✓ Resolvido</button>'+'<button class="fb-btn danger" style="margin-left:auto" onclick="apagar(\''+d._id+'\')">Excluir</button>'+'</div>'+'</div>';
 }
 
-// ── AÇÕES ──
-function setCategoria(cat,el){
-  _categoriaSelecionada=cat;
-  document.querySelectorAll('.cat-tab').forEach(function(x){x.classList.remove('active');});
-  el.classList.add('active');
-  filtrar();
-}
-
-function setStatus(id,novoStatus){
-  db.collection('sugestoes').doc(id).update({status:novoStatus}).then(function(){
-    var it=_itens.filter(function(x){return x._id===id;})[0];
-    if(it)it.status=novoStatus;
-    render();
-    toast('Status atualizado: '+(STATUS_LBL[novoStatus]||novoStatus));
-  }).catch(function(e){toast('Erro: '+(e.message||'tente de novo'));});
-}
-
-function apagar(id){
-  if(!confirm('Excluir este feedback? Esta ação não pode ser desfeita.'))return;
-  db.collection('sugestoes').doc(id).delete().then(function(){
-    _itens=_itens.filter(function(x){return x._id!==id;});
-    render();
-    toast('Feedback excluído');
-  }).catch(function(e){toast('Erro: '+(e.message||'tente de novo'));});
-}
-
-function editarResposta(id){
-  var it=_itens.filter(function(x){return x._id===id;})[0];
-  if(!it)return;
-  var novaResp=prompt('Editar resposta:',it.resposta||'');
-  if(novaResp===null)return;
-  novaResp=novaResp.trim();
-  if(!novaResp){toast('A resposta não pode ser vazia.');return;}
-  db.collection('sugestoes').doc(id).update({resposta:novaResp,respondidoEm:firebase.firestore.FieldValue.serverTimestamp()}).then(function(){
-    it.resposta=novaResp;
-    render();
-    toast('Resposta atualizada');
-  }).catch(function(e){toast('Erro ao atualizar: '+(e.message||'tente de novo'));});
-}
-
-function salvarResposta(id){
-  var ta=document.getElementById('resp-'+id);
-  if(!ta)return;
-  var texto=(ta.value||'').trim();
-  if(!texto){toast('Escreva uma resposta antes de salvar.');ta.focus();return;}
-  ta.disabled=true;
-  var it=_itens.filter(function(x){return x._id===id;})[0];
-  db.collection('sugestoes').doc(id).update({
-    resposta:texto,
-    respondidoEm:firebase.firestore.FieldValue.serverTimestamp(),
-    status:'respondido'
-  }).then(function(){
-    var alunoUid=it&&it.uid;
-    if(alunoUid){
-      var payload={uid:alunoUid,resposta:texto,feedbackId:id,criadoEm:firebase.firestore.FieldValue.serverTimestamp()};
-      db.collection('feedback_respostas').add(payload).catch(function(){});
-    }
-    if(it){it.resposta=texto;it.status='respondido';it.respondidoEm={toDate:function(){return new Date();}};}
-    render();
-    toast(alunoUid?'Resposta salva e enviada ao aluno':'Resposta salva');
-  }).catch(function(e){toast('Erro ao salvar: '+(e.message||'tente de novo'));ta.disabled=false;});
-}
-
-function abrirPrint(id,idx){
-  var it=_itens.filter(function(x){return x._id===id;})[0];
-  if(!it||!it.imagens||!it.imagens[idx])return;
-  document.getElementById('lightboxImg').src=it.imagens[idx];
-  document.getElementById('lightbox').classList.add('show');
-}
-
-function fecharLightbox(e){
-  if(e.target.id==='lightbox')document.getElementById('lightbox').classList.remove('show');
-}
-
-function fmtData(ts){
-  try{
-    var dt=ts&&ts.toDate?ts.toDate():null;
-    if(!dt)return '—';
-    var dd=String(dt.getDate()).padStart(2,'0');
-    var mm=String(dt.getMonth()+1).padStart(2,'0');
-    var hh=String(dt.getHours()).padStart(2,'0');
-    var mi=String(dt.getMinutes()).padStart(2,'0');
-    return dd+'/'+mm+'/'+dt.getFullYear()+' '+hh+':'+mi;
-  }catch(e){return '—';}
-}
-
+function setCategoria(cat,el){_categoriaSelecionada=cat;document.querySelectorAll('.cat-tab').forEach(function(x){x.classList.remove('active');});el.classList.add('active');filtrar();}
+function setStatus(id,novoStatus){db.collection('sugestoes').doc(id).update({status:novoStatus}).then(function(){var it=_itens.filter(function(x){return x._id===id;})[0];if(it)it.status=novoStatus;render();toast('Status atualizado: '+(STATUS_LBL[novoStatus]||novoStatus));}).catch(function(e){toast('Erro: '+(e.message||'tente de novo'));});}
+function apagar(id){if(!confirm('Excluir este feedback? Esta ação não pode ser desfeita.'))return;db.collection('sugestoes').doc(id).delete().then(function(){_itens=_itens.filter(function(x){return x._id!==id;});render();toast('Feedback excluído');}).catch(function(e){toast('Erro: '+(e.message||'tente de novo'));});}
+function editarResposta(id){var it=_itens.filter(function(x){return x._id===id;})[0];if(!it)return;var novaResp=prompt('Editar resposta:',it.resposta||'');if(novaResp===null)return;novaResp=novaResp.trim();if(!novaResp){toast('A resposta não pode ser vazia.');return;}db.collection('sugestoes').doc(id).update({resposta:novaResp,respondidoEm:firebase.firestore.FieldValue.serverTimestamp()}).then(function(){it.resposta=novaResp;render();toast('Resposta atualizada');}).catch(function(e){toast('Erro ao atualizar: '+(e.message||'tente de novo'));});}
+function salvarResposta(id){var ta=document.getElementById('resp-'+id);if(!ta)return;var texto=(ta.value||'').trim();if(!texto){toast('Escreva uma resposta antes de salvar.');ta.focus();return;}ta.disabled=true;var it=_itens.filter(function(x){return x._id===id;})[0];db.collection('sugestoes').doc(id).update({resposta:texto,respondidoEm:firebase.firestore.FieldValue.serverTimestamp(),status:'respondido'}).then(function(){var alunoUid=it&&it.uid;if(alunoUid){var payload={uid:alunoUid,resposta:texto,feedbackId:id,criadoEm:firebase.firestore.FieldValue.serverTimestamp()};db.collection('feedback_respostas').add(payload).catch(function(){});}if(it){it.resposta=texto;it.status='respondido';it.respondidoEm={toDate:function(){return new Date();}};}render();toast(alunoUid?'Resposta salva e enviada ao aluno':'Resposta salva');}).catch(function(e){toast('Erro ao salvar: '+(e.message||'tente de novo'));ta.disabled=false;});}
+function abrirPrint(id,idx){var it=_itens.filter(function(x){return x._id===id;})[0];if(!it||!it.imagens||!it.imagens[idx])return;document.getElementById('lightboxImg').src=it.imagens[idx];document.getElementById('lightbox').classList.add('show');}
+function fecharLightbox(e){if(e.target.id==='lightbox')document.getElementById('lightbox').classList.remove('show');}
+function fmtData(ts){try{var dt=ts&&ts.toDate?ts.toDate():null;if(!dt)return '—';var dd=String(dt.getDate()).padStart(2,'0');var mm=String(dt.getMonth()+1).padStart(2,'0');var hh=String(dt.getHours()).padStart(2,'0');var mi=String(dt.getMinutes()).padStart(2,'0');return dd+'/'+mm+'/'+dt.getFullYear()+' '+hh+':'+mi;}catch(e){return '—';}}
 function escHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-
-function toast(msg){
-  var t=document.getElementById('toast');
-  t.textContent=msg;
-  t.style.opacity='1';
-  setTimeout(function(){t.style.opacity='0';},3000);
-}
-
+function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.style.opacity='1';setTimeout(function(){t.style.opacity='0';},3000);}
 if(window.lucide)lucide.createIcons();
 </script>
 </body>
