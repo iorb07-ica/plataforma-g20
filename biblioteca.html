@@ -1079,6 +1079,12 @@ body.modo-aluno #shelves .book-card{cursor:default !important}
 
 @keyframes spin{to{transform:rotate(360deg)}}
 
+@keyframes successPulse{
+  0%{transform:scale(1);box-shadow:0 0 0 0 rgba(74,200,100,.6)}
+  50%{transform:scale(1.02);box-shadow:0 0 30px rgba(74,200,100,.6)}
+  100%{transform:scale(1);box-shadow:0 0 0 0 rgba(74,200,100,0)}
+}
+
 input[type=number]::-webkit-inner-spin-button,
 input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 input[type=number]{-moz-appearance:textfield}
@@ -2051,7 +2057,7 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
       <div class="form-group" style="margin-bottom:20px">
         <label class="form-label" style="font-size:11px">Em que página você parou?</label>
         <div style="display:flex;align-items:center;gap:14px;margin-top:8px">
-          <input type="text" inputmode="numeric" pattern="[0-9]*" id="leituraInputPag" class="form-input" style="font-family:var(--serif);font-size:48px;font-weight:700;text-align:center;color:var(--gold);background:rgba(0,0,0,.4);border:2px solid var(--border-gold);padding:18px;flex:1;-moz-appearance:textfield;-webkit-appearance:none" onkeydown="if(event.key==='Enter')salvarLeitura()" onkeypress="return /[0-9]/.test(event.key)">
+          <input type="number" id="leituraInputPag" class="form-input" min="0" step="1" style="font-family:var(--serif);font-size:48px;font-weight:700;text-align:center;color:var(--gold);background:rgba(0,0,0,.4);border:2px solid var(--border-gold);padding:18px;flex:1" onkeydown="if(event.key==='Enter')salvarLeitura()" placeholder="0">
           <div style="font-family:var(--serif);font-size:22px;color:var(--text-2);font-style:italic">de</div>
           <div id="leituraPaginas" style="font-family:var(--serif);font-size:36px;font-weight:600;color:var(--text);min-width:60px;text-align:center"></div>
         </div>
@@ -2095,6 +2101,13 @@ var _tabAtual = 'g20';          // 'g20' | 'minha' | 'comunidade'
 var _livrosMinha = [];          // users/{uid}/minhaEstante
 var _livrosComunidade = [];     // sugestoes (aprovadas + pendentes p/ admin)
 var _addModalMode = 'minha';    // 'minha' | 'comunidade'
+
+// ============================================================
+//  PROTEÇÃO CONTRA DOUBLE-CLICK & ESTADO
+// ============================================================
+var _salvandoLeitura = false;
+var _salvandoLivro = false;
+var _salvandoStats = false;
 
 // ============================================================
 //  PRELOAD DA SIDEBAR (padrão G20)
@@ -2421,6 +2434,7 @@ function carregarStatsLeitura(){
 }
 
 function _salvarStatsFirestore(){
+  // Versão sincronizada (fallback)
   if(!_statsRef) return;
   var limite = Date.now() - 90*86400000;
   var dias = {};
@@ -2433,7 +2447,57 @@ function _salvarStatsFirestore(){
     ultimaLeitura:_statsCache.ultimaLeitura,
     diasLeitura:_statsCache.diasLeitura,
     updatedAt:firebase.firestore.FieldValue.serverTimestamp()
-  },{merge:true}).catch(function(e){console.warn('Salvar stats:',e);});
+  },{merge:true}).catch(function(e){console.warn('Salvar stats (sync):', e);});
+}
+
+function _salvarStatsFirestoreComRetry(tentativaAtual){
+  tentativaAtual = tentativaAtual || 0;
+  if(!_statsRef) return Promise.reject(new Error('Stats ref não inicializada'));
+  if(_salvandoStats) return Promise.resolve();
+  
+  var limite = Date.now() - 90*86400000;
+  var dias = {};
+  Object.keys(_statsCache.diasLeitura).forEach(function(dia){
+    if(new Date(dia).getTime() >= limite) dias[dia] = _statsCache.diasLeitura[dia];
+  });
+  _statsCache.diasLeitura = dias;
+
+  var payload = {
+    streak:_statsCache.streak,
+    ultimaLeitura:_statsCache.ultimaLeitura,
+    diasLeitura:_statsCache.diasLeitura,
+    updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+  };
+
+  // Promise com timeout de 8 segundos
+  var timeoutPromise = new Promise(function(resolve, reject){
+    setTimeout(function(){
+      reject(new Error('Timeout ao salvar stats (8s)'));
+    }, 8000);
+  });
+
+  var savePromise = _statsRef.set(payload, {merge:true});
+
+  return Promise.race([savePromise, timeoutPromise])
+    .catch(function(err){
+      // Retry com backoff exponencial (1s, 2s, 4s)
+      if(tentativaAtual < 3){
+        var delay = Math.pow(2, tentativaAtual) * 1000;
+        console.warn('Stats save falhou, retry em ' + delay + 'ms:', err.message);
+        return new Promise(function(resolve){
+          setTimeout(function(){
+            resolve(_salvarStatsFirestoreComRetry(tentativaAtual + 1));
+          }, delay);
+        });
+      } else {
+        console.error('Stats save falhou após 3 tentativas:', err);
+        // Ao menos salva em localStorage (fallback)
+        try{
+          localStorage.setItem('biblioteca_stats_cache', JSON.stringify(_statsCache));
+        }catch(e){}
+        throw err;
+      }
+    });
 }
 
 function _migrarLocalStorageParaFirestore(){
@@ -2736,76 +2800,181 @@ function fecharModalLeitura(){
 }
 
 function salvarLeitura(){
-  var l = window._livroAtual;
-  if(!l) return;
-  var pagN = parseInt(document.getElementById('leituraInputPag').value, 10);
-  if(isNaN(pagN) || pagN < 0){ toast('Página inválida', true); return; }
+  // ── PROTEÇÃO DOUBLE-CLICK ─────────────────────────────────
+  if(_salvandoLeitura){
+    toast('Aguarde... salvando leitura', true);
+    return;
+  }
 
-  // ── Calcular páginas lidas agora (diferença real) ──────────
+  var l = window._livroAtual;
+  if(!l){
+    toast('Nenhum livro selecionado', true);
+    return;
+  }
+
+  // ── VALIDAÇÃO COMPLETA DE PÁGINA ──────────────────────────
+  var pagInputEl = document.getElementById('leituraInputPag');
+  var pagStr = pagInputEl.value.trim();
+  
+  if(!pagStr){
+    toast('Informe a página', true);
+    return;
+  }
+
+  var pagN = parseInt(pagStr, 10);
+  
+  // Validações rigorosas
+  if(isNaN(pagN)){
+    toast('Página deve ser um número', true);
+    return;
+  }
+  
+  if(pagN < 0){
+    toast('Página não pode ser negativa', true);
+    return;
+  }
+  
+  var totalPaginas = l.paginas || 0;
+  if(totalPaginas > 0 && pagN > totalPaginas){
+    toast('Página ' + pagN + ' ultrapassa total (' + totalPaginas + ' pgs)', true);
+    return;
+  }
+
+  if(pagN === (l.paginaAtual || 0)){
+    toast('Mesma página anterior — registre um progresso', true);
+    return;
+  }
+
+  // ── TIMEZONE AGNÓSTICO (ISO 8601) ────────────────────────
+  var hoje = new Date().toISOString().split('T')[0]; // "2026-09-17"
+
+  // ── CALCULAR PÁGINAS LIDAS ───────────────────────────────
   var pagAnterior = l.paginaAtual || 0;
   var pgsLidas = Math.max(0, pagN - pagAnterior);
 
-  // ── Estimar minutos: 1 página = 2 min (média não-ficção) ───
+  // ── ESTIMAR MINUTOS (com mínimo sensato) ──────────────────
   var MIN_POR_PAGINA = 2;
   var minEstimados = pgsLidas > 0 ? Math.max(5, Math.round(pgsLidas * MIN_POR_PAGINA)) : 5;
 
+  _salvandoLeitura = true;
+  var btnSalvar = document.querySelector('#leituraOverlay .btn-form.primary');
+  var btnOriginalText = btnSalvar.textContent;
+  btnSalvar.disabled = true;
+  btnSalvar.innerHTML = '<i data-lucide="loader" style="width:14px;height:14px;animation:spin 1s linear infinite"></i> Salvando...';
+
+  // ── ATUALIZAR OBJETO DO LIVRO ────────────────────────────
   l.paginaAtual = pagN;
   l.lendo = true;
 
-  var hoje = new Date().toDateString();
-
-  // Streak — via _statsCache (Firestore)
+  // ── LÓGICA DE STREAK (com timezone correto) ──────────────
   var ultimaReg = _statsCache.ultimaLeitura || localStorage.getItem('biblioteca_ultimaLeitura');
   if(ultimaReg !== hoje){
-    var ontem = new Date(Date.now() - 86400000).toDateString();
+    var ontem = new Date(Date.now() - 86400000).toISOString().split('T')[0];
     var streak = _statsCache.streak || parseInt(localStorage.getItem('biblioteca_streak') || '0', 10);
-    if(ultimaReg === ontem) streak++;
-    else streak = 1;
+    
+    if(ultimaReg === ontem){
+      streak++; // Continuou a sequência
+    } else {
+      streak = 1; // Começou nova sequência
+    }
+    
     _statsCache.streak = streak;
     _statsCache.ultimaLeitura = hoje;
     localStorage.setItem('biblioteca_streak', String(streak));
     localStorage.setItem('biblioteca_ultimaLeitura', hoje);
   }
 
-  // Minutos e páginas — via _statsCache
+  // ── MINUTOS E PÁGINAS (com cache local + Firestore) ──────
   if(!_statsCache.diasLeitura) _statsCache.diasLeitura = {};
   var diaEntry = _statsCache.diasLeitura[hoje] || { min:0, pgs:0 };
   diaEntry.min = (diaEntry.min || 0) + minEstimados;
   diaEntry.pgs = (diaEntry.pgs || 0) + pgsLidas;
   _statsCache.diasLeitura[hoje] = diaEntry;
 
-  // Também atualiza localStorage como cache local
+  // Cache local (fallback)
   localStorage.setItem('biblioteca_hoje_min_'+hoje, String(diaEntry.min));
   localStorage.setItem('biblioteca_pgs_'+hoje, String(diaEntry.pgs));
 
-  // Persiste no Firestore
-  _salvarStatsFirestore();
-
+  // Mensagem de sucesso
   var msg = pgsLidas > 0
-    ? 'Leitura registrada — ' + pgsLidas + ' pgs · ~' + minEstimados + ' min'
-    : 'Posição registrada — pág ' + pagN;
+    ? '✓ Leitura registrada — ' + pgsLidas + ' pgs · ~' + minEstimados + ' min'
+    : '✓ Posição registrada — pág ' + pagN;
 
-  salvarStatusAluno(l);
-  toast(msg);
-  fecharModalLeitura();
-  renderHero(l);
-  renderStats();
-  renderEstantes();
-  atualizarContadores();
+  // ── SALVAR EM FIRESTORE (com retry) ──────────────────────
+  Promise.all([
+    salvarStatusAluno(l),
+    _salvarStatsFirestoreComRetry()
+  ]).then(function(){
+    toast(msg);
+    
+    // ── FEEDBACK VISUAL DE SUCESSO ───────────────────────
+    var modal = document.querySelector('#leituraOverlay .admin-panel');
+    if(modal){
+      modal.style.boxShadow = '0 0 40px rgba(74,200,100,.6), inset 0 0 30px rgba(74,200,100,.1)';
+      setTimeout(function(){
+        modal.style.boxShadow = '';
+      }, 600);
+    }
+    
+    fecharModalLeitura();
+    renderHero(l);
+    renderStats();
+    renderEstantes();
+    atualizarContadores();
+  }).catch(function(err){
+    toast('Erro ao salvar: ' + (err.message || 'Desconhecido'), true);
+  }).finally(function(){
+    _salvandoLeitura = false;
+    btnSalvar.disabled = false;
+    btnSalvar.innerHTML = btnOriginalText;
+    if(window.lucide) lucide.createIcons();
+  });
 }
 
-function salvarStatusAluno(livro){
-  if(!_user) return;
+function salvarStatusAluno(livro, tentativaAtual){
+  if(!_user) return Promise.reject(new Error('Usuário não autenticado'));
+  
+  tentativaAtual = tentativaAtual || 0;
   var src = livro._source || 'biblioteca';
   var colecao = src === 'minha' ? 'minhaEstante' : src === 'comunidade' ? 'sugestoes' : 'biblioteca';
-  db.collection('users').doc(_user.uid).collection(colecao).doc(livro.id).set({
+  
+  var payload = {
     lido: livro.lido === true,
     lendo: livro.lendo === true,
     paginaAtual: livro.paginaAtual || 0,
     dataInicio: livro.dataInicio || null,
     dataLido: livro.dataLido || null,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-  }, {merge:true}).catch(function(e){console.error('Erro salvar status:', e)});
+  };
+
+  // Timeout de 6 segundos
+  var timeoutPromise = new Promise(function(resolve, reject){
+    setTimeout(function(){
+      reject(new Error('Timeout ao salvar status (6s)'));
+    }, 6000);
+  });
+
+  var savePromise = db.collection('users')
+    .doc(_user.uid)
+    .collection(colecao)
+    .doc(livro.id)
+    .set(payload, {merge:true});
+
+  return Promise.race([savePromise, timeoutPromise])
+    .catch(function(err){
+      if(tentativaAtual < 2){
+        var delay = Math.pow(2, tentativaAtual) * 500;
+        console.warn('Status save falhou, retry em ' + delay + 'ms:', err.message);
+        return new Promise(function(resolve){
+          setTimeout(function(){
+            resolve(salvarStatusAluno(livro, tentativaAtual + 1));
+          }, delay);
+        });
+      } else {
+        console.error('Status save falhou após 2 tentativas:', err);
+        throw err;
+      }
+    });
 }
 
 // ============================================================
@@ -4535,33 +4704,68 @@ async function buscarDadosAddModal(){
   var capaAmazon = asin ? 'https://images-na.ssl-images-amazon.com/images/P/'+asin+'.01.LZZZZZZZ.jpg' : '';
   var dados = { titulo: tituloHint, autor: '', paginas: '', ano: '', capa: capaAmazon };
 
-  // Google Books para enriquecer com metadados precisos
+  // Google Books com retry e exponential backoff
   if(tituloHint){
     try{
       var query = tituloHint.split(' ').slice(0,4).join(' ');
       var gbUrl = 'https://www.googleapis.com/books/v1/volumes?q='+encodeURIComponent(query)+'&maxResults=3';
-      var resp = await fetch(gbUrl);
-      if(resp.ok){
-        var gbData = await resp.json();
-        if(gbData.items && gbData.items.length > 0){
-          // Escolhe item com mais informações completas
-          var best = gbData.items[0];
-          gbData.items.forEach(function(item){
-            var v = item.volumeInfo||{}, vb = best.volumeInfo||{};
-            if((v.pageCount||0)+(v.authors?10:0) > (vb.pageCount||0)+(vb.authors?10:0)) best = item;
-          });
-          var info = best.volumeInfo || {};
-          var il = info.imageLinks || {};
-          var capaGB = il.extraLarge||il.large||il.medium||il.thumbnail||'';
-          if(capaGB) capaGB = capaGB.replace('http://','https://').replace('zoom=1','zoom=6').replace('zoom=3','zoom=6').replace('&edge=curl','');
-          if(info.title) dados.titulo = info.title;
-          if(info.authors && info.authors[0]) dados.autor = info.authors[0];
-          if(info.pageCount) dados.paginas = info.pageCount;
-          if(info.publishedDate) dados.ano = info.publishedDate.substring(0,4);
-          if(!capaAmazon && capaGB) dados.capa = capaGB;
+      
+      // Função interna para retry
+      async function buscarGoogleBooksComRetry(urlGb, tentativa){
+        tentativa = tentativa || 0;
+        
+        try{
+          var resp = await fetch(urlGb);
+          
+          // 429 = Rate Limit Exceeded
+          if(resp.status === 429){
+            if(tentativa < 3){
+              var delay = Math.pow(2, tentativa) * 1000; // 1s, 2s, 4s
+              status.textContent = 'Google Books limitado, aguardando...';
+              await new Promise(function(r){setTimeout(r, delay);});
+              return buscarGoogleBooksComRetry(urlGb, tentativa + 1);
+            } else {
+              console.warn('Google Books rate limit atingido após 3 tentativas');
+              return null;
+            }
+          }
+          
+          if(resp.ok){
+            return await resp.json();
+          } else {
+            console.warn('Google Books HTTP ' + resp.status);
+            return null;
+          }
+        }catch(err){
+          console.warn('Google Books erro:', err);
+          if(tentativa < 2){
+            await new Promise(function(r){setTimeout(r, 500);});
+            return buscarGoogleBooksComRetry(urlGb, tentativa + 1);
+          }
+          return null;
         }
       }
-    }catch(er){ console.warn('Google Books:', er); }
+      
+      var gbData = await buscarGoogleBooksComRetry(gbUrl);
+      
+      if(gbData && gbData.items && gbData.items.length > 0){
+        // Escolhe item com mais informações completas
+        var best = gbData.items[0];
+        gbData.items.forEach(function(item){
+          var v = item.volumeInfo||{}, vb = best.volumeInfo||{};
+          if((v.pageCount||0)+(v.authors?10:0) > (vb.pageCount||0)+(vb.authors?10:0)) best = item;
+        });
+        var info = best.volumeInfo || {};
+        var il = info.imageLinks || {};
+        var capaGB = il.extraLarge||il.large||il.medium||il.thumbnail||'';
+        if(capaGB) capaGB = capaGB.replace('http://','https://').replace('zoom=1','zoom=6').replace('zoom=3','zoom=6').replace('&edge=curl','');
+        if(info.title) dados.titulo = info.title;
+        if(info.authors && info.authors[0]) dados.autor = info.authors[0];
+        if(info.pageCount) dados.paginas = info.pageCount;
+        if(info.publishedDate) dados.ano = info.publishedDate.substring(0,4);
+        if(!capaAmazon && capaGB) dados.capa = capaGB;
+      }
+    }catch(er){ console.warn('Google Books busca final:', er); }
   }
 
   btn.disabled = false;
@@ -4598,19 +4802,34 @@ async function buscarDadosAddModal(){
 
 
 async function salvarNovoLivro(){
+  // ── PROTEÇÃO DOUBLE-CLICK ─────────────────────────────────
+  if(_salvandoLivro){
+    toast('Aguarde... salvando livro', true);
+    return;
+  }
+
   var titulo = document.getElementById('addTitulo').value.trim();
   if(!titulo){ toast('Título é obrigatório', true); return; }
 
+  // Validações básicas
+  var paginas = parseInt(document.getElementById('addPaginas').value) || 0;
+  if(paginas > 0 && paginas < 10){
+    toast('Um livro precisa ter no mínimo 10 páginas', true);
+    return;
+  }
+
+  _salvandoLivro = true;
   var btn = document.getElementById('btnSalvarAdd');
+  var btnOriginalText = btn.textContent;
   btn.disabled = true;
-  btn.textContent = 'Salvando...';
+  btn.innerHTML = '<i data-lucide="loader" style="width:14px;height:14px;animation:spin 1s linear infinite"></i> Salvando...';
 
   var now = firebase.firestore.FieldValue.serverTimestamp();
   var dados = {
     titulo:    titulo,
     autor:     document.getElementById('addAutor').value.trim(),
     ano:       parseInt(document.getElementById('addAno').value)||0,
-    paginas:   parseInt(document.getElementById('addPaginas').value)||0,
+    paginas:   paginas,
     categoria: document.getElementById('addCategoria').value,
     capa:      document.getElementById('addCapa').value.trim(),
     amazonLink: document.getElementById('addLivroUrl').value.trim(),
@@ -4644,10 +4863,12 @@ async function salvarNovoLivro(){
     }
   }catch(er){
     toast('Erro: '+er.message, true);
+  }finally{
+    _salvandoLivro = false;
+    btn.disabled = false;
+    btn.textContent = btnOriginalText;
+    if(window.lucide) lucide.createIcons();
   }
-
-  btn.disabled = false;
-  btn.textContent = _addModalMode==='minha' ? 'Adicionar' : 'Enviar sugestão';
 }
 
 // ================================================================
