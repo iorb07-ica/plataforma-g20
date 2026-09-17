@@ -141,24 +141,38 @@ body{background:var(--bg);color:var(--text);font-family:"DM Sans",sans-serif;min
 <script>
 const TIPO_LBL={bug:'🐛 Bug',sugestao:'💡 Sugestão',duvida:'❓ Dúvida',outro:'💬 Outro'};
 const STATUS_LBL={novo:'Novo',respondido:'Respondido',resolvido:'✓ Resolvido'};
-var db,auth,_itens=[],_categoriaSelecionada='Todas';
+var db,auth,_itens=[],_categoriaSelecionada='Todas',_userAutenticado=false;
 
-// ── INIT ──
+// ── INIT (v59.1 — CORRIGIDO: verifica auth ANTES de carregar) ──
 firebase.initializeApp({apiKey:"AIzaSyBGPo-MtdPCBbUvYc8nKtVBxSy4pJN-0GA",projectId:"g20-masterclass",authDomain:"g20-masterclass.firebaseapp.com",databaseURL:"https://g20-masterclass.firebaseio.com",storageBucket:"g20-masterclass.appspot.com",messagingSenderId:"803089651789",appId:"1:803089651789:web:ef72c36b3a2d42c0cd3a46"});
 db=firebase.firestore();
 auth=firebase.auth();
-auth.onAuthStateChanged(function(user){if(!user)location.href='login.html';else carregarDados();});
+
+auth.onAuthStateChanged(function(user){
+  if(!user){
+    setTimeout(function(){location.href='login.html';},500);
+    return;
+  }
+  _userAutenticado=true;
+  console.log('[Admin Feedback] Usuário autenticado:', user.email);
+  carregarDados();
+});
 
 function carregarDados(){
+  if(!_userAutenticado){console.log('[Admin Feedback] Aguardando autenticação...');return;}
   var lista=document.getElementById('fbLista');
-  lista.innerHTML='<div class="loading">Carregando...</div>';
+  lista.innerHTML='<div class="loading">Carregando feedback...</div>';
   db.collection('sugestoes').get().then(function(snap){
     _itens=[];
     snap.forEach(function(d){
       _itens.push({_id:d.id,...d.data()});
     });
+    console.log('[Admin Feedback] '+_itens.length+' feedback(s) carregado(s)');
     render();
-  }).catch(function(e){lista.innerHTML='<div class="empty-state">Erro ao carregar: '+escHtml(e.message)+'</div>';});
+  }).catch(function(e){
+    console.error('[Admin Feedback] Erro:', e);
+    lista.innerHTML='<div class="empty-state">Erro ao carregar: '+escHtml(e.message)+'</div>';
+  });
 }
 
 function render(){
