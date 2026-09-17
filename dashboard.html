@@ -21393,8 +21393,8 @@ html body .topbar {
               if (c.admin) return;                       // os meus não contam
               var t = c.criadoEm && c.criadoEm.toDate ? c.criadoEm.toDate().getTime() : 0;
               if (!t || t <= visto) return;
-              // NOVO (v58.1): só conta comentários não lidos (lido !== true)
-              if (c.lido === true) return;
+              // NOVO (v58.1): só conta comentários não lidos
+              if (c.lido === true || c.status === 'lido') return;
               novos.push(c);
               if (autores.indexOf(c.autorNome) === -1) autores.push(c.autorNome);
               /* O caminho do documento carrega o módulo e a aula:
@@ -21521,15 +21521,18 @@ html body .topbar {
     return 'consultando comentários — acompanhe o console';
   };
 
-  /* ─── AUTODISPARO ───────────────────────────────────────────────────────
-     O bloco que carrega o perfil do cache chama `window._g20ComVigia` no
-     boot, mas roda ~8.000 linhas ANTES desta definição. Naquele momento a
-     função ainda é undefined e o `&&` engole a chamada em silêncio: o
-     vigia nunca rodava sozinho. Por isso a faixa verde nunca apareceu.
-     Aqui o próprio vigia se dispara assim que termina de ser definido. */
+  /* ─── AUTODISPARO (v58.1) ───────────────────────────────────────────────
+     PROBLEMA: localStorage pode não estar pronto na primeira carga, então
+     comentários não apareciam até atualizar a página.
+     SOLUÇÃO: usar firebase.auth().onAuthStateChanged() que dispara assim que
+     o usuário tá autenticado — GARANTE que roda mesmo na primeira carga. */
   try {
-    var _perfil = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
-    if (_perfil.role === 'admin') window._g20ComVigia();
+    firebase.auth().onAuthStateChanged(function(user){
+      if (user) {
+        var _perfil = JSON.parse(localStorage.getItem('g20_user_profile') || '{}');
+        if (_perfil.role === 'admin') window._g20ComVigia();
+      }
+    });
   } catch(e){}
 })();
 </script>
