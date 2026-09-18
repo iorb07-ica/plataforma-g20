@@ -158,19 +158,27 @@ console.log('[Admin Feedback] Firebase inicializado');
 // AGUARDAR CORRETAMENTE PELA SESSÃO SER RESTAURADA
 // ════════════════════════════════════════════════════════════════
 var _sessaoCarregada = false;
+var _timeoutRedirect = null;
 
 auth.onAuthStateChanged(function(user){
+  console.log('[Admin Feedback] onAuthStateChanged:', user ? 'logado ('+user.uid+')' : 'null');
+  
+  // Cancela timeout anterior (se tiver)
+  if (_timeoutRedirect) clearTimeout(_timeoutRedirect);
+  
   if (user) {
     console.log('[Admin Feedback] ✓ Sessão restaurada! UID:', user.uid);
     _sessaoCarregada = true;
     carregarDados();
-  } else {
-    console.log('[Admin Feedback] ✗ Não autenticado. Redirecionando pro dashboard...');
-    _sessaoCarregada = true;
-    // Após 500ms, redireciona pra fazer login
-    setTimeout(function(){
-      window.location.href = 'dashboard.html';
-    }, 500);
+  } else if (!_sessaoCarregada) {
+    // Primeira vez que retorna null — espera 2 segundos antes de redirecionar
+    console.log('[Admin Feedback] Primeiro check: null. Aguardando 2 segundos pra Firebase restaurar...');
+    _timeoutRedirect = setTimeout(function(){
+      if (auth.currentUser === null) {
+        console.log('[Admin Feedback] ✗ Ainda não autenticado após 2s. Redirecionando...');
+        window.location.href = 'dashboard.html';
+      }
+    }, 2000);
   }
 });
 
