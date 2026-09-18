@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Feedback dos Alunos - G20 Masterclass</title>
+  <link rel="stylesheet" href="./g20-sidebar.css">
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <style>
+    body { background: #0d0c10; color: #e8e7ec; font-family: 'Segoe UI', Tahoma, sans-serif; }
+    .content { margin-left: 280px; padding: 40px; }
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
+    .page-title { font-size: 32px; font-weight: 800; }
+    .btn { padding: 12px 24px; background: rgba(201,169,97,.2); border: 1px solid rgba(201,169,97,.4); border-radius: 8px; color: #c9a961; cursor: pointer; text-decoration: none; font-size: 14px; transition: all .2s; }
+    .btn:hover { background: rgba(201,169,97,.3); }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 40px; }
+    .stat-card { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); border-radius: 12px; padding: 24px; text-align: center; }
+    .stat-num { font-size: 36px; font-weight: 800; color: #c9a961; }
+    .stat-label { font-size: 11px; color: rgba(255,255,255,.6); margin-top: 12px; text-transform: uppercase; letter-spacing: 1px; }
+    .filters { display: flex; gap: 10px; margin-bottom: 30px; flex-wrap: wrap; }
+    .filter-btn { padding: 8px 16px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15); border-radius: 8px; color: #e8e7ec; cursor: pointer; transition: all .2s; font-size: 12px; font-weight: 700; }
+    .filter-btn.active { background: #c9a961; color: #0d0c10; border-color: #c9a961; }
+    .filter-btn:hover { background: rgba(201,169,97,.3); }
+    .feedback-list { display: flex; flex-direction: column; gap: 16px; }
+    .feedback-item { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); border-radius: 12px; padding: 24px; transition: all .2s; }
+    .feedback-item.novo { border-color: rgba(74,222,128,.4); background: rgba(74,222,128,.08); }
+    .feedback-item:hover { background: rgba(255,255,255,.06); }
+    .feedback-header { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; font-size: 12px; }
+    .badge { padding: 4px 10px; border-radius: 6px; font-weight: 700; }
+    .badge.tipo { background: rgba(255,255,255,.1); }
+    .badge.status { font-size: 11px; }
+    .badge.status.novo { background: rgba(74,222,128,.2); color: #4ade80; }
+    .badge.status.respondido { background: rgba(96,165,250,.2); color: #60a5fa; }
+    .badge.status.resolvido { background: rgba(168,85,247,.2); color: #a855f7; }
+    .feedback-title { font-size: 16px; font-weight: 700; margin: 12px 0 8px; }
+    .feedback-msg { font-size: 14px; color: rgba(255,255,255,.8); line-height: 1.6; }
+    .feedback-actions { display: flex; gap: 8px; margin-top: 16px; }
+    .action-btn { padding: 8px 14px; border: 1px solid rgba(255,255,255,.2); background: transparent; color: #e8e7ec; border-radius: 6px; cursor: pointer; transition: all .2s; font-size: 12px; font-weight: 700; }
+    .action-btn:hover { background: rgba(255,255,255,.1); }
+    .action-btn.active { background: #c9a961; color: #0d0c10; border-color: #c9a961; }
+    .action-btn.danger { color: #ef4444; border-color: rgba(239,68,68,.3); }
+    .action-btn.danger:hover { background: rgba(239,68,68,.2); }
+    .empty { text-align: center; padding: 60px 20px; color: rgba(255,255,255,.5); }
+    .loading { text-align: center; padding: 40px; color: rgba(255,255,255,.6); }
+    @media (max-width: 1200px) {
+      .content { margin-left: 0; padding: 20px; }
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .page-header { flex-direction: column; gap: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="sidebarContainer"></div>
+  
+  <div class="content">
+    <div class="page-header">
+      <h1 class="page-title">Feedback dos Alunos</h1>
+      <button class="btn" onclick="window.location.href='dashboard.html'">← Voltar</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat-card">
+        <div class="stat-num" id="statTotal">0</div>
+        <div class="stat-label">Total Recebidos</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num" id="statNovos">0</div>
+        <div class="stat-label">Novos</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num" id="statRespondidos">0</div>
+        <div class="stat-label">Respondidos</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num" id="statResolvidos">0</div>
+        <div class="stat-label">Resolvidos</div>
+      </div>
+    </div>
+
+    <div class="filters">
+      <button class="filter-btn active" onclick="filtrar('todos')">Todos</button>
+      <button class="filter-btn" onclick="filtrar('novo')">Novos</button>
+      <button class="filter-btn" onclick="filtrar('bug')">Bugs</button>
+      <button class="filter-btn" onclick="filtrar('sugestao')">Sugestões</button>
+      <button class="filter-btn" onclick="filtrar('duvida')">Dúvidas</button>
+      <button class="filter-btn" onclick="filtrar('respondido')">Respondidos</button>
+      <button class="filter-btn" onclick="filtrar('resolvido')">Resolvidos</button>
+    </div>
+
+    <div id="fbLista" class="feedback-list"></div>
+  </div>
+
+  <script>
+    console.log('[Admin Feedback v63.1] Iniciando... (v63.1-rebuild)');
+
+    if (!firebase.apps.length) {
+      firebase.initializeApp({
+        apiKey: "AIzaSyBGPo-MtdPCBbUvYc8nKtVBxSy4pJN-0GA",
+        projectId: "g20-masterclass",
+        authDomain: "g20-masterclass.firebaseapp.com",
+        databaseURL: "https://g20-masterclass.firebaseio.com",
+        storageBucket: "g20-masterclass.appspot.com",
+        messagingSenderId: "803089651789",
+        appId: "1:803089651789:web:ef72c36b3a2d42c0cd3a46"
+      });
+      console.log('[Admin Feedback v63] Firebase inicializado');
+    } else {
+      console.log('[Admin Feedback v63] Firebase compartilhado com Dashboard');
+    }
+
+    var db = firebase.firestore();
+    var auth = firebase.auth();
+    var _itens = [];
+    var _filtro = 'todos';
+
+    auth.onAuthStateChanged(function(user) {
+      console.log('[Admin Feedback v63] onAuthStateChanged:', user ? 'LOGADO ('+user.uid+')' : 'NÃO LOGADO');
+      if (user) {
+        carregarDados();
+      } else {
+        setTimeout(function() {
+          window.location.href = 'dashboard.html';
+        }, 1000);
+      }
+    });
+
+    function carregarDados() {
+      document.getElementById('fbLista').innerHTML = '<div class="loading">Carregando feedbacks...</div>';
+      db.collection('sugestoes').orderBy('criadoEm', 'desc').get()
+        .then(function(snap) {
+          _itens = [];
+          snap.forEach(function(doc) {
+            _itens.push({ _id: doc.id, ...doc.data() });
+          });
+          atualizar();
+          console.log('[Admin Feedback v63] '+_itens.length+' feedbacks carregados');
+        })
+        .catch(function(err) {
+          console.error('[Admin Feedback v63] Erro:', err);
+          document.getElementById('fbLista').innerHTML = '<div class="empty">❌ Erro: '+(err.message||'tente novamente')+'</div>';
+        });
+    }
+
+    function atualizar() {
+      var total = _itens.length;
+      var novos = _itens.filter(function(x) { return x.status === 'novo'; }).length;
+      var respondidos = _itens.filter(function(x) { return x.status === 'respondido'; }).length;
+      var resolvidos = _itens.filter(function(x) { return x.status === 'resolvido'; }).length;
+      
+      document.getElementById('statTotal').textContent = total;
+      document.getElementById('statNovos').textContent = novos;
+      document.getElementById('statRespondidos').textContent = respondidos;
+      document.getElementById('statResolvidos').textContent = resolvidos;
+      
+      render();
+    }
+
+    function render() {
+      var filtrados = _itens.filter(function(item) {
+        if (_filtro === 'todos') return true;
+        if (_filtro === 'novo') return item.status === 'novo';
+        if (_filtro === 'respondido') return item.status === 'respondido';
+        if (_filtro === 'resolvido') return item.status === 'resolvido';
+        return item.tipo === _filtro;
+      });
+
+      if (filtrados.length === 0) {
+        document.getElementById('fbLista').innerHTML = '<div class="empty">Nenhum feedback neste filtro</div>';
+        return;
+      }
+
+      var tipoLbl = { bug: '🐛 Bug', sugestao: '💡 Sugestão', duvida: '❓ Dúvida', outro: '💬 Outro' };
+      var statusLbl = { novo: 'Novo', respondido: 'Respondido', resolvido: 'Resolvido' };
+      
+      document.getElementById('fbLista').innerHTML = filtrados.map(function(d) {
+        return '<div class="feedback-item '+(d.status === 'novo' ? 'novo' : '')+'">' +
+          '<div class="feedback-header">' +
+            '<span class="badge tipo">'+(tipoLbl[d.tipo] || '💬 Outro')+'</span>' +
+            '<span class="badge status '+d.status+'">'+(statusLbl[d.status] || 'Novo')+'</span>' +
+            '<span style="color: rgba(255,255,255,.5); margin-left: auto;">'+new Date(d.criadoEm?.toDate?.() || d.criadoEm).toLocaleDateString('pt-BR')+'</span>' +
+          '</div>' +
+          (d.titulo ? '<div class="feedback-title">'+escHtml(d.titulo)+'</div>' : '') +
+          '<div class="feedback-msg">'+escHtml(d.mensagem || '(sem mensagem)')+'</div>' +
+          (d.aluno ? '<div style="font-size: 12px; color: rgba(255,255,255,.6); margin-top: 12px;"><strong>Aluno:</strong> '+escHtml(d.aluno)+'</div>' : '') +
+          '<div class="feedback-actions">' +
+            '<button class="action-btn '+(d.status === 'novo' ? 'active' : '')+'" onclick="setStatus(\''+d._id+'\', \'novo\')">Novo</button>' +
+            '<button class="action-btn '+(d.status === 'respondido' ? 'active' : '')+'" onclick="setStatus(\''+d._id+'\', \'respondido\')">Respondido</button>' +
+            '<button class="action-btn '+(d.status === 'resolvido' ? 'active' : '')+'" onclick="setStatus(\''+d._id+'\', \'resolvido\')">✓ Resolvido</button>' +
+            '<button class="action-btn danger" style="margin-left: auto;" onclick="deletar(\''+d._id+'\')">Excluir</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    function filtrar(tipo) {
+      _filtro = tipo;
+      document.querySelectorAll('.filter-btn').forEach(function(b) { b.classList.remove('active'); });
+      event.target.classList.add('active');
+      render();
+    }
+
+    function setStatus(id, status) {
+      db.collection('sugestoes').doc(id).update({ status: status })
+        .then(function() {
+          var item = _itens.find(function(x) { return x._id === id; });
+          if (item) item.status = status;
+          atualizar();
+        })
+        .catch(function(err) { alert('Erro: '+(err.message || 'tente novamente')); });
+    }
+
+    function deletar(id) {
+      if (!confirm('Excluir? Não poderá desfazer.')) return;
+      db.collection('sugestoes').doc(id).delete()
+        .then(function() {
+          _itens = _itens.filter(function(x) { return x._id !== id; });
+          atualizar();
+        })
+        .catch(function(err) { alert('Erro: '+(err.message || 'tente novamente')); });
+    }
+
+    function escHtml(txt) {
+      var div = document.createElement('div');
+      div.textContent = txt;
+      return div.innerHTML;
+    }
+
+    if (!document.getElementById('sidebar')) {
+      fetch('g20-sidebar.html')
+        .then(r => r.text())
+        .then(html => {
+          document.getElementById('sidebarContainer').innerHTML = html;
+        })
+        .catch(e => console.log('[sidebar] não carregou:', e));
+    }
+  </script>
+</body>
+</html>
