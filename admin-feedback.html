@@ -155,37 +155,33 @@ auth = firebase.auth();
 console.log('[Admin Feedback] Firebase inicializado');
 
 // ════════════════════════════════════════════════════════════════
-// MONITOR DE AUTENTICACAO (v60.1 — COM DELAY + RETRY)
+// MONITOR DE AUTENTICACAO (v60.2 — RETRY AGRESSIVO)
 // ════════════════════════════════════════════════════════════════
-var _authChecked = false;
+var _authRetries = 0;
+var _maxRetries = 5;
 
-auth.onAuthStateChanged(function(user){
-  console.log('[Admin Feedback] onAuthStateChanged disparado:', user ? 'logged in ('+user.uid+')' : 'NOT logged in');
+function verificarAuth(){
+  _authRetries++;
+  var user = auth.currentUser;
+  console.log('[Admin Feedback] Verificação #'+_authRetries+': user =', user ? user.uid : 'null');
   
   if (user) {
-    _authChecked = true;
-    console.log('[Admin Feedback] Usuário autenticado:', user.uid);
-    console.log('[Admin Feedback] Disparando carregarDados...');
+    console.log('[Admin Feedback] ✓ Autenticado com sucesso! UID:', user.uid);
     carregarDados();
-  } else {
-    // Se não tá autenticado mas firebase tá inicializando, espera 1 segundo e tenta de novo
-    if (!_authChecked) {
-      console.log('[Admin Feedback] Primeira verificação: não autenticado. Aguardando inicialização do Firebase...');
-      setTimeout(function(){
-        console.log('[Admin Feedback] Recheck: current user =', auth.currentUser);
-        if (auth.currentUser) {
-          _authChecked = true;
-          carregarDados();
-        } else {
-          console.log('[Admin Feedback] Confirmado: Usuário NÃO autenticado');
-          document.getElementById('fbLista').innerHTML = '<div class="empty-state">Não autenticado. Faça login primeiro.</div>';
-        }
-      }, 1000);
-    } else {
-      document.getElementById('fbLista').innerHTML = '<div class="empty-state">Não autenticado. Faça login.</div>';
-    }
+    return;
   }
-});
+  
+  if (_authRetries < _maxRetries) {
+    console.log('[Admin Feedback] Retry em 1 segundo... (tentativa '+_authRetries+'/'+_maxRetries+')');
+    setTimeout(verificarAuth, 1000);
+  } else {
+    console.log('[Admin Feedback] ✗ Falhou após '+_maxRetries+' tentativas. Usuário não autenticado.');
+    document.getElementById('fbLista').innerHTML = '<div class="empty-state">Não autenticado. Faça login na plataforma antes de acessar feedback.</div>';
+  }
+}
+
+// Inicia verificação após 2 segundos (dá tempo pro Firebase carregar)
+setTimeout(verificarAuth, 2000);
 
 // ════════════════════════════════════════════════════════════════
 // CARREGAR DADOS
