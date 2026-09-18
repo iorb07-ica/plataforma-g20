@@ -155,16 +155,35 @@ auth = firebase.auth();
 console.log('[Admin Feedback] Firebase inicializado');
 
 // ════════════════════════════════════════════════════════════════
-// MONITOR DE AUTENTICACAO
+// MONITOR DE AUTENTICACAO (v60.1 — COM DELAY + RETRY)
 // ════════════════════════════════════════════════════════════════
+var _authChecked = false;
+
 auth.onAuthStateChanged(function(user){
+  console.log('[Admin Feedback] onAuthStateChanged disparado:', user ? 'logged in ('+user.uid+')' : 'NOT logged in');
+  
   if (user) {
+    _authChecked = true;
     console.log('[Admin Feedback] Usuário autenticado:', user.uid);
     console.log('[Admin Feedback] Disparando carregarDados...');
     carregarDados();
   } else {
-    console.log('[Admin Feedback] Usuário NÃO autenticado');
-    document.getElementById('fbLista').innerHTML = '<div class="empty-state">Não autenticado. Faça login.</div>';
+    // Se não tá autenticado mas firebase tá inicializando, espera 1 segundo e tenta de novo
+    if (!_authChecked) {
+      console.log('[Admin Feedback] Primeira verificação: não autenticado. Aguardando inicialização do Firebase...');
+      setTimeout(function(){
+        console.log('[Admin Feedback] Recheck: current user =', auth.currentUser);
+        if (auth.currentUser) {
+          _authChecked = true;
+          carregarDados();
+        } else {
+          console.log('[Admin Feedback] Confirmado: Usuário NÃO autenticado');
+          document.getElementById('fbLista').innerHTML = '<div class="empty-state">Não autenticado. Faça login primeiro.</div>';
+        }
+      }, 1000);
+    } else {
+      document.getElementById('fbLista').innerHTML = '<div class="empty-state">Não autenticado. Faça login.</div>';
+    }
   }
 });
 
