@@ -3480,6 +3480,35 @@ body.didactic-on .didactic-note{ display:block; }
             </div>
         </div>
 
+        <!-- MODAL: EDITAR ORÇAMENTO -->
+        <div id="budget-editor-modal" class="modal-overlay">
+            <div class="modal-content" style="width: 600px; max-height: 80vh; overflow-y: auto;">
+                <h3 style="font-weight:800; color:var(--primary); font-size:16px; margin-bottom:10px;" id="budget-editor-cat-title">Editar Orçamento</h3>
+                <p style="font-size:12px; color:var(--text2); margin-bottom:15px;" id="budget-editor-year-title">Ano Selecionado: 2026</p>
+                
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; margin-bottom:20px;">
+                    <div class="form-group">
+                        <label>Valor Anual Total (R$)</label>
+                        <input type="text" id="budget-annual-total-input" readonly style="background-color:var(--bg2);" />
+                    </div>
+                    <div class="form-group">
+                        <label>Valor Padrão Mensal (R$)</label>
+                        <input type="text" id="budget-default-amount" placeholder="0,00" oninput="handleCurrencyBlur(this)" />
+                    </div>
+                </div>
+
+                <h4 style="font-weight:600; color:var(--text1); margin-bottom:10px;">Orçamentos Mensais</h4>
+                <div id="budget-monthly-list" style="display:grid; gap:10px; max-height:300px; overflow-y:auto; margin-bottom:20px;">
+                    <!-- Preenchido dinamicamente -->
+                </div>
+
+                <div style="display:flex; gap:10px; justify-content:flex-end;">
+                    <button class="btn btn-outline" onclick="closeModal('budget-editor-modal')">Cancelar</button>
+                    <button class="btn btn-primary" onclick="saveBudgetEditor()">Salvar</button>
+                </div>
+            </div>
+        </div>
+
         <div id="dashboard-view" class="view" style="display: none;">
             <header>
                 <div class="header-left">
@@ -4868,6 +4897,49 @@ body.didactic-on .didactic-note{ display:block; }
             } else {
                 showFeedback("Erro: Mês seguinte não encontrado (Contate o Suporte).", true);
             }
+        }
+
+        window.saveBudgetEditor = () => {
+            const modal = document.getElementById('budget-editor-modal');
+            const targetType = modal.getAttribute('data-target-type');
+            const targetName = modal.getAttribute('data-target-name');
+            const targetYear = document.getElementById('budget-editor-year-title').innerText.match(/\d{4}/)[0];
+
+            if (!targetType || !targetName) {
+                showFeedback('Erro: Dados incompletos. Recarregue e tente novamente.', true);
+                return;
+            }
+
+            const storage = targetType === 'category' ? data.budgets : (data.tagBudgets || {});
+            
+            if (typeof storage[targetName] === 'number') {
+                storage[targetName] = { 'default': storage[targetName] };
+            }
+
+            const budgetObj = storage[targetName] || { 'default': 0 };
+            
+            const defaultAmountStr = document.getElementById('budget-default-amount').value;
+            const defaultAmount = parseFloat(defaultAmountStr.replace(/\./g, '').replace(',', '.')) || 0;
+            budgetObj['default'] = defaultAmount;
+
+            for (let i = 1; i <= 12; i++) {
+                const monthMM = i.toString().padStart(2, '0');
+                const monthKey = `${targetYear}-${monthMM}`;
+                const inputId = `budget-input-${monthKey}`;
+                const input = document.getElementById(inputId);
+
+                if (input) {
+                    const valueStr = input.value;
+                    const value = parseFloat(valueStr.replace(/\./g, '').replace(',', '.')) || 0;
+                    budgetObj[monthKey] = value;
+                }
+            }
+
+            storage[targetName] = budgetObj;
+            saveData();
+            renderBudget(getFilteredTransactions());
+            closeModal('budget-editor-modal');
+            showFeedback(`Orçamento de "${targetName}" atualizado com sucesso.`);
         }
 
         function calculateCurrentAnnualTotal(name, targetYear, type = 'category') {
