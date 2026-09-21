@@ -3486,19 +3486,22 @@ body.didactic-on .didactic-note{ display:block; }
                 <h3 id="budget-editor-cat-title" style="font-weight:800; color:var(--primary); font-size:16px; margin:0 0 4px 0;">Alimentação</h3>
                 <p id="budget-editor-year-title" style="font-size:12px; color:var(--text2); margin:0 0 16px 0;">Ano Selecionado: 2026</p>
                 
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:18px;">
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:18px; align-items:end;">
                     <div>
                         <label style="font-size:11px; font-weight:600; color:var(--text2); display:block; margin-bottom:6px; text-transform:uppercase;">Valor Anual Total (R$)</label>
                         <input type="text" id="budget-annual-total-input" readonly style="width:100%; background: var(--bg); color: var(--text1); border: 1px solid var(--border); padding: 8px 10px; border-radius: 6px; cursor: default;" />
                     </div>
                     <div>
                         <label style="font-size:11px; font-weight:600; color:var(--text2); display:block; margin-bottom:6px; text-transform:uppercase;">Padrão Mensal (R$)</label>
-                        <input type="text" id="budget-default-amount" placeholder="0,00" onblur="handleCurrencyBlur(this)" style="width:100%; background: var(--bg); color: var(--text1); border: 1px solid var(--border); padding: 8px 10px; border-radius: 6px;" />
+                        <div style="display:flex; gap:8px;">
+                            <input type="text" id="budget-default-amount" placeholder="0,00" onblur="handleCurrencyBlur(this)" style="flex:1; background: var(--bg); color: var(--text1); border: 1px solid var(--border); padding: 8px 10px; border-radius: 6px;" />
+                            <button type="button" class="btn btn-outline" onclick="applyDefaultToAllMonths()" title="Aplicar valor padrão para todos os meses" style="height: 34px; padding: 0 12px; white-space:nowrap; font-size: 12px;">Aplicar</button>
+                        </div>
                     </div>
                 </div>
 
                 <h4 style="font-weight:600; color:var(--text1); font-size:13px; margin:16px 0 10px 0;">Orçamentos Mensais</h4>
-                <div id="budget-monthly-list" style="display:grid; gap:0; max-height:240px; overflow-y: auto; margin-bottom:16px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg);">
+                <div id="budget-monthly-list" style="display:flex; flex-direction:column; gap:0; height:240px; overflow-y:scroll; margin-bottom:16px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); padding:0; scrollbar-width:thin; scrollbar-color:var(--border) transparent;">
                     <!-- Preenchido dinamicamente -->
                 </div>
 
@@ -4892,6 +4895,33 @@ body.didactic-on .didactic-note{ display:block; }
             } else {
                 showFeedback("Erro: Mês seguinte não encontrado (Contate o Suporte).", true);
             }
+        }
+
+        window.applyDefaultToAllMonths = () => {
+            const defaultAmountStr = document.getElementById('budget-default-amount').value;
+            const defaultAmount = parseFloat(defaultAmountStr.replace(/\./g, '').replace(',', '.')) || 0;
+            
+            if (defaultAmount === 0) {
+                showFeedback('Digite um valor antes de aplicar.', true);
+                return;
+            }
+
+            const formattedValue = defaultAmount.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+
+            for (let i = 1; i <= 12; i++) {
+                const monthMM = i.toString().padStart(2, '0');
+                const targetYear = document.getElementById('budget-editor-year-title').innerText.match(/\d{4}/)[0];
+                const monthKey = `${targetYear}-${monthMM}`;
+                const inputId = `budget-input-${monthKey}`;
+                const input = document.getElementById(inputId);
+
+                if (input) {
+                    input.value = formattedValue;
+                }
+            }
+
+            recalculateAnnualTotalDisplay();
+            showFeedback(`Valor aplicado para todos os 12 meses.`);
         }
 
         window.saveBudgetEditor = () => {
