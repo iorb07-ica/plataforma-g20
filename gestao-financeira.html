@@ -6058,58 +6058,63 @@ body.didactic-on .didactic-note{ display:block; }
         };
 
         window.saveEdit = (id) => {
-            const t = data.transactions.find(x => x.id === id);
-            if (!t) return;
+            try {
+                const t = data.transactions.find(x => x.id === id);
+                if (!t) return;
 
-            handleCurrencyBlur(document.getElementById(`edit-amount-${id}`));
+                handleCurrencyBlur(document.getElementById(`edit-amount-${id}`));
 
-            const newDesc = document.getElementById(`edit-desc-${id}`).value;
-            const newDate = document.getElementById(`edit-date-${id}`).value;
-            const newVal = parseCurrency(document.getElementById(`edit-amount-${id}`).value);
-            const newType = document.getElementById(`edit-type-${id}`).value;
-            const newCat = document.getElementById(`edit-category-${id}`).value;
-            const newPay = document.getElementById(`edit-payment-${id}`).value;
+                const newDesc = document.getElementById(`edit-desc-${id}`).value;
+                const newDate = document.getElementById(`edit-date-${id}`).value;
+                const newVal = parseCurrency(document.getElementById(`edit-amount-${id}`).value);
+                const newType = document.getElementById(`edit-type-${id}`).value;
+                const newCat = document.getElementById(`edit-category-${id}`).value;
+                const newPay = document.getElementById(`edit-payment-${id}`).value;
 
-            // V117.33: Usa a função helper para normalizar tags na edição
-            // O valor do input é 'sem o '#' (regra V117.33), então a função faz o trabalho
-            const newTags = normalizeTagsInput(document.getElementById(`edit-tags-${id}`).value);
+                // V117.33: Usa a função helper para normalizar tags na edição
+                // O valor do input é 'sem o '#' (regra V117.33), então a função faz o trabalho
+                const tagsInput = document.getElementById(`edit-tags-${id}`);
+                const newTags = tagsInput ? normalizeTagsInput(tagsInput.value) : [];
 
+                const newAmount = newType === 'expense' ? -Math.abs(newVal) : Math.abs(newVal);
 
-            const newAmount = newType === 'expense' ? -Math.abs(newVal) : Math.abs(newVal);
+                if (newDesc && newVal) {
+                    if (t.recurrenceId) {
+                        // Se for recorrente, preenche os dados atualizados no pending object e ABRE O MODAL
+                        pendingEditRecurrence = {
+                            ...pendingEditRecurrence,
+                            type: newType,
+                            amount: newAmount,
+                            desc: newDesc,
+                            date: newDate,
+                            category: newCat,
+                            payment: newPay,
+                            tags: newTags,
+                        };
+                        openModal('edit-recurrence-modal');
+                        return;
+                    }
 
-            if (newDesc && newVal) {
-                if (t.recurrenceId) {
-                    // Se for recorrente, preenche os dados atualizados no pending object e ABRE O MODAL
-                    pendingEditRecurrence = {
-                        ...pendingEditRecurrence,
-                        type: newType,
-                        amount: newAmount,
-                        desc: newDesc,
-                        date: newDate,
-                        category: newCat,
-                        payment: newPay,
-                        tags: newTags,
-                    };
-                    openModal('edit-recurrence-modal');
-                    return;
+                    // Salva a edição simples (não recorrente)
+                    t.desc = newDesc;
+                    t.date = newDate;
+                    t.type = newType;
+                    t.amount = newAmount;
+                    t.category = newCat;
+                    t.payment = newPay;
+                    t.tags = newTags;
+
+                    saveData();
+                    editingId = null;
+                    renderAll();
+                    init();
+                    showFeedback('Transação atualizada com sucesso!');
+                } else {
+                    showFeedback('Preencha a descrição e o valor!', true);
                 }
-
-                // Salva a edição simples (não recorrente)
-                t.desc = newDesc;
-                t.date = newDate;
-                t.type = newType;
-                t.amount = newAmount;
-                t.category = newCat;
-                t.payment = newPay;
-                t.tags = newTags;
-
-                saveData();
-                editingId = null;
-                renderAll();
-                init();
-                showFeedback('Transação atualizada com sucesso!');
-            } else {
-                showFeedback('Preencha a descrição e o valor!', true);
+            } catch (err) {
+                console.error('Erro ao salvar edição:', err);
+                showFeedback('Erro ao salvar. Verifique o console.', true);
             }
         };
 
