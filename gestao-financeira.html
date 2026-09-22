@@ -2145,8 +2145,29 @@ tr:hover td {
     display: flex;
     flex-direction: column;
     min-height: 200px;
-    max-height: 360px;
+    max-height: 420px;
     padding: 10px 14px 10px;
+    position: relative;
+}
+
+/* Seta flutuante animada no EXTRATO */
+#extrato-scroll-arrow {
+    position: absolute;
+    bottom: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    pointer-events: none;
+    z-index: 10;
+    animation: arrowBounce 1.4s infinite;
+    color: var(--accent);
+    font-size: 13px;
+    opacity: 0.85;
+    text-shadow: 0 1px 6px rgba(0,0,0,0.25);
+    transition: opacity 0.3s;
+    display: none;
+}
+#extrato-scroll-arrow.show {
+    display: block;
 }
 
 .chart-container {
@@ -4102,7 +4123,7 @@ body.didactic-on .didactic-note{ display:block; }
                                 <tbody id="table-body"></tbody>
                             </table>
                         </div>
-                        <button id="btn-expand" class="btn btn-see-more" onclick="toggleExpandTable()">Ver Mais</button>
+                        <i id="extrato-scroll-arrow" class="fa-solid fa-chevron-down"></i>
                     </div>
                 </div>
             </div>
@@ -4239,7 +4260,6 @@ body.didactic-on .didactic-note{ display:block; }
         let data = {}; // Inicializado vazio, carregado após login
         let isDarkMode = localStorage.getItem('g20_dark_mode') === 'true';
         let editingId = null;
-        let isExpanded = false;
         let skipBudgetAnimation = false;
         let pendingDeleteId = null;
         let pendingEditRecurrence = null;
@@ -6239,7 +6259,6 @@ body.didactic-on .didactic-note{ display:block; }
             document.querySelectorAll('.modal-overlay.active').forEach(modal => { modal.classList.remove('active'); });
             renderAll();
         };
-        window.toggleExpandTable = () => { isExpanded = !isExpanded; document.getElementById('btn-expand').innerText = isExpanded ? 'Ver Menos' : 'Ver Mais'; renderAll(); };
 
         window.deleteTrans = (id) => {
             const t = data.transactions.find(x => x.id === id);
@@ -6423,7 +6442,7 @@ body.didactic-on .didactic-note{ display:block; }
             });
 
             // TABLE RENDERING (V117.11)
-            const displayList = isExpanded ? filtered : filtered.slice(0, 50);
+            const displayList = filtered;
             const today = new Date().toISOString().split('T')[0];
 
             if (els.table) {
@@ -6642,8 +6661,33 @@ body.didactic-on .didactic-note{ display:block; }
             if (countBadge) {
                 countBadge.innerText = filtered.length + (filtered.length === 1 ? ' lançamento' : ' lançamentos');
             }
+            
+            // Atualizar visibilidade da seta do EXTRATO
+            updateExtratoScrollArrow();
+            
             renderBudget(filtered); renderCharts(filtered);
         }
+
+        function updateExtratoScrollArrow() {
+            const scrollable = document.querySelector('.scrollable-table');
+            const arrow = document.getElementById('extrato-scroll-arrow');
+            if (!scrollable || !arrow) return;
+            
+            const hasScroll = scrollable.scrollHeight > scrollable.clientHeight;
+            if (hasScroll) {
+                arrow.classList.add('show');
+            } else {
+                arrow.classList.remove('show');
+            }
+        }
+
+        // Setup listener de scroll no EXTRATO para atualizar seta
+        (function setupExtratoScrollListener() {
+            const scrollable = document.querySelector('.scrollable-table');
+            if (scrollable) {
+                scrollable.addEventListener('scroll', updateExtratoScrollArrow);
+            }
+        })();
 
         // --- FUNÇÕES DE DETALHES (V117.22 - FILTRO CORRIGIDO) ---
 
