@@ -3292,6 +3292,31 @@ tr.expense-row td:nth-child(3) { color: #dc2626; font-weight: 700; }
     .login-right { width: 100%; padding: 32px 24px; }
 }
 
+/* ===== RESPONSIVIDADE RECURRENCE OPTIONS EM MOBILE ===== */
+@media(max-width:768px) {
+    #recurrence-options {
+        flex-direction: column !important;
+        gap: 8px !important;
+        align-items: flex-start !important;
+    }
+    
+    #recurrence-options > div {
+        width: 100%;
+    }
+    
+    #rec-mode,
+    #rec-current,
+    #rec-total {
+        width: 100% !important;
+        height: 36px !important;
+        font-size: 13px !important;
+    }
+    
+    #recurrence-options label {
+        font-size: 10px !important;
+    }
+}
+
 /* ===== FINANCIAL HEALTH RADAR (from v117) ===== */
 #chart-financial-health-box { position: relative; }
 #chart-financial-health-box .fh-mini-legend{
@@ -3960,10 +3985,10 @@ body.didactic-on .didactic-note{ display:block; }
                             <div class="form-group fg-cat">
                                 <div style="flex:1"><label>Categoria</label><select id="category"><option value="Geral">Geral</option><option value="Alimentação">Alimentação</option><option value="Moradia">Moradia</option><option value="Transporte">Transporte</option><option value="Lazer">Lazer</option></select></div>
                                 <div style="margin-top:auto; display: flex; gap: 5px;">
-                                    <button type="button" class="btn btn-outline" onclick="openModal(&#39;cat-modal&#39;)" title="Adicionar Nova Categoria" style="width: 38px;">
+                                    <button type="button" class="btn btn-outline" onclick="openCategoryModal('add')" title="Adicionar Nova Categoria" style="width: 38px;">
                                         <i class="fa-solid fa-plus"></i>
                                     </button>
-                                    <button type="button" class="btn btn-outline" onclick="openModal(&#39;cat-modal&#39;)" title="Gerenciar Categorias" style="width: 38px;">
+                                    <button type="button" class="btn btn-outline" onclick="openCategoryModal('manage')" title="Gerenciar Categorias" style="width: 38px;">
                                         <i class="fa-solid fa-gear"></i>
                                     </button>
                                 </div>
@@ -4961,6 +4986,73 @@ body.didactic-on .didactic-note{ display:block; }
 
             return parseFloat(v) || 0;
         };
+
+        // ===== HISTÓRICO DE DESCRIÇÕES E SUGESTÃO DE CATEGORIA =====
+        const categoryKeywords = {
+            'Alimentação': ['supermercado', 'padaria', 'restaurante', 'bar', 'café', 'comida', 'pizza', 'burger', 'açai', 'almoço', 'janta', 'lanche', 'arroz', 'feijão', 'mercado', 'fruta', 'verdura'],
+            'Transporte': ['uber', 'táxi', 'ônibus', 'metrô', 'gasolina', 'combustível', 'estacionamento', 'manutenção', 'carro', 'criptomoeda', 'passagem', 'viagem'],
+            'Moradia': ['aluguel', 'condomínio', 'luz', 'água', 'gás', 'internet', 'telefone', 'energia', 'conta', 'reforma', 'pintura', 'móvel'],
+            'Lazer': ['cinema', 'show', 'ingresso', 'jogo', 'game', 'spotify', 'netflix', 'disney', 'amazon', 'viagem', 'praia', 'passeio', 'diversão'],
+            'Educação': ['curso', 'livro', 'aula', 'escola', 'faculdade', 'universidade', 'treinamento', 'aprendizado', 'eduação', 'formação'],
+            'Saúde': ['farmácia', 'médico', 'dentista', 'remédio', 'exame', 'hospital', 'clínica', 'vacina', 'consulta', 'terapia', 'academia', 'academia', 'ginásio']
+        };
+
+        window.saveDescriptionToHistory = (desc) => {
+            try {
+                let history = JSON.parse(localStorage.getItem('g20_desc_history') || '[]');
+                if (!history.includes(desc)) {
+                    history.unshift(desc);
+                    history = history.slice(0, 20); // Manter apenas últimas 20
+                    localStorage.setItem('g20_desc_history', JSON.stringify(history));
+                }
+            } catch (e) {}
+        };
+
+        window.suggestCategoryFromDesc = (desc) => {
+            const lowerDesc = desc.toLowerCase();
+            for (const [cat, keywords] of Object.entries(categoryKeywords)) {
+                if (keywords.some(kw => lowerDesc.includes(kw))) {
+                    return cat;
+                }
+            }
+            return null;
+        };
+
+        // Listener para sugestão automática de categoria
+        (function setupDescriptionListener() {
+            const descInput = document.getElementById('desc');
+            const categorySelect = document.getElementById('category');
+            if (!descInput || !categorySelect) return;
+
+            descInput.addEventListener('blur', () => {
+                const suggestedCat = suggestCategoryFromDesc(descInput.value);
+                if (suggestedCat && categorySelect.value === 'Geral') {
+                    categorySelect.value = suggestedCat;
+                    categorySelect.style.borderColor = 'var(--accent)';
+                    categorySelect.style.boxShadow = '0 0 0 2px rgba(45, 106, 79, 0.2)';
+                    setTimeout(() => {
+                        categorySelect.style.borderColor = '';
+                        categorySelect.style.boxShadow = '';
+                    }, 2000);
+                }
+            });
+
+            // Atualizar datalist com histórico de descrições
+            const updateDescriptionDatalist = () => {
+                try {
+                    let history = JSON.parse(localStorage.getItem('g20_desc_history') || '[]');
+                    let datalist = document.getElementById('tag-suggestions');
+                    if (!datalist) {
+                        datalist = document.createElement('datalist');
+                        datalist.id = 'tag-suggestions';
+                        document.body.appendChild(datalist);
+                        descInput.setAttribute('list', 'tag-suggestions');
+                    }
+                    datalist.innerHTML = history.map(h => `<option value="${h}">`).join('');
+                } catch (e) {}
+            };
+            updateDescriptionDatalist();
+        })();
 
         // --- FUNÇÕES DE FEEDBACK (V112.0) ---
         window.showFeedback = (message, isError = false) => {
@@ -6096,8 +6188,30 @@ body.didactic-on .didactic-note{ display:block; }
 
             handleCurrencyBlur(document.getElementById('amount'));
             const val = parseCurrency(document.getElementById('amount').value);
-            if (!val) return;
-            const desc = document.getElementById('desc').value; const baseDate = document.getElementById('date').value; const type = document.getElementById('type').value; const pay = document.getElementById('payment').value; const cat = document.getElementById('category').value;
+            
+            // Validação melhorada: não permitir 0 ou valores inválidos
+            if (!val || val <= 0) {
+                const amountInput = document.getElementById('amount');
+                amountInput.style.borderColor = 'var(--red, #e63946)';
+                amountInput.style.boxShadow = '0 0 0 2px rgba(230, 57, 70, 0.2)';
+                showFeedback('Valor deve ser maior que zero', true);
+                setTimeout(() => {
+                    amountInput.style.borderColor = '';
+                    amountInput.style.boxShadow = '';
+                }, 2000);
+                return;
+            }
+            
+            const desc = document.getElementById('desc').value;
+            if (!desc.trim()) {
+                showFeedback('Descrição é obrigatória', true);
+                return;
+            }
+            
+            const baseDate = document.getElementById('date').value;
+            const type = document.getElementById('type').value;
+            const pay = document.getElementById('payment').value;
+            const cat = document.getElementById('category').value;
 
             // V117.33: Usa a função helper para tratar as tags
             let tagsArr = normalizeTagsInput(document.getElementById('tags').value);
@@ -6137,7 +6251,17 @@ body.didactic-on .didactic-note{ display:block; }
                     });
                 }
             }
+            
+            // Salvar descrição no histórico para autocomplete
+            saveDescriptionToHistory(desc);
+            
             saveData();
+            
+            // Feedback visual de sucesso
+            const quantidade = isRecurring ? (mode === 'installment' ? limit : 12) : 1;
+            showFeedback(`✓ ${quantidade} lançamento(s) adicionado(s) com sucesso!`, false);
+            
+            // Limpar formulário
             document.getElementById('desc').value = '';
             document.getElementById('amount').value = '';
             document.getElementById('tags').value = '';
@@ -6396,6 +6520,20 @@ body.didactic-on .didactic-note{ display:block; }
             }
             if (id === 'pay-modal') renderList('pay');
         };
+
+        window.openCategoryModal = (tab = 'add') => {
+            document.getElementById('cat-modal').classList.add('active');
+            editingCategoryIndex = null;
+            selectedIcon = 'fa-tag';
+            document.getElementById('new-cat-input').value = '';
+            document.getElementById('btn-add-cat').innerText = 'Adicionar';
+            document.getElementById('btn-add-cat').classList.remove('btn-success');
+            document.getElementById('btn-add-cat').classList.add('btn-primary');
+            if (typeof renderIconSelector === 'function') renderIconSelector();
+            renderList('cat');
+            switchCatTab(tab);
+        };
+
         window.closeModal = (id) => {
             document.getElementById(id).classList.remove('active');
             if (id === 'quick-budget-modal') {
