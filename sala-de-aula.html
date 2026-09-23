@@ -2269,6 +2269,7 @@ function mostrarTelaLockAula(aula) {
 
 // ─── VIEW HOME ───
 function showHome() {
+  if (typeof _discPararListener === 'function') _discPararListener();
   try { renderContinuar(); } catch(e){}
   currentModuloId = null;
   currentAulaId = null;
@@ -2308,6 +2309,7 @@ function renderModulesGrid() {
 
 // ─── VIEW MÓDULO ───
 function showModulo(moduloId) {
+  if (typeof _discPararListener === 'function') _discPararListener();
   currentModuloId = moduloId;
   currentAulaId = null;
   pushState('modulo', { moduloId: moduloId });
@@ -2797,6 +2799,7 @@ function discCancelar(){
   _discRespondendo = null;
   var box = document.getElementById('discRespBox');
   if (box) box.remove();
+  if (typeof _discFlushPendente === 'function') _discFlushPendente();
 }
 
 function initDiscussao(aulaId){
@@ -2807,6 +2810,54 @@ function initDiscussao(aulaId){
   carregarDiscussao(aulaId);
 }
 
+/* ── DISCUSSÃO EM TEMPO REAL ──────────────────────────────────────────
+   Antes era um .get() único ao abrir a aula: comentário, resposta,
+   reação ou edição feitos em outro aparelho (ou por outro aluno) só
+   apareciam saindo e voltando na aula. Agora é um onSnapshot na aula
+   aberta, desligado ao sair dela (sem leitura desnecessária).
+
+   Se o aluno estiver no meio de uma resposta ou edição, a lista NÃO é
+   redesenhada (apagaria o que ele está digitando): a atualização fica
+   guardada e aparece assim que ele publica ou cancela. */
+var _discUnsub = null;
+var _discUnsubAula = null;
+var _discPendente = false;
+
+function _discPararListener(){
+  if (_discUnsub) { try { _discUnsub(); } catch(e){} }
+  _discUnsub = null;
+  _discUnsubAula = null;
+}
+
+function _discOcupado(){
+  return !!(document.getElementById('discRespBox') ||
+            document.querySelector('#discLista .sa-disc-edit'));
+}
+
+function _discRenderSeLivre(aulaId){
+  if (currentAulaId !== aulaId) return;
+  var itens = _discCache[aulaId] || [];
+  if (_discOcupado()) {
+    _discPendente = true;
+    var cont = document.getElementById('discCount');
+    if (cont) cont.textContent = itens.length;
+    return;
+  }
+  _discPendente = false;
+  renderDiscussao(itens);
+}
+
+function _discFlushPendente(){
+  if (!_discPendente || !currentAulaId || !_discCache[currentAulaId]) return;
+  if (_discOcupado()) return;
+  _discPendente = false;
+  renderDiscussao(_discCache[currentAulaId]);
+}
+
+function _discAoVivo(aulaId){
+  return !!(_discUnsub && _discUnsubAula === aulaId);
+}
+
 function carregarDiscussao(aulaId){
   var lista = document.getElementById('discLista');
   if (!lista) return;
@@ -2815,21 +2866,26 @@ function carregarDiscussao(aulaId){
   if (_discCache[aulaId]) renderDiscussao(_discCache[aulaId]);
   else lista.innerHTML = '<div class="sa-disc-vazio">Carregando…</div>';
 
+  if (_discAoVivo(aulaId)) return;          // já escutando esta aula
+  _discPararListener();
+
   try {
-    _discRef().orderBy('criadoEm').get().then(function(snap){
+    _discUnsubAula = aulaId;
+    _discUnsub = _discRef().orderBy('criadoEm').onSnapshot(function(snap){
       var itens = [];
       snap.forEach(function(d){
         var o = d.data() || {}; o.id = d.id; itens.push(o);
       });
       _discCache[aulaId] = itens;
-      if (currentAulaId === aulaId) renderDiscussao(itens);
-    }).catch(function(e){
+      _discRenderSeLivre(aulaId);
+    }, function(e){
       console.warn('[SA] discussão:', e && e.message);
-      if (!_discCache[aulaId]) {
+      if (_discUnsubAula === aulaId) { _discUnsub = null; _discUnsubAula = null; }
+      if (!_discCache[aulaId] && currentAulaId === aulaId) {
         lista.innerHTML = '<div class="sa-disc-vazio">Não consegui carregar a discussão agora.</div>';
       }
     });
-  } catch(e){}
+  } catch(e){ _discUnsub = null; _discUnsubAula = null; }
 }
 
 function renderDiscussao(itens){
@@ -3115,6 +3171,7 @@ function discEditarCancelar(id){
   if (txtEl) txtEl.style.display = '';
   var rodape = item.querySelector('.sa-disc-rodape');
   if (rodape) rodape.style.display = '';
+  _discFlushPendente();
 }
 
 function discEditarSalvar(id){
@@ -3204,8 +3261,10 @@ function discEnviar(ehResposta){
   var aulaId = currentAulaId;
   _discRef().add(doc).then(function(){
     discCancelar();
-    delete _discCache[aulaId];
-    carregarDiscussao(aulaId);
+    if (!_discAoVivo(aulaId)) {       // sem listener: recarrega como antes
+      delete _discCache[aulaId];
+      carregarDiscussao(aulaId);
+    }
   }).catch(function(e){
     console.warn('[SA] envio:', e && e.message);
     alert('Não consegui publicar agora. Tente de novo em instantes.');
@@ -3218,8 +3277,10 @@ function discExcluir(id){
   if (!confirm('Excluir este comentário?')) return;
   var aulaId = currentAulaId;
   _discRef().doc(id).delete().then(function(){
-    delete _discCache[aulaId];
-    carregarDiscussao(aulaId);
+    if (!_discAoVivo(aulaId)) {       // sem listener: recarrega como antes
+      delete _discCache[aulaId];
+      carregarDiscussao(aulaId);
+    }
   }).catch(function(e){
     alert('Não consegui excluir: ' + (e && e.message));
   });
