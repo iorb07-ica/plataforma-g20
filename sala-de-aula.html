@@ -1888,196 +1888,26 @@ var currentModuloId = null;
 var currentAulaId = null;
 var concluidas = {};
 
-/* ═══ PROGRESSO DAS AULAS: SINCRONIA ENTRE DISPOSITIVOS ═══════════════
-   Firestore (users/{uid}/progresso/{aulaId}) é a fonte da verdade.
-   localStorage é só cache por conta (g20_sa_prog_{uid}) + fila de pendentes.
-
-   Por que foi reescrito:
-   - toggleConcluir() e autoMarcarConcluida() chamavam saveConcluidas()
-     sem uid/db, então a marcação ficava só no aparelho e nunca subia.
-   - Desmarcar não ia para a nuvem, e a próxima leitura trazia de volta.
-   - O cache 'g20_sa_concluidas' era global: duas contas no mesmo
-     navegador compartilhavam o progresso.
-   - Não havia leitura em tempo real: o que mudava em outro aparelho só
-     aparecia depois de navegar.
-
-   Regras do motor:
-   - Cada aula guarda {concluida, ts}. Desmarcar grava concluida:false
-     (não apaga), para os outros aparelhos saberem que foi desmarcada.
-   - Conflito: vence o registro mais recente (ts).
-   - Marcação feita offline fica pendente (p:true) e sobe no próximo
-     snapshot, ao voltar a conexão ou ao reabrir a página.
-   - Progresso antigo preso no localStorage (antes desta versão) é
-     migrado para a nuvem uma única vez, sem perder nada.
-   ═════════════════════════════════════════════════════════════════════ */
-var _saProg = {};          // aulaId -> {c:bool, ts:number, p:bool}
-var _saProgUid = null;
-var _saProgDb = null;
-var _saProgUnsub = null;
-
-function _saProgKey(uid){ return 'g20_sa_prog_' + uid; }
-
-function _saProgRebuild(){
-  var n = {};
-  Object.keys(_saProg).forEach(function(id){ if (_saProg[id] && _saProg[id].c) n[id] = true; });
-  concluidas = n;
-}
-
-function _saProgPersist(){
-  if (!_saProgUid) return;
-  try { localStorage.setItem(_saProgKey(_saProgUid), JSON.stringify(_saProg)); } catch(e){}
-  /* Espelho no formato antigo, carimbado com o dono, para qualquer
-     outra página que ainda leia 'g20_sa_concluidas'. */
-  try {
-    localStorage.setItem('g20_sa_concluidas', JSON.stringify(concluidas));
-    localStorage.setItem('g20_sa_concluidas_uid', _saProgUid);
-  } catch(e){}
-}
-
-function _saProgLoadLocal(uid){
-  _saProg = {};
-  try { _saProg = JSON.parse(localStorage.getItem(_saProgKey(uid)) || '{}') || {}; } catch(e){ _saProg = {}; }
-
-  /* Migração do formato antigo. Só aceita se não tiver dono carimbado
-     (dado legado) ou se o dono for esta mesma conta. */
-  try {
-    var dono = localStorage.getItem('g20_sa_concluidas_uid');
-    if (!dono || dono === uid) {
-      var velho = JSON.parse(localStorage.getItem('g20_sa_concluidas') || 'null');
-      if (velho && typeof velho === 'object') {
-        Object.keys(velho).forEach(function(id){
-          if (velho[id] && !_saProg[id]) _saProg[id] = { c: true, ts: 0, p: true };
-        });
-      }
-    }
-  } catch(e){}
-  _saProgRebuild();
-}
-
-function _saProgEnviar(aulaId){
-  var l = _saProg[aulaId];
-  if (!l || !_saProgUid || !_saProgDb) return;
-  if (!l.ts) l.ts = Date.now();              // legado sem data
-  var enviado = { c: !!l.c, ts: l.ts };
-  _saProgDb.collection('users').doc(_saProgUid).collection('progresso').doc(aulaId)
-    .set({ concluida: enviado.c, ts: enviado.ts }, { merge: true })
-    .then(function(){
-      var a = _saProg[aulaId];
-      if (a && a.ts === enviado.ts && a.c === enviado.c) { a.p = false; _saProgPersist(); }
-    })
-    .catch(function(e){
-      console.warn('[SA] Progresso não sincronizou (fica pendente):', aulaId, e && e.message);
-    });
-}
-
-function _saProgSubirPendentes(){
-  Object.keys(_saProg).forEach(function(id){ if (_saProg[id] && _saProg[id].p) _saProgEnviar(id); });
-}
-
-function _saProgAplicarRemoto(snap){
-  var vistos = {};
-  snap.forEach(function(doc){
-    vistos[doc.id] = true;
-    if (doc.metadata && doc.metadata.hasPendingWrites) return;   // eco da própria escrita local
-    var d = doc.data() || {};
-    var r = { c: d.concluida === true, ts: Number(d.ts) || 0 };
-    var l = _saProg[doc.id];
-    if (!l || !l.p || r.ts >= (l.ts || 0)) _saProg[doc.id] = { c: r.c, ts: r.ts, p: false };
-  });
-  /* Registro local já sincronizado que sumiu da nuvem (ex.: reset feito
-     pelo admin): a nuvem manda. Só confia na ausência se veio do servidor. */
-  if (!(snap.metadata && snap.metadata.fromCache)) {
-    Object.keys(_saProg).forEach(function(id){
-      if (!vistos[id] && _saProg[id] && !_saProg[id].p) delete _saProg[id];
-    });
-  }
-  _saProgRebuild();
-  _saProgPersist();
-  _saProgSubirPendentes();
-}
-
-/* Nome mantido: saInit chama loadConcluidas(uid, db). Agora abre um
-   listener em tempo real e resolve no primeiro snapshot. */
+// ─── Carrega progresso (Firestore + localStorage fallback) ───
 function loadConcluidas(uid, db) {
-  _saProgUid = uid || null;
-  _saProgDb = db || null;
-  if (!uid) { _saProg = {}; concluidas = {}; return Promise.resolve(); }
-  _saProgLoadLocal(uid);
-  if (!db) return Promise.resolve();
-  if (_saProgUnsub) { try { _saProgUnsub(); } catch(e){} _saProgUnsub = null; }
+  try { concluidas = JSON.parse(localStorage.getItem('g20_sa_concluidas') || '{}'); } catch(e) {}
+  if (!uid || !db) return Promise.resolve();
+  return db.collection('users').doc(uid).collection('progresso').get().then(function(snap) {
+    snap.forEach(function(doc) {
+      if (doc.data().concluida) concluidas[doc.id] = true;
+    });
+  }).catch(function(){});
+}
 
-  return new Promise(function(resolve){
-    var primeiro = true;
-    _saProgUnsub = db.collection('users').doc(uid).collection('progresso')
-      .onSnapshot({ includeMetadataChanges: false }, function(snap){
-        _saProgAplicarRemoto(snap);
-        _saRefreshProgressoUI();
-        if (primeiro) { primeiro = false; resolve(); }
-      }, function(err){
-        console.warn('[SA] Listener de progresso falhou:', err && err.message);
-        if (primeiro) { primeiro = false; resolve(); }
-      });
+// ─── Salva conclusão (Firestore + localStorage) ───
+function saveConcluidas(uid, db) {
+  try { localStorage.setItem('g20_sa_concluidas', JSON.stringify(concluidas)); } catch(e) {}
+  if (!uid || !db) return;
+  // Sincroniza com Firestore em background
+  Object.keys(concluidas).forEach(function(aulaId) {
+    db.collection('users').doc(uid).collection('progresso').doc(aulaId)
+      .set({ concluida: true, ts: Date.now() }, { merge: true }).catch(function(){});
   });
-}
-
-/* Marca/desmarca UMA aula (substitui o antigo saveConcluidas em loop). */
-function setConcluida(aulaId, valor){
-  if (!aulaId) return;
-  _saProg[aulaId] = { c: !!valor, ts: Date.now(), p: true };
-  _saProgRebuild();
-  _saProgPersist();
-  _saProgEnviar(aulaId);
-}
-
-/* Compatibilidade: se algum trecho antigo ainda chamar, só persiste. */
-function saveConcluidas(){ _saProgPersist(); _saProgSubirPendentes(); }
-
-/* Conexão voltou ou aba voltou ao foco: sobe o que ficou pendente. */
-window.addEventListener('online', function(){ _saProgSubirPendentes(); });
-document.addEventListener('visibilitychange', function(){
-  if (document.visibilityState === 'visible') _saProgSubirPendentes();
-});
-
-function _saPctModulo(mod){
-  var total = (mod && mod.aulas_list) ? mod.aulas_list.length : 0;
-  if (!total) return (mod && mod.progresso) || 0;
-  var feitas = mod.aulas_list.filter(function(a){ return isConcluida(a.id); }).length;
-  return Math.round((feitas / total) * 100);
-}
-
-/* Atualiza os indicadores de conclusão na tela SEM re-renderizar a aula
-   (não recarrega o player nem mexe no histórico de navegação). */
-function _saRefreshProgressoUI(){
-  try {
-    if (typeof renderModulesGrid === 'function') renderModulesGrid();
-    var vh = document.getElementById('view-home');
-    if (vh && vh.classList.contains('active')) { try { renderContinuar(); } catch(e){} }
-
-    document.querySelectorAll('#aulasList .sa-aula-item[data-aula]').forEach(function(el){
-      var d = isConcluida(el.getAttribute('data-aula'));
-      el.classList.toggle('concluida', d);
-      var st = el.querySelector('.sa-aula-item-status');
-      if (st) { st.classList.toggle('done', d); st.innerHTML = d ? '<i data-lucide="check"></i>' : ''; }
-    });
-    var pctEl = document.getElementById('saModuloPct');
-    if (pctEl && currentModuloId) pctEl.textContent = _saPctModulo(getModulo(currentModuloId)) + '% concluído';
-
-    document.querySelectorAll('#sidebarAulas .sa-sidebar-item[data-aula]').forEach(function(el){
-      var d = isConcluida(el.getAttribute('data-aula'));
-      var ck = el.querySelector('.sa-sidebar-item-check');
-      if (ck) { ck.classList.toggle('done', d); ck.innerHTML = d ? '<i data-lucide="check"></i>' : ''; }
-    });
-
-    var va = document.getElementById('view-aula');
-    var btn = document.getElementById('btnConcluir');
-    var lbl = document.getElementById('btnConcluirLabel');
-    if (va && va.classList.contains('active') && currentAulaId && btn && lbl) {
-      var dn = isConcluida(currentAulaId);
-      btn.className = 'sa-btn-concluir' + (dn ? ' done' : '');
-      lbl.textContent = dn ? 'Concluída ✓' : 'Marcar como concluída';
-    }
-    if (window.lucide && lucide.createIcons) lucide.createIcons();
-  } catch(e){ console.warn('[SA] refresh progresso:', e); }
 }
 
 // ─── Carrega módulos + aulas do Firestore ───
@@ -2148,11 +1978,9 @@ function loadModulosFromFirestore(db) {
           });
         promises.push(p);
         newModulos.push(mod);
+        SA_MODULOS.push(mod);
       });
       return Promise.all(promises).then(function() {
-        /* Troca a lista inteira de uma vez. Antes fazia push na lista do
-           cache, e o módulo aparecia duplicado após o refresh. */
-        if (newModulos.length) SA_MODULOS = newModulos;
         salvarModulosCache(newModulos);
       });
     });
@@ -2285,7 +2113,7 @@ function renderModulesGrid() {
   grid.innerHTML = SA_MODULOS.map(function(mod, idx) {
     // Calcula progresso dinamicamente
     var _total = mod.aulas_list ? mod.aulas_list.length : 0;
-    var _done = _total > 0 ? mod.aulas_list.filter(function(a){ return isConcluida(a.id); }).length : 0;
+    var _done = _total > 0 ? mod.aulas_list.filter(function(a){ return isConcluida(a.id)||a.concluida; }).length : 0;
     var pct = _total > 0 ? Math.round((_done/_total)*100) : (mod.progresso||0);
     var isFeatured = idx === 0 ? 'sa-featured' : '';
     return '<div class="sa-module-card ' + isFeatured + '" onclick="showModulo(\'' + mod.id + '\')">' +
@@ -2329,14 +2157,14 @@ function showModulo(moduloId) {
       '<div class="sa-modulo-meta">' +
         '<span class="sa-modulo-meta-item"><i data-lucide="play-circle"></i>' + mod.aulas + ' aulas</span>' +
         '<span class="sa-modulo-meta-item"><i data-lucide="clock"></i>' + mod.duracao + '</span>' +
-        '<span class="sa-modulo-meta-item"><i data-lucide="bar-chart-2"></i><span id="saModuloPct">' + _saPctModulo(mod) + '% concluído</span></span>' +
+        '<span class="sa-modulo-meta-item"><i data-lucide="bar-chart-2"></i>' + mod.progresso + '% concluído</span>' +
       '</div>' +
     '</div>';
 
   // Lista de aulas
   var list = document.getElementById('aulasList');
   list.innerHTML = mod.aulas_list.map(function(aula, idx) {
-    var done = isConcluida(aula.id);
+    var done = isConcluida(aula.id) || aula.concluida;
     var icon = aula.tipo === 'video' ? '▶' : '📄';
     var _thumbSrc = aula.img || (aula.preview && aula.preview.img) || '';
     // Para vídeos YouTube sem imagem, usa thumbnail automática
@@ -2371,7 +2199,7 @@ function showModulo(moduloId) {
       '</div>';
     }
 
-    return '<div class="sa-aula-item' + (done ? ' concluida' : '') + '" data-aula="' + aula.id + '" onclick=""showAula(\'' + moduloId + '\',\'' + aula.id + '\')">' +
+    return '<div class="sa-aula-item' + (done ? ' concluida' : '') + '" onclick="showAula(\'' + moduloId + '\',\'' + aula.id + '\')">' +
       _editBtn +
       thumbHtml +
       '<div class="sa-aula-info-block">' +
@@ -2511,7 +2339,7 @@ function showAula(moduloId, aulaId) {
   }
 
   // Botão concluir
-  var done = isConcluida(aulaId);
+  var done = isConcluida(aulaId) || aula.concluida;
   var btn = document.getElementById('btnConcluir');
   btn.className = 'sa-btn-concluir' + (done ? ' done' : '');
   document.getElementById('btnConcluirLabel').textContent = done ? 'Concluída ✓' : 'Marcar como concluída';
@@ -2524,7 +2352,7 @@ function showAula(moduloId, aulaId) {
   document.getElementById('sidebarModuloTitle').textContent = mod.title;
   var sidebarList = document.getElementById('sidebarAulas');
   sidebarList.innerHTML = mod.aulas_list.map(function(a, idx) {
-    var isDone = isConcluida(a.id);
+    var isDone = isConcluida(a.id) || a.concluida;
     var isAtiva = a.id === aulaId;
     var _sbThumb = a.img || (a.preview && a.preview.img) || '';
     if (!_sbThumb && a.url) {
@@ -2534,7 +2362,7 @@ function showAula(moduloId, aulaId) {
     var thumbSb = _sbThumb
       ? '<img class="sa-sidebar-thumb" src="' + _sbThumb + '" alt="" loading="lazy">'
       : '<div class="sa-sidebar-thumb-placeholder">▶</div>';
-    return '<div class="sa-sidebar-item' + (isAtiva ? ' ativa' : '') + '" data-aula="' + a.id + '" onclick=""showAula(\'' + moduloId + '\',\'' + a.id + '\')">' +
+    return '<div class="sa-sidebar-item' + (isAtiva ? ' ativa' : '') + '" onclick="showAula(\'' + moduloId + '\',\'' + a.id + '\')">' +
       thumbSb +
       '<div class="sa-sidebar-item-info">' +
         '<div class="sa-sidebar-item-num">Aula ' + (idx+1) + '</div>' +
@@ -2585,14 +2413,27 @@ function navegarAula(dir) {
 function toggleConcluir() {
   var aula = getAula(currentModuloId, currentAulaId);
   if (!aula) return;
-  setConcluida(currentAulaId, !isConcluida(currentAulaId));
-  _saRefreshProgressoUI();
+  var done = isConcluida(currentAulaId) || aula.concluida;
+  if (done) {
+    delete concluidas[currentAulaId];
+    aula.concluida = false;
+  } else {
+    concluidas[currentAulaId] = true;
+    aula.concluida = true;
+  }
+  saveConcluidas();
+  showAula(currentModuloId, currentAulaId);
 }
 
 function autoMarcarConcluida(aulaId) {
-  if (isConcluida(aulaId)) return;
-  setConcluida(aulaId, true);
-  _saRefreshProgressoUI();
+  concluidas[aulaId] = true;
+  var aula = getAula(currentModuloId, aulaId);
+  if (aula) aula.concluida = true;
+  saveConcluidas();
+  setTimeout(function(){
+    var btn = document.getElementById('btnConcluir');
+    if (btn) { btn.className = 'sa-btn-concluir done'; document.getElementById('btnConcluirLabel').textContent = 'Concluída ✓'; }
+  }, 1500);
 }
 
 
@@ -2677,7 +2518,7 @@ function saInit(uid, db, role) {
     loadConcluidas(uid, db).catch(function(){});
     loadModulosFromFirestore(db).then(function() {
       // Atualizar grid em background sem piscar (só se estiver na home, não em aula/módulo)
-      if (currentModuloId == null && currentAulaId == null && typeof showHome === 'function' && document.getElementById('modulesGrid')) {
+      if (currentModuloId == null && currentAulaId == null && typeof showHome === 'function' && document.getElementById('moduleGrid')) {
         showHome();
       }
     }).catch(function(){});
