@@ -4066,7 +4066,7 @@ body.didactic-on .didactic-note{ display:block; }
                             </div>
                             <div class="form-group fg-tag"><label>Tags (Opcional)</label><input type="text" id="tags" placeholder="viagem, comida..." list="tag-suggestions"></div>
                             <div class="form-group fg-cat">
-                                <div style="flex:1"><label>Categoria <span style="color: var(--red, #e63946); font-weight: 700;">*</span></label><select id="category"><option value="Geral">Geral</option><option value="Alimentação">Alimentação</option><option value="Moradia">Moradia</option><option value="Transporte">Transporte</option><option value="Lazer">Lazer</option></select></div>
+                                <div style="flex:1"><label>Categoria <span style="color: var(--red, #e63946); font-weight: 700;">*</span></label><select id="category"><option value="Alimentação">Alimentação</option><option value="Geral" selected>Geral</option><option value="Lazer">Lazer</option><option value="Moradia">Moradia</option><option value="Transporte">Transporte</option></select></div>
                                 <div style="margin-top:auto; display: flex; gap: 5px;">
                                     <button type="button" class="btn btn-outline" onclick="openCategoryModal('add')" title="Adicionar Nova Categoria" style="width: 38px;">
                                         <i class="fa-solid fa-plus"></i>
@@ -7246,6 +7246,7 @@ body.didactic-on .didactic-note{ display:block; }
 
 
         function renderList(type) {
+            if (type === 'cat' && editingCategoryIndex === null) sortCategoriesAlpha();
             const list = type === 'cat' ? data.categories : data.paymentMethods;
             const container = document.getElementById(type === 'cat' ? 'cat-list-content' : 'pay-list-content');
 
@@ -7426,9 +7427,28 @@ body.didactic-on .didactic-note{ display:block; }
             }
         }
 
+        /* Categorias sempre em ordem alfabética (pt-BR: ignora acento e maiúscula).
+           Ordena o próprio array, então dropdowns, modal e edição do extrato
+           ficam todos na mesma ordem e os índices do modal continuam batendo. */
+        function sortCategoriesAlpha() {
+            if (!Array.isArray(data.categories)) return;
+            data.categories.sort((a, b) => String(a).localeCompare(String(b), 'pt-BR', { sensitivity: 'base', numeric: true }));
+        }
+
         function updateSelects() {
-            if (els.catSelect) els.catSelect.innerHTML = data.categories.map(c => `<option value="${c}">${c}</option>`).join('');
-            if (els.budgetCatSelect) els.budgetCatSelect.innerHTML = data.categories.map(c => `<option value="${c}">${c}</option>`).join('');
+            sortCategoriesAlpha();
+            const prevCat = els.catSelect ? els.catSelect.value : null;
+            const prevBudgetCat = els.budgetCatSelect ? els.budgetCatSelect.value : null;
+            if (els.catSelect) {
+                els.catSelect.innerHTML = data.categories.map(c => `<option value="${c}">${c}</option>`).join('');
+                // Mantém a escolha atual; se não houver, volta para "Geral" (padrão da sugestão automática)
+                if (prevCat && data.categories.includes(prevCat)) els.catSelect.value = prevCat;
+                else if (data.categories.includes('Geral')) els.catSelect.value = 'Geral';
+            }
+            if (els.budgetCatSelect) {
+                els.budgetCatSelect.innerHTML = data.categories.map(c => `<option value="${c}">${c}</option>`).join('');
+                if (prevBudgetCat && data.categories.includes(prevBudgetCat)) els.budgetCatSelect.value = prevBudgetCat;
+            }
 
             // Atualiza o select de pagamento no formulário
             if (els.paySelect) {
