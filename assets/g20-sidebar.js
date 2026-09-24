@@ -1441,3 +1441,180 @@
     obs.observe(document.body || document.documentElement, { childList: true, subtree: true });
   })();
 })();
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   SIDEBAR SEMPRE ACESSÍVEL (zoom alto / telas baixas) — desktop ≥ 769px
+   Problema: a sidebar é fixa com a altura da tela e overflow:visible
+   (para a orelha de recolher aparecer fora da borda). Em notebooks com
+   pouca altura útil (ex.: 1366×768 com zoom de 125% no Windows) ou com
+   zoom do navegador, os itens de baixo ficavam cortados sem scroll.
+
+   Solução, sem mexer no HTML de nenhuma página:
+   1. A sidebar ganha scroll vertical próprio, discreto e dourado, que
+      só aparece quando o conteúdo não cabe.
+   2. A orelha de recolher passa a position:fixed, acompanhando a borda
+      da sidebar — assim o scroll não a corta.
+   3. Os tooltips do modo recolhido viram um balão position:fixed
+      (antes eram ::after e seriam cortados pelo scroll).
+   Extra: a posição de rolagem é mantida entre páginas e o item ativo
+   é trazido para a área visível ao abrir a página.
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+  'use strict';
+  if (window.__g20SidebarFit) return;
+  window.__g20SidebarFit = true;
+
+  var DESK = window.matchMedia('(min-width: 769px)');
+  var SS_KEY = 'g20_sb_scroll';
+
+  var CSS = [
+    '@media (min-width: 769px){',
+    '  html body .sidebar.sidebar{',
+    '    overflow-y:auto !important; overflow-x:hidden !important;',
+    '    height:100vh !important; height:100dvh !important;',
+    '    max-height:100vh !important; max-height:100dvh !important;',
+    '    overscroll-behavior:contain;',
+    '    scrollbar-width:thin; scrollbar-color:rgba(201,169,97,.5) transparent;',
+    '  }',
+    '  html body .sidebar.sidebar::-webkit-scrollbar{ width:6px; }',
+    '  html body .sidebar.sidebar::-webkit-scrollbar-track{ background:transparent; }',
+    '  html body .sidebar.sidebar::-webkit-scrollbar-thumb{ background:rgba(201,169,97,.45); border-radius:6px; }',
+    '  html body .sidebar.sidebar::-webkit-scrollbar-thumb:hover{ background:rgba(201,169,97,.75); }',
+    /* itens não são espremidos: o que não cabe rola */
+    '  html body .sidebar.sidebar > *{ flex-shrink:0 !important; }',
+    /* orelha fora do fluxo de scroll */
+    '  html body .sidebar.sidebar > .sidebar-collapse-btn{',
+    '    position:fixed !important; right:auto !important;',
+    '    left:var(--g20-sb-edge, 200px) !important; z-index:230 !important;',
+    '  }',
+    /* tooltips antigos (::after) desligados — substituídos pelo balão fixo */
+    '  html body .sidebar.sidebar .nav-item.nav-item::after,',
+    '  html body .sidebar.sidebar .nav-item.nav-item:hover::after,',
+    '  html body .sidebar.sidebar .btn-logout.btn-logout::after,',
+    '  html body .sidebar.sidebar .btn-logout.btn-logout:hover::after{ display:none !important; }',
+    '}',
+    '.g20-sb-tip{',
+    '  position:fixed; z-index:10000; pointer-events:none;',
+    '  background:#27252c; color:#c9a961; border:1px solid rgba(201,169,97,.35);',
+    '  font:600 13px/1.2 "DM Sans",system-ui,sans-serif; white-space:nowrap;',
+    '  padding:7px 14px; border-radius:9px; box-shadow:0 8px 24px rgba(0,0,0,.5);',
+    '  opacity:0; transform:translateY(-50%) scale(.92);',
+    '  transition:opacity .15s ease, transform .15s ease;',
+    '}',
+    '.g20-sb-tip.on{ opacity:1; transform:translateY(-50%) scale(1); }'
+  ].join('\n');
+
+  function injetarCSS(){
+    var old = document.getElementById('g20-sb-fit-css');
+    if (old) old.remove();
+    var st = document.createElement('style');
+    st.id = 'g20-sb-fit-css';
+    st.textContent = CSS;
+    /* no fim do body: vence os estilos locais das páginas */
+    (document.body || document.head).appendChild(st);
+  }
+
+  function sidebar(){ return document.querySelector('.sidebar'); }
+
+  function recolhida(){
+    var sb = sidebar();
+    return document.body.classList.contains('sidebar-collapsed') ||
+           (sb && sb.classList.contains('sidebar-collapsed'));
+  }
+
+  /* ── Orelha acompanha a borda direita da sidebar ── */
+  function posicionarOrelha(){
+    var sb = sidebar();
+    if (!sb) return;
+    var r = sb.getBoundingClientRect();
+    document.documentElement.style.setProperty('--g20-sb-edge', Math.round(r.right) + 'px');
+  }
+  var _animAte = 0;
+  function acompanharAnimacao(ms){
+    _animAte = Math.max(_animAte, performance.now() + (ms || 500));
+    (function loop(){
+      posicionarOrelha();
+      if (performance.now() < _animAte) requestAnimationFrame(loop);
+    })();
+  }
+
+  /* ── Balão de tooltip (modo recolhido) ── */
+  var tip = null;
+  function mostrarTip(el){
+    if (!DESK.matches || !recolhida()) return;
+    var txt = el.getAttribute('data-tooltip');
+    if (!txt) return;
+    if (!tip) {
+      tip = document.createElement('div');
+      tip.className = 'g20-sb-tip';
+      document.body.appendChild(tip);
+    }
+    tip.textContent = txt;
+    var r = el.getBoundingClientRect();
+    var sb = sidebar();
+    var borda = sb ? sb.getBoundingClientRect().right : r.right;
+    tip.style.left = Math.round(borda + 14) + 'px';
+    tip.style.top = Math.round(r.top + r.height / 2) + 'px';
+    tip.classList.add('on');
+  }
+  function esconderTip(){ if (tip) tip.classList.remove('on'); }
+
+  /* ── Rolagem mantida entre páginas + item ativo visível ── */
+  function restaurarRolagem(){
+    var sb = sidebar();
+    if (!sb || !DESK.matches) return;
+    try {
+      var y = parseInt(sessionStorage.getItem(SS_KEY) || '0', 10);
+      if (y > 0) sb.scrollTop = y;
+    } catch(e){}
+    var ativo = sb.querySelector('.nav-item.active');
+    if (ativo) {
+      var a = ativo.getBoundingClientRect(), s = sb.getBoundingClientRect();
+      if (a.top < s.top || a.bottom > s.bottom) {
+        sb.scrollTop += (a.top - s.top) - (s.height / 2) + (a.height / 2);
+      }
+    }
+  }
+  function salvarRolagem(){
+    var sb = sidebar();
+    if (!sb) return;
+    try { sessionStorage.setItem(SS_KEY, String(sb.scrollTop || 0)); } catch(e){}
+  }
+
+  function iniciar(){
+    var sb = sidebar();
+    if (!sb) return;
+    injetarCSS();
+    posicionarOrelha();
+
+    sb.addEventListener('mouseover', function(e){
+      var el = e.target.closest && e.target.closest('.nav-item[data-tooltip], .btn-logout[data-tooltip]');
+      if (el && sb.contains(el)) mostrarTip(el);
+    });
+    sb.addEventListener('mouseout', function(e){
+      var el = e.target.closest && e.target.closest('.nav-item, .btn-logout');
+      if (el && !(e.relatedTarget && el.contains(e.relatedTarget))) esconderTip();
+    });
+    sb.addEventListener('scroll', function(){ esconderTip(); salvarRolagem(); }, { passive: true });
+    sb.addEventListener('click', function(){ esconderTip(); salvarRolagem(); });
+    sb.addEventListener('transitionend', posicionarOrelha);
+
+    /* recolher/expandir muda a largura com animação */
+    var mo = new MutationObserver(function(){ esconderTip(); acompanharAnimacao(500); });
+    mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    mo.observe(sb, { attributes: true, attributeFilter: ['class'] });
+
+    window.addEventListener('resize', posicionarOrelha);
+    window.addEventListener('pagehide', salvarRolagem);
+    if (DESK.addEventListener) DESK.addEventListener('change', function(){ esconderTip(); posicionarOrelha(); });
+
+    /* itens da nav são injetados em etapas: reposiciona depois que assentar */
+    acompanharAnimacao(800);
+    setTimeout(restaurarRolagem, 350);
+    setTimeout(function(){ injetarCSS(); posicionarOrelha(); }, 1500);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar);
+  else iniciar();
+})();
