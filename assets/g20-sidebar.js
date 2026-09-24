@@ -1787,6 +1787,17 @@
     '  .g20-bn-injetada .bn-label{ font-size:8px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; }',
     /* rótulos iguais em todas as páginas, sem quebrar linha */
     '  html body .bottom-nav .bn-label{ white-space:nowrap !important; }',
+    /* Barra mais enxuta e igual em todas as páginas (o Dashboard tinha 60px).
+       Da zona da barrinha de "home" do iPhone (34px) usamos 12px: os
+       ícones descem um pouco, mas continuam longe do gesto de voltar
+       para a tela inicial. Sem notch (Android, iPhone SE): nada muda. */
+    '  html body .bottom-nav.bottom-nav{',
+    '    box-sizing:border-box !important;',
+    '    padding-bottom:max(0px, calc(env(safe-area-inset-bottom, 0px) - 12px)) !important;',
+    '    height:calc(50px + max(0px, calc(env(safe-area-inset-bottom, 0px) - 12px))) !important;',
+    '    min-height:0 !important;',
+    '  }',
+    '  html body .bottom-nav.bottom-nav a{ padding-top:4px !important; padding-bottom:2px !important; }',
     '}'
   ].join('\n');
 
