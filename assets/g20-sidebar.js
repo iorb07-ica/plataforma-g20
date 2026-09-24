@@ -1471,7 +1471,7 @@
   var CSS = [
     '@media (min-width: 769px){',
     '  html body .sidebar.sidebar{',
-    '    overflow-y:auto !important; overflow-x:hidden !important;',
+    '    overflow-y:auto !important; overflow-x:hidden !important; overscroll-behavior-x:none;',
     '    height:100vh !important; height:100dvh !important;',
     '    max-height:100vh !important; max-height:100dvh !important;',
     '    overscroll-behavior:contain;',
@@ -1596,7 +1596,14 @@
       var el = e.target.closest && e.target.closest('.nav-item, .btn-logout');
       if (el && !(e.relatedTarget && el.contains(e.relatedTarget))) esconderTip();
     });
-    sb.addEventListener('scroll', function(){ esconderTip(); salvarRolagem(); }, { passive: true });
+    /* Trava a rolagem lateral: o navegador às vezes rola a sidebar na
+       horizontal (foco, âncora) e ela aparecia deslocada, cortando ícones. */
+    function travarLateral(){ if (sb.scrollLeft) sb.scrollLeft = 0; }
+    sb.addEventListener('scroll', function(){ travarLateral(); esconderTip(); salvarRolagem(); }, { passive: true });
+    sb.addEventListener('focusin', function(){ setTimeout(travarLateral, 0); });
+    travarLateral();
+    setTimeout(travarLateral, 400);
+    setTimeout(travarLateral, 1600);
     sb.addEventListener('click', function(){ esconderTip(); salvarRolagem(); });
     sb.addEventListener('transitionend', posicionarOrelha);
 
