@@ -5,7 +5,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="G20 Masterclass">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1a191e">
@@ -2591,6 +2591,40 @@ tr.expense-row td:nth-child(3) { color: #dc2626; font-weight: 700; }
     display: none; /* hidden inline, shown via global tooltip */
 }
 
+/* ═══ RESUMO DO ORÇAMENTO (ao lado do título) ═══ */
+.budget-title-row { flex-wrap: wrap; }
+.budget-summary {
+    margin-left: auto;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; font-weight: 600;
+    text-transform: none; letter-spacing: 0;
+    color: var(--text-light);
+    position: relative; cursor: default; white-space: nowrap;
+}
+.budget-summary b { color: var(--text); font-weight: 800; }
+.budget-summary-bar {
+    display: block; flex-shrink: 0;
+    width: 64px; height: 6px; border-radius: 4px; overflow: hidden;
+    background: var(--border);
+}
+.budget-summary-fill { display: block; height: 100%; width: 0; border-radius: 4px; transition: width .6s ease; }
+.budget-summary-pct { font-weight: 800; min-width: 30px; text-align: right; }
+.budget-summary-tip {
+    display: none; position: absolute; top: calc(100% + 8px); right: 0; z-index: 60;
+    background: var(--primary); color: rgba(255,255,255,.9);
+    padding: 10px 12px; border-radius: var(--radius-sm);
+    font-size: 12px; font-weight: 500; line-height: 1.6;
+    box-shadow: 0 8px 24px rgba(0,0,0,.25); min-width: 230px; white-space: nowrap;
+}
+.budget-summary-tip b { color: #fff; }
+.budget-summary:hover .budget-summary-tip { display: block; }
+.budget-summary-tip .bs-alert { color: #fca5a5; font-weight: 700; }
+@media (max-width: 768px) {
+    .budget-summary { margin-left: 0; width: 100%; flex-wrap: wrap; white-space: normal; }
+    .budget-summary-tip { left: 0; right: auto; white-space: normal; }
+}
+body.privacy-on #budget-summary .bs-money { filter: blur(6px); }
+
 #budget-global-tooltip {
     position: fixed;
     background: var(--primary);
@@ -4260,7 +4294,7 @@ body.didactic-on .didactic-note{ display:block; }
 
                 <div class="right-col">
                     <div class="section-box budget-card-fixed">
-                        <div class="box-title">Orçamento Dinâmico</div>
+                        <div class="box-title budget-title-row"><span>Orçamento Dinâmico</span><div id="budget-summary" class="budget-summary" style="display:none;"></div></div>
                         <!-- Linha única: [Categoria] [Tag]  [dropdown]  [input]  [Salvar] -->
                         <div style="display:flex; gap:6px; align-items:center; flex-wrap:nowrap;">
                             <button id="btn-budget-cat" class="budget-type-btn active" onclick="switchBudgetType('category')">Categoria</button>
@@ -7474,6 +7508,58 @@ body.didactic-on .didactic-note{ display:block; }
             return lastDayOfMonth - currentDay;
         }
 
+        /* Resumo do Orçamento Dinâmico (à direita do título).
+           Soma apenas o que está na lista visível: categorias OU tags,
+           nunca as duas juntas (um gasto pode ter categoria e tag, e somar
+           as duas contaria o mesmo dinheiro duas vezes). */
+        function renderBudgetSummary(items, list, tipo, periodoTxt) {
+            const box = document.getElementById('budget-summary');
+            if (!box) return;
+            const comLimite = items.filter(i => i.limit > 0);
+            if (!comLimite.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+
+            const brl = v => v.toLocaleString('pt-br', { style: 'currency', currency: 'BRL' });
+            const orcado = comLimite.reduce((a, i) => a + i.limit, 0);
+            const gasto  = comLimite.reduce((a, i) => a + i.spent, 0);
+            const fora   = items.filter(i => !(i.limit > 0)).reduce((a, i) => a + i.spent, 0);
+            const pct    = orcado > 0 ? (gasto / orcado) * 100 : 0;
+            const receita = (list || []).filter(t => t.amount > 0).reduce((a, t) => a + t.amount, 0);
+            const pctReceita = receita > 0 ? (orcado / receita) * 100 : null;
+            const estourados = comLimite.filter(i => i.spent > i.limit).length;
+
+            const n = Math.min(pct, 100);
+            let cor;
+            if (n <= 50) { const r = n / 50; cor = `rgb(${Math.round(16 + 218 * r)}, ${Math.round(185 - 6 * r)}, ${Math.round(129 - 121 * r)})`; }
+            else { const r = (n - 50) / 50; cor = `rgb(${Math.round(234 + 5 * r)}, ${Math.round(179 - 111 * r)}, ${Math.round(8 + 60 * r)})`; }
+            const corPct = pct > 100 ? 'var(--danger)' : cor;
+
+            const saldo = orcado - gasto;
+            const linhaSaldo = saldo >= 0
+                ? `Disponível: <b class="bs-money">${brl(saldo)}</b>`
+                : `<span class="bs-alert">Extrapolado: ${brl(-saldo)}</span>`;
+            const linhaReceita = pctReceita === null
+                ? `Sem receitas no período`
+                : (pctReceita > 100
+                    ? `<span class="bs-alert">Orçamento = ${pctReceita.toFixed(0)}% da receita (acima do que entra)</span>`
+                    : `Orçamento = <b>${pctReceita.toFixed(1).replace('.', ',')}%</b> da receita do período`);
+
+            box.innerHTML = `
+                <span><b class="bs-money">${brl(gasto)}</b> de <b class="bs-money">${brl(orcado)}</b></span>
+                <span class="budget-summary-bar"><span class="budget-summary-fill" style="width:${n}%; background:linear-gradient(90deg,#10b981 0%, ${cor} 100%);"></span></span>
+                <span class="budget-summary-pct" style="color:${corPct};">${pct.toFixed(0)}%</span>
+                <div class="budget-summary-tip">
+                    <b>${tipo === 'tag' ? 'Total das tags' : 'Total das categorias'}</b> · ${comLimite.length} ${comLimite.length === 1 ? 'orçamento' : 'orçamentos'}<br>
+                    Orçado: <b class="bs-money">${brl(orcado)}</b><br>
+                    Gasto: <b class="bs-money">${brl(gasto)}</b> (${pct.toFixed(0)}%)<br>
+                    ${linhaSaldo}<br>
+                    ${estourados ? `<span class="bs-alert">${estourados} ${estourados === 1 ? 'orçamento estourado' : 'orçamentos estourados'}</span><br>` : ''}
+                    ${fora > 0 ? `Gasto sem orçamento definido: <b class="bs-money">${brl(fora)}</b><br>` : ''}
+                    ${linhaReceita}<br>
+                    <span style="opacity:.75;">${periodoTxt}</span>
+                </div>`;
+            box.style.display = 'flex';
+        }
+
         window.renderBudget = (list) => {
             const exp = list.filter(t => t.amount < 0);
 
@@ -7571,6 +7657,8 @@ body.didactic-on .didactic-note{ display:block; }
                         </div>`;
                 }).join('');
             }
+
+            renderBudgetSummary(allBudgetsToRender, list, selectedBudgetType, tooltipInfoText);
 
             addDragListeners(); positionBudgetTooltips(); const shouldAnimate = editingId === null && !skipBudgetAnimation; skipBudgetAnimation = false; if (shouldAnimate) { setTimeout(() => { document.querySelectorAll('.budget-bar-fill').forEach(el => { el.style.width = el.getAttribute('data-width') + '%'; }); }, 50); } else { document.querySelectorAll('.budget-bar-fill').forEach(el => { el.style.width = el.getAttribute('data-width') + '%'; }); }
 
