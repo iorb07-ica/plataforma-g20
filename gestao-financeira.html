@@ -5191,25 +5191,39 @@ body.didactic-on .didactic-note{ display:block; }
         })();
 
         // --- FUNÇÕES DE FEEDBACK (V112.0) ---
+        /* Aviso discreto no rodapé (toast): não borra nem bloqueia a tela,
+           dá para continuar usando o dashboard enquanto ele aparece.
+           Sucesso some rápido; erro fica um pouco mais para dar tempo de ler. */
         window.showFeedback = (message, isError = false) => {
-            const modal = document.getElementById('feedback-modal');
-            const msgEl = document.getElementById('feedback-message');
-            const content = modal.querySelector('.modal-content');
-
-            msgEl.innerHTML = message;
-
-            if (isError) {
-                content.style.backgroundColor = 'var(--danger)';
-            } else {
-                content.style.backgroundColor = 'var(--success)';
+            let t = document.getElementById('g20-toast');
+            if (!t) {
+                const st = document.createElement('style');
+                st.textContent = `
+                    #g20-toast{position:fixed;left:50%;bottom:24px;z-index:100000;pointer-events:none;
+                        display:flex;align-items:center;gap:8px;max-width:min(92vw,460px);
+                        padding:9px 16px;border-radius:999px;background:#1f1e22;color:#eee;
+                        border:1px solid rgba(201,169,97,.25);box-shadow:0 8px 24px rgba(0,0,0,.3);
+                        font:600 13px/1.35 'DM Sans',system-ui,sans-serif;
+                        opacity:0;transform:translate(-50%,10px);transition:opacity .18s ease,transform .18s ease;}
+                    #g20-toast.on{opacity:1;transform:translate(-50%,0);}
+                    #g20-toast .g20-toast-ico{flex-shrink:0;width:18px;height:18px;border-radius:50%;
+                        display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff;}
+                    #g20-toast.ok .g20-toast-ico{background:#10b981;}
+                    #g20-toast.erro{border-color:rgba(239,68,68,.45);}
+                    #g20-toast.erro .g20-toast-ico{background:#ef4444;}
+                    @media (max-width:768px){#g20-toast{bottom:calc(70px + env(safe-area-inset-bottom,0px));}}`;
+                document.head.appendChild(st);
+                t = document.createElement('div');
+                t.id = 'g20-toast';
+                t.setAttribute('role', 'status');
+                t.setAttribute('aria-live', 'polite');
+                document.body.appendChild(t);
             }
-
-            modal.classList.add('active');
-
-            clearTimeout(modal.timer);
-            modal.timer = setTimeout(() => {
-                modal.classList.remove('active');
-            }, 1500);
+            t.className = isError ? 'erro' : 'ok';
+            t.innerHTML = '<span class="g20-toast-ico">' + (isError ? '!' : '✓') + '</span><span>' + message + '</span>';
+            requestAnimationFrame(() => t.classList.add('on'));
+            clearTimeout(t._timer);
+            t._timer = setTimeout(() => t.classList.remove('on'), isError ? 3000 : 1400);
         };
 
         // --- FUNÇÕES DE ORÇAMENTO (V117.5) ---
