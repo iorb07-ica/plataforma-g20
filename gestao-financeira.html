@@ -2683,6 +2683,7 @@ body.privacy-on #budget-summary .bs-money { filter: blur(6px); }
 
 /* Scrollbar melhorado para seletores internos */
 #icon-selector,
+#icon-selector-edit,
 #cat-list-content {
     scrollbar-width: thin;
     scrollbar-color: var(--accent-light) transparent;
@@ -3716,6 +3717,11 @@ body.didactic-on .didactic-note{ display:block; }
                     <div style="margin-bottom:16px;">
                         <label style="font-size:12px; color:var(--text2); display:block; margin-bottom:6px;">Categorias cadastradas</label>
                         <div id="cat-list-content" style="display:grid; gap:6px; max-height:380px; overflow-y: scroll; border:1px solid var(--border-color); border-radius:8px; padding:10px; padding-right:6px;"></div>
+                    </div>
+                    <!-- Seletor de ícone da categoria em edição (antes só existia na aba Adicionar) -->
+                    <div id="cat-edit-icon-wrap" style="display:none; margin-bottom:16px;">
+                        <label id="cat-edit-icon-label" style="font-size:12px; color:var(--text2); display:block; margin-bottom:6px;">Escolha o novo ícone</label>
+                        <div id="icon-selector-edit" style="max-height:260px; overflow-y: scroll; border:1px solid var(--accent); border-radius:8px; padding:12px; padding-right:8px;"></div>
                     </div>
                     <div style="display:flex; gap:10px;">
                         <button class="btn btn-outline" style="flex:1; width:100%;" onclick="closeModal('cat-modal')">Fechar</button>
@@ -6338,9 +6344,23 @@ body.didactic-on .didactic-note{ display:block; }
         }
 
 
-        function renderIconSelector() { const container = document.getElementById('icon-selector'); let html = ''; for (const [groupName, icons] of Object.entries(groupedIcons)) { html += `<div class="icon-group-title">${groupName}</div>`; html += `<div class="icon-grid-row">`; html += icons.map(item => `<div class="icon-option ${item.c === selectedIcon ? 'selected' : ''}" onclick="selectIcon('${item.c}')" title="${item.n}"><i class="fa-solid ${item.c}"></i></div>`).join(''); html += `</div>`; } if (container) container.innerHTML = html; }
+        function renderIconSelector() { let html = ''; for (const [groupName, icons] of Object.entries(groupedIcons)) { html += `<div class="icon-group-title">${groupName}</div>`; html += `<div class="icon-grid-row">`; html += icons.map(item => `<div class="icon-option ${item.c === selectedIcon ? 'selected' : ''}" onclick="selectIcon('${item.c}')" title="${item.n}"><i class="fa-solid ${item.c}"></i></div>`).join(''); html += `</div>`; } ['icon-selector', 'icon-selector-edit'].forEach(id => { const c = document.getElementById(id); if (!c) return; const y = c.scrollTop; c.innerHTML = html; c.scrollTop = y; }); }
 
-        window.selectIcon = (icon) => { selectedIcon = icon; renderIconSelector(); };
+        window.selectIcon = (icon) => {
+            selectedIcon = icon;
+            renderIconSelector();
+            if (editingCategoryIndex !== null) {
+                const ic = document.getElementById(`edit-cat-icon-${editingCategoryIndex}`);
+                if (ic) ic.className = `fa-solid ${icon}`;
+            }
+        };
+
+        /* Cancela só a edição da categoria (antes o X fechava o modal inteiro) */
+        window.cancelEditCat = () => {
+            editingCategoryIndex = null;
+            selectedIcon = 'fa-tag';
+            renderList('cat');
+        };
         window.toggleRecurrence = () => { const check = document.getElementById('is-recurring'); document.getElementById('recurrence-options').style.display = check.checked ? 'flex' : 'none'; };
         window.toggleRecMode = () => { const mode = document.getElementById('rec-mode').value; document.getElementById('div-rec-total').style.display = mode === 'subscription' ? 'none' : 'flex'; };
 
@@ -7361,10 +7381,10 @@ body.didactic-on .didactic-note{ display:block; }
                 if (isEditing) {
                     return `
                         <div class="modal-item" style="border-bottom: 1px solid var(--border-color); padding: 8px 0;">
-                            <i class="fa-solid ${selectedIcon}" style="color: var(--accent); margin-right: 15px;"></i>
-                            <input type="text" id="edit-cat-input-${i}" value="${item}" style="flex:1; height: 30px; margin-right: 10px; border: 1px solid var(--accent); background: var(--bg);">
+                            <i id="edit-cat-icon-${i}" class="fa-solid ${selectedIcon}" onclick="document.getElementById('cat-edit-icon-wrap')?.scrollIntoView({behavior:'smooth', block:'nearest'})" title="Escolha o novo ícone logo abaixo" style="color: var(--accent); margin-right: 15px; cursor:pointer; font-size:16px;"></i>
+                            <input type="text" id="edit-cat-input-${i}" value="${item}" onkeydown="if(event.key==='Enter'){event.preventDefault();saveEditCat(${i});}" style="flex:1; height: 30px; margin-right: 10px; border: 1px solid var(--accent); background: var(--bg);">
                             <button class="btn btn-success" style="height: 30px; margin-right: 5px;" onclick="saveEditCat(${i})"><i class="fa-solid fa-check"></i></button>
-                            <button class="btn btn-outline" style="height: 30px; border-style: dashed;" onclick="cancelEdit()"><i class="fa-solid fa-xmark"></i></button>
+                            <button class="btn btn-outline" style="height: 30px; border-style: dashed;" onclick="cancelEditCat()" title="Cancelar edição"><i class="fa-solid fa-xmark"></i></button>
                         </div>
                     `;
                 }
@@ -7396,7 +7416,7 @@ body.didactic-on .didactic-note{ display:block; }
                         <i class="fa-solid ${icon}" style="color: ${type === 'cat' ? 'var(--accent)' : 'var(--text-light)'}; margin-right: 15px;"></i>
                         <span style="flex-grow: 1;">${item}</span>
                         <div>
-                            <button class="budget-action-btn edit" onclick="startEditCat(${i})" title="Editar"><i class="fa-solid fa-pen"></i></button>
+                            <button class="budget-action-btn edit" onclick="startEditCat(${i})" title="Editar nome e ícone"><i class="fa-solid fa-pen"></i></button>
                             <button class="budget-action-btn del" onclick="delItem('${type}', ${i})" title="Excluir"><i class="fa-solid fa-trash"></i></button>
                         </div>
                     </div>
@@ -7405,6 +7425,13 @@ body.didactic-on .didactic-note{ display:block; }
 
             // Re-renderiza o seletor de ícones ao abrir o modal de categorias
             if (type === 'cat') {
+                const wrap = document.getElementById('cat-edit-icon-wrap');
+                if (wrap) {
+                    const editando = editingCategoryIndex !== null && data.categories[editingCategoryIndex] !== undefined;
+                    wrap.style.display = editando ? 'block' : 'none';
+                    const lbl = document.getElementById('cat-edit-icon-label');
+                    if (editando && lbl) lbl.textContent = `Escolha o novo ícone de "${data.categories[editingCategoryIndex]}" e clique em ✓ para salvar`;
+                }
                 renderIconSelector();
             }
         }
