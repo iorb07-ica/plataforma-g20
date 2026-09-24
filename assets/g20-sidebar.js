@@ -1665,6 +1665,12 @@
   function appNoIphone(){
     return window.navigator.standalone === true;
   }
+  /* Só com a status bar translúcida o conteúdo fica por baixo do relógio.
+     Com "black" o iOS reserva a faixa do relógio sozinho: não somar nada. */
+  function statusTranslucida(){
+    var m = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+    return !!(m && /translucent/i.test(m.getAttribute('content') || ''));
+  }
   function barraStatusIphone(){
     var alto = Math.max(screen.width || 0, screen.height || 0);
     if (alto === 874 || alto === 956) return 62;                 /* 16 Pro / 16 Pro Max */
@@ -1676,8 +1682,10 @@
      No app instalado, o iOS às vezes desenha a página a partir do topo da
      tela, mas calcula a área útil descontando a barra de status. Resultado:
      tudo que é "grudado embaixo" (barra de abas, sidebar, fundo escuro)
-     termina antes do fim da tela, sobrando uma faixa vazia. Medimos essa
-     faixa e descemos os elementos até o fim real da tela. */
+     termina antes do fim da tela, sobrando uma faixa vazia. Essa faixa fica
+     FORA da área da página (regressão do WebKit no iOS 26 com a status bar
+     "black-translucent") e não pode ser ocupada por CSS/JS. Medimos apenas
+     para o diagnóstico (?g20debug=1). A correção real é a status bar "black". */
   function faixaInferior(){
     if (!appNoIphone()) return 0;
     var retrato = (screen.height || 0) >= (screen.width || 0);
@@ -1690,7 +1698,7 @@
   function calcularTopo(){
     var env = envTopo();
     var topo = env;
-    if (appNoIphone()) topo = Math.max(env, barraStatusIphone());
+    if (appNoIphone() && statusTranslucida()) topo = Math.max(env, barraStatusIphone());
     topo = Math.round(topo);
     if (topo !== _ultimoTopo) {
       _ultimoTopo = topo;
@@ -1717,7 +1725,8 @@
     d.textContent = 'env top: ' + env + 'px\nusado: ' + topo + 'px\napp instalado: ' + appNoIphone() +
                     '\ntela: ' + screen.width + 'x' + screen.height +
                     '\nárea útil: ' + window.innerWidth + 'x' + window.innerHeight +
-                    '\nfaixa embaixo: ' + (faixa || 0) + 'px';
+                    '\nfaixa embaixo: ' + (faixa || 0) + 'px' +
+                    '\nstatus bar: ' + (statusTranslucida() ? 'translúcida' : 'black');
   }
 
   var CSS = [
@@ -1736,8 +1745,7 @@
     '  html body .sidebar.sidebar{',
     '    padding-top:' + TOP + ' !important;',
     '    width:min(272px, 82vw) !important; min-width:0 !important; max-width:82vw !important;',
-    '    height:calc(100vh + var(--g20-gap-bottom, 0px)) !important;',
-    '    max-height:none !important;',
+
     '    overscroll-behavior:contain;',
     '  }',
     '  html body .sidebar.sidebar .nav-item.nav-item{',
@@ -1750,10 +1758,7 @@
     '  html body .sidebar.sidebar .nav-label.nav-label{ font-size:11px !important; }',
     '  html body .sidebar.sidebar .btn-logout.btn-logout{ min-height:48px !important; font-size:15px !important; }',
     '  html body .overlay.show, html body #overlay.show{ background:rgba(0,0,0,.6) !important; }',
-    /* Barra de abas colada no fim REAL da tela */
-    '  html body .bottom-nav.bottom-nav{ bottom:calc(-1 * var(--g20-gap-bottom, 0px)) !important; }',
-    '  html body .overlay, html body #overlay{ bottom:calc(-1 * var(--g20-gap-bottom, 0px)) !important; }',
-    /* O conteúdo das páginas reserva espaço para a barra; a faixa recuperada não precisa de reserva extra */
+
     '  .g20-sb-close{',
     '    position:absolute; top:calc(' + TOP + ' + 10px); right:10px; z-index:5;',
     '    width:40px; height:40px; border-radius:12px; border:1px solid rgba(201,169,97,.25);',
