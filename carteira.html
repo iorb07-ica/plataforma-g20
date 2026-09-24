@@ -1802,6 +1802,7 @@ body.pat-hidden .g-kpi-sub::after{justify-content:flex-start;padding-right:0;pad
   .cg20-ro .dtx-add-btn,
   .cg20-ro [onclick*="abrirModalAporte"],
   .cg20-ro [onclick*="abrirModalDividendo"],
+  .cg20-ro [onclick*="limparProventosInvalidos"],
   .cg20-ro [data-action="aporte"],
   .cg20-ro [data-action="edit"],
   .cg20-ro [data-action="del"],
@@ -2367,6 +2368,7 @@ body.pat-hidden .g-kpi-sub::after{justify-content:flex-start;padding-right:0;pad
           <button class="btn-sm btn-outline" id="btnRecarregarNuvem" onclick="recarregarProventosDoFirestore()" title="Recarrega proventos direto do Firestore (útil se localStorage foi corrompido)">☁️ Recarregar da Nuvem</button>
           <button class="btn-sm btn-outline" onclick="buscarDividendos()">↻ Brapi</button>
           <button class="btn-sm btn-outline" onclick="abrirModalDividendo()">+ Manual</button>
+          <button class="btn-sm btn-outline" id="btnLimparProvInval" onclick="limparProventosInvalidos()" title="Apaga do cadastro os proventos que não pertencem à Carteira G20" style="display:none">🧹 Limpar inválidos</button>
           <button class="btn-sm btn-outline" id="btnHistCompleto" onclick="importarHistoricoCompleto()" title="Busca dividendos antigos (>2 anos) via FMP — útil apenas na 1ª vez para ativos antigos">📜 Histórico Completo</button>
         </div>
       </div>
@@ -4397,9 +4399,85 @@ function calcPosicoes(){
 
 // Calcula ganho/perda realizado de ativos totalmente vendidos
 // Retorna { ganho: número em BRL, ativos: [{ticker, tipo, ganho, pctGanho}] }
+// ============================================================
+// PROVENTOS VÁLIDOS DA CARTEIRA G20
+// Só entra na conta o provento que pertence a esta carteira:
+//   1. o ativo precisa ter transação na Carteira G20 (resíduos de outras carteiras ficam fora)
+//   2. você precisa ter o ativo na data-com (quantidade recalculada pelas transações)
+//   3. data de pagamento válida (a B3 usa 9999-12-31 quando não informa)
+//   4. mesmo provento vindo de duas fontes: vale o do Statusinvest/Polygon, o da B3 sai
+// Nada é apagado do cadastro aqui; é só a regra de leitura. Para apagar, use limparProventosInvalidos().
+// ============================================================
+var _provValCache = {ap:null, dv:null, nAp:-1, nDv:-1, out:null, inval:null};
+function _provQtdIndex(aportes){
+  var idx = {};
+  aportes.forEach(function(a){ (idx[a.ticker] = idx[a.ticker] || []).push(a); });
+  Object.keys(idx).forEach(function(t){ idx[t].sort(function(a,b){ return a.data.localeCompare(b.data); }); });
+  return idx;
+}
+function _provQtdEm(lista, data, estrito){
+  var q = 0;
+  for(var i=0;i<lista.length;i++){
+    var a = lista[i];
+    if(estrito ? !(a.data < data) : !(a.data <= data)) break;
+    q += (a.op==='C' ? 1 : -1) * (parseFloat(a.qtd)||0);
+  }
+  return Math.max(0, q);
+}
+function _provAnalisar(){
+  var aportes = loadData('aportes',[]), divs = loadData('dividendos',[]);
+  var c = _provValCache;
+  if(c.out && c.ap===aportes && c.dv===divs && c.nAp===aportes.length && c.nDv===divs.length) return c;
+  var idx = _provQtdIndex(aportes);
+  // chaves com registro de fonte principal (para descartar o duplicado da B3)
+  var temPrincipal = {};
+  divs.forEach(function(d){ if(d.fonte!=='Auto-B3') temPrincipal[d.ticker+'|'+(d.datex||d.data)+'|'+(d.tipo||'')] = true; });
+  var out = [], inval = [];
+  divs.forEach(function(d){
+    var motivo = null, q = 0;
+    if(!d.data || /^9999/.test(d.data)) motivo = 'data inválida';
+    else if(!idx[d.ticker]) motivo = 'ativo sem transação na Carteira G20';
+    else if(d.fonte==='Auto-B3' && temPrincipal[d.ticker+'|'+(d.datex||d.data)+'|'+(d.tipo||'')]) motivo = 'duplicado de outra fonte';
+    else {
+      // Polygon (EUA): data-ex, precisa ter comprado ANTES. Demais: data-com, vale até o próprio dia.
+      q = _provQtdEm(idx[d.ticker], d.datex || d.data, d.fonte==='Auto-Polygon');
+      if(q <= 0.000001) motivo = 'sem posição na data-com';
+    }
+    if(motivo){ inval.push({d:d, motivo:motivo}); return; }
+    var qAtual = parseFloat(d.qtdEx != null ? d.qtdEx : d.qtd) || 0;
+    if(Math.abs(qAtual - q) > 0.0001){
+      var cp = {}; for(var k in d) cp[k] = d[k];
+      cp.qtdEx = q; delete cp.total; // total antigo foi calculado com a quantidade errada
+      out.push(cp);
+    } else out.push(d);
+  });
+  _provValCache = {ap:aportes, dv:divs, nAp:aportes.length, nDv:divs.length, out:out, inval:inval};
+  return _provValCache;
+}
+function getDividendosValidos(){ return _provAnalisar().out; }
+function getDividendosInvalidos(){ return _provAnalisar().inval; }
+
+// Apaga do cadastro os proventos que não pertencem à Carteira G20 (só admin)
+function limparProventosInvalidos(){
+  var inval = getDividendosInvalidos();
+  if(!inval.length){ showToast('Nenhum provento inválido encontrado.'); return; }
+  var porMotivo = {};
+  inval.forEach(function(x){ porMotivo[x.motivo] = (porMotivo[x.motivo]||0) + 1; });
+  var resumo = Object.keys(porMotivo).map(function(m){ return '- '+porMotivo[m]+' '+m; }).join('\n');
+  if(!confirm('Apagar '+inval.length+' proventos que não pertencem à Carteira G20?\n\n'+resumo+'\n\nA Minha Carteira não é afetada. Essa ação não pode ser desfeita.')) return;
+  var remover = {};
+  inval.forEach(function(x){ remover[x.d.id || JSON.stringify(x.d)] = true; });
+  var restantes = loadData('dividendos',[]).filter(function(d){ return !remover[d.id || JSON.stringify(d)]; });
+  saveData('dividendos', restantes);
+  _provValCache.out = null;
+  renderPosicoes();
+  try{ renderDividendos(); }catch(e){}
+  showToast('🧹 '+inval.length+' proventos removidos da Carteira G20');
+}
+
 function calcResultadoRealizado(){
   var aportes = loadData('aportes',[]);
-  var dividendos = loadData('dividendos',[]);
+  var dividendos = getDividendosValidos();
   var pos = {};
   aportes.sort(function(a,b){return a.data.localeCompare(b.data);}).forEach(function(a){
     if(!pos[a.ticker]) pos[a.ticker]={ticker:a.ticker,tipo:a.tipo,qtd:0,totalInv:0,totalVendido:0,totalRecebido:0};
@@ -4452,7 +4530,7 @@ function calcResultadoRealizado(){
 }
 
 function getProventosAtivo(ticker){
-  return loadData('dividendos',[]).filter(function(d){return d.ticker===ticker;});
+  return getDividendosValidos().filter(function(d){return d.ticker===ticker;});
 }
 
 // Soma só proventos JÁ RECEBIDOS (data de pagamento anterior a hoje e não marcados como futuro).
@@ -4495,7 +4573,7 @@ function toggleMoeda(){
   }
   // Toggle afeta apenas os cards KPI — tabela sempre usa moeda nativa do ativo
   var pos = calcPosicoes();
-  var divs = loadData('dividendos',[]);
+  var divs = getDividendosValidos();
   var hoje = new Date().toISOString().split('T')[0];
   var divRec = divs.filter(function(d){return d.data<hoje;})
     .reduce(function(s,d){ return s+provBRL(d); },0);
@@ -4544,7 +4622,7 @@ function renderPosicoes(){
 
   var pos = calcPosicoes();
   var search = (document.getElementById('searchTicker').value||'').toUpperCase();
-  var divs = loadData('dividendos',[]);
+  var divs = getDividendosValidos();
   var divRec = divs.filter(function(d){return d.data<new Date().toISOString().split('T')[0];})
                    .reduce(function(s,d){
                      // Convertido para R$ (dividendo americano entra pelo câmbio atual)
@@ -4947,7 +5025,7 @@ function atualizarStats(inv, pos, res, divRec, prov, invNat){
   var dyAcum = inv>0 ? ((prov||0)/inv*100).toFixed(2)+'%' : '--';
   document.getElementById('statDivDY').textContent = 'DY acum. '+dyAcum;
   // A Receber
-  var _divsFut = loadData('dividendos',[]);
+  var _divsFut = getDividendosValidos();
   var _hoje = new Date().toISOString().split('T')[0];
   var _futuros = _divsFut.filter(function(d){ return d.data > _hoje || d.status === 'futuro'; });
   var _totalFut = _futuros.reduce(function(s,d){ return s + provBRL(d); }, 0);
@@ -5208,7 +5286,7 @@ function renderDrawerTx(){
 }
 
 function renderDrawerProv(){
-  var divs = loadData('dividendos',[]).filter(function(d){ return d.ticker===_drawerTicker; });
+  var divs = getDividendosValidos().filter(function(d){ return d.ticker===_drawerTicker; });
   divs.sort(function(a,b){ return b.data.localeCompare(a.data); });
   var hoje = new Date().toISOString().split('T')[0];
 
@@ -5814,7 +5892,7 @@ function renderChartRent(posData){
 // ── PROVENTOS POR MÊS ──────────────────────────────────────────
 function renderChartProv(){
   destroyChart('chartProv');
-  var divs = loadData('dividendos',[]).filter(function(d){
+  var divs = getDividendosValidos().filter(function(d){
     return d.data < new Date().toISOString().split('T')[0];
   });
   var byMonth = {};
@@ -6283,7 +6361,7 @@ function renderGraficos(){
 function renderGraficosKPI(posData, totalPos, totalInv) {
   var el = document.getElementById('gKpiGrid');
   if (!el) return;
-  var provsTotal = loadData('dividendos',[]).reduce(function(s,d){ return s+(d.valor||0)*(d.qtdEx||0); },0);
+  var _hjP = new Date().toISOString().split('T')[0]; var provsTotal = getDividendosValidos().reduce(function(s,d){ return provEhFuturo(d,_hjP) ? s : s + provBRL(d); },0);
   var lucro = totalPos - totalInv;
   var rentPct = totalInv > 0 ? (lucro/totalInv*100) : 0;
   var totalRetPct = totalInv > 0 ? ((lucro+provsTotal)/totalInv*100) : 0;
@@ -6455,7 +6533,7 @@ function renderPainelRentabilidade() {
   var totalValFinal = serieValAtual[serieValAtual.length - 1] || 0;
   var lucroAbs      = totalValFinal - totalInvFinal;
   var rentAcum      = totalInvFinal > 0 ? (lucroAbs / totalInvFinal * 100) : 0;
-  var provsTotal    = loadData('dividendos', []).reduce(function(s, d){ return s + (d.valor||0) * (d.qtdEx||0); }, 0);
+  var _hjP = new Date().toISOString().split('T')[0]; var provsTotal = getDividendosValidos().reduce(function(s,d){ return provEhFuturo(d,_hjP) ? s : s + provBRL(d); },0);
   var totalRetPct   = totalInvFinal > 0 ? ((lucroAbs + provsTotal) / totalInvFinal * 100) : 0;
 
   var kpiStrip = document.getElementById('rentKpiStrip');
@@ -8484,7 +8562,7 @@ function renderCalendarioDividendos(){
   if(lblEl) lblEl.textContent = MESES_LONG[_calMes] + ' ' + _calAno;
 
   var hoje    = new Date().toISOString().split('T')[0];
-  var divs    = loadData('dividendos', []);
+  var divs    = getDividendosValidos();
   var aportes = loadData('aportes', []);
 
   // Mapa tipo por ticker
@@ -8812,7 +8890,7 @@ function provAbrirMes(ym){
 }
 function renderProvLista(divsBase){
   var el = document.getElementById('provListaBody'); if(!el) return;
-  var divs = divsBase || window._provListaBase || loadData('dividendos',[]);
+  var divs = divsBase || window._provListaBase || getDividendosValidos();
   window._provListaBase = divs;
   var hoje = new Date().toISOString().split('T')[0];
   var anoAtual = new Date().getFullYear();
@@ -8889,7 +8967,7 @@ function renderDividendos(){
   _provTipoCache = null;
   var busca    = (document.getElementById('searchProv')||{value:''}).value.trim().toUpperCase();
   var filtTick = (document.getElementById('filtroProvTicker')||{value:''}).value;
-  var allDivs  = loadData('dividendos',[]);
+  var allDivs  = getDividendosValidos();
 
   // Popular dropdown
   var tickerSel = document.getElementById('filtroProvTicker');
@@ -9090,6 +9168,12 @@ function renderDividendos(){
       }).join('');
   }
 
+  // Botão de limpeza aparece só quando há proventos que não pertencem à carteira
+  try{
+    var _bl = document.getElementById('btnLimparProvInval'), _ni = getDividendosInvalidos().length;
+    if(_bl){ _bl.style.display = _ni ? '' : 'none'; _bl.textContent = '🧹 Limpar inválidos ('+_ni+')'; }
+  }catch(e){}
+
   // ── VISÃO GERAL NOVA: barras mensais + tabela ano x mês + lista ──
   try{ renderProvMensal(divs); }catch(e){ console.error('[provMensal]',e); }
   try{ renderProvTabelaAno(divs); }catch(e){ console.error('[provTabelaAno]',e); }
@@ -9145,7 +9229,7 @@ function renderDividendos(){
 }
 
 function renderProvCalendario(){
-  var allDivs = loadData('dividendos',[]);
+  var allDivs = getDividendosValidos();
   var hoje    = new Date().toISOString().split('T')[0];
   var fmt     = function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
   var calAno  = window._calAno || new Date().getFullYear();
@@ -9233,7 +9317,7 @@ function provCalNav(dir){
 }
 
 function renderProvGraficos(){
-  var allDivs  = loadData('dividendos',[]);
+  var allDivs  = getDividendosValidos();
   var hoje     = new Date().toISOString().split('T')[0];
   var aportes  = loadData('aportes',[]);
   var recebidos= allDivs.filter(function(d){ return d.data<hoje && d.status!=='futuro'; });
