@@ -1618,3 +1618,215 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar);
   else iniciar();
 })();
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   MOBILE (≤ 768px): TOPBAR RESPEITANDO O NOTCH + SIDEBAR CONFORTÁVEL
+   Diagnóstico (iPhone com app instalado, status bar translúcida):
+   - O conteúdo é desenhado por baixo do relógio/Dynamic Island, mas a
+     topbar não reservava esse espaço: o ☰ ficava embaixo do relógio.
+   - Cada página tratava isso de um jeito; várias somavam um espaço no
+     .main pensando numa topbar fixa, mas a topbar é sticky, então
+     sobrava um vão vazio acima dela e, ao rolar, ela subia para baixo
+     do relógio de novo.
+   Solução única para todas as páginas:
+   - Topbar = área segura do topo + 57px de barra (o padrão que as
+     páginas já usam nos seus cálculos). Em celulares sem notch a área
+     segura é 0 e nada muda.
+   - O vão falso acima da topbar é removido automaticamente.
+   - Sidebar mais larga, itens maiores para o dedo, botão de fechar e
+     gesto de arrastar para a esquerda para fechar.
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+  'use strict';
+  if (window.__g20MobileShell) return;
+  window.__g20MobileShell = true;
+
+  var MOB = window.matchMedia('(max-width: 768px)');
+  /* Altura da área do relógio. Vem de --g20-safe-top (calculada abaixo);
+     se o JS ainda não rodou, usa o valor que o navegador informa. */
+  var TOP = 'var(--g20-safe-top, env(safe-area-inset-top, 0px))';
+
+  /* ── Área segura do topo à prova do bug do iOS ──
+     No iPhone com a plataforma instalada na tela de início (status bar
+     translúcida), o conteúdo é desenhado por baixo do relógio, mas o iOS
+     às vezes informa env(safe-area-inset-top) = 0. Nesse caso usamos a
+     altura real da barra de status do modelo. */
+  function envTopo(){
+    try {
+      var pr = document.createElement('div');
+      pr.style.cssText = 'position:fixed;top:0;left:0;width:1px;visibility:hidden;pointer-events:none;height:env(safe-area-inset-top,0px)';
+      document.documentElement.appendChild(pr);
+      var h = pr.getBoundingClientRect().height || 0;
+      pr.remove();
+      return h;
+    } catch(e){ return 0; }
+  }
+  function appNoIphone(){
+    return window.navigator.standalone === true;
+  }
+  function barraStatusIphone(){
+    var alto = Math.max(screen.width || 0, screen.height || 0);
+    if (alto === 874 || alto === 956) return 62;                 /* 16 Pro / 16 Pro Max */
+    if (alto === 852 || alto === 932 || alto > 956) return 59;   /* Dynamic Island */
+    if (alto >= 812) return 47;                                  /* notch */
+    return 20;                                                   /* iPhone 8 / SE */
+  }
+  var _ultimoTopo = -1;
+  function calcularTopo(){
+    var env = envTopo();
+    var topo = env;
+    if (appNoIphone()) topo = Math.max(env, barraStatusIphone());
+    topo = Math.round(topo);
+    if (topo !== _ultimoTopo) {
+      _ultimoTopo = topo;
+      document.documentElement.style.setProperty('--g20-safe-top', topo + 'px');
+    }
+    mostrarDiagnostico(env, topo);
+  }
+
+  /* Diagnóstico: abrir qualquer página com ?g20debug=1 mostra os valores */
+  function mostrarDiagnostico(env, topo){
+    if (!/[?&]g20debug=1/.test(location.search)) return;
+    var d = document.getElementById('g20-debug-safe');
+    if (!d) {
+      d = document.createElement('div');
+      d.id = 'g20-debug-safe';
+      d.style.cssText = 'position:fixed;left:8px;bottom:120px;z-index:99999;background:#000;color:#0f0;font:12px monospace;padding:8px 10px;border-radius:8px;border:1px solid #0f0;pointer-events:none;white-space:pre';
+      document.body.appendChild(d);
+    }
+    d.textContent = 'env top: ' + env + 'px\nusado: ' + topo + 'px\napp instalado: ' + appNoIphone() +
+                    '\ntela: ' + screen.width + 'x' + screen.height;
+  }
+
+  var CSS = [
+    '@media (max-width: 768px){',
+    /* ── Topbar ── */
+    '  html body .topbar.topbar{',
+    '    box-sizing:border-box !important;',
+    '    padding-top:' + TOP + ' !important; padding-bottom:0 !important;',
+    '    height:calc(57px + ' + TOP + ') !important;',
+    '    min-height:calc(57px + ' + TOP + ') !important;',
+    '    max-height:calc(57px + ' + TOP + ') !important;',
+    '    align-items:center !important;',
+    '    background:rgba(26,25,30,.94) !important;',
+    '  }',
+    /* ── Sidebar ── */
+    '  html body .sidebar.sidebar{',
+    '    padding-top:' + TOP + ' !important;',
+    '    width:min(300px, 86vw) !important; min-width:0 !important; max-width:86vw !important;',
+    '    overscroll-behavior:contain;',
+    '  }',
+    '  html body .sidebar.sidebar .nav-item.nav-item{',
+    '    min-height:48px !important; height:auto !important;',
+    '    font-size:15px !important; padding-top:0 !important; padding-bottom:0 !important;',
+    '  }',
+    '  html body .sidebar.sidebar .nav-item.nav-item .nav-item-text,',
+    '  html body .sidebar.sidebar .btn-logout.btn-logout .logout-text{ font-size:15px !important; max-width:none !important; }',
+    '  html body .sidebar.sidebar .nav-item.nav-item .ico{ font-size:20px !important; }',
+    '  html body .sidebar.sidebar .nav-label.nav-label{ font-size:11px !important; }',
+    '  html body .sidebar.sidebar .btn-logout.btn-logout{ min-height:48px !important; font-size:15px !important; }',
+    '  html body .overlay.show, html body #overlay.show{ background:rgba(0,0,0,.6) !important; }',
+    '  .g20-sb-close{',
+    '    position:absolute; top:calc(' + TOP + ' + 10px); right:10px; z-index:5;',
+    '    width:40px; height:40px; border-radius:12px; border:1px solid rgba(201,169,97,.25);',
+    '    background:rgba(255,255,255,.04); color:#c9a961; font-size:18px; line-height:1;',
+    '    display:flex; align-items:center; justify-content:center; cursor:pointer;',
+    '  }',
+    '  .g20-sb-close:active{ background:rgba(201,169,97,.15); }',
+    '}',
+    '@media (min-width: 769px){ .g20-sb-close{ display:none !important; } }'
+  ].join('\n');
+
+  function injetarCSS(){
+    var old = document.getElementById('g20-mobile-shell-css');
+    if (old) old.remove();
+    var st = document.createElement('style');
+    st.id = 'g20-mobile-shell-css';
+    st.textContent = CSS;
+    (document.body || document.head).appendChild(st);
+  }
+
+  /* ── Remove o vão falso acima da topbar (topbar sticky + padding no .main) ── */
+  function corrigirVao(){
+    var tb = document.querySelector('.topbar');
+    var main = document.querySelector('.main');
+    if (!tb || !main) return;
+
+    if (!MOB.matches) {
+      if (main.getAttribute('data-g20-vao')) {
+        main.style.removeProperty('padding-top');
+        main.removeAttribute('data-g20-vao');
+      }
+      return;
+    }
+    var pos = getComputedStyle(tb).position;
+    if (pos === 'fixed' || pos === 'absolute') return;   /* página com offset próprio */
+    if (!main.contains(tb)) return;
+    if ((window.scrollY || 0) > 2) return;                /* mede só com a página no topo */
+
+    var folga = tb.getBoundingClientRect().top - main.getBoundingClientRect().top;
+    var pad = parseFloat(getComputedStyle(main).paddingTop) || 0;
+    if (folga > 2 && pad > 0) {
+      main.style.setProperty('padding-top', '0px', 'important');
+      main.setAttribute('data-g20-vao', '1');
+    }
+  }
+
+  /* ── Fechar sidebar (usa a função da página quando existe) ── */
+  function fecharSidebar(){
+    if (typeof window.closeSidebar === 'function') { try { window.closeSidebar(); return; } catch(e){} }
+    var sb = document.querySelector('.sidebar');
+    var ov = document.querySelector('.overlay, #overlay');
+    if (sb) sb.classList.remove('open');
+    if (ov) ov.classList.remove('show', 'open', 'active');
+    document.body.style.overflow = '';
+  }
+
+  function prepararSidebar(){
+    var sb = document.querySelector('.sidebar');
+    if (!sb || sb.querySelector('.g20-sb-close')) return;
+
+    var bt = document.createElement('button');
+    bt.type = 'button';
+    bt.className = 'g20-sb-close';
+    bt.setAttribute('aria-label', 'Fechar menu');
+    bt.innerHTML = '&#10005;';
+    bt.addEventListener('click', function(e){ e.stopPropagation(); fecharSidebar(); });
+    sb.appendChild(bt);
+
+    /* Arrastar para a esquerda fecha */
+    var x0 = null, y0 = null;
+    sb.addEventListener('touchstart', function(e){
+      if (!MOB.matches || !sb.classList.contains('open')) return;
+      x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+    }, { passive: true });
+    sb.addEventListener('touchend', function(e){
+      if (x0 === null) return;
+      var dx = e.changedTouches[0].clientX - x0;
+      var dy = e.changedTouches[0].clientY - y0;
+      x0 = y0 = null;
+      if (dx < -70 && Math.abs(dx) > Math.abs(dy) * 1.5) fecharSidebar();
+    }, { passive: true });
+  }
+
+  function iniciar(){
+    calcularTopo();
+    injetarCSS();
+    prepararSidebar();
+    corrigirVao();
+    setTimeout(corrigirVao, 400);
+    setTimeout(function(){ injetarCSS(); corrigirVao(); }, 1500);
+    window.addEventListener('resize', function(){ calcularTopo(); corrigirVao(); });
+    window.addEventListener('orientationchange', function(){ setTimeout(function(){ calcularTopo(); corrigirVao(); }, 300); });
+    window.addEventListener('load', calcularTopo);
+    window.addEventListener('pageshow', calcularTopo);
+    document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible') calcularTopo(); });
+    setTimeout(calcularTopo, 1000);
+    setTimeout(calcularTopo, 3000);
+    if (MOB.addEventListener) MOB.addEventListener('change', corrigirVao);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar);
+  else iniciar();
+})();
