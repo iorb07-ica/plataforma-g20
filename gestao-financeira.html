@@ -3867,7 +3867,7 @@ body.didactic-on .didactic-note{ display:block; }
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:18px; align-items:end;">
                     <div>
                         <label style="font-size:11px; font-weight:600; color:var(--text2); display:block; margin-bottom:6px; text-transform:uppercase;">Valor Anual Total (R$)</label>
-                        <input type="text" id="budget-annual-total-input" readonly style="width:100%; background: var(--bg); color: var(--text1); border: 1px solid var(--border); padding: 8px 10px; border-radius: 6px; cursor: default;" />
+                        <input type="text" id="budget-annual-total-input" inputmode="numeric" title="Edite o total do ano: os meses são recalculados proporcionalmente" oninput="formatCurrencyInput(this)" onblur="distribuirAnualProporcional()" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}" style="width:100%; background: var(--bg); color: var(--text1); border: 1px solid var(--border); padding: 8px 10px; border-radius: 6px;" />
                     </div>
                     <div>
                         <label style="font-size:11px; font-weight:600; color:var(--text2); display:block; margin-bottom:6px; text-transform:uppercase;">Padrão Mensal (R$)</label>
@@ -4339,7 +4339,7 @@ body.didactic-on .didactic-note{ display:block; }
                         </select>
 
                         <div class="chart-instruction" style="text-align: left; font-style: italic; opacity: 1; margin-top: 8px; font-size:11px;">
-                            <i class="fa-solid fa-circle-info" style="font-size: 10px;"></i> Use a **Engrenagem** ou **clique na barra** para definir orçamentos mensais e anuais.
+                            <i class="fa-solid fa-circle-info" style="font-size: 10px;"></i> Use a <b>engrenagem</b> ou <b>clique na barra</b> para definir orçamentos mensais e anuais.
                         </div>
 
                         <div id="budget-list-wrapper">
@@ -5402,6 +5402,45 @@ body.didactic-on .didactic-note{ display:block; }
                 : `<i class="fa-solid fa-circle-info" style="font-size:10px;"></i> O padrão vale para ${seguem} ${seguem === 1 ? 'mês' : 'meses'}. ${ajustados === 1 ? '1 mês ajustado' : ajustados + ' meses ajustados'} à mão ${ajustados === 1 ? 'fica' : 'ficam'} como ${ajustados === 1 ? 'está' : 'estão'}.`;
         };
 
+        /* Valor anual editável: ao mudar o total do ano, cada mês é
+           recalculado na mesma proporção (mantém dezembro maior, por
+           exemplo). Se todos os meses estavam zerados, divide igualmente.
+           Os centavos de arredondamento vão para dezembro. */
+        window.distribuirAnualProporcional = () => {
+            const el = document.getElementById('budget-annual-total-input');
+            const inputs = Array.from(document.querySelectorAll('#budget-monthly-list input[data-month-key]'));
+            if (!el || !inputs.length) return;
+            const fmt = v => v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+            const novo = Math.max(0, parseCurrency(el.value) || 0);
+            const atuais = inputs.map(i => parseCurrency(i.value) || 0);
+            const soma = atuais.reduce((a, b) => a + b, 0);
+            if (Math.abs(novo - soma) < 0.005) { el.value = fmt(soma); return; }
+
+            const padraoEl = document.getElementById('budget-default-amount');
+            const padraoAntigo = parseCurrency(padraoEl.value) || 0;
+            let novos, novoPadrao;
+            if (soma > 0) {
+                const fator = novo / soma;
+                novos = atuais.map(v => Math.floor(v * fator * 100) / 100);
+                novoPadrao = Math.floor(padraoAntigo * fator * 100) / 100;
+            } else {
+                const base = Math.floor((novo / inputs.length) * 100) / 100;
+                novos = inputs.map(() => base);
+                novoPadrao = base;
+            }
+            const sobra = Math.round((novo - novos.reduce((a, b) => a + b, 0)) * 100) / 100;
+            novos[novos.length - 1] = Math.round((novos[novos.length - 1] + sobra) * 100) / 100;
+
+            padraoEl.value = fmt(novoPadrao);
+            inputs.forEach((inp, k) => {
+                inp.value = fmt(novos[k]);
+                inp.setAttribute('data-segue-padrao', Math.abs(novos[k] - novoPadrao) < 0.05 ? '1' : '0');
+            });
+            el.value = fmt(novo);
+            atualizarDicaPadrao();
+            showFeedback('Meses recalculados. Confira e clique em Salvar.');
+        };
+
         window.aplicarPadraoAoVivo = () => {
             const el = document.getElementById('budget-default-amount');
             const padrao = parseCurrency(el.value) || 0;
@@ -5600,6 +5639,13 @@ body.didactic-on .didactic-note{ display:block; }
         }
 
         window.openQuickBudgetEditor = (name, type = 'category') => {
+            /* O modal rápido (quick-budget-modal) não existe mais na página:
+               o clique na barra dava erro e não abria nada. Agora abre o
+               mesmo editor da engrenagem (anual + mês a mês). */
+            if (!document.getElementById('quick-budget-modal')) {
+                openUniversalBudgetEditor(name, type);
+                return;
+            }
             if (type === 'tag') {
                 openUniversalBudgetEditor(name, type);
                 return;
@@ -7759,10 +7805,10 @@ body.didactic-on .didactic-note{ display:block; }
                             <div class="budget-content-wrapper" onclick="openQuickBudgetEditor('${item.name}', '${item.type}')" title="Clique para editar o orçamento de ${budgetItemTitle}">
                                 <div style="display:flex; justify-content:space-between; align-items: center; width: 100%;">
                                     <span class="name-group">${iconHtml}${budgetItemTitle}</span>
-                                    <span class="budget-amount" style="font-size:12.5px; color:var(--text-light); white-space: nowrap;">
-                                        <b style="color:var(--text); font-weight:700;">${item.spent.toLocaleString('pt-br', { style: 'currency', currency: 'BRL' })}</b> 
-                                        <span style="color:var(--border-color); margin:0 4px;">/</span> 
-                                        ${item.limit.toLocaleString('pt-br', { style: 'currency', currency: 'BRL' })}
+                                    <span class="budget-amount" style="font-size:12.5px; white-space: nowrap;">
+                                        <b style="color:${item.limit > 0 && item.spent > item.limit ? 'var(--danger)' : 'var(--text)'}; font-weight:700;">${item.spent.toLocaleString('pt-br', { style: 'currency', currency: 'BRL' })}</b> 
+                                        <span style="color:var(--text); opacity:.35; margin:0 4px;">/</span> 
+                                        <span style="color:var(--text); opacity:.72; font-weight:600;">${item.limit.toLocaleString('pt-br', { style: 'currency', currency: 'BRL' })}</span>
                                     </span>
                                 </div>
                                 <div class="budget-bar-bg">
