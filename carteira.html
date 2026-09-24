@@ -7724,8 +7724,12 @@ function dataPrimeiraCompra(ticker){
 
 // Retorna a data do provento mais recente salvo para o ticker, ou null
 function dataProventoMaisRecente(ticker){
+  // Considera só proventos JÁ PAGOS. Um provento com pagamento futuro (ex.: JCP com pagamento
+  // em 2027, ou a data 9999 que a B3 usa quando não informa) fazia a busca incremental começar
+  // depois dele, e tudo o que era anunciado com data anterior nunca mais era importado.
+  var hojeR = new Date().toISOString().split('T')[0];
   var stored = loadData('dividendos',[]);
-  var doTicker = stored.filter(function(d){ return d.ticker === ticker; });
+  var doTicker = stored.filter(function(d){ return d.ticker === ticker && (d.data || '') <= hojeR; });
   if(!doTicker.length) return null;
   var maisRecente = doTicker.reduce(function(max, d){
     var data = d.data || d.datex || '';
@@ -7754,6 +7758,21 @@ function dataProventoMaisAntigo(ticker){
 //    usa data da primeira compra (precisa preencher gap histórico)
 // 3. Caso contrário (incremental normal) → usa data do provento mais recente - 7 dias
 function calcularDataInicioBuscaProventos(ticker, dataCompra){
+  // Revisão semanal: uma vez por semana cada ativo é conferido nos últimos ~13 meses,
+  // para recuperar sozinho qualquer provento que tenha ficado para trás.
+  // (duplicados não entram: o salvamento já ignora mesmo ativo + mesmo mês + mesmo valor)
+  try{
+    var hojeS = new Date().toISOString().split('T')[0];
+    var mapaS = JSON.parse(localStorage.getItem('g20_prov_ticker_revisao')||'{}');
+    var ultRev = mapaS[ticker];
+    if(!ultRev || (new Date(hojeS) - new Date(ultRev)) >= 7*86400000){
+      mapaS[ticker] = hojeS;
+      localStorage.setItem('g20_prov_ticker_revisao', JSON.stringify(mapaS));
+      var dRev = new Date(); dRev.setDate(dRev.getDate() - 400);
+      var iniRev = dRev.toISOString().split('T')[0];
+      return iniRev < dataCompra ? dataCompra : iniRev;
+    }
+  }catch(e){}
   var dtUltimo = dataProventoMaisRecente(ticker);
   if(!dtUltimo) return dataCompra;
 
