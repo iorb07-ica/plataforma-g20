@@ -1672,7 +1672,21 @@
     if (alto >= 812) return 47;                                  /* notch */
     return 20;                                                   /* iPhone 8 / SE */
   }
-  var _ultimoTopo = -1;
+  /* ── Faixa perdida embaixo (mesmo bug do iOS) ──
+     No app instalado, o iOS às vezes desenha a página a partir do topo da
+     tela, mas calcula a área útil descontando a barra de status. Resultado:
+     tudo que é "grudado embaixo" (barra de abas, sidebar, fundo escuro)
+     termina antes do fim da tela, sobrando uma faixa vazia. Medimos essa
+     faixa e descemos os elementos até o fim real da tela. */
+  function faixaInferior(){
+    if (!appNoIphone()) return 0;
+    var retrato = (screen.height || 0) >= (screen.width || 0);
+    var alturaTela = retrato ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+    var falta = Math.round(alturaTela - window.innerHeight);
+    return (falta > 4 && falta <= 90) ? falta : 0;
+  }
+
+  var _ultimoTopo = -1, _ultimaFaixa = -1;
   function calcularTopo(){
     var env = envTopo();
     var topo = env;
@@ -1682,11 +1696,16 @@
       _ultimoTopo = topo;
       document.documentElement.style.setProperty('--g20-safe-top', topo + 'px');
     }
-    mostrarDiagnostico(env, topo);
+    var faixa = faixaInferior();
+    if (faixa !== _ultimaFaixa) {
+      _ultimaFaixa = faixa;
+      document.documentElement.style.setProperty('--g20-gap-bottom', faixa + 'px');
+    }
+    mostrarDiagnostico(env, topo, faixa);
   }
 
   /* Diagnóstico: abrir qualquer página com ?g20debug=1 mostra os valores */
-  function mostrarDiagnostico(env, topo){
+  function mostrarDiagnostico(env, topo, faixa){
     if (!/[?&]g20debug=1/.test(location.search)) return;
     var d = document.getElementById('g20-debug-safe');
     if (!d) {
@@ -1696,7 +1715,9 @@
       document.body.appendChild(d);
     }
     d.textContent = 'env top: ' + env + 'px\nusado: ' + topo + 'px\napp instalado: ' + appNoIphone() +
-                    '\ntela: ' + screen.width + 'x' + screen.height;
+                    '\ntela: ' + screen.width + 'x' + screen.height +
+                    '\nárea útil: ' + window.innerWidth + 'x' + window.innerHeight +
+                    '\nfaixa embaixo: ' + (faixa || 0) + 'px';
   }
 
   var CSS = [
@@ -1714,7 +1735,9 @@
     /* ── Sidebar ── */
     '  html body .sidebar.sidebar{',
     '    padding-top:' + TOP + ' !important;',
-    '    width:min(300px, 86vw) !important; min-width:0 !important; max-width:86vw !important;',
+    '    width:min(272px, 82vw) !important; min-width:0 !important; max-width:82vw !important;',
+    '    height:calc(100vh + var(--g20-gap-bottom, 0px)) !important;',
+    '    max-height:none !important;',
     '    overscroll-behavior:contain;',
     '  }',
     '  html body .sidebar.sidebar .nav-item.nav-item{',
@@ -1727,6 +1750,10 @@
     '  html body .sidebar.sidebar .nav-label.nav-label{ font-size:11px !important; }',
     '  html body .sidebar.sidebar .btn-logout.btn-logout{ min-height:48px !important; font-size:15px !important; }',
     '  html body .overlay.show, html body #overlay.show{ background:rgba(0,0,0,.6) !important; }',
+    /* Barra de abas colada no fim REAL da tela */
+    '  html body .bottom-nav.bottom-nav{ bottom:calc(-1 * var(--g20-gap-bottom, 0px)) !important; }',
+    '  html body .overlay, html body #overlay{ bottom:calc(-1 * var(--g20-gap-bottom, 0px)) !important; }',
+    /* O conteúdo das páginas reserva espaço para a barra; a faixa recuperada não precisa de reserva extra */
     '  .g20-sb-close{',
     '    position:absolute; top:calc(' + TOP + ' + 10px); right:10px; z-index:5;',
     '    width:40px; height:40px; border-radius:12px; border:1px solid rgba(201,169,97,.25);',
