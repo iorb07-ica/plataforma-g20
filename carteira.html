@@ -490,6 +490,39 @@ body.drawer-open .table-wrap thead th{z-index:1 !important}
 .prov-date{font-size:11px;color:var(--text3);flex:1}
 .prov-val{font-weight:700;font-size:13px;text-align:right}
 .prov-total{font-size:11px;color:var(--green);text-align:right;margin-top:1px}
+/* Drawer > Proventos (redesenho: leitura maior, contraste alto, agrupado por ano) */
+.pv-summary{display:grid;grid-template-columns:1.25fr 1fr;gap:10px;margin-bottom:22px}
+.pv-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px}
+.pv-card.rec{border-color:rgba(46,204,113,.28);background:linear-gradient(160deg,rgba(46,204,113,.09),var(--surface) 70%)}
+.pv-card.fut{border-color:rgba(201,169,97,.3)}
+.pv-card-lbl{font-size:13px;font-weight:600;color:var(--text2);margin-bottom:6px}
+.pv-card-val{font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:700;line-height:1.1;color:var(--text)}
+.pv-card.rec .pv-card-val{color:var(--green)}
+.pv-card.fut .pv-card-val{color:var(--gold-2)}
+.pv-card-sub{font-size:13px;color:var(--text2);margin-top:8px;line-height:1.4}
+.pv-card-sub b{font-family:'JetBrains Mono',monospace;color:var(--text);font-weight:600}
+.pv-year{display:flex;align-items:baseline;justify-content:space-between;margin:18px 2px 10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.pv-year:first-of-type{margin-top:0}
+.pv-year-n{font-size:16px;font-weight:800;color:var(--text)}
+.pv-year-t{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:600;color:var(--text2)}
+.pv-row{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:12px;background:var(--surface);border:1px solid var(--border);margin-bottom:8px}
+.pv-row.fut{border-style:dashed;border-color:rgba(201,169,97,.45);background:rgba(201,169,97,.05)}
+.pv-main{flex:1;min-width:0}
+.pv-date{font-size:16px;font-weight:700;color:var(--text)}
+.pv-meta{font-size:13px;color:var(--text2);margin-top:3px}
+.pv-calc{font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--text2);margin-top:4px}
+.pv-right{text-align:right;flex-shrink:0}
+.pv-val{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;color:var(--green)}
+.pv-row.fut .pv-val{color:var(--gold-2)}
+.pv-status{font-size:12.5px;font-weight:600;margin-top:3px;color:var(--green)}
+.pv-row.fut .pv-status{color:var(--gold)}
+@media(max-width:600px){
+  .pv-summary{grid-template-columns:1fr}
+  .pv-card-val{font-size:28px}
+  .pv-date{font-size:17px}
+  .pv-val{font-size:19px}
+  .pv-meta,.pv-card-sub{font-size:14px}
+}
 
 /* ─── LOGOS DE ATIVOS ─────────────────────────────── */
 .asset-logo{
@@ -5067,48 +5100,89 @@ function renderDrawerTx(){
 function renderDrawerProv(){
   var divs = loadData('dividendos',[]).filter(function(d){ return d.ticker===_drawerTicker; });
   divs.sort(function(a,b){ return b.data.localeCompare(a.data); });
+  var hoje = new Date().toISOString().split('T')[0];
 
-  // Detecta moeda pelo tipo do ativo (US = USD, BR = BRL)
+  // Moeda pelo tipo do ativo (US = USD, BR = BRL)
   var isUS = ['Stock','REIT','ETF','Cripto','UCITs'].indexOf(_drawerTipo) >= 0;
-  var fmt2 = isUS
+  // Retenção de 30% na fonte só para ativos americanos (Stock, REIT, ETF)
+  var temRetencaoEUA = ['Stock','REIT','ETF'].indexOf(_drawerTipo) >= 0;
+  var fmtCota = isUS
     ? function(v){ return '$ '+v.toLocaleString('en-US',{minimumFractionDigits:4,maximumFractionDigits:4}); }
     : function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:4,maximumFractionDigits:4}); };
-  var fmt  = isUS
+  var fmt = isUS
     ? function(v){ return '$ '+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
     : function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  var fmtQtd = function(q){ return (+q||0).toLocaleString(isUS?'en-US':'pt-BR',{maximumFractionDigits:4}); };
+  var unidade = ['FII','FIAGRO'].indexOf(_drawerTipo)>=0 ? 'cotas' : (_drawerTipo==='Cripto' ? 'unidades' : 'ações');
 
-  var totalProv = divs.filter(function(d){ return d.data < new Date().toISOString().split('T')[0]; })
-    .reduce(function(s,d){
-      if(d.total != null) return s + (parseFloat(d.total)||0);
-      var vlr = parseFloat(d.valor != null ? d.valor : (d.valorCota != null ? d.valorCota : 0)) || 0;
-      var qtd = parseFloat(d.qtdEx != null ? d.qtdEx : (d.qtd != null ? d.qtd : 0)) || 0;
-      return s + (vlr * qtd);
-    },0);
+  function valorProv(d){
+    if(d.total != null) return parseFloat(d.total)||0;
+    var vlr = parseFloat(d.valor != null ? d.valor : (d.valorCota != null ? d.valorCota : 0)) || 0;
+    var qtd = parseFloat(d.qtdEx != null ? d.qtdEx : (d.qtd != null ? d.qtd : 0)) || 0;
+    return vlr * qtd;
+  }
+  function isRecebido(d){ return d.data < hoje && d.status !== 'futuro'; }
 
-  var summaryHtml = divs.length ? '<div class="dtx-summary" style="margin-bottom:14px">'+
-    '<div class="dtx-sum-card"><div class="lbl">Total Recebido</div><div class="val" style="color:var(--green)">'+fmt(totalProv)+'</div></div>'+
-    '<div class="dtx-sum-card"><div class="lbl">Proventos</div><div class="val">'+divs.length+' registros</div></div>'+
-  '</div>' : '';
+  if(!divs.length){
+    document.getElementById('drawerBody').innerHTML = '<div class="dtx-empty">Nenhum provento registrado para este ativo.</div>';
+    return;
+  }
 
-  var rowsHtml = divs.length
-    ? divs.map(function(d){
-        var total = d.valor*(d.qtdEx||0);
-        var isPast = d.data < new Date().toISOString().split('T')[0];
-        var autoTag = d.fonte&&d.fonte.indexOf('Auto')>=0
-          ? '<span style="font-size:9px;background:rgba(46,204,113,.15);color:var(--green);padding:1px 5px;border-radius:3px;margin-left:4px">Auto</span>':'' ;
-        return '<div class="prov-row">'+
-          '<div>'+
-            '<div class="prov-tipo">'+d.tipo+autoTag+'</div>'+
-            '<div style="font-size:10px;color:var(--text3);margin-top:2px">'+fmt2(d.valor)+'/cota · '+( d.qtdEx||0)+(['FII','FIAGRO'].indexOf(_drawerTipo)>=0?' cotas':(_drawerTipo==='Cripto'?' unidades':' ações'))+'</div>'+
-          '</div>'+
-          '<div class="prov-date">'+fmtDate(d.data)+(d.datex&&d.datex!==d.data?'<br><span style="font-size:10px">EX: '+fmtDate(d.datex)+'</span>':'')+'</div>'+
-          '<div>'+
-            '<div class="prov-val">'+(isPast?'<span style="color:var(--green)">':'')+fmt(total)+(isPast?'</span>':'')+'</div>'+
-            '<div class="prov-total">'+(isPast?'✓ Recebido':'⏳ Futuro')+'</div>'+
-          '</div>'+
-        '</div>';
-      }).join('')
-    : '<div class="dtx-empty">Nenhum provento registrado para este ativo.</div>';
+  var recebidos = divs.filter(isRecebido);
+  var futuros   = divs.filter(function(d){ return !isRecebido(d); });
+  var totalRec  = recebidos.reduce(function(s,d){ return s+valorProv(d); },0);
+  var totalFut  = futuros.reduce(function(s,d){ return s+valorProv(d); },0);
+  var proxFut   = futuros.slice().sort(function(a,b){ return a.data.localeCompare(b.data); })[0];
+
+  var subRec = temRetencaoEUA
+    ? 'Líquido <b>'+fmt(totalRec*0.7)+'</b><br>após 30% retidos nos EUA'
+    : recebidos.length+(recebidos.length===1?' pagamento':' pagamentos');
+
+  var summaryHtml = '<div class="pv-summary">'+
+    '<div class="pv-card rec">'+
+      '<div class="pv-card-lbl">Total recebido</div>'+
+      '<div class="pv-card-val">'+fmt(totalRec)+'</div>'+
+      '<div class="pv-card-sub">'+subRec+'</div>'+
+    '</div>'+
+    '<div class="pv-card fut">'+
+      '<div class="pv-card-lbl">A receber</div>'+
+      '<div class="pv-card-val">'+(futuros.length ? fmt(totalFut) : '--')+'</div>'+
+      '<div class="pv-card-sub">'+(proxFut ? 'Pagamento em <b>'+fmtDate(proxFut.data)+'</b>' : 'Nenhum anunciado')+'</div>'+
+    '</div>'+
+  '</div>';
+
+  // Agrupa por ano (data de pagamento), com o total recebido no ano
+  var anos = {}, ordemAnos = [];
+  divs.forEach(function(d){
+    var ano = (d.data||'').substring(0,4) || '----';
+    if(!anos[ano]){ anos[ano] = []; ordemAnos.push(ano); }
+    anos[ano].push(d);
+  });
+
+  var rowsHtml = ordemAnos.map(function(ano){
+    var lista = anos[ano];
+    var totAno = lista.filter(isRecebido).reduce(function(s,d){ return s+valorProv(d); },0);
+    var head = '<div class="pv-year"><span class="pv-year-n">'+ano+'</span>'+
+      '<span class="pv-year-t">'+(totAno>0 ? fmt(totAno) : '')+'</span></div>';
+    return head + lista.map(function(d){
+      var fut = !isRecebido(d);
+      var qtd = d.qtdEx != null ? d.qtdEx : (d.qtd||0);
+      var vCota = d.valor != null ? d.valor : (d.valorCota||0);
+      var tipo = d.tipo || 'Provento';
+      var meta = tipo + (d.datex && d.datex!==d.data ? ', data-ex '+fmtDate(d.datex) : '');
+      return '<div class="pv-row'+(fut?' fut':'')+'">'+
+        '<div class="pv-main">'+
+          '<div class="pv-date">'+fmtDate(d.data)+'</div>'+
+          '<div class="pv-meta">'+meta+'</div>'+
+          '<div class="pv-calc">'+fmtCota(+vCota||0)+' × '+fmtQtd(qtd)+' '+unidade+'</div>'+
+        '</div>'+
+        '<div class="pv-right">'+
+          '<div class="pv-val">'+fmt(valorProv(d))+'</div>'+
+          '<div class="pv-status">'+(fut ? 'A receber' : 'Recebido')+'</div>'+
+        '</div>'+
+      '</div>';
+    }).join('');
+  }).join('');
 
   document.getElementById('drawerBody').innerHTML = summaryHtml + rowsHtml;
 }
