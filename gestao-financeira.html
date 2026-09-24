@@ -3841,13 +3841,11 @@ body.didactic-on .didactic-note{ display:block; }
                     </div>
                     <div>
                         <label style="font-size:11px; font-weight:600; color:var(--text2); display:block; margin-bottom:6px; text-transform:uppercase;">Padrão Mensal (R$)</label>
-                        <div style="display:flex; gap:8px;">
-                            <input type="text" id="budget-default-amount" placeholder="0,00" onblur="handleCurrencyBlur(this)" style="flex:1; background: var(--bg); color: var(--text1); border: 1px solid var(--border); padding: 8px 10px; border-radius: 6px;" />
-                            <button type="button" class="btn btn-outline" onclick="applyDefaultToAllMonths()" title="Aplicar valor padrão para todos os meses" style="height: 34px; padding: 0 12px; white-space:nowrap; font-size: 12px;">Aplicar</button>
-                        </div>
+                        <input type="text" id="budget-default-amount" placeholder="0,00" inputmode="numeric" oninput="formatCurrencyInput(this); aplicarPadraoAoVivo()" onblur="handleCurrencyBlur(this); aplicarPadraoAoVivo()" style="width:100%; background: var(--bg); color: var(--text1); border: 1px solid var(--border); padding: 8px 10px; border-radius: 6px;" />
                     </div>
                 </div>
 
+                <div id="budget-padrao-dica" style="font-size:11px; color:var(--text-light); margin:-8px 0 0 0; line-height:1.4;"></div>
                 <h4 style="font-weight:600; color:var(--text1); font-size:13px; margin:16px 0 10px 0;">Orçamentos Mensais</h4>
                 <div id="budget-monthly-list" style="display:flex; flex-direction:column; gap:0; height:240px; overflow-y:scroll; margin-bottom:16px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); padding:0; scrollbar-width:thin; scrollbar-color:var(--border) transparent;">
                     <!-- Preenchido dinamicamente -->
@@ -5251,6 +5249,7 @@ body.didactic-on .didactic-note{ display:block; }
                 const monthKey = `${targetYear}-${monthMM}`;
 
                 const currentValue = budgetObj[monthKey] !== undefined ? budgetObj[monthKey] : defaultVal;
+                const seguePadrao = Math.abs(currentValue - defaultVal) < 0.005 ? '1' : '0';
 
                 let inputValue = currentValue.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 
@@ -5269,16 +5268,18 @@ body.didactic-on .didactic-note{ display:block; }
                             <input type="text" 
                                 id="budget-input-${monthKey}" 
                                 data-month-key="${monthKey}" 
+                                data-segue-padrao="${seguePadrao}"
                                 value="${inputValue}" 
                                 style="width: 100px; text-align: right; height: 28px; font-weight: 700; background: var(--surface); color: var(--text1); border: none; outline: none; font-size: 13px;" 
-                                oninput="formatCurrencyInput(this);"
-                                onblur="handleCurrencyBlur(this); recalculateAnnualTotalDisplay()">
+                                oninput="formatCurrencyInput(this); this.setAttribute('data-segue-padrao','0')"
+                                onblur="handleCurrencyBlur(this); marcarSeguePadrao(this); recalculateAnnualTotalDisplay(); atualizarDicaPadrao()">
                         </div>
                     </div>
                 `;
             }
 
             monthlyList.innerHTML = html;
+            atualizarDicaPadrao();
             openModal('budget-editor-modal');
         }
 
@@ -5299,7 +5300,9 @@ body.didactic-on .didactic-note{ display:block; }
             if (prevInput) {
                 currentInput.value = prevInput.value;
                 handleCurrencyBlur(currentInput);
+                marcarSeguePadrao(currentInput);
                 recalculateAnnualTotalDisplay();
+                atualizarDicaPadrao();
                 showFeedback(`Orçamento de ${monthAbbreviations[prevIndex - 1]} copiado.`);
             } else {
                 showFeedback("Erro: Mês anterior não encontrado (Contate o Suporte).", true);
@@ -5325,12 +5328,49 @@ body.didactic-on .didactic-note{ display:block; }
 
                 nextInput.value = valueToCopy;
                 handleCurrencyBlur(nextInput);
+                marcarSeguePadrao(nextInput);
                 recalculateAnnualTotalDisplay();
+                atualizarDicaPadrao();
                 showFeedback(`Orçamento copiado para ${monthAbbreviations[nextIndex - 1]}.`);
             } else {
                 showFeedback("Erro: Mês seguinte não encontrado (Contate o Suporte).", true);
             }
         }
+
+        /* ── Padrão mensal aplicado ao vivo (sem botão "Aplicar") ──
+           Ao digitar o padrão, todos os meses que SEGUEM o padrão mudam
+           junto, e o total anual acompanha. Meses ajustados à mão (ex.:
+           dezembro maior) são preservados. Nada é gravado até "Salvar". */
+        window.marcarSeguePadrao = (input) => {
+            const padrao = parseCurrency(document.getElementById('budget-default-amount').value) || 0;
+            const valor = parseCurrency(input.value) || 0;
+            input.setAttribute('data-segue-padrao', Math.abs(valor - padrao) < 0.005 ? '1' : '0');
+        };
+
+        window.atualizarDicaPadrao = () => {
+            const dica = document.getElementById('budget-padrao-dica');
+            if (!dica) return;
+            const todos = document.querySelectorAll('#budget-monthly-list input[data-month-key]');
+            const seguem = document.querySelectorAll('#budget-monthly-list input[data-segue-padrao="1"]').length;
+            const ajustados = todos.length - seguem;
+            dica.innerHTML = ajustados === 0
+                ? '<i class="fa-solid fa-circle-info" style="font-size:10px;"></i> O padrão mensal vale para os 12 meses.'
+                : `<i class="fa-solid fa-circle-info" style="font-size:10px;"></i> O padrão vale para ${seguem} ${seguem === 1 ? 'mês' : 'meses'}. ${ajustados === 1 ? '1 mês ajustado' : ajustados + ' meses ajustados'} à mão ${ajustados === 1 ? 'fica' : 'ficam'} como ${ajustados === 1 ? 'está' : 'estão'}.`;
+        };
+
+        window.aplicarPadraoAoVivo = () => {
+            const el = document.getElementById('budget-default-amount');
+            const padrao = parseCurrency(el.value) || 0;
+            const fmt = padrao.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+            let total = 0;
+            document.querySelectorAll('#budget-monthly-list input[data-month-key]').forEach(inp => {
+                if (inp.getAttribute('data-segue-padrao') === '1') inp.value = fmt;
+                total += parseCurrency(inp.value) || 0;
+            });
+            document.getElementById('budget-annual-total-input').value =
+                total.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+            atualizarDicaPadrao();
+        };
 
         window.applyDefaultToAllMonths = () => {
             const defaultAmountStr = document.getElementById('budget-default-amount').value;
@@ -5633,9 +5673,11 @@ body.didactic-on .didactic-note{ display:block; }
                 recalculateAnnualTotalDisplay();
 
                 const btn = document.querySelector('#budget-default-amount').nextElementSibling;
-                const originalText = btn.innerText;
-                btn.innerText = "Aplicado!";
-                setTimeout(() => btn.innerText = originalText, 1500);
+                if (btn && btn.tagName === 'BUTTON') {
+                    const originalText = btn.innerText;
+                    btn.innerText = "Aplicado!";
+                    setTimeout(() => btn.innerText = originalText, 1500);
+                }
             }
         }
 
