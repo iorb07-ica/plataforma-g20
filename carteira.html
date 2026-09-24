@@ -3059,6 +3059,13 @@ function restaurarBackup(k, indice){
 
 function saveData(k, v, opts){
   opts = opts || {};
+  // Aporte salvo (manual, IA ou CSV): busca proventos dos ativos que ainda não foram consultados hoje
+  if(k === 'aportes' && _cg20IsAdmin){
+    clearTimeout(window._provPendTimer);
+    window._provPendTimer = setTimeout(function(){
+      try{ importarTodosProventos(function(n){ if(n>0){ renderDividendos(); renderPosicoes(); } }, false); }catch(e){}
+    }, 3000);
+  }
   // ── Carteira G20 é SOMENTE LEITURA para não-admin ──
   // Aluno pode ajustar só a visualização das colunas (local). Nenhum dado é gravado.
   if(!_cg20IsAdmin){
@@ -7991,13 +7998,14 @@ function importarProventosUS(ticker){
   var urlDiv = PROXY_URL+'/api/dividends?symbol='+encodeURIComponent(apiSymbol)+'&from='+dataInicio;
 
   return fetch(urlDiv)
-    .then(function(r){ return r.ok ? r.json() : {}; })
-    .catch(function(){ return {}; })
+    .then(function(r){ return r.ok ? r.json() : {_falhou:true}; })
+    .catch(function(){ return {_falhou:true}; })
     .then(function(d){
+      if(d && d._falhou) return -1; // falhou (ex.: limite de 5/min): tenta de novo na próxima rodada
       var divList = d.dividends || [];
       return salvarProventosUS(ticker, divList, 'Polygon');
     })
-    .catch(function(){ return 0; });
+    .catch(function(){ return -1; });
 }
 
 // ============================================================
@@ -8112,16 +8120,41 @@ function importarHistoricoCompleto(){
 // Parâmetros:
 //   callback(total)    — chamado ao final com quantos foram importados
 //   forcarRefresh=true — ignora cache diário e roda mesmo que já tenha rodado
-function importarTodosProventos(callback, forcarRefresh){
-  var pos = calcPosicoes();
-  if(!pos.length){ if(callback) callback(0); return; }
+// Registro de quando cada ativo teve os proventos consultados com sucesso (por dia)
+function _provDiaMapa(){ try{ return JSON.parse(localStorage.getItem('g20_prov_ticker_dia')||'{}'); }catch(e){ return {}; } }
+function _provMarcarTicker(t){
+  try{ var m=_provDiaMapa(); m[t]=new Date().toISOString().split('T')[0]; localStorage.setItem('g20_prov_ticker_dia', JSON.stringify(m)); }catch(e){}
+}
+var _provImportRodando = false;
 
-  // Cache diário: já rodou hoje E foi validado? pula
+function importarTodosProventos(callback, forcarRefresh){
+  // Cripto não paga provento: fica fora da fila (economiza chamadas do Polygon)
+  var pos = calcPosicoes().filter(function(p){ return p.tipo !== 'Cripto'; });
+  if(!pos.length){ if(callback) callback(0); return; }
+  if(_provImportRodando){ if(callback) callback(0); return; }
+
+  var _hojeImp = new Date().toISOString().split('T')[0];
+  var _mapaImp = _provDiaMapa();
+
+  // Cache diário: já rodou hoje E foi validado? Então só busca os ativos que ainda não
+  // foram consultados hoje (ex.: comprados depois da importação do dia). Nada a fazer = pula.
   if(!forcarRefresh && jaRodouProventosHoje()){
-    console.log('[Proventos] Já importado hoje (validado) — cache diário ativo. Use o botão pra forçar.');
-    if(callback) callback(0);
-    return;
+    var pend = pos.filter(function(p){ return _mapaImp[p.ticker] !== _hojeImp; });
+    if(!pend.length){
+      console.log('[Proventos] Já importado hoje (validado) — cache diário ativo.');
+      if(callback) callback(0);
+      return;
+    }
+    console.log('[Proventos] '+pend.length+' ativo(s) ainda não consultado(s) hoje: '+pend.map(function(p){return p.ticker;}).join(', '));
+    pos = pend;
   }
+  // Prioridade: quem nunca foi consultado primeiro, depois os consultados há mais tempo
+  pos.sort(function(a,b){
+    var da = _mapaImp[a.ticker] || '0000', db = _mapaImp[b.ticker] || '0000';
+    return da.localeCompare(db);
+  });
+  _provImportRodando = true;
+  setTimeout(function(){ _provImportRodando = false; }, 25*60*1000); // trava de segurança
 
   // Detecta se tinha import em progresso interrompido
   if(detectarImportInterrompido()){
@@ -8146,7 +8179,7 @@ function importarTodosProventos(callback, forcarRefresh){
 
   // 1) BR: todos em paralelo (B3 não tem rate limit)
   var promisesBR = posBR.map(function(p){
-    return importarProventosBR(p.ticker).then(function(n){ return n||0; });
+    return importarProventosBR(p.ticker).then(function(n){ _provMarcarTicker(p.ticker); return n||0; });
   });
 
   Promise.all(promisesBR).then(function(resBR){
@@ -8187,7 +8220,7 @@ function importarTodosProventos(callback, forcarRefresh){
     if(btn) btn.textContent = '⏳ US '+(inicio+grupo.length)+'/'+lista.length+'...';
 
     var promisesUS = grupo.map(function(p){
-      return importarProventosUS(p.ticker).then(function(n){ return n||0; });
+      return importarProventosUS(p.ticker).then(function(n){ if(n !== -1) _provMarcarTicker(p.ticker); return n > 0 ? n : 0; });
     });
 
     Promise.all(promisesUS).then(function(resUS){
@@ -8222,6 +8255,7 @@ function importarTodosProventos(callback, forcarRefresh){
   }
 
   function finalizarImport(){
+    _provImportRodando = false;
     if(btn){ btn.textContent='📥 Importar Proventos'; btn.disabled=false; }
     marcarProventosRodadosHoje();
     renderDividendos();
