@@ -1774,7 +1774,20 @@
     '  }',
     '  .g20-sb-close:active{ background:rgba(201,169,97,.15); }',
     '}',
-    '@media (min-width: 769px){ .g20-sb-close{ display:none !important; } }'
+    '@media (min-width: 769px){ .g20-sb-close{ display:none !important; } .g20-bn-injetada{ display:none !important; } }',
+    '@media (max-width: 768px){',
+    '  .g20-bn-injetada{ position:fixed; left:0; right:0; bottom:0; z-index:190; display:flex;',
+    '    background:#1f1e22; border-top:1px solid rgba(201,169,97,.08);',
+    '    height:calc(52px + env(safe-area-inset-bottom,0px)); padding-bottom:env(safe-area-inset-bottom,0px); box-sizing:border-box; }',
+    '  .g20-bn-injetada a{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;',
+    '    color:#6b6862; text-decoration:none; -webkit-tap-highlight-color:transparent; position:relative; }',
+    '  .g20-bn-injetada a.active{ color:#c9a961; }',
+    '  .g20-bn-injetada a.active::before{ content:""; position:absolute; top:0; left:25%; right:25%; height:2px; background:#c9a961; border-radius:0 0 2px 2px; }',
+    '  .g20-bn-injetada .bn-icon{ font-size:19px; line-height:1; }',
+    '  .g20-bn-injetada .bn-label{ font-size:8px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; }',
+    /* rótulos iguais em todas as páginas, sem quebrar linha */
+    '  html body .bottom-nav .bn-label{ white-space:nowrap !important; }',
+    '}'
   ].join('\n');
 
   function injetarCSS(){
@@ -1849,9 +1862,77 @@
     }, { passive: true });
   }
 
+  /* ── Barra de abas padrão (mobile) ──
+     Mesma barra em todas as páginas do aluno. Onde a página já tem a
+     barra, só troca os itens; onde não tem, cria e reserva o espaço no
+     fim do conteúdo para nada ficar escondido atrás dela. */
+  var BARRA = [
+    ['dashboard.html',          '🏠', 'Início'],
+    ['sala-de-aula.html',       '🎓', 'Aulas'],
+    ['g20flix.html',            '🎬', 'Flix'],
+    ['carteira.html',           '📈', 'CG20'],
+    ['gestao-patrimonial.html', '💼', 'Carteira'],
+    ['g20cast.html',            '🎧', 'Cast']
+  ];
+  var FORA_DA_BARRA = /^(admin|login|index|aguardando|boas-vindas|termos|seed|mockup)/i;
+
+  function paginaAtual(){
+    var p = (location.pathname.split('/').pop() || '').toLowerCase();
+    return p || 'index.html';
+  }
+
+  function areaQueRola(){
+    var cands = [document.scrollingElement].concat(
+      Array.prototype.slice.call(document.querySelectorAll('.main, main, .content, .main-content'))
+    );
+    var melhor = null, folga = -1;
+    cands.forEach(function(el){
+      if (!el) return;
+      var oy = el === document.scrollingElement ? 'auto' : getComputedStyle(el).overflowY;
+      if (!/(auto|scroll)/.test(oy)) return;
+      var f = el.scrollHeight - el.clientHeight;
+      if (f > folga) { folga = f; melhor = el; }
+    });
+    return melhor || document.querySelector('.main') || document.body;
+  }
+
+  function reservarEspaco(nav){
+    var alvo = areaQueRola();
+    if (!alvo || alvo.querySelector(':scope > .g20-bn-espaco')) return;
+    var sp = document.createElement('div');
+    sp.className = 'g20-bn-espaco';
+    sp.setAttribute('aria-hidden', 'true');
+    sp.style.cssText = 'height:' + (Math.ceil(nav.getBoundingClientRect().height) + 12) + 'px;flex-shrink:0;';
+    (alvo === document.scrollingElement ? document.body : alvo).appendChild(sp);
+  }
+
+  function padronizarBarra(){
+    var pagina = paginaAtual();
+    if (FORA_DA_BARRA.test(pagina)) return;
+    if (!document.querySelector('.sidebar')) return;
+
+    var nav = document.querySelector('.bottom-nav');
+    var criada = false;
+    if (!nav) {
+      nav = document.createElement('nav');
+      nav.className = 'bottom-nav g20-bn-injetada';
+      document.body.appendChild(nav);
+      criada = true;
+    }
+    if (nav.getAttribute('data-g20-padrao')) return;
+    nav.innerHTML = BARRA.map(function(it){
+      var ativo = it[0] === pagina ? ' class="active"' : '';
+      return '<a href="' + it[0] + '"' + ativo + '><span class="bn-icon">' + it[1] +
+             '</span><span class="bn-label">' + it[2] + '</span></a>';
+    }).join('');
+    nav.setAttribute('data-g20-padrao', '1');
+    if (criada && MOB.matches) setTimeout(function(){ reservarEspaco(nav); }, 600);
+  }
+
   function iniciar(){
     calcularTopo();
     injetarCSS();
+    padronizarBarra();
     prepararSidebar();
     corrigirVao();
     setTimeout(corrigirVao, 400);
