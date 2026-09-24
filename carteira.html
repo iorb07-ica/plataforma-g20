@@ -4225,17 +4225,42 @@ function precoBRL(aporte){
   return aporte.preco;
 }
 
+// Preço do aporte em DÓLAR NATIVO (ativos cotados em USD: Stock, REIT, ETF, Cripto, UCITs)
+// Regra: ativo cotado em dólar tem PM, custo e rentabilidade em dólar, sem passar pelo câmbio.
+// Se o aporte foi lançado em R$, converte pelo câmbio salvo na compra (ou o atual, se não houver).
+function precoUSD(aporte){
+  var moeda = aporte.moeda;
+  if(!moeda && ['Stock','REIT','ETF','Cripto','UCITs'].indexOf(aporte.tipo) >= 0) moeda = 'USD';
+  if(moeda === 'USD') return aporte.preco;
+  var fx = (aporte.fxRate && aporte.fxRate > 1) ? aporte.fxRate : (usdBRL || 5.85);
+  return aporte.preco / fx;
+}
+
+// Posições:
+//   totalInv    = custo em R$ pelo câmbio de cada compra (consolidado em reais e IR)
+//   totalInvUSD = custo em US$ nativo (só ativos cotados em dólar)
+//   totalInvNat = custo na moeda do ativo, expresso em R$ equivalente ao câmbio de HOJE
+//                 (BR: igual ao totalInv | US/Cripto: totalInvUSD x câmbio atual)
+//                 Usado na linha do ativo: dividido pelo câmbio atual volta exatamente ao custo em US$.
 function calcPosicoes(){
   var aportes = loadData('aportes',[]);
   var pos = {};
   aportes.sort(function(a,b){return a.data.localeCompare(b.data);}).forEach(function(a){
-    if(!pos[a.ticker]) pos[a.ticker]={ticker:a.ticker,tipo:a.tipo,qtd:0,totalInv:0};
+    if(!pos[a.ticker]) pos[a.ticker]={ticker:a.ticker,tipo:a.tipo,qtd:0,totalInv:0,totalInvUSD:0};
     var p = pos[a.ticker];
     var preco = precoBRL(a);
-    if(a.op==='C'){p.qtd+=a.qtd;p.totalInv+=a.qtd*preco;}
-    else{var pm=p.qtd>0?p.totalInv/p.qtd:0;p.totalInv-=a.qtd*pm;p.qtd-=a.qtd;}
+    var pUSD  = precoUSD(a);
+    if(a.op==='C'){p.qtd+=a.qtd;p.totalInv+=a.qtd*preco;p.totalInvUSD+=a.qtd*pUSD;}
+    else{
+      var pm=p.qtd>0?p.totalInv/p.qtd:0;
+      var pmUSD=p.qtd>0?p.totalInvUSD/p.qtd:0;
+      p.totalInv-=a.qtd*pm;p.totalInvUSD-=a.qtd*pmUSD;p.qtd-=a.qtd;
+    }
   });
-  return Object.values(pos).filter(function(p){return p.qtd>0.001;});
+  return Object.values(pos).filter(function(p){return p.qtd>0.001;}).map(function(p){
+    p.totalInvNat = isBR(p.ticker,p.tipo) ? p.totalInv : p.totalInvUSD * (usdBRL||5.85);
+    return p;
+  });
 }
 
 // Calcula ganho/perda realizado de ativos totalmente vendidos
@@ -4337,9 +4362,10 @@ function toggleMoeda(){
   var hoje = new Date().toISOString().split('T')[0];
   var divRec = divs.filter(function(d){return d.data<hoje;})
     .reduce(function(s,d){ if(d.total!=null) return s+(parseFloat(d.total)||0); var vlr=parseFloat(d.valor!=null?d.valor:(d.valorCota!=null?d.valorCota:0))||0; var qtd=parseFloat(d.qtdEx!=null?d.qtdEx:(d.qtd!=null?d.qtd:0))||0; return s+(vlr*qtd); },0);
-  var inv=0, posVal=0, res=0;
+  var inv=0, invNat=0, posVal=0, res=0;
   pos.forEach(function(p){
     inv += p.totalInv;
+    invNat += p.totalInvNat;
     var cot = cotacoes[p.ticker];
     var cotBRL = cot ? (isBR(p.ticker,p.tipo) ? cot.preco : cot.preco*usdBRL) : 0;
     if(cot){ posVal += p.qtd*cotBRL; res += p.qtd*cotBRL - p.totalInv; }
@@ -4347,7 +4373,7 @@ function toggleMoeda(){
   // Inclui ganho/perda realizado de ativos já vendidos
   var realizado = calcResultadoRealizado();
   res += realizado.ganho;
-  atualizarStats(inv, posVal||0, res, divRec, divRec);
+  atualizarStats(inv, posVal||0, res, divRec, divRec, invNat);
 }
 
 // ============================================================
@@ -4404,28 +4430,31 @@ function renderPosicoes(){
     return;
   }
 
-  var totalInvGlobal=0, totalPosGlobal=0, totalProvGlobal=0;
+  var totalInvGlobal=0, totalInvNatGlobal=0, totalPosGlobal=0, totalProvGlobal=0;
   var rows = pos.map(function(p){
-    var pm = p.qtd>0 ? p.totalInv/p.qtd : 0;
+    // Linha do ativo na moeda nativa: US/Cripto usam custo em dólar (sem efeito câmbio)
+    var custo = p.totalInvNat;
+    var pm = p.qtd>0 ? custo/p.qtd : 0;
     var cot = cotacoes[p.ticker];
     var cotBRL = 0;
     if(cot){
       cotBRL = isBR(p.ticker,p.tipo) ? cot.preco : cot.preco * usdBRL;
     }
     var posVal = cot ? p.qtd * cotBRL : 0;
-    var result = cot ? posVal - p.totalInv : 0;
-    var rentPreco = p.totalInv>0 ? (result/p.totalInv*100) : 0;
+    var result = cot ? posVal - custo : 0;
+    var rentPreco = custo>0 ? (result/custo*100) : 0;
     var prov = totalProventosAtivo(p.ticker, p.tipo);
     var totalRet = cot ? (+result||0) + (+prov||0) : 0;
-    var totalRetPct = (p.totalInv>0 && !isNaN(totalRet)) ? ((totalRet/p.totalInv)*100) : 0;
+    var totalRetPct = (custo>0 && !isNaN(totalRet)) ? ((totalRet/custo)*100) : 0;
     if(isNaN(totalRetPct)) totalRetPct = 0;
 
     if(cot) totalPosGlobal += posVal;
     totalInvGlobal += p.totalInv;
+    totalInvNatGlobal += custo;
     totalProvGlobal += prov;
 
     return {
-      p: p, pm: pm, cot: cot, cotBRL: cotBRL, posVal: posVal,
+      p: p, pm: pm, custo: custo, cot: cot, cotBRL: cotBRL, posVal: posVal,
       result: result, rentPreco: rentPreco,
       prov: prov, totalRet: totalRet, totalRetPct: totalRetPct
     };
@@ -4458,7 +4487,7 @@ function renderPosicoes(){
     else if(sortCol==='var5y'){
       va=a.cot&&a.cot.ref5y?((a.cotBRL-a.cot.ref5y.close)/a.cot.ref5y.close*100):0;
       vb=b.cot&&b.cot.ref5y?((b.cotBRL-b.cot.ref5y.close)/b.cot.ref5y.close*100):0;}
-    else if(sortCol==='totalInv'){va=a.p.totalInv;vb=b.p.totalInv;}
+    else if(sortCol==='totalInv'){va=a.custo;vb=b.custo;}
     else if(sortCol==='posicao'){va=a.posVal;vb=b.posVal;}
     else if(sortCol==='result'){va=a.result;vb=b.result;}
     else if(sortCol==='rentPreco'){va=a.rentPreco;vb=b.rentPreco;}
@@ -4534,7 +4563,7 @@ function renderPosicoes(){
         +'<td data-col="varano" class="r">'+calcVar(cot&&cot.refYTD,precoBase)+'</td>'
         +'<td data-col="var5y" class="r">'+calcVar(cot&&cot.ref5y,precoBase)+'</td>';
 })()
-      +'<td data-col="totalInv" class="r">'+fmt(p.totalInv, isUS)+'</td>'
+      +'<td data-col="totalInv" class="r">'+fmt(r.custo, isUS)+'</td>'
       +'<td data-col="posicao" class="r">'+posStr+'</td>'
       +'<td data-col="result" class="r">'+resStr+'</td>'
       +'<td data-col="rentPct" class="r">'+rentStr+'</td>'
@@ -4561,7 +4590,7 @@ function renderPosicoes(){
 
   // Inclui ganho/perda realizado de ativos já completamente vendidos (B3, Vivo, etc.)
   var _realizado = calcResultadoRealizado();
-  atualizarStats(totalInvGlobal, totalPosGlobal, (totalPosGlobal-totalInvGlobal)+_realizado.ganho, divRec, totalProvGlobal);
+  atualizarStats(totalInvGlobal, totalPosGlobal, (totalPosGlobal-totalInvGlobal)+_realizado.ganho, divRec, totalProvGlobal, totalInvNatGlobal);
   atualizarVarDia(varDiaBRL, totalPosGlobal);
 
   // Reordena colunas conforme preferência salva do usuário (th + td do tbody)
@@ -4766,11 +4795,17 @@ function renderSparklinesVisible(){
 // ============================================================
 // STATS
 // ============================================================
-function atualizarStats(inv, pos, res, divRec, prov){
+function atualizarStats(inv, pos, res, divRec, prov, invNat){
   var fmt    = function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
   var fmtUSD = function(v){ return '$ '+(v/usdBRL).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); };
   // Todos os cards seguem o mesmo modo de moeda
   var f = modoMoeda==='USD' ? fmtUSD : fmt;
+  // Modo USD: custo dos ativos em dólar é o custo nativo (sem câmbio histórico).
+  // Modo BRL: custo em reais pelo câmbio de cada compra (retorno real em reais, com efeito câmbio).
+  if(modoMoeda==='USD' && typeof invNat === 'number' && !isNaN(invNat)){
+    res = res + (inv - invNat);
+    inv = invNat;
+  }
 
   document.getElementById('statAportado').textContent = f(inv);
   document.getElementById('statNAtivos').textContent  = calcPosicoes().length+' ativos';
@@ -4882,15 +4917,18 @@ function renderDrawerTx(){
     return 'R$ '+total.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
   }
 
-  // Resumo em BRL (usa precoBRL para cálculos)
+  // Resumo na moeda nativa do ativo: BR em R$, US/Cripto em US$ (custo nativo, sem câmbio)
+  var _drUS = !isBR(_drawerTicker, _drawerTipo);
   var totalC=0,totalV=0,qtdC=0,qtdV=0;
   aportes.forEach(function(a){
-    var p = precoBRL(a);
+    var p = _drUS ? precoUSD(a) : precoBRL(a);
     if(a.op==='C'){totalC+=a.qtd*p;qtdC+=a.qtd;}
     else{totalV+=a.qtd*p;qtdV+=a.qtd;}
   });
   var pm = qtdC>0?(totalC/qtdC):0;
-  var fmtBRL = function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  var fmtBRL = _drUS
+    ? function(v){ return '$ '+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+    : function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
 
   var summaryHtml = aportes.length ? '<div class="dtx-summary">'+
     '<div class="dtx-sum-card"><div class="lbl">Qtd. Atual</div><div class="val">'+(qtdC-qtdV).toFixed((qtdC-qtdV)%1===0?0:4)+'</div></div>'+
@@ -6020,9 +6058,11 @@ function renderGraficos(){
     var posVal=cot?p.qtd*cotBRL:p.totalInv;
     totalPos+=posVal; totalInv+=p.totalInv;
     var prov=totalProventosAtivo(p.ticker,p.tipo);
-    var result=posVal-p.totalInv;
-    var rentPreco=p.totalInv>0?(result/p.totalInv*100):0;
-    var totalRetPct=p.totalInv>0?((result+prov)/p.totalInv*100):0;
+    // Rentabilidade por ativo na moeda nativa (US/Cripto em dólar)
+    var custoNat=p.totalInvNat;
+    var result=cot?(posVal-custoNat):0;
+    var rentPreco=custoNat>0?(result/custoNat*100):0;
+    var totalRetPct=custoNat>0?((result+prov)/custoNat*100):0;
     return {ticker:p.ticker,tipo:p.tipo,posVal:posVal,totalInv:p.totalInv,
             rentPreco:rentPreco,totalRetPct:totalRetPct,prov:prov};
   });
@@ -6364,8 +6404,8 @@ function renderPainelRentabilidade() {
     var cotBRL = isBR(p.ticker, p.tipo) ? cot.preco : cot.preco * usdBRL;
     var posVal = p.qtd * cotBRL;
     var prov = totalProventosAtivo(p.ticker, p.tipo);
-    var rentP = p.totalInv > 0 ? ((posVal - p.totalInv) / p.totalInv * 100) : 0;
-    var rentT = p.totalInv > 0 ? ((posVal - p.totalInv + prov) / p.totalInv * 100) : 0;
+    var rentP = p.totalInvNat > 0 ? ((posVal - p.totalInvNat) / p.totalInvNat * 100) : 0;
+    var rentT = p.totalInvNat > 0 ? ((posVal - p.totalInvNat + prov) / p.totalInvNat * 100) : 0;
     return { ticker: p.ticker, tipo: p.tipo, rentP: rentP, rentT: rentT };
   }).filter(Boolean)
     .sort(function(a, b){ return b.rentT - a.rentT; })
@@ -6427,8 +6467,8 @@ function renderPainelRentabilidade() {
     var cot = cotacoes[p.ticker];
     var cotBRL = cot ? (isBR(p.ticker, p.tipo) ? cot.preco : cot.preco * usdBRL) : 0;
     if (!catData[p.tipo]) catData[p.tipo] = {inv:0, val:0};
-    catData[p.tipo].inv += p.totalInv;
-    catData[p.tipo].val += cot ? p.qtd * cotBRL : p.totalInv;
+    catData[p.tipo].inv += p.totalInvNat;
+    catData[p.tipo].val += cot ? p.qtd * cotBRL : p.totalInvNat;
   });
 
   var CATS = ['Acao','FII','FIAGRO','Stock','REIT','ETF','UCITs','Cripto'];

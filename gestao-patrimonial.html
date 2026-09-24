@@ -5589,17 +5589,42 @@ function loadRVAportes(){ return loadData('rvAportes',[]); }
 function saveRVAportes(d){ saveData('rvAportes',d); }
 
 // ── CÁLCULO DE POSIÇÕES ───────────────────────────────────────
+// Preço do aporte em DÓLAR NATIVO (ativos cotados em USD: Stock, REIT, ETF, Cripto, UCITs)
+// Regra: ativo cotado em dólar tem PM, custo e rentabilidade em dólar, sem passar pelo câmbio.
+// Se o aporte foi lançado em R$, converte pelo câmbio salvo na compra (ou o atual, se não houver).
+function rvPrecoUSD(a){
+  var moeda = a.moeda;
+  if(!moeda && ['Stock','REIT','ETF','Cripto','UCITs'].indexOf(a.tipo) >= 0) moeda = 'USD';
+  if(moeda === 'USD') return a.preco;
+  var fx = (a.fxRate && a.fxRate > 1) ? a.fxRate : (rvUsdBRL || 5.85);
+  return a.preco / fx;
+}
+
+// Posições:
+//   totalInv    = custo em R$ pelo câmbio de cada compra (modo BRL, consolidado e IR)
+//   totalInvUSD = custo em US$ nativo (ativos cotados em dólar)
+//   totalInvNat = custo nativo em R$ equivalente ao câmbio de HOJE
+//                 (BR: igual ao totalInv | US/Cripto: totalInvUSD x câmbio atual)
+//                 Dividido pelo câmbio atual, volta exatamente ao custo em US$.
 function calcRVPosicoes(){
   var aportes = loadRVAportes();
   var pos = {};
   aportes.sort(function(a,b){ return a.data.localeCompare(b.data); }).forEach(function(a){
-    if(!pos[a.ticker]) pos[a.ticker]={ticker:a.ticker,tipo:a.tipo,qtd:0,totalInv:0};
+    if(!pos[a.ticker]) pos[a.ticker]={ticker:a.ticker,tipo:a.tipo,qtd:0,totalInv:0,totalInvUSD:0};
     var p = pos[a.ticker];
     var preco = a.moeda==='USD' ? a.preco*(a.fxRate||rvUsdBRL) : a.preco;
-    if(a.op==='C'){ p.qtd+=a.qtd; p.totalInv+=a.qtd*preco; }
-    else { var pm=p.qtd>0?p.totalInv/p.qtd:0; p.totalInv-=a.qtd*pm; p.qtd-=a.qtd; }
+    var pUSD  = rvPrecoUSD(a);
+    if(a.op==='C'){ p.qtd+=a.qtd; p.totalInv+=a.qtd*preco; p.totalInvUSD+=a.qtd*pUSD; }
+    else {
+      var pm=p.qtd>0?p.totalInv/p.qtd:0;
+      var pmUSD=p.qtd>0?p.totalInvUSD/p.qtd:0;
+      p.totalInv-=a.qtd*pm; p.totalInvUSD-=a.qtd*pmUSD; p.qtd-=a.qtd;
+    }
   });
-  return Object.values(pos).filter(function(p){ return p.qtd>0.001; });
+  return Object.values(pos).filter(function(p){ return p.qtd>0.001; }).map(function(p){
+    p.totalInvNat = rvIsBR(p.ticker,p.tipo) ? p.totalInv : p.totalInvUSD * (rvUsdBRL||5.85);
+    return p;
+  });
 }
 
 // ── COTAÇÕES ─────────────────────────────────────────────────
@@ -6091,13 +6116,16 @@ function renderRVPosicoes(){
 
   var totalPosGlobal = 0;
   var rows = pos.map(function(p){
-    var pm     = p.qtd>0 ? p.totalInv/p.qtd : 0;
     var cot    = rvCotacoes[p.ticker];
     var isBR   = rvIsBR(p.ticker,p.tipo);
+    // Modo USD: ativo cotado em dólar usa custo nativo em dólar (sem efeito câmbio).
+    // Modo BRL: custo em reais pelo câmbio de cada compra (inclui efeito câmbio).
+    var custo  = (modoUSD && !isBR) ? p.totalInvNat : p.totalInv;
+    var pm     = p.qtd>0 ? custo/p.qtd : 0;
     var cotBRL = cot ? (isBR ? cot.preco : cot.preco*rvUsdBRL) : 0;
     var posVal = cot ? p.qtd*cotBRL : 0;
-    var result = cot ? posVal-p.totalInv : 0;
-    var rentPct= p.totalInv>0 ? (result/p.totalInv*100) : 0;
+    var result = cot ? posVal-custo : 0;
+    var rentPct= custo>0 ? (result/custo*100) : 0;
     // Proventos do ativo (usa dividendos salvos)
     var divs = loadData('rvDividendos',[]);
     var hoje = new Date().toISOString().split('T')[0];
@@ -6109,9 +6137,9 @@ function renderRVPosicoes(){
                      return s + (d.total || (v * q));
                    }, 0);
     var totalRet    = cot ? result+prov : 0;
-    var totalRetPct = p.totalInv>0 ? (totalRet/p.totalInv*100) : 0;
+    var totalRetPct = custo>0 ? (totalRet/custo*100) : 0;
     if(cot) totalPosGlobal += posVal;
-    return {p:p, pm:pm, cot:cot, cotBRL:cotBRL, posVal:posVal, result:result,
+    return {p:p, pm:pm, custo:custo, cot:cot, cotBRL:cotBRL, posVal:posVal, result:result,
             rentPct:rentPct, prov:prov, totalRet:totalRet, totalRetPct:totalRetPct, isBR:isBR};
   });
 
@@ -6132,7 +6160,7 @@ function renderRVPosicoes(){
     else if(sc==='var6m') {va=a.cot&&a.cot.ref6m?((a.cotBRL-a.cot.ref6m.close)/a.cot.ref6m.close*100):0;vb=b.cot&&b.cot.ref6m?((b.cotBRL-b.cot.ref6m.close)/b.cot.ref6m.close*100):0;}
     else if(sc==='varano'){va=a.cot&&a.cot.refYTD?((a.cotBRL-a.cot.refYTD.close)/a.cot.refYTD.close*100):0;vb=b.cot&&b.cot.refYTD?((b.cotBRL-b.cot.refYTD.close)/b.cot.refYTD.close*100):0;}
     else if(sc==='var5y') {va=a.cot&&a.cot.ref5y?((a.cotBRL-a.cot.ref5y.close)/a.cot.ref5y.close*100):0;vb=b.cot&&b.cot.ref5y?((b.cotBRL-b.cot.ref5y.close)/b.cot.ref5y.close*100):0;}
-    else if(sc==='totalInv'){va=a.p.totalInv; vb=b.p.totalInv;}
+    else if(sc==='totalInv'){va=a.custo; vb=b.custo;}
     else if(sc==='posicao') {va=a.posVal;     vb=b.posVal;}
     else if(sc==='result')  {va=a.result;     vb=b.result;}
     else if(sc==='rentPct') {va=a.rentPct;    vb=b.rentPct;}
@@ -6215,7 +6243,7 @@ function renderRVPosicoes(){
       'var6m':    '<td data-rvcol="var6m" style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.ref6m,precoBase)+'</td>',
       'varano':   '<td data-rvcol="varano" style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.refYTD,precoBase)+'</td>',
       'var5y':    '<td data-rvcol="var5y" style="padding:10px 12px;text-align:right">'+calcVar(cot&&cot.ref5y,precoBase)+'</td>',
-      'totalInv': '<td data-rvcol="totalInv" style="padding:10px 12px;text-align:right">'+fmt(p.totalInv, !r.isBR)+'</td>',
+      'totalInv': '<td data-rvcol="totalInv" style="padding:10px 12px;text-align:right">'+fmt(r.custo, !r.isBR)+'</td>',
       'posicao':  '<td data-rvcol="posicao" style="padding:10px 12px;text-align:right;font-weight:600">'+posStr+'</td>',
       'result':   '<td data-rvcol="result" style="padding:10px 12px;text-align:right">'+resStr+'</td>',
       'rentPct':  '<td data-rvcol="rentPct" style="padding:10px 12px;text-align:right">'+rentStr+'</td>',
@@ -6390,7 +6418,7 @@ function rvRenderKpiStrip(rows){
   var fmtBRL = function(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
   var fmtUSD = function(v){ return '$ '+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); };
   var fmtV = function(v){ return modoUSD ? fmtUSD(v/rvUsdBRL) : fmtBRL(v); };
-  var totalInv = rows.reduce(function(s,r){ return s+r.p.totalInv; },0);
+  var totalInv = rows.reduce(function(s,r){ return s+(r.custo!=null?r.custo:r.p.totalInv); },0);
   var totalPos = rows.filter(function(r){ return r.cot; }).reduce(function(s,r){ return s+r.posVal; },0);
   var result = totalPos-totalInv;
   var rentPct = totalInv>0?(result/totalInv*100):0;
@@ -6439,11 +6467,24 @@ function abrirDrawerRV(ticker){
     if(a.op==='C'||!a.op){ qtd+=a.qtd; totInv+=a.qtd*pr; }
     else{ var pm=qtd>0?totInv/qtd:0; totInv-=a.qtd*pm; qtd-=a.qtd; if(qtd<0.001){qtd=0;totInv=0;} }
   });
-  var pm = qtd>0 ? totInv/qtd : 0;
   var isBR = rvIsBR(ticker, aportes[0].a.tipo);
-  var precoAtual = cot ? (isBR ? cot.preco : (aportes[0].a.tipo==='Cripto' ? cot.preco : cot.preco*rvUsdBRL)) : 0;
+  // Modo USD + ativo cotado em dólar: custo nativo em US$ (sem câmbio histórico)
+  var _drUSD = rvModoMoeda==='USD' && !isBR;
+  if(_drUSD){
+    var qtdU=0, totU=0;
+    aportes.forEach(function(x){
+      var a=x.a, pu=rvPrecoUSD(a);
+      if(a.op==='C'||!a.op){ qtdU+=a.qtd; totU+=a.qtd*pu; }
+      else{ var pmu=qtdU>0?totU/qtdU:0; totU-=a.qtd*pmu; qtdU-=a.qtd; if(qtdU<0.001){qtdU=0;totU=0;} }
+    });
+    totInv = totU*rvUsdBRL;
+  }
+  var pm = qtd>0 ? totInv/qtd : 0;
+  // Cotação sempre convertida para R$ equivalente (antes cripto ficava em US$ contra custo em R$)
+  var precoAtual = cot ? (isBR ? cot.preco : cot.preco*rvUsdBRL) : 0;
   var posVal = qtd*precoAtual;
   var rent = totInv>0 ? ((posVal-totInv)/totInv*100) : 0;
+  var fmtDr = _drUSD ? function(v){ return fmtUSDv(v/rvUsdBRL); } : fmtBRLv;
 
   var tkEsc = String(ticker).replace(/"/g,'&quot;');
 
@@ -6476,9 +6517,9 @@ function abrirDrawerRV(ticker){
       '<div><div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Qtd</div>'+
         '<div style="font-size:15px;font-weight:700">'+qtd.toFixed(qtd%1===0?0:4)+'</div></div>'+
       '<div><div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Preço Médio</div>'+
-        '<div style="font-size:15px;font-weight:700">'+fmtBRLv(pm)+'</div></div>'+
+        '<div style="font-size:15px;font-weight:700">'+fmtDr(pm)+'</div></div>'+
       '<div><div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Posição</div>'+
-        '<div style="font-size:15px;font-weight:700">'+(posVal>0?fmtBRLv(posVal):'—')+'</div></div>'+
+        '<div style="font-size:15px;font-weight:700">'+(posVal>0?fmtDr(posVal):'—')+'</div></div>'+
       '<div><div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Rent.</div>'+
         '<div style="font-size:15px;font-weight:700;color:'+(rent>=0?'var(--green)':'var(--red)')+'">'+(posVal>0?((rent>=0?'+':'')+rent.toFixed(2)+'%'):'—')+'</div></div>'+
     '</div>'+
@@ -6493,14 +6534,14 @@ function abrirDrawerRV(ticker){
         var e=entry.item;
         var ratio=e.ratio;
         var label,icon,bgColor,borderC;
-        var tipoEvento = ev.tipoEvento || (ratio > 1 ? 'desdobramento' : 'grupamento');
+        var tipoEvento = e.tipoEvento || (ratio > 1 ? 'desdobramento' : 'grupamento');
         if(!ratio){ label='Desdobramento/Grupamento'; icon='🔀'; bgColor='rgba(201,169,97,.07)'; borderC='var(--gold)'; }
         else if(tipoEvento === 'bonificacao'){
           var pctBon = Math.round((ratio-1)*100);
           label='Bonificação '+pctBon+'%'; icon='🎁'; bgColor='rgba(46,204,113,.07)'; borderC='#2ecc71';
         } else if(ratio < 1){ label='Grupamento 1:'+Math.round(1/ratio); icon='🔁'; bgColor='rgba(230,126,34,.07)'; borderC='#e67e22'; }
         else{
-          var numStr = ev.numerator && ev.denominator ? ev.numerator+':'+ev.denominator : ratio.toFixed(1)+':1';
+          var numStr = e.numerator && e.denominator ? e.numerator+':'+e.denominator : ratio.toFixed(1)+':1';
           label='Desdobramento ×'+ratio.toFixed(1)+' ('+numStr+')'; icon='🔀'; bgColor='rgba(52,152,219,.07)'; borderC='#3498db';
         }
         var dataFmt2=new Date(e.data+'T12:00:00').toLocaleDateString('pt-BR');
