@@ -905,13 +905,21 @@
     },
 
     // Envia push para UID específico ou '__all__' (chamado pelo dashboard)
+    // O servidor exige o token de login: aluno só notifica a si mesmo, admin notifica todos.
     send: function(uid, title, body, url, tag){
+      var self = this;
       var payload = { uid: uid, title: title, body: body, url: url, tag: tag };
-      fetch(this.PROXY + '/api/push-notify', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(payload)
-      }).catch(function(){});
+      try{
+        var u = window.firebase && window.firebase.auth && window.firebase.auth().currentUser;
+        if(!u) return;
+        u.getIdToken().then(function(tk){
+          return fetch(self.PROXY + '/api/push-notify', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tk },
+            body:    JSON.stringify(payload)
+          });
+        }).catch(function(){});
+      }catch(e){}
     }
   };
 
