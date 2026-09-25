@@ -922,11 +922,11 @@ body:not(.light) .asset-logo{background:transparent;border-color:rgba(255,255,25
 .tx2-card.in .tx2-card-v{color:var(--tx-in)}.tx2-card.out .tx2-card-v{color:var(--tx-out)}.tx2-card.ouro .tx2-card-v{color:var(--gold)}
 .tx2-lista{background:var(--bg2);border:1px solid var(--border);border-radius:14px;overflow:hidden}
 .tx2-lista:empty{display:none}
-.tx2-mes{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:10px 18px;background:var(--bg3);border-top:1px solid var(--border);font:600 12.5px 'DM Sans',sans-serif;color:var(--text)}
+.tx2-mes{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:10px max(18px, calc((100% - 1280px) / 2));background:var(--bg3);border-top:1px solid var(--border);font:600 12.5px 'DM Sans',sans-serif;color:var(--text)}
 .tx2-mes:first-child{border-top:0}
 .tx2-mes-r{font-weight:500;color:var(--text3);font-size:12px;white-space:nowrap}
 .tx2-mes-r b{font-weight:600}.tx2-mes-r .in{color:var(--tx-in)}.tx2-mes-r .out{color:var(--tx-out)}
-.tx2-linha{display:grid;grid-template-columns:40px minmax(0,1fr) auto minmax(150px,auto) 64px;align-items:center;gap:14px;padding:12px 18px;border-top:1px solid var(--border)}
+.tx2-linha{display:grid;grid-template-columns:40px minmax(0,1fr) auto minmax(150px,auto) 64px;align-items:center;gap:14px;padding:12px max(18px, calc((100% - 1280px) / 2));border-top:1px solid var(--border)}
 .tx2-linha:hover{background:rgba(201,169,97,.035)}
 .tx2-logo{width:40px;height:40px;border-radius:10px;background:var(--surface);display:flex;align-items:center;justify-content:center;overflow:hidden;font:700 11px 'DM Sans',sans-serif;color:var(--text2);flex-shrink:0}
 .tx2-logo img{width:100%;height:100%;object-fit:contain;background:#fff}
@@ -5912,6 +5912,7 @@ function buscarCotacoesRV(){
       } else if(btn){ btn.textContent='↻ Cotações'; btn.disabled=false; }
       var found = Object.keys(rvCotacoes).length;
       rvSetCotStatus(found>0 ? '✅ '+found+' cotações atualizadas · USD/BRL: R$ '+rvUsdBRL.toFixed(2) : '⚠️ Sem cotações');
+      try { var _txP = document.getElementById('gpPanel-transacoes'); if(_txP && _txP.classList.contains('active')) renderTransacoes(); } catch(e){}
       renderRVPosicoes();
       renderKPIs(); renderCharts();
 
@@ -9575,6 +9576,9 @@ function _buildTxLista(){
 
   // ── Renda Variável ──
   var nomes = (typeof rvCotacoes !== 'undefined') ? rvCotacoes : {};
+  var nomesSalvos = {};
+  try { nomesSalvos = JSON.parse(localStorage.getItem('g20_tx_nomes') || '{}'); } catch(e){}
+  var mudouNomes = false;
   loadRVAportes().forEach(function(a, idx){
     if(!a.data) return;
     var compra = (a.op === 'C' || !a.op);
@@ -9582,6 +9586,8 @@ function _buildTxLista(){
     var fx = usd ? (a.fxRate || rvUsdBRL) : 1;
     var valor = (a.qtd || 0) * (a.preco || 0) * fx;
     var nome = (nomes[a.ticker] && nomes[a.ticker].nome && nomes[a.ticker].nome !== a.ticker) ? nomes[a.ticker].nome : '';
+    if(nome && nomesSalvos[a.ticker] !== nome){ nomesSalvos[a.ticker] = nome; mudouNomes = true; }
+    if(!nome) nome = nomesSalvos[a.ticker] || '';
     var meta = [];
     if(a.corretora) meta.push(a.corretora);
     if(usd && fx) meta.push('câmbio R$ ' + Number(fx).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
@@ -9596,6 +9602,8 @@ function _buildTxLista(){
       qtd: a.qtd, preco: a.preco, moeda: a.moeda || 'BRL', fx: fx, corretora: a.corretora || '', obs: a.obs || ''
     });
   });
+
+  if(mudouNomes){ try { localStorage.setItem('g20_tx_nomes', JSON.stringify(nomesSalvos)); } catch(e){} }
 
   // ── Desdobramentos e grupamentos já aplicados (só informativos) ──
   try {
