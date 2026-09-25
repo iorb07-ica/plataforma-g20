@@ -1894,6 +1894,13 @@ if(localStorage.getItem('g20_uid')){
           <p id="pkIntro" style="font-size:13.5px;color:var(--text2);margin-bottom:16px;line-height:1.6">Ative uma vez neste aparelho e, nos próximos acessos, é só tocar em <b style="color:var(--gold)" id="pkIntroBotao">Entrar com Face ID</b> na tela de login.</p>
           <div id="pkIndisponivel" style="display:none;font-size:13px;color:var(--text2);background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px;line-height:1.5"></div>
           <button type="button" id="pkAtivarBtn" onclick="pkAtivar()" style="display:none;width:100%;padding:14px 16px;border-radius:12px;border:none;cursor:pointer;font-family:inherit;font-size:15px;font-weight:800;color:#1a191e;background:linear-gradient(135deg,#e8c766,#c9a961)">🔐 <span id="pkAtivarTxt">Ativar Face ID neste aparelho</span></button>
+          <label id="pkBloqueioWrap" style="display:none;align-items:center;gap:14px;margin-top:14px;padding:16px 18px;background:var(--bg);border-radius:12px;cursor:pointer;border:1px solid var(--border)">
+            <input type="checkbox" id="pkBloqueio" onchange="pkBloqueioMudou(this.checked)" style="width:20px;height:20px;accent-color:#c9a961;flex-shrink:0">
+            <div style="flex:1">
+              <div style="font-size:15px;font-weight:700;color:var(--text)" id="pkBloqueioTitulo">Pedir Face ID ao abrir o app</div>
+              <div style="font-size:12.5px;color:var(--text2);margin-top:4px;line-height:1.5">Protege sua carteira se alguém pegar seu celular desbloqueado. Vale para o app da tela de início; se você sair por menos de 5 minutos, não pede de novo.</div>
+            </div>
+          </label>
           <div id="pkListaWrap" style="display:none;margin-top:18px">
             <div style="font-size:12px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text3);margin-bottom:8px">Aparelhos ativados</div>
             <div id="pkLista" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -4163,6 +4170,15 @@ async function pkCarregar(){
     G20Passkey.prepararRegistro(user).catch(function(){}); // Safari: desafio pronto antes do toque
   }
 
+  // Interruptor do bloqueio ao abrir o app (só aparece com Face ID ativo neste aparelho)
+  var bw = document.getElementById('pkBloqueioWrap');
+  if (bw) {
+    var ativoAqui = bio && G20Passkey.ativoNesteAparelho();
+    bw.style.display = ativoAqui ? 'flex' : 'none';
+    document.getElementById('pkBloqueioTitulo').textContent = 'Pedir ' + rot + ' ao abrir o app';
+    document.getElementById('pkBloqueio').checked = !window.G20Bloqueio || G20Bloqueio.preferencia();
+  }
+
   try {
     var lista = await G20Passkey.listar(user);
     var wrap = document.getElementById('pkListaWrap'), box = document.getElementById('pkLista');
@@ -4186,6 +4202,7 @@ async function pkAtivar(){
   btn.disabled = true; btn.style.opacity = '.6';
   try {
     await G20Passkey.ativar(user);
+    if (window.G20Bloqueio) G20Bloqueio.marcarUso();   // não bloquear logo em seguida
     showToast('✅ ' + G20Passkey.rotulo() + ' ativado! No próximo login é só tocar em "Entrar com ' + G20Passkey.rotulo() + '".', 'ok');
     pkCarregar();
   } catch(e) {
@@ -4195,6 +4212,11 @@ async function pkAtivar(){
   } finally {
     btn.disabled = false; btn.style.opacity = '';
   }
+}
+
+function pkBloqueioMudou(ligar){
+  if (window.G20Bloqueio) G20Bloqueio.preferencia(!!ligar);
+  showToast(ligar ? '🔐 O app vai pedir ' + G20Passkey.rotulo() + ' ao abrir.' : 'O app não vai mais pedir ' + G20Passkey.rotulo() + ' ao abrir.', 'ok');
 }
 
 async function pkRemover(id, nome){
