@@ -9986,7 +9986,8 @@ function mvConfirmar(){
   } catch(e){}
   fecharMigrarV1();
   try { renderAll(); } catch(e){}
-  showToast('✅ ' + novos.length + ' lançamento(s) importado(s) da plataforma antiga! Ajustando desdobramentos e proventos...', '#2ecc71');
+  showToast('✅ ' + novos.length + ' lançamento(s) importado(s) da plataforma antiga!', '#2ecc71');
+  mvAvisoProventos();
   // Aplica já os desdobramentos/grupamentos e recalcula os proventos (mesma cadeia do carregamento da página)
   setTimeout(function(){
     try {
@@ -9998,6 +9999,49 @@ function mvConfirmar(){
       });
     } catch(e){ console.warn('[Migração] ajuste pós-importação:', e); }
   }, 400);
+}
+
+/* Faixa "buscando proventos": o Polygon (proventos americanos) aceita 5 ativos
+   por minuto, então quem tem muitas Stocks/REITs espera alguns minutos.
+   A faixa pede para manter a página aberta e some quando a busca termina. */
+function mvAvisoProventos(){
+  var aportes = loadData('rvAportes', []);
+  var us = {};
+  aportes.forEach(function(a){ if(['Stock','REIT','ETF','UCITs'].indexOf(a.tipo) >= 0) us[a.ticker] = true; });
+  var nUS = Object.keys(us).length;
+  var minutos = Math.max(1, Math.ceil(nUS / 5));
+  var el = document.getElementById('mvFaixaProventos');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'mvFaixaProventos';
+    el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:calc(86px + env(safe-area-inset-bottom,0px));z-index:9998;' +
+      'max-width:min(92vw,560px);display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:14px;' +
+      'background:#1f1e22;border:1px solid rgba(201,169,97,.45);box-shadow:0 10px 30px rgba(0,0,0,.45);color:#eee;' +
+      'font:500 13.5px/1.45 "DM Sans",system-ui,sans-serif';
+    document.body.appendChild(el);
+  }
+  el.innerHTML = '<span style="width:18px;height:18px;border:2px solid rgba(201,169,97,.3);border-top-color:#c9a961;border-radius:50%;flex-shrink:0;animation:mvGira .8s linear infinite"></span>' +
+    '<span><b style="color:#c9a961">Buscando os proventos dos ativos importados.</b> Leva cerca de ' + minutos + ' minuto' + (minutos > 1 ? 's' : '') +
+    '. <b>Mantenha esta página aberta</b> até terminar.</span>' +
+    '<style>@keyframes mvGira{to{transform:rotate(360deg)}}</style>';
+  el.style.display = 'flex';
+  var inicio = Date.now(), viuComecar = false;
+  clearInterval(window._mvFaixaTimer);
+  window._mvFaixaTimer = setInterval(function(){
+    var st = localStorage.getItem('g20_rv_prov_last_status');
+    var passou = Date.now() - inicio;
+    if(st === 'in_progress') viuComecar = true;
+    // só fecha depois de ver a busca começar ("in_progress") e terminar ("complete")
+    if(viuComecar && st === 'complete'){
+      clearInterval(window._mvFaixaTimer);
+      el.style.display = 'none';
+      try { renderAll(); } catch(e){}
+      showToast('✅ Proventos atualizados! Sua carteira está completa.', '#2ecc71');
+    } else if(passou > (minutos + 3) * 60000){
+      clearInterval(window._mvFaixaTimer);
+      el.style.display = 'none';
+    }
+  }, 3000);
 }
 
 function abrirImportIA(){
