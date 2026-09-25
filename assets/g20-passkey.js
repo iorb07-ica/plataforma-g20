@@ -13,6 +13,7 @@
 
   var API = 'https://g20-proxy.vercel.app/api/passkey';
   var FLAG = 'g20_passkey_ativo';          // este aparelho já tem Face ID ativo
+  var CRED = 'g20_passkey_cred';           // id da chave deste aparelho (vai direto ao Face ID)
   var VALIDADE_CACHE = 4 * 60 * 1000;      // o desafio vale 5 min; renovamos antes
 
   // ─── base64url <-> ArrayBuffer ─────────────────────────────────────
@@ -43,8 +44,19 @@
   function ativoNesteAparelho() {
     try { return localStorage.getItem(FLAG) === '1'; } catch (e) { return false; }
   }
-  function marcarAtivo(sim) {
-    try { if (sim) localStorage.setItem(FLAG, '1'); else localStorage.removeItem(FLAG); } catch (e) {}
+  function marcarAtivo(sim, credId) {
+    try {
+      if (sim) {
+        localStorage.setItem(FLAG, '1');
+        if (credId) localStorage.setItem(CRED, credId);
+      } else {
+        localStorage.removeItem(FLAG);
+        localStorage.removeItem(CRED);
+      }
+    } catch (e) {}
+  }
+  function credDesteAparelho() {
+    try { return localStorage.getItem(CRED) || null; } catch (e) { return null; }
   }
 
   // Nome amigável do recurso de biometria do aparelho
@@ -162,9 +174,10 @@
   var _cacheRegistro = null;  // { em, uid, dados }
 
   function prepararLogin() {
-    if (_cacheLogin && Date.now() - _cacheLogin.em < VALIDADE_CACHE) return Promise.resolve(_cacheLogin.dados);
-    return chamar('login-opcoes').then(function (d) {
-      _cacheLogin = { em: Date.now(), dados: d };
+    var cred = credDesteAparelho();
+    if (_cacheLogin && _cacheLogin.cred === cred && Date.now() - _cacheLogin.em < VALIDADE_CACHE) return Promise.resolve(_cacheLogin.dados);
+    return chamar('login-opcoes', cred ? { credId: cred } : {}).then(function (d) {
+      _cacheLogin = { em: Date.now(), cred: cred, dados: d };
       return d;
     });
   }
@@ -192,12 +205,24 @@
   // ─── Ações ─────────────────────────────────────────────────────────
   // Entrar: devolve o token do Firebase para signInWithCustomToken
   async function entrar() {
-    var d = _cacheLogin && Date.now() - _cacheLogin.em < VALIDADE_CACHE ? _cacheLogin.dados : await prepararLogin();
+    var d = _cacheLogin && _cacheLogin.cred === credDesteAparelho() && Date.now() - _cacheLogin.em < VALIDADE_CACHE
+      ? _cacheLogin.dados : await prepararLogin();
     _cacheLogin = null; // desafio é de uso único
-    var cred = await comCortinaPausada(function(){ return navigator.credentials.get({ publicKey: opcoesLogin(d.options) }); });
+    var cred;
+    try {
+      cred = await comCortinaPausada(function(){ return navigator.credentials.get({ publicKey: opcoesLogin(d.options) }); });
+    } catch (e) {
+      // A chave guardada não existe mais neste aparelho: esquece o id e,
+      // na próxima tentativa, o iPhone oferece a lista normal.
+      if (credDesteAparelho() && e && e.name === 'NotAllowedError' && (d.options.allowCredentials || []).length) {
+        try { localStorage.removeItem(CRED); } catch (x) {}
+      }
+      prepararLogin().catch(function () {});
+      throw e;
+    }
     try {
       var r = await chamar('login-verificar', { desafio: d.desafio, resposta: respostaLogin(cred) });
-      marcarAtivo(true);
+      marcarAtivo(true, cred.id);
       prepararLogin().catch(function () {});
       return r.token;
     } catch (e) {
@@ -219,7 +244,7 @@
       resposta: respostaCriacao(cred),
       nome: nome || nomeAparelho()
     }, tk);
-    marcarAtivo(true);
+    marcarAtivo(true, cred.id);
     prepararRegistro(user).catch(function () {});
     return true;
   }
