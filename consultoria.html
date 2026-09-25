@@ -238,6 +238,7 @@ a{text-decoration:none;color:inherit}
 .sidebar .nav-item:hover{color:#fff !important}
 .sidebar .nav-item.active{color:var(--gold,#c9a961) !important}
 </style>
+<script src="auth-guard.js"></script>
 </head>
 <body>
 <script>
@@ -710,10 +711,10 @@ function confirmarAgendamentoC(){
   if(btn){btn.textContent='⏳ Agendando...';btn.disabled=true;}
   var timestamp=new Date(_selectedDate+'T'+_selectedSlot+':00').getTime();
   var agData={uid:_uid,data:_selectedDate,hora:_selectedSlot,timestamp:timestamp,status:'confirmado',meetLink:MEET_LINK,criadoEm:Date.now()};
-  db.collection('consultoria').doc('agendamentos').collection('items').add(agData)
-    .then(function(ref){
-      agData.id=ref.id;
-      return db.collection('users').doc(_uid).set({creditosConsultoria:firebase.firestore.FieldValue.increment(-1)},{merge:true});
+  // O agendamento e o desconto do crédito são feitos pelo servidor (seguro e sem horário duplicado)
+  _consultoriaApi('agendar',{data:_selectedDate,hora:_selectedSlot})
+    .then(function(r){
+      agData.id=r.id;
     })
     .then(function(){
       _creditos=Math.max(0,_creditos-1);
@@ -727,8 +728,27 @@ function confirmarAgendamentoC(){
     })
     .catch(function(e){
       if(btn){btn.textContent='✅ Confirmar sessão';btn.disabled=false;}
-      alert('Erro: '+e.message);
+      alert('Não foi possível agendar: '+e.message);
+      if(e.status===409){ carregarAgendamentos && carregarAgendamentos(); }
     });
+}
+
+// Chamada segura ao servidor da consultoria (exige o login do aluno)
+function _consultoriaApi(acao, dados){
+  var u=firebase.auth().currentUser;
+  if(!u) return Promise.reject(new Error('Sessão expirada. Faça login novamente.'));
+  return u.getIdToken().then(function(tk){
+    return fetch('https://g20-proxy.vercel.app/api/consultoria',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+tk},
+      body:JSON.stringify(Object.assign({acao:acao},dados||{}))
+    });
+  }).then(function(r){
+    return r.json().catch(function(){return {};}).then(function(j){
+      if(!r.ok){ var e=new Error(j.error||('Erro '+r.status)); e.status=r.status; throw e; }
+      return j;
+    });
+  });
 }
 
 function renderHistoricoC(){
@@ -756,19 +776,20 @@ function renderHistoricoC(){
 
 function cancelarAgendamentoC(id){
   if(!confirm('Cancelar esta consultoria? Seu crédito será devolvido.'))return;
-  // Remover da lista local imediatamente
-  _agendamentos = _agendamentos.filter(function(a){ return a.id !== id; });
-  if(_creditos < 999) _creditos++;
-  renderHistoricoC();
-  renderCreditsC();
-  toast('Consultoria cancelada. Crédito devolvido.');
-  // Tentar persistir no Firestore (ignora erro em modo simulação)
-  try {
-    db.collection('consultoria').doc('agendamentos').collection('items').doc(id).update({status:'cancelado'})
-      .then(function(){
-        return db.collection('users').doc(_uid).set({creditosConsultoria:firebase.firestore.FieldValue.increment(1)},{merge:true});
-      }).catch(function(){});
-  } catch(e) {}
+  if(String(id).indexOf('sim')===0){ // simulação do "ver como aluno" (admin): só na tela
+    _agendamentos = _agendamentos.filter(function(a){ return a.id !== id; });
+    renderHistoricoC(); renderCreditsC(); toast('Consultoria cancelada (simulação).'); return;
+  }
+  // Cancelamento e devolução do crédito feitos pelo servidor
+  _consultoriaApi('cancelar',{id:id})
+    .then(function(r){
+      _agendamentos = _agendamentos.filter(function(a){ return a.id !== id; });
+      if(r.creditoDevolvido && _creditos < 999) _creditos++;
+      renderHistoricoC();
+      renderCreditsC();
+      toast('Consultoria cancelada. Crédito devolvido.');
+    })
+    .catch(function(e){ alert('Não foi possível cancelar: '+e.message); });
 }
 
 function toggleSidebar(){var sb=document.getElementById('sidebar'),ov=document.getElementById('overlay');sb.classList.toggle('open');ov.classList.toggle('show');document.body.style.overflow=sb.classList.contains('open')?'hidden':'';}
