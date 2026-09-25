@@ -2095,7 +2095,8 @@
   var K_ATIVO = 'g20_passkey_ativo';     // Face ID ativo neste aparelho
   var K_PREF  = 'g20_bloqueio_app';      // '0' = aluno desligou o bloqueio
   var K_ULT   = 'g20_ultimo_uso';        // último momento em que o app estava aberto
-  var LIMITE  = 5 * 60 * 1000;           // 5 minutos de tolerância
+  var LIMITE  = 5 * 60 * 1000;           // 5 minutos de tolerância (só ao trocar de app)
+  var K_SESSAO = 'g20_sessao_ok';        // sessionStorage: some quando o app é encerrado
 
   function ls(k, v){
     try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); }
@@ -2130,6 +2131,12 @@
 
   var bloqueado = false, tela = null;
   function marcarUso(){ if (!bloqueado) ls(K_ULT, String(Date.now())); }
+
+  /* Sessão desta abertura do app. O sessionStorage continua entre as páginas
+     da plataforma, mas é apagado quando o aluno ENCERRA o app (joga para cima).
+     Então: app reaberto = sessão vazia = pede Face ID, mesmo em menos de 5 min. */
+  function sessaoOk(){ try { return sessionStorage.getItem(K_SESSAO) === '1'; } catch(e){ return false; } }
+  function marcarSessao(){ try { sessionStorage.setItem(K_SESSAO, '1'); } catch(e){} }
 
   function carregarPasskey(){
     return new Promise(function(ok){
@@ -2200,6 +2207,7 @@
     if (tela) tela.style.display = 'none';
     esconderConteudo(false);
     marcarUso();
+    marcarSessao();
     if (window.G20Cortina) G20Cortina.descobrir();
   }
 
@@ -2232,7 +2240,7 @@
   }
 
   // ── Ao abrir a página: bloqueia na hora, antes de mostrar o conteúdo ──
-  if (ligado() && expirou()) mostrar(); else marcarUso();
+  if (ligado() && (!sessaoOk() || expirou())) mostrar(); else { marcarUso(); marcarSessao(); }
 
   // Se não houver ninguém logado, não há o que proteger (o login cuida)
   function vigiarLogin(tentativas){
@@ -2257,6 +2265,6 @@
   window.G20Bloqueio = {
     ligado: ligado,
     preferencia: function(v){ if (v === undefined) return ls(K_PREF) !== '0'; ls(K_PREF, v ? '1' : '0'); },
-    marcarUso: marcarUso
+    marcarUso: function(){ marcarUso(); marcarSessao(); }
   };
 })();
