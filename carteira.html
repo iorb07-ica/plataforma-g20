@@ -10822,13 +10822,21 @@ async function iaAnalisar(){
       userContent.push({ type:'text', text: prompt });
       userContent.push({ type:'image', source:{ type:'base64', media_type:_iaImageMime, data:_iaImageBase64 } });
     }
+    // O servidor exige o token de login (protege a chave da IA contra uso indevido)
+    var _iaUser = firebase.auth().currentUser;
+    if(!_iaUser) throw new Error('sua sessão expirou. Faça login novamente.');
+    var _iaToken = await _iaUser.getIdToken();
     var response = await fetch('https://g20-proxy.vercel.app/api/ai-import', {
       method:'POST',
-      headers:{'Content-Type':'application/json'},
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+_iaToken},
       body: JSON.stringify({ model:'claude-haiku-4-5-20251001', max_tokens:4000, messages:[{role:'user',content:userContent}] })
     });
     if(!response.ok){
       if(response.status === 413) throw new Error('imagem grande demais para o servidor. Recorte o print em partes menores ou use a aba Colar Texto.');
+      if(response.status === 429 || response.status === 401 || response.status === 403){
+        var _iaErr = await response.json().catch(function(){ return {}; });
+        throw new Error(_iaErr.error || ('servidor respondeu com status ' + response.status));
+      }
       throw new Error('servidor respondeu com status ' + response.status + '. Tente novamente em instantes.');
     }
     var data = await response.json();

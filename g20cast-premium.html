@@ -945,12 +945,19 @@ async function publicarEpisodio(){
   setStatus('loading','⏳ Obtendo URL de upload... aguarde',status);
   try{
     // Passo 1: pede presigned URL ao proxy
+    // O servidor só libera envio para o admin logado (token de login obrigatório)
+    var _upUser = firebase.auth().currentUser;
+    if(!_upUser) throw new Error('Sessão expirada. Faça login novamente.');
+    var _upToken = await _upUser.getIdToken();
     var presignRes = await fetch('https://g20-proxy.vercel.app/api/r2-upload', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _upToken },
       body: JSON.stringify({ filename: file.name, contentType: file.type || 'audio/mpeg' })
     });
-    if(!presignRes.ok) throw new Error('Presign falhou: HTTP ' + presignRes.status);
+    if(!presignRes.ok){
+      var _upErr = await presignRes.json().catch(function(){ return {}; });
+      throw new Error('Presign falhou: ' + (_upErr.error || ('HTTP ' + presignRes.status)));
+    }
     var presignData = await presignRes.json();
     if(!presignData.uploadUrl) throw new Error(presignData.error || 'URL não retornada');
 
