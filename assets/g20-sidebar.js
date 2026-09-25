@@ -1961,3 +1961,302 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar);
   else iniciar();
 })();
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   CORTINA DE PRIVACIDADE (celular)
+   Ao sair do app (seletor de apps, trocar de app, bloquear a tela), a
+   plataforma cobre a tela com o logo G20 ANTES de o sistema tirar a
+   "foto" que aparece no seletor de apps. Assim o patrimônio do aluno
+   não fica exposto ali.
+   Limite honesto: site/app da tela de início não tem acesso ao bloqueio
+   de captura dos apps nativos; a cortina é colocada no primeiro sinal de
+   saída, o que funciona na grande maioria dos aparelhos.
+   Só no celular/tablet (toque). No computador, trocar de janela não
+   cobre a tela (atrapalharia quem usa dois monitores).
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+  'use strict';
+  if (window.__g20Cortina) return;
+  window.__g20Cortina = true;
+
+  var TOQUE = window.matchMedia('(pointer: coarse)').matches || ('ontouchstart' in window);
+  if (!TOQUE) return;
+
+  var cortina = null;
+  var pausadoAte = 0;   // janelas do próprio sistema (Face ID, confirm, seletor de foto)
+
+  function criar(){
+    if (cortina) return cortina;
+    cortina = document.createElement('div');
+    cortina.id = 'g20-cortina';
+    cortina.setAttribute('aria-hidden', 'true');
+    cortina.style.cssText = 'position:fixed;inset:0;z-index:2147483646;display:none;' +
+      'align-items:center;justify-content:center;flex-direction:column;gap:14px;' +
+      'background:#1a191e;';
+    var logo = document.querySelector('.sidebar .logo-ball img, .logo-ball img');
+    var html = '';
+    if (logo && logo.src) {
+      html += '<img src="' + logo.src + '" alt="" style="width:92px;height:92px;border-radius:50%;' +
+              'box-shadow:0 0 40px rgba(201,169,97,.35)">';
+    } else {
+      html += '<div style="font:800 34px/1 \'DM Sans\',system-ui,sans-serif;color:#c9a961;letter-spacing:2px">G20</div>';
+      html += '<div style="font:600 12px/1 \'DM Sans\',system-ui,sans-serif;color:#8a857a;letter-spacing:3px;text-transform:uppercase">Masterclass</div>';
+    }
+    cortina.innerHTML = html;
+    (document.body || document.documentElement).appendChild(cortina);
+    return cortina;
+  }
+
+  function cobrir(){
+    if (Date.now() < pausadoAte) return;
+    var c = criar();
+    c.style.display = 'flex';          // sem animação: tem que ser instantâneo
+  }
+  function descobrir(){
+    if (window.__g20Bloqueado) return; // reservado para o bloqueio com Face ID
+    if (cortina) cortina.style.display = 'none';
+  }
+
+  /* Foco dentro de um iframe (vídeo do YouTube, gráfico) também tira o
+     foco da janela: nesse caso NÃO é saída do app. */
+  function focoEmIframe(){
+    var a = document.activeElement;
+    return !!(a && a.tagName === 'IFRAME');
+  }
+
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState === 'hidden') cobrir();
+    else setTimeout(descobrir, 60);
+  });
+  window.addEventListener('pagehide', cobrir);
+  document.addEventListener('freeze', cobrir);
+  window.addEventListener('blur', function(){
+    setTimeout(function(){ if (!focoEmIframe() && !document.hasFocus()) cobrir(); }, 0);
+  });
+  window.addEventListener('focus', function(){
+    if (pausadoAte - Date.now() > 1000) pausadoAte = Date.now() + 600; // voltou de janela do sistema
+    setTimeout(descobrir, 60);
+  });
+  window.addEventListener('pageshow', function(){ setTimeout(descobrir, 60); });
+
+  /* Caixas do próprio navegador (confirm/alert/prompt) tiram o foco da
+     janela; não é saída do app, então pausamos a cortina nesse instante. */
+  ['confirm', 'alert', 'prompt'].forEach(function(nome){
+    var orig = window[nome];
+    if (typeof orig !== 'function') return;
+    window[nome] = function(){
+      pausadoAte = Date.now() + 60000;
+      try { return orig.apply(window, arguments); }
+      finally { pausadoAte = Date.now() + 600; }
+    };
+  });
+
+  /* Seletor de arquivo/foto também abre uma tela do sistema */
+  document.addEventListener('click', function(e){
+    var t = e.target, arquivo = false;
+    if (t && t.closest) {
+      if (t.closest('input[type=file]')) arquivo = true;
+      var lb = t.closest('label');
+      if (lb && lb.control && lb.control.type === 'file') arquivo = true;
+    }
+    if (arquivo) pausadoAte = Date.now() + 60000;
+  }, true);
+  document.addEventListener('change', function(e){
+    if (e.target && e.target.type === 'file') pausadoAte = Date.now() + 600;
+  }, true);
+
+  window.G20Cortina = {
+    cobrir: cobrir,
+    descobrir: descobrir,
+    /* usado pelo Face ID: a janela da biometria não é saída do app */
+    pausar: function(ms){ pausadoAte = Date.now() + (ms || 60000); },
+    retomar: function(){ pausadoAte = Date.now() + 600; }
+  };
+})();
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   BLOQUEIO COM FACE ID AO ABRIR O APP (estilo app de banco)
+   Vale só quando TUDO isto é verdade:
+     - a plataforma está aberta como app (ícone na tela de início);
+     - o aluno ativou o Face ID NESTE aparelho (Perfil › Acesso e Alertas);
+     - o aluno não desligou a opção "Pedir Face ID ao abrir o app".
+   Pede o Face ID ao abrir o app ou ao voltar depois de 5 minutos fora.
+   Navegar entre páginas ou sair por menos de 5 minutos não pede.
+   O desbloqueio é conferido no servidor (mesma função do login): o
+   aparelho precisa provar que é o dono da conta logada.
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+  'use strict';
+  if (window.__g20Bloqueio) return;
+  window.__g20Bloqueio = true;
+
+  var K_ATIVO = 'g20_passkey_ativo';     // Face ID ativo neste aparelho
+  var K_PREF  = 'g20_bloqueio_app';      // '0' = aluno desligou o bloqueio
+  var K_ULT   = 'g20_ultimo_uso';        // último momento em que o app estava aberto
+  var LIMITE  = 5 * 60 * 1000;           // 5 minutos de tolerância
+
+  function ls(k, v){
+    try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); }
+    catch(e){ return null; }
+  }
+  function modoApp(){
+    return window.navigator.standalone === true ||
+      !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+  }
+  // Páginas de entrada (login, cadastro, boas-vindas) nunca bloqueiam
+  var PAGINA = (location.pathname.split('/').pop() || 'index.html').toLowerCase();
+  var FORA = /^(login|index|aguardando|boas-vindas|termos-de-uso|seed|mockup)/i.test(PAGINA);
+  function ligado(){
+    return !FORA && modoApp() && ls(K_ATIVO) === '1' && ls(K_PREF) !== '0';
+  }
+
+  // Esconde o conteúdo da página desde o primeiro instante (antes mesmo de
+  // o corpo da página existir), para nada aparecer antes do bloqueio.
+  function esconderConteudo(sim){
+    var st = document.getElementById('g20-bloqueio-css');
+    if (sim && !st) {
+      st = document.createElement('style');
+      st.id = 'g20-bloqueio-css';
+      st.textContent = 'body > *:not(#g20-bloqueio){visibility:hidden !important}';
+      (document.head || document.documentElement).appendChild(st);
+    } else if (!sim && st) st.remove();
+  }
+  function expirou(){
+    var t = parseInt(ls(K_ULT) || '0', 10);
+    return !t || (Date.now() - t) > LIMITE;
+  }
+
+  var bloqueado = false, tela = null;
+  function marcarUso(){ if (!bloqueado) ls(K_ULT, String(Date.now())); }
+
+  function carregarPasskey(){
+    return new Promise(function(ok){
+      if (window.G20Passkey) return ok();
+      var s = document.createElement('script');
+      s.src = 'assets/g20-passkey.js';
+      s.onload = ok; s.onerror = ok;
+      document.head.appendChild(s);
+    });
+  }
+
+  function uidDoToken(t){
+    try {
+      var p = String(t).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (p.length % 4) p += '=';
+      return JSON.parse(atob(p)).uid || null;
+    } catch(e){ return null; }
+  }
+
+  function criarTela(){
+    if (tela) return tela;
+    tela = document.createElement('div');
+    tela.id = 'g20-bloqueio';
+    tela.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:none;flex-direction:column;' +
+      'align-items:center;justify-content:center;gap:18px;padding:32px;background:#1a191e;' +
+      'font-family:\'DM Sans\',system-ui,sans-serif;text-align:center;';
+    var logo = document.querySelector('.sidebar .logo-ball img, .logo-ball img');
+    tela.innerHTML =
+      (logo && logo.src
+        ? '<img src="' + logo.src + '" alt="" style="width:96px;height:96px;border-radius:50%;box-shadow:0 0 40px rgba(201,169,97,.35)">'
+        : '<div style="font-weight:800;font-size:34px;color:#c9a961;letter-spacing:2px">G20</div>') +
+      '<div style="color:#eee;font-size:17px;font-weight:700;margin-top:6px">Plataforma bloqueada</div>' +
+      '<div id="g20-bloq-sub" style="color:#8a857a;font-size:13.5px;line-height:1.5;max-width:300px">Confirme que é você para continuar.</div>' +
+      '<button type="button" id="g20-bloq-btn" style="margin-top:10px;width:100%;max-width:320px;padding:15px 18px;border:none;border-radius:14px;' +
+        'background:linear-gradient(135deg,#e8c766,#c9a961);color:#1a191e;font:800 16px \'DM Sans\',system-ui,sans-serif;cursor:pointer">' +
+        '🔐 <span id="g20-bloq-txt">Desbloquear com Face ID</span></button>' +
+      '<div id="g20-bloq-msg" style="min-height:18px;color:#f87171;font-size:13px;max-width:320px;line-height:1.45"></div>' +
+      '<button type="button" id="g20-bloq-sair" style="background:none;border:none;color:#c9a961;font:600 13px \'DM Sans\',system-ui,sans-serif;' +
+        'text-decoration:underline;cursor:pointer;padding:8px">Entrar de outro jeito</button>';
+    document.body.appendChild(tela);
+    tela.querySelector('#g20-bloq-btn').addEventListener('click', desbloquear);
+    tela.querySelector('#g20-bloq-sair').addEventListener('click', sair);
+    return tela;
+  }
+
+  function msg(t){ var m = document.getElementById('g20-bloq-msg'); if (m) m.textContent = t || ''; }
+
+  function mostrar(){
+    bloqueado = true;
+    window.__g20Bloqueado = true;
+    esconderConteudo(true);
+    if (!document.body) { document.addEventListener('DOMContentLoaded', mostrar); return; }
+    var t = criarTela();
+    t.style.display = 'flex';
+    msg('');
+    carregarPasskey().then(function(){
+      if (!window.G20Passkey) { msg('Não foi possível carregar a biometria. Use "Entrar de outro jeito".'); return; }
+      var txt = document.getElementById('g20-bloq-txt');
+      if (txt) txt.textContent = 'Desbloquear com ' + G20Passkey.rotulo();
+      // Safari exige o desafio pronto antes do toque
+      G20Passkey.prepararLogin().catch(function(){ msg('Sem conexão com a internet. Tente de novo em instantes.'); });
+    });
+  }
+
+  function liberar(){
+    bloqueado = false;
+    window.__g20Bloqueado = false;
+    if (tela) tela.style.display = 'none';
+    esconderConteudo(false);
+    marcarUso();
+    if (window.G20Cortina) G20Cortina.descobrir();
+  }
+
+  function desbloquear(){
+    if (!window.G20Passkey) return;
+    var btn = document.getElementById('g20-bloq-btn');
+    btn.disabled = true; btn.style.opacity = '.6';
+    msg('');
+    G20Passkey.entrar().then(function(token){
+      var uidFace = uidDoToken(token);
+      var atual = null;
+      try { atual = window.firebase && firebase.auth().currentUser; } catch(e){}
+      if (atual && uidFace && uidFace !== atual.uid) {
+        throw new Error('Este Face ID é de outra conta. Use "Entrar de outro jeito".');
+      }
+      liberar();
+    }).catch(function(e){
+      var t = (e && e.status) ? e.message : (window.G20Passkey ? G20Passkey.mensagemErro(e) : 'Não foi possível confirmar.');
+      if (t !== 'Autenticação cancelada.') msg(t);
+    }).then(function(){
+      btn.disabled = false; btn.style.opacity = '';
+    });
+  }
+
+  function sair(){
+    ls(K_ULT, '0');
+    try {
+      firebase.auth().signOut().then(function(){ location.href = 'login.html'; }, function(){ location.href = 'login.html'; });
+    } catch(e){ location.href = 'login.html'; }
+  }
+
+  // ── Ao abrir a página: bloqueia na hora, antes de mostrar o conteúdo ──
+  if (ligado() && expirou()) mostrar(); else marcarUso();
+
+  // Se não houver ninguém logado, não há o que proteger (o login cuida)
+  function vigiarLogin(tentativas){
+    try {
+      firebase.auth().onAuthStateChanged(function(u){
+        if (!u && bloqueado) { bloqueado = false; window.__g20Bloqueado = false; if (tela) tela.style.display = 'none'; esconderConteudo(false); }
+      });
+    } catch(e){
+      if (tentativas > 0) setTimeout(function(){ vigiarLogin(tentativas - 1); }, 500);
+    }
+  }
+  vigiarLogin(10);
+
+  // ── Saiu / voltou ──
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState === 'hidden') { marcarUso(); return; }
+    if (ligado() && expirou()) mostrar(); else marcarUso();
+  });
+  window.addEventListener('pagehide', marcarUso);
+  setInterval(function(){ if (document.visibilityState === 'visible') marcarUso(); }, 20000);
+
+  window.G20Bloqueio = {
+    ligado: ligado,
+    preferencia: function(v){ if (v === undefined) return ls(K_PREF) !== '0'; ls(K_PREF, v ? '1' : '0'); },
+    marcarUso: marcarUso
+  };
+})();

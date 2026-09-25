@@ -180,12 +180,21 @@
     });
   }
 
+  // A janela do Face ID é do sistema e tira o foco da página: não é saída
+  // do app, então a cortina de privacidade fica pausada enquanto ela aparece.
+  function comCortinaPausada(fn) {
+    if (window.G20Cortina) G20Cortina.pausar(120000);
+    var p;
+    try { p = fn(); } catch (e) { if (window.G20Cortina) G20Cortina.retomar(); throw e; }
+    return Promise.resolve(p).finally(function () { if (window.G20Cortina) G20Cortina.retomar(); });
+  }
+
   // ─── Ações ─────────────────────────────────────────────────────────
   // Entrar: devolve o token do Firebase para signInWithCustomToken
   async function entrar() {
     var d = _cacheLogin && Date.now() - _cacheLogin.em < VALIDADE_CACHE ? _cacheLogin.dados : await prepararLogin();
     _cacheLogin = null; // desafio é de uso único
-    var cred = await navigator.credentials.get({ publicKey: opcoesLogin(d.options) });
+    var cred = await comCortinaPausada(function(){ return navigator.credentials.get({ publicKey: opcoesLogin(d.options) }); });
     try {
       var r = await chamar('login-verificar', { desafio: d.desafio, resposta: respostaLogin(cred) });
       marcarAtivo(true);
@@ -203,7 +212,7 @@
     var d = _cacheRegistro && _cacheRegistro.uid === user.uid && Date.now() - _cacheRegistro.em < VALIDADE_CACHE
       ? _cacheRegistro.dados : await prepararRegistro(user);
     _cacheRegistro = null;
-    var cred = await navigator.credentials.create({ publicKey: opcoesCriacao(d.options) });
+    var cred = await comCortinaPausada(function(){ return navigator.credentials.create({ publicKey: opcoesCriacao(d.options) }); });
     var tk = await user.getIdToken();
     await chamar('registro-verificar', {
       desafio: d.desafio,
