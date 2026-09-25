@@ -171,6 +171,13 @@ body{
 .form-control::placeholder{color:var(--text3)}
 
 /* Botão entrar */
+.pk-box{margin-bottom:18px}
+.btn-passkey{width:100%;padding:14px;border-radius:10px;background:linear-gradient(135deg,var(--gold),var(--goldd));color:#090b0f;font-size:15.5px;font-weight:800;border:none;cursor:pointer;font-family:inherit;letter-spacing:.3px;display:flex;align-items:center;justify-content:center;gap:10px;transition:all .2s}
+.btn-passkey:hover{filter:brightness(1.06)}
+.btn-passkey svg{width:22px;height:22px;flex-shrink:0}
+.pk-ou{display:flex;align-items:center;gap:10px;margin:16px 0 4px;color:#8a8a8a;font-size:12px}
+.pk-ou::before,.pk-ou::after{content:"";flex:1;height:1px;background:rgba(255,255,255,.1)}
+.pk-link{background:none;border:none;color:var(--gold);font-size:12.5px;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:6px;padding:6px}
 .btn-submit{
   width:100%;padding:13px;border-radius:10px;
   background:linear-gradient(135deg,var(--gold),var(--goldd));
@@ -283,6 +290,14 @@ body{
 
     <!-- Form email/senha -->
     <div id="formLogin">
+      <!-- Entrar com Face ID / biometria (aparece só em aparelho já ativado) -->
+      <div class="pk-box" id="pkBox" style="display:none">
+        <button type="button" class="btn-passkey" id="btnPasskey" onclick="loginPasskey()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M9 10v1M15 10v1M12 10v3.5h-1M9.5 16.2a4 4 0 0 0 5 0"/></svg>
+          <span id="btnPasskeyTxt">Entrar com Face ID</span>
+        </button>
+        <div class="pk-ou">ou entre com e-mail e senha</div>
+      </div>
       <form id="loginForm" autocomplete="on" onsubmit="loginEmail();return false;">
       <div class="form-group">
         <label class="form-label">E-mail</label>
@@ -311,6 +326,9 @@ body{
       </button>
       <div style="text-align:center;margin-top:12px">
         <button type="button" onclick="abrirResetSenha()" style="background:none;border:none;color:var(--gold);font-size:12px;cursor:pointer;text-decoration:underline;font-family:inherit">Esqueci minha senha</button>
+      </div>
+      <div style="text-align:center;margin-top:4px">
+        <button type="button" class="pk-link" id="lnkPasskey" onclick="loginPasskey()" style="display:none">🔐 <span id="lnkPasskeyTxt">Entrar com Face ID</span></button>
       </div>
       </form>
     </div>
@@ -385,6 +403,7 @@ body{
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="assets/g20-passkey.js"></script>
 
 <script>
 // ── Config Firebase ──────────────────────────────────────────
@@ -618,6 +637,53 @@ function loginGoogle() {
       }
     });
 }
+
+// ── Login com Face ID / biometria (passkey) ──────────────────
+// O aparelho assina um desafio com a chave protegida pela biometria;
+// o servidor (g20-proxy/api/passkey) confere e devolve um token do Firebase.
+async function loginPasskey() {
+  if (!window.G20Passkey || !G20Passkey.suportado()) {
+    showMsg('Este navegador não suporta entrar com biometria.', 'error');
+    return;
+  }
+  hideMsg();
+  _limparTimeoutLogin && _limparTimeoutLogin();
+  setLoading(true, 'Confirme com ' + G20Passkey.rotulo() + '...');
+  try {
+    var token = await G20Passkey.entrar();
+    setLoading(true, 'Entrando...');
+    await _aplicarPersistencia();
+    await auth.signInWithCustomToken(token);
+    // onAuthStateChanged cuida do redirect (mesmo fluxo do e-mail/senha)
+  } catch (e) {
+    setLoading(false);
+    var msg = (e && e.status) ? e.message : G20Passkey.mensagemErro(e);
+    if (msg !== 'Autenticação cancelada.') showMsg(msg, 'error');
+    _pkAtualizarUI();
+  }
+}
+
+function _pkAtualizarUI() {
+  if (!window.G20Passkey || !G20Passkey.suportado()) return;
+  G20Passkey.biometriaDisponivel().then(function (bio) {
+    var rot = G20Passkey.rotulo();
+    var txt = 'Entrar com ' + rot;
+    var bt = document.getElementById('btnPasskeyTxt'); if (bt) bt.textContent = txt;
+    var lt = document.getElementById('lnkPasskeyTxt'); if (lt) lt.textContent = txt;
+    var ativo = bio && G20Passkey.ativoNesteAparelho();
+    var box = document.getElementById('pkBox'); if (box) box.style.display = ativo ? 'block' : 'none';
+    // Link discreto: para quem ativou em outro aparelho (passkey sincronizada no iCloud/Google)
+    var lk = document.getElementById('lnkPasskey'); if (lk) lk.style.display = (!ativo && bio) ? 'inline-flex' : 'none';
+  });
+}
+
+(function () {
+  if (!window.G20Passkey || !G20Passkey.suportado()) return;
+  _pkAtualizarUI();
+  // Deixa o desafio pronto antes do toque (exigência do Safari para o Face ID)
+  G20Passkey.prepararLogin().catch(function () {});
+  setInterval(function () { G20Passkey.prepararLogin().catch(function () {}); }, 3.5 * 60 * 1000);
+})();
 
 // ── Login Email/Senha ────────────────────────────────────────
 async function loginEmail() {

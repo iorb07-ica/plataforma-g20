@@ -1350,7 +1350,7 @@ if(localStorage.getItem('g20_uid')){
         <span>🎯</span> Hobbies <span class="tab-pct" id="tpct-hobbies">0%</span><span class="tab-check">✓</span>
       </div>
       <div class="perfil-tab" data-tab="notificacoes" onclick="switchTab('notificacoes')">
-        <span>🔔</span> Notificações
+        <span>🔐</span> Acesso e Alertas
       </div>
       <div class="perfil-tab" data-tab="conquistas" onclick="switchTab('conquistas')">
         <span>🏆</span> Conquistas <span class="tab-pct" id="tpct-conquistas"></span><span class="tab-check"></span>
@@ -1841,7 +1841,7 @@ if(localStorage.getItem('g20_uid')){
 
     <div class="perfil-tab-nav">
       <button class="btn-tab-nav" onclick="switchTab('redes')">← Redes Sociais</button>
-      <button class="btn-tab-nav primary" onclick="switchTab('notificacoes')">Próximo: Notificações →</button>
+      <button class="btn-tab-nav primary" onclick="switchTab('notificacoes')">Próximo: Acesso e Alertas →</button>
     </div>
     </div><!-- /panel-hobbies -->
     <div class="perfil-tab-panel" id="panel-conquistas">
@@ -1871,13 +1871,37 @@ if(localStorage.getItem('g20_uid')){
 
     <!-- Nav conquistas -->
     <div class="perfil-tab-nav">
-      <button class="btn-tab-nav" onclick="switchTab('notificacoes')">← Notificações</button>
+      <button class="btn-tab-nav" onclick="switchTab('notificacoes')">← Acesso e Alertas</button>
       <button class="btn-tab-nav primary" onclick="salvarPerfil()">💾 Salvar Perfil</button>
     </div>
     </div><!-- /panel-conquistas -->
 
     <!-- ═══ ABA NOTIFICAÇÕES ═══════════════════════════════════════════════ -->
     <div class="perfil-tab-panel" id="panel-notificacoes">
+      <!-- ═══ ENTRAR COM FACE ID / BIOMETRIA (passkey) ═══ -->
+      <div class="section-card open" id="sec-passkey">
+        <div class="section-header" onclick="toggleSection('sec-passkey')">
+          <div class="section-title-row">
+            <div class="section-icon">🔐</div>
+            <div>
+              <div class="section-title" id="pkTitulo">Entrar com Face ID</div>
+              <div class="section-subtitle">Acesse a plataforma sem digitar a senha</div>
+            </div>
+          </div>
+          <span class="section-chevron">▾</span>
+        </div>
+        <div class="section-body" style="display:block">
+          <p id="pkIntro" style="font-size:13.5px;color:var(--text2);margin-bottom:16px;line-height:1.6">Ative uma vez neste aparelho e, nos próximos acessos, é só tocar em <b style="color:var(--gold)" id="pkIntroBotao">Entrar com Face ID</b> na tela de login.</p>
+          <div id="pkIndisponivel" style="display:none;font-size:13px;color:var(--text2);background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px;line-height:1.5"></div>
+          <button type="button" id="pkAtivarBtn" onclick="pkAtivar()" style="display:none;width:100%;padding:14px 16px;border-radius:12px;border:none;cursor:pointer;font-family:inherit;font-size:15px;font-weight:800;color:#1a191e;background:linear-gradient(135deg,#e8c766,#c9a961)">🔐 <span id="pkAtivarTxt">Ativar Face ID neste aparelho</span></button>
+          <div id="pkListaWrap" style="display:none;margin-top:18px">
+            <div style="font-size:12px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text3);margin-bottom:8px">Aparelhos ativados</div>
+            <div id="pkLista" style="display:flex;flex-direction:column;gap:8px"></div>
+          </div>
+          <p style="font-size:12px;color:var(--text3);margin-top:16px;line-height:1.55">🛡️ Sua biometria nunca sai do aparelho: a plataforma guarda só uma chave pública, que sozinha não dá acesso a nada. O login com e-mail e senha continua funcionando normalmente.</p>
+        </div>
+      </div>
+
       <div class="section-card open" id="sec-notifs">
         <div class="section-header" onclick="toggleSection('sec-notifs')">
           <div class="section-title-row">
@@ -1970,6 +1994,7 @@ if(localStorage.getItem('g20_uid')){
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+<script src="assets/g20-passkey.js"></script>
 <script>
 const _cfg = {
   apiKey:"AIzaSyBDX1wS7TyiY_of3hW7eTlphwoEPSaziHU",
@@ -4112,6 +4137,77 @@ function _salvarNotifPrefs_ORIG(){
     status.textContent = 'Erro: ' + e.message;
   }
 }
+
+// ═══ Face ID / biometria (passkey) ═══════════════════════════════
+function _pkEsc(t){ return String(t==null?'':t).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+function _pkData(ms){ if(!ms) return ''; var d=new Date(ms); return d.toLocaleDateString('pt-BR'); }
+
+async function pkCarregar(){
+  if (!window.G20Passkey) return;
+  var user = auth.currentUser; if (!user) return;
+  var rot = G20Passkey.rotulo();
+  document.getElementById('pkTitulo').textContent = 'Entrar com ' + rot;
+  document.getElementById('pkIntroBotao').textContent = 'Entrar com ' + rot;
+  document.getElementById('pkAtivarTxt').textContent = 'Ativar ' + rot + ' neste aparelho';
+
+  var bio = G20Passkey.suportado() ? await G20Passkey.biometriaDisponivel() : false;
+  var ind = document.getElementById('pkIndisponivel');
+  var btn = document.getElementById('pkAtivarBtn');
+  if (!bio) {
+    ind.style.display = 'block';
+    ind.textContent = 'Este aparelho ou navegador não tem biometria disponível. Você pode ativar pelo celular (Face ID ou digital) ou por um computador com Touch ID ou Windows Hello.';
+    btn.style.display = 'none';
+  } else {
+    ind.style.display = 'none';
+    btn.style.display = 'block';
+    G20Passkey.prepararRegistro(user).catch(function(){}); // Safari: desafio pronto antes do toque
+  }
+
+  try {
+    var lista = await G20Passkey.listar(user);
+    var wrap = document.getElementById('pkListaWrap'), box = document.getElementById('pkLista');
+    wrap.style.display = lista.length ? 'block' : 'none';
+    if (!lista.length) G20Passkey.marcarAtivo(false);
+    box.innerHTML = lista.map(function(p){
+      var uso = p.usadoEm ? ' · último acesso ' + _pkData(p.usadoEm) : ' · ainda não usado';
+      return '<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--bg);border:1px solid var(--border);border-radius:12px">' +
+        '<div style="font-size:20px">📱</div>' +
+        '<div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _pkEsc(p.nome) + '</div>' +
+        '<div style="font-size:12px;color:var(--text2);margin-top:2px">Ativado em ' + _pkData(p.criadoEm) + uso + '</div></div>' +
+        '<button type="button" data-id="' + _pkEsc(p.id) + '" data-nome="' + _pkEsc(p.nome) + '" onclick="pkRemover(this.dataset.id, this.dataset.nome)" title="Remover" style="background:none;border:1px solid var(--border);color:var(--text2);border-radius:10px;padding:8px 12px;cursor:pointer;font-family:inherit;font-size:12.5px">Remover</button>' +
+      '</div>';
+    }).join('');
+  } catch(e) { console.warn('[passkey] listar:', e); }
+}
+
+async function pkAtivar(){
+  var user = auth.currentUser; if (!user || !window.G20Passkey) return;
+  var btn = document.getElementById('pkAtivarBtn');
+  btn.disabled = true; btn.style.opacity = '.6';
+  try {
+    await G20Passkey.ativar(user);
+    showToast('✅ ' + G20Passkey.rotulo() + ' ativado! No próximo login é só tocar em "Entrar com ' + G20Passkey.rotulo() + '".', 'ok');
+    pkCarregar();
+  } catch(e) {
+    var msg = (e && e.status) ? e.message : G20Passkey.mensagemErro(e);
+    if (msg !== 'Autenticação cancelada.') showToast(msg, 'err');
+    G20Passkey.prepararRegistro(user).catch(function(){});
+  } finally {
+    btn.disabled = false; btn.style.opacity = '';
+  }
+}
+
+async function pkRemover(id, nome){
+  var user = auth.currentUser; if (!user) return;
+  if (!confirm('Remover o acesso por biometria de "' + nome + '"?\n\nNesse aparelho, o login volta a ser por e-mail e senha.')) return;
+  try {
+    await G20Passkey.remover(user, id);
+    showToast('Aparelho removido.', 'ok');
+    pkCarregar();
+  } catch(e) { showToast(e.message || 'Não foi possível remover.', 'err'); }
+}
+
+auth.onAuthStateChanged(function(u){ if (u) pkCarregar(); });
 
 // Carrega preferências quando aba Notificações é aberta
 var _origSwitchTab = switchTab;
