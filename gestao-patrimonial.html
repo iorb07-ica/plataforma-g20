@@ -887,6 +887,30 @@ body:not(.light) .asset-logo{background:transparent;border-color:rgba(255,255,25
 #rvTable tbody tr{background:#0d0f17}
 
 /* ── MODAL IMPORTAR IA ── */
+/* Migração da plataforma antiga (mesmo visual do Importar IA) */
+#modalMigrarV1{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:none;align-items:center;justify-content:center;padding:16px}
+#modalMigrarV1.show{display:flex}
+#modalMigrarV1 .mv-box{background:var(--bg2);border:1px solid var(--border);border-radius:16px;width:100%;max-width:860px;max-height:92vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.7)}
+#modalMigrarV1 .mv-header{display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid var(--border);flex-shrink:0}
+#modalMigrarV1 .mv-body{padding:20px 24px;overflow-y:auto;flex:1}
+#modalMigrarV1 .mv-footer{padding:14px 24px;border-top:1px solid var(--border);display:none;gap:10px;justify-content:flex-end;align-items:center;flex-shrink:0;flex-wrap:wrap}
+#modalMigrarV1 .mv-campo{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+#modalMigrarV1 .mv-campo label{font-size:12px;font-weight:600;color:var(--text2)}
+#modalMigrarV1 .mv-campo input{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font:inherit;font-size:14px}
+#modalMigrarV1 .mv-status{font-size:13px;padding:10px 14px;border-radius:10px;margin:12px 0;display:none;line-height:1.5}
+#modalMigrarV1 .mv-status.show{display:block}
+#modalMigrarV1 .mv-status.info{background:rgba(59,130,246,.1);color:#93c5fd}
+#modalMigrarV1 .mv-status.ok{background:rgba(16,185,129,.12);color:#6ee7b7}
+#modalMigrarV1 .mv-status.erro{background:rgba(230,57,70,.12);color:#fca5a5}
+#modalMigrarV1 .mv-resumo{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:10px 0 14px}
+#modalMigrarV1 .mv-resumo div{background:var(--bg3);border-radius:10px;padding:10px 12px;font-size:12px;color:var(--text2)}
+#modalMigrarV1 .mv-resumo b{display:block;font-size:18px;color:var(--text);margin-bottom:2px}
+#modalMigrarV1 .mv-tabela{width:100%;border-collapse:collapse;font-size:12.5px}
+#modalMigrarV1 .mv-tabela th{text-align:left;color:var(--text2);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg2)}
+#modalMigrarV1 .mv-tabela td{padding:6px 8px;border-bottom:1px solid var(--border);white-space:nowrap}
+#modalMigrarV1 .mv-tabela tr.dup td{opacity:.45}
+#modalMigrarV1 .mv-wrap{max-height:320px;overflow:auto;border:1px solid var(--border);border-radius:10px}
+
 #modalImportIA{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:none;align-items:center;justify-content:center;padding:16px}
 #modalImportIA.show{display:flex}
 #modalImportIA .ia-box{background:var(--bg2);border:1px solid var(--border);border-radius:16px;width:100%;max-width:860px;max-height:92vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.7)}
@@ -1316,6 +1340,9 @@ body:not(.light) .asset-logo{background:transparent;border-color:rgba(255,255,25
       </button>
       <button class="gp-tab" onclick="abrirImportIA()" style="border-color:rgba(139,92,246,.4);color:#8b5cf6">
         <span class="tab-ico">🤖</span> Importar IA
+      </button>
+      <button class="gp-tab" onclick="abrirMigrarV1()" style="border-color:rgba(201,169,97,.5);color:#c9a961">
+        <span class="tab-ico">📥</span> Plataforma antiga
       </button>
     </div>
 
@@ -9842,6 +9869,123 @@ var _iaImageBase64 = null;
 var _iaImageMime = null;
 var _iaTransacoes = [];
 
+// ═══ MIGRAÇÃO DA PLATAFORMA ANTIGA ═══════════════════════════════
+// O servidor (g20-proxy/api/migrar) entra na plataforma antiga com o login do
+// aluno, busca a carteira e devolve só compras e vendas no formato da Minha
+// Carteira. Aqui mostramos a prévia, marcamos o que já existe e gravamos.
+var _mvItens = [];
+function abrirMigrarV1(){
+  _mvItens = [];
+  document.getElementById('modalMigrarV1').classList.add('show');
+  document.getElementById('mvEtapaLogin').style.display = '';
+  document.getElementById('mvPrevia').innerHTML = '';
+  document.getElementById('mvFooter').style.display = 'none';
+  mvStatus('', '');
+  var u = firebase.auth().currentUser;
+  var em = document.getElementById('mvEmail');
+  if(em && !em.value && u && u.email) em.value = u.email;
+  document.getElementById('mvSenha').value = '';
+}
+function fecharMigrarV1(){
+  document.getElementById('modalMigrarV1').classList.remove('show');
+  document.getElementById('mvSenha').value = '';
+}
+function mvStatus(msg, tipo){
+  var el = document.getElementById('mvStatus');
+  el.textContent = msg || '';
+  el.className = 'mv-status' + (msg ? ' show ' + (tipo || 'info') : '');
+}
+function _mvChave(a){
+  return String(a.ticker).toUpperCase() + '|' + a.data + '|' + (a.op || 'C') + '|' + Math.round(parseFloat(a.qtd) * 10000);
+}
+async function mvBuscar(){
+  var email = document.getElementById('mvEmail').value.trim();
+  var senhaEl = document.getElementById('mvSenha');
+  var senha = senhaEl.value;
+  if(!email || !senha){ mvStatus('Preencha o e-mail e a senha da plataforma antiga.', 'erro'); return; }
+  var btn = document.getElementById('mvBtnBuscar');
+  btn.disabled = true; btn.textContent = '⏳ Buscando na plataforma antiga...';
+  mvStatus('Entrando na plataforma antiga e lendo sua carteira. Pode levar até 30 segundos.', 'info');
+  try {
+    var u = firebase.auth().currentUser;
+    if(!u) throw new Error('Sua sessão expirou. Faça login novamente.');
+    var tk = await u.getIdToken();
+    var r = await fetch('https://g20-proxy.vercel.app/api/migrar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tk },
+      body: JSON.stringify({ email: email, senha: senha })
+    });
+    senhaEl.value = ''; senha = null;
+    var j = await r.json().catch(function(){ return {}; });
+    if(!r.ok) throw new Error(j.error || ('Erro ' + r.status));
+    _mvItens = j.itens || [];
+    mvRenderPrevia(j.resumo || {});
+  } catch(e) {
+    mvStatus('❌ ' + (e.message || 'Não foi possível buscar a carteira.'), 'erro');
+  } finally {
+    btn.disabled = false; btn.textContent = '🔎 Buscar minha carteira';
+  }
+}
+function mvRenderPrevia(resumo){
+  var existentes = {};
+  var idsV1 = {};
+  loadData('rvAportes', []).forEach(function(a){ existentes[_mvChave(a)] = true; if(a.idV1) idsV1[a.idV1] = true; });
+  var novos = 0;
+  _mvItens.forEach(function(it){
+    it._dup = !!(existentes[_mvChave(it)] || (it.idV1 && idsV1[it.idV1]));
+    if(!it._dup) novos++;
+  });
+  document.getElementById('mvEtapaLogin').style.display = 'none';
+  if(!_mvItens.length){
+    mvStatus('Não encontramos compras ou vendas nessa conta da plataforma antiga.', 'erro');
+    return;
+  }
+  mvStatus(novos ? '✅ Carteira encontrada! Confira abaixo e clique em Importar.' : '✅ Tudo o que existe na plataforma antiga já está na sua Minha Carteira.', 'ok');
+  var fmt = function(v, m){ return (m === 'USD' ? 'US$ ' : 'R$ ') + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 6 }); };
+  var html = '<div class="mv-resumo">' +
+    '<div><b>' + (resumo.compras || 0) + '</b>compras</div>' +
+    '<div><b>' + (resumo.vendas || 0) + '</b>vendas</div>' +
+    '<div><b>' + novos + '</b>novas para importar</div>' +
+    '<div><b>' + (_mvItens.length - novos) + '</b>já estavam aqui</div>' +
+  '</div>' +
+  '<div style="font-size:11.5px;color:var(--text3);margin:-6px 0 10px">Não importados (a Minha Carteira calcula sozinha): ' +
+    (resumo.proventos || 0) + ' proventos e ' + (resumo.eventos || 0) + ' desdobramentos/grupamentos. Lançamentos excluídos na antiga: ' + (resumo.excluidos || 0) + '.</div>' +
+  '<div class="mv-wrap"><table class="mv-tabela"><thead><tr><th>Data</th><th>Op.</th><th>Ativo</th><th>Tipo</th><th>Qtd</th><th>Preço</th><th>Situação</th></tr></thead><tbody>' +
+  _mvItens.map(function(it){
+    var d = it.data.split('-').reverse().join('/');
+    return '<tr class="' + (it._dup ? 'dup' : '') + '"><td>' + d + '</td><td>' + (it.op === 'V' ? '🔴 Venda' : '🟢 Compra') + '</td><td><b>' + it.ticker + '</b></td><td>' + ({Acao:'Ação',FIInfra:'FI-Infra'}[it.tipo] || it.tipo) + '</td><td>' + it.qtd + '</td><td>' + fmt(it.preco, it.moeda) + '</td><td>' + (it._dup ? 'Já existe' : 'Nova') + '</td></tr>';
+  }).join('') + '</tbody></table></div>';
+  document.getElementById('mvPrevia').innerHTML = html;
+  var foot = document.getElementById('mvFooter');
+  foot.style.display = novos ? 'flex' : 'none';
+  document.getElementById('mvFooterInfo').textContent = novos + ' lançamento(s) novo(s)';
+  document.getElementById('mvBtnImportar').textContent = 'Importar ' + novos + ' lançamento(s)';
+}
+function mvConfirmar(){
+  var novos = _mvItens.filter(function(it){ return !it._dup; });
+  if(!novos.length){ fecharMigrarV1(); return; }
+  var aportes = loadData('rvAportes', []);
+  var agora = Date.now();
+  novos.forEach(function(it, i){
+    aportes.push({
+      id: agora + '_' + i + '_' + Math.random().toString(36).substr(2, 5),
+      ticker: it.ticker, tipo: it.tipo, op: it.op, data: it.data,
+      qtd: it.qtd, preco: it.preco, moeda: it.moeda,
+      fxRate: it.moeda === 'USD' ? (it.fxRate || rvUsdBRL || 5.0) : 1,
+      obs: 'Importado da plataforma antiga' + (it.corretora ? ' · ' + it.corretora : ''),
+      corretora: it.corretora || '', origem: 'plataforma-antiga', idV1: it.idV1 || ''
+    });
+  });
+  saveData('rvAportes', aportes);
+  // grava já no Firestore (sem esperar o intervalo automático)
+  try {
+    if(_db_ref) _db_ref.doc('rvAportes').set({ value: aportes, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+  } catch(e){}
+  fecharMigrarV1();
+  try { renderAll(); } catch(e){}
+  showToast('✅ ' + novos.length + ' lançamento(s) importado(s) da plataforma antiga!', '#2ecc71');
+}
+
 function abrirImportIA(){
   document.getElementById('modalImportIA').classList.add('show');
   _iaTransacoes = []; _iaImageBase64 = null;
@@ -10123,6 +10267,37 @@ function rvAplicarOrdemColunas(){
 </script>
 
 <!-- MODAL IMPORTAR COM IA -->
+<div id="modalMigrarV1">
+  <div class="mv-box">
+    <div class="mv-header">
+      <div style="font-size:16px;font-weight:700;display:flex;align-items:center;gap:10px">
+        <span style="font-size:22px">📥</span>
+        <div>
+          <div>Trazer minha carteira da plataforma antiga</div>
+          <div style="font-size:11px;font-weight:400;color:var(--text2);margin-top:2px">Suas compras e vendas lançadas em valorize.herokuapp.com</div>
+        </div>
+      </div>
+      <button class="btn-icon" onclick="fecharMigrarV1()" style="font-size:18px;padding:4px 10px">✕</button>
+    </div>
+    <div class="mv-body">
+      <div id="mvEtapaLogin">
+        <p style="font-size:13.5px;color:var(--text2);line-height:1.6;margin:0 0 14px">Digite o <b style="color:var(--text)">e-mail e a senha que você usava na plataforma antiga</b>. Vamos buscar suas compras e vendas e mostrar tudo antes de gravar. Dividendos, JCP, desdobramentos e grupamentos não precisam vir: a Minha Carteira calcula sozinha.</p>
+        <div class="mv-campo"><label for="mvEmail">E-mail da plataforma antiga</label><input type="email" id="mvEmail" autocomplete="off" placeholder="seu@email.com"></div>
+        <div class="mv-campo"><label for="mvSenha">Senha da plataforma antiga</label><input type="password" id="mvSenha" autocomplete="off" placeholder="••••••••" onkeydown="if(event.key==='Enter')mvBuscar()"></div>
+        <div style="font-size:11.5px;color:var(--text3);line-height:1.5;margin:4px 0 14px">🔒 Sua senha é usada só para buscar a carteira agora e não fica gravada em lugar nenhum.</div>
+        <button class="btn-sm btn-gold" id="mvBtnBuscar" onclick="mvBuscar()" style="width:100%;padding:12px;font-size:14px">🔎 Buscar minha carteira</button>
+      </div>
+      <div class="mv-status" id="mvStatus"></div>
+      <div id="mvPrevia"></div>
+    </div>
+    <div class="mv-footer" id="mvFooter">
+      <span id="mvFooterInfo" style="font-size:12.5px;color:var(--text2);margin-right:auto"></span>
+      <button class="btn-sm btn-outline" onclick="fecharMigrarV1()">Cancelar</button>
+      <button class="btn-sm btn-gold" id="mvBtnImportar" onclick="mvConfirmar()">Importar</button>
+    </div>
+  </div>
+</div>
+
 <div id="modalImportIA">
   <div class="ia-box">
     <div class="ia-header">
