@@ -2126,6 +2126,18 @@ function carregarModulosCache() {
   } catch(e) { return null; }
 }
 
+/* Economia de leituras: com o cache recente, não relê módulos e aulas a cada visita.
+   Antes, mesmo com o cache, a página relia TODOS os módulos e TODAS as aulas do
+   Firestore em segundo plano toda vez que era aberta. Agora relê só quando o cache
+   tem mais de 30 minutos. O admin sempre relê, para ver as edições na hora. */
+var SA_REFRESH_MIN = 30 * 60 * 1000;
+function _saCacheIdade(){
+  try {
+    var o = JSON.parse(localStorage.getItem(SA_CACHE_KEY) || 'null');
+    return (o && o.em) ? (Date.now() - o.em) : Infinity;
+  } catch(e){ return Infinity; }
+}
+
 function loadModulosFromFirestore(db) {
   return db.collection('cursos').doc('g20-masterclass')
     .collection('modulos').orderBy('ordem').get()
@@ -2678,6 +2690,7 @@ function saInit(uid, db, role) {
     if(!_saOpenFromHash()) showHome();
     // Atualizar concluídas e módulos em background silenciosamente
     loadConcluidas(uid, db).catch(function(){});
+    if (!SA_IS_ADMIN && _saCacheIdade() < SA_REFRESH_MIN) return;   // cache recente: não relê
     loadModulosFromFirestore(db).then(function() {
       // Atualizar grid em background sem piscar (só se estiver na home, não em aula/módulo)
       if (currentModuloId == null && currentAulaId == null && typeof showHome === 'function' && document.getElementById('modulesGrid')) {

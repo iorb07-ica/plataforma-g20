@@ -942,9 +942,19 @@ function avHTML(p,sz){
 }
 
 // ─── FEED ───
+// Leituras: o feed carrega 30 posts por vez (antes 50), com "Carregar mais".
+var _feedLimite = 30, _feedMais = false;
+function arenaCarregarMais(btn){
+  if(btn){ btn.disabled = true; btn.textContent = 'Carregando...'; }
+  _feedLimite += 30; _feedMais = true; carregarFeed();
+}
 function carregarFeed(){
   if(_unsubFeed) _unsubFeed();
-  document.getElementById('feedScroll').innerHTML='<div class="feed-loading"><div class="spinner"></div> Carregando...</div>';
+  if(!_feedMais){
+    _feedLimite = 30;
+    document.getElementById('feedScroll').innerHTML='<div class="feed-loading"><div class="spinner"></div> Carregando...</div>';
+  }
+  _feedMais = false;
 
   var q=db.collection('arena').where('oculto','==',false);
   if(_periodo&&_periodo!=='all'){
@@ -956,7 +966,7 @@ function carregarFeed(){
   }
   var catFiltros=['acoes-br','fiis','stocks','cripto','renda-fixa','mentalidade','leituras','geral'];
   if(catFiltros.includes(_filtro)) q=q.where('categoria','==',_filtro);
-  q=q.orderBy('criadoEm','desc').limit(50);
+  q=q.orderBy('criadoEm','desc').limit(_feedLimite);
 
   _unsubFeed=q.onSnapshot(function(snap){
     var posts=[];
@@ -968,6 +978,11 @@ function carregarFeed(){
     else if(_ordem==='respostas') posts.sort(function(a,b){return (b.totalRespostas||0)-(a.totalRespostas||0);});
     if(_filtro==='todos') document.getElementById('cntBadge').textContent=posts.length;
     renderFeed(posts);
+    // Chegou no limite: pode haver posts mais antigos
+    if(snap.size >= _feedLimite){
+      var fs = document.getElementById('feedScroll');
+      if(fs) fs.insertAdjacentHTML('beforeend','<div style="text-align:center;padding:18px 0 8px"><button onclick="arenaCarregarMais(this)" style="background:transparent;border:1px solid rgba(201,169,97,.45);color:#c9a961;font:600 13.5px \'DM Sans\',sans-serif;padding:10px 22px;border-radius:10px;cursor:pointer">Carregar mais posts</button></div>');
+    }
   },function(e){
     console.error(e);
     document.getElementById('feedScroll').innerHTML='<div class="feed-empty"><i data-lucide="alert-circle"></i><p>Erro ao carregar posts.<br>Verifique sua conexão.</p></div>';
@@ -1115,6 +1130,8 @@ function publicarPost(){
     toast('Post publicado!');fecharModalPost();
     btn.disabled=false;btn.innerHTML='<i data-lucide="send" style="width:14px;height:14px"></i> Publicar';
     lucide.createIcons();
+    try { localStorage.removeItem('g20_arena_stats'); localStorage.removeItem('g20_arena_trending'); } catch(e){}
+    _arenaTodos(true);
     carregarStats();
   }).catch(function(e){
     toast('Erro: '+e.message,true);
@@ -1254,7 +1271,9 @@ function enviarResposta(){
     document.getElementById('respInput').value='';
     cancelarReply();
     btn.disabled=false;btn.textContent='Responder';
-    carregarStats();
+    try { localStorage.removeItem('g20_arena_stats'); } catch(e){}
+    _arenaTodos(true);
+    carregarStats(true);
   }).catch(function(e){
     toast('Erro: '+e.message,true);
     btn.disabled=false;btn.textContent='Responder';
@@ -1458,20 +1477,51 @@ window.addEventListener('hashchange', _checkHashDeepLink);
 // ─── TRENDING & ONLINE ───
 var TREND_COLORS={'acoes-br':'linear-gradient(90deg,#a08543,#e8c766)','fiis':'#3dac58','stocks':'#378add','cripto':'#7f77dd','renda-fixa':'#e05a5a','mentalidade':'#c9a961','leituras':'#85b7eb','geral':'rgba(255,255,255,.3)'};
 var TREND_TAG_COLORS={'acoes-br':'var(--gold)','fiis':'#97c459','stocks':'#85b7eb','cripto':'#afa9ec','renda-fixa':'#f09595','mentalidade':'var(--gold)','leituras':'#85b7eb','geral':'var(--text-2)'};
+// ─── LEITURAS COMPARTILHADAS (economia de Firestore) ───
+// Antes, cada visita à Arena lia TODOS os posts 3 vezes (estatísticas e ranking),
+// todos os alunos aprovados (só para mostrar o número de membros) e fazia uma
+// consulta de respostas para CADA post. Agora: uma leitura dos posts por visita,
+// compartilhada, e os números derivados ficam guardados no aparelho por um tempo.
+var _arenaTodosProm = null, _arenaTodosEm = 0;
+function _arenaTodos(forcar){
+  if(!_arenaTodosProm || forcar || Date.now() - _arenaTodosEm > 5 * 60 * 1000){
+    _arenaTodosEm = Date.now();
+    _arenaTodosProm = db.collection('arena').where('oculto','==',false).get();
+  }
+  return _arenaTodosProm;
+}
+function _arenaCache(chave, validadeMs, buscar){
+  try {
+    var c = JSON.parse(localStorage.getItem('g20_arena_' + chave) || 'null');
+    if(c && (Date.now() - c.em) < validadeMs) return Promise.resolve(c.v);
+  } catch(e){}
+  return buscar().then(function(v){
+    try { localStorage.setItem('g20_arena_' + chave, JSON.stringify({ em: Date.now(), v: v })); } catch(e){}
+    return v;
+  });
+}
 function carregarTrending(){
-  db.collection('arena').where('oculto','==',false).orderBy('criadoEm','desc').limit(100)
-    .get().then(function(snap){
-      var cats={};var catDays={};
-      snap.forEach(function(d){
-        var cat=d.data().categoria||'geral';
-        cats[cat]=(cats[cat]||0)+1;
-        var ts=d.data().criadoEm;
-        if(ts&&ts.toDate){
-          var day=ts.toDate().getDay();
-          if(!catDays[cat]) catDays[cat]=new Array(7).fill(0);
+  _arenaCache('trending', 30 * 60 * 1000, function(){
+    return _arenaTodos().then(function(snap){
+      var docs = snap.docs.slice().sort(function(a, b){
+        var ta = a.data().criadoEm, tb = b.data().criadoEm;
+        return ((tb && tb.toMillis) ? tb.toMillis() : 0) - ((ta && ta.toMillis) ? ta.toMillis() : 0);
+      }).slice(0, 100);
+      var cats = {}, catDays = {};
+      docs.forEach(function(d){
+        var cat = d.data().categoria || 'geral';
+        cats[cat] = (cats[cat] || 0) + 1;
+        var ts = d.data().criadoEm;
+        if(ts && ts.toDate){
+          var day = ts.toDate().getDay();
+          if(!catDays[cat]) catDays[cat] = new Array(7).fill(0);
           catDays[cat][day]++;
         }
       });
+      return { cats: cats, catDays: catDays };
+    });
+  }).then(function(r){
+      var cats=r.cats, catDays=r.catDays;
       var sorted=Object.entries(cats).sort(function(a,b){return b[1]-a[1];}).slice(0,5);
       var el=document.getElementById('trendingList');
       if(!sorted.length){el.innerHTML='<div style="font-size:11px;color:#5a546e">Sem posts ainda</div>';return;}
@@ -1492,7 +1542,7 @@ function carregarTrending(){
           '<svg viewBox="0 0 80 16" style="width:100%;height:16px;margin-bottom:3px"><polyline points="'+sparkPoints+'" fill="none" stroke="'+barCol+'" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'+
         '</div>';
       }).join('');
-    });
+    }).catch(function(){});
 }
 function carregarOnline(){
   db.collection('users').where('aprovado','==',true).limit(12).get().then(function(snap){
@@ -1548,7 +1598,7 @@ function carregarRanking(){
     snap.forEach(function(doc,i){lista.push(Object.assign({uid:doc.id},doc.data()));});
     if(!lista.length){
       // Se não há pontos ainda, mostrar ranking baseado em posts
-      db.collection('arena').where('oculto','==',false).get().then(function(s){
+      _arenaTodos().then(function(s){
         var pts={};
         s.forEach(function(d){var uid=d.data().autorId;if(uid){var n=d.data().autorNome||'Aluno';pts[uid]=pts[uid]||{nome:n,total:0};pts[uid].total+=10;}});
         var sorted=Object.entries(pts).sort(function(a,b){return b[1].total-a[1].total;}).slice(0,5);
@@ -1594,21 +1644,21 @@ function renderRanking(lista){
   }
 }
 function carregarArenaStats(){
-  // Total posts
-  db.collection('arena').where('oculto','==',false).get().then(function(snap){
-    var el=document.getElementById('totalPosts');
-    if(el) el.textContent=snap.size;
+  // Posts e respostas: da leitura compartilhada, guardados por 30 min
+  _arenaCache('stats', 30 * 60 * 1000, function(){
+    return _arenaTodos().then(function(snap){
+      var resp = 0; snap.forEach(function(d){ resp += (d.data().totalRespostas || 0); });
+      return { posts: snap.size, resp: resp };
+    });
+  }).then(function(v){
+    var a = document.getElementById('totalPosts'); if(a) a.textContent = v.posts;
+    var b = document.getElementById('totalResp');  if(b) b.textContent = v.resp;
   }).catch(function(){});
-  // Total membros
-  db.collection('users').where('aprovado','==',true).get().then(function(snap){
-    var el=document.getElementById('totalMembros');
-    if(el) el.textContent=snap.size;
-  }).catch(function(){});
-  // Total respostas (aproximado via campo totalRespostas)
-  db.collection('arena').where('oculto','==',false).get().then(function(snap){
-    var total=0;snap.forEach(function(d){total+=(d.data().totalRespostas||0);});
-    var el=document.getElementById('totalResp');
-    if(el) el.textContent=total;
+  // Membros: antes lia TODOS os alunos a cada visita; agora guarda por 12 horas
+  _arenaCache('membros', 12 * 60 * 60 * 1000, function(){
+    return db.collection('users').where('aprovado','==',true).get().then(function(snap){ return snap.size; });
+  }).then(function(n){
+    var el = document.getElementById('totalMembros'); if(el) el.textContent = n;
   }).catch(function(){});
 }
 function carregarUnreadBadges(){
@@ -1739,8 +1789,9 @@ function updateXP(pts){
   if(fEl) fEl.style.width=pct+'%';
   if(hEl) hEl.textContent=falta>0?falta+' pts para '+( XP_NIVEIS[XP_NIVEIS.indexOf(nivel)+1]||{nome:'Lenda'}).nome:'Nível máximo!';
 }
-function carregarStats(){
+function carregarStats(forcar){
   if(!_user) return;
+  if(forcar){ try { localStorage.removeItem('g20_arena_minhasResp_' + _user.uid); } catch(e){} }
   db.collection('arena').where('autorId','==',_user.uid).where('oculto','==',false).get().then(function(snap){
     document.getElementById('stPosts').textContent=snap.size;
     setSideBadge('meusBadge',snap.size);
@@ -1750,14 +1801,22 @@ function carregarStats(){
     var xpCurtidas=tot*5;
     updateXP(xpPosts+xpCurtidas);
   });
-  db.collection('arena').get().then(function(snap){
-    var proms=[];var total=0;
-    snap.forEach(function(d){
-      proms.push(db.collection('arena').doc(d.id).collection('respostas')
-        .where('autorId','==',_user.uid).get().then(function(s){total+=s.size;}));
+  // Respostas do aluno: só consulta os posts que TÊM respostas (antes consultava
+  // todos, e cada consulta custa ao menos uma leitura) e guarda por 6 horas.
+  var uidResp = _user.uid;
+  _arenaCache('minhasResp_' + uidResp, 6 * 60 * 60 * 1000, function(){
+    return _arenaTodos().then(function(snap){
+      var proms = [], total = 0;
+      snap.forEach(function(d){
+        if(!(d.data().totalRespostas > 0)) return;
+        proms.push(db.collection('arena').doc(d.id).collection('respostas')
+          .where('autorId','==',uidResp).get().then(function(s){ total += s.size; }).catch(function(){}));
+      });
+      return Promise.all(proms).then(function(){ return total; });
     });
-    Promise.all(proms).then(function(){document.getElementById('stRespostas').textContent=total;});
-  });
+  }).then(function(total){
+    var el = document.getElementById('stRespostas'); if(el) el.textContent = total;
+  }).catch(function(){});
 }
 
 // ─── HELPERS ───
