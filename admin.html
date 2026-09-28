@@ -150,6 +150,7 @@ if(localStorage.getItem('g20_uid')){
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <button class="btn btn-gold" onclick="window.location.href='dashboard.html'" style="background:linear-gradient(135deg,var(--gold),#c9a961);box-shadow:0 6px 18px rgba(232,184,75,.3);font-weight:800;padding:9px 18px">← Voltar ao Dashboard</button>
+    <button class="btn btn-gold" onclick="evcAbrir()">🔁 Eventos corporativos</button>
     <button class="btn btn-gold" onclick="exportarCSV()">📊 Exportar CSV</button>
     <button class="btn btn-red" onclick="sair()">🚪 Sair</button>
   </div>
@@ -779,6 +780,95 @@ document.getElementById('modalEditar').addEventListener('click', function(e) {
 
 function toggleModalSec(id) {
   document.getElementById(id).classList.toggle('open');
+}
+</script>
+
+<!-- ══ EVENTOS CORPORATIVOS (incorporações, mudanças de código, liquidações) ══ -->
+<div id="evcModal" class="evca-ov" style="display:none" onclick="if(event.target===this)evcFechar()">
+  <div class="evca-box">
+    <div class="evca-cab"><div><div class="evca-tit">🔁 Eventos corporativos</div>
+      <div class="evca-sub">Cadastre incorporações, mudanças de código e liquidações. Todo aluno que tiver o ativo antigo na data do evento recebe um aviso na Minha Carteira, com a conta pronta, e aplica com um clique.</div></div>
+      <button class="evca-x" onclick="evcFechar()" aria-label="Fechar">✕</button></div>
+    <div class="evca-form">
+      <label>Tipo<select id="evcTipo" onchange="evcTipoMudou()"><option value="incorporacao">Incorporação</option><option value="codigo">Mudança de código</option><option value="liquidacao">Liquidação / saída da bolsa</option></select></label>
+      <label>Código antigo<input id="evcDe" placeholder="IRDM11" oninput="this.value=this.value.toUpperCase()"></label>
+      <label id="evcParaL">Código novo<input id="evcPara" placeholder="IRIM11" oninput="this.value=this.value.toUpperCase()"></label>
+      <label>Data da troca<input id="evcData" type="date"></label>
+      <label id="evcFatorL">Cotas novas por 1 antiga<input id="evcFator" inputmode="decimal" placeholder="0,884794245"></label>
+      <label>Dinheiro por cota (opcional)<input id="evcCaixa" inputmode="decimal" placeholder="4,306051918"></label>
+      <label>Data do dinheiro (opcional)<input id="evcDataCaixa" type="date"></label>
+      <label class="evca-l2">Fonte<input id="evcFonte" placeholder="Fato relevante do IRDM11 de 27/11/2025"></label>
+      <label class="evca-l2">Explicação para o aluno (opcional)<textarea id="evcDetalhe" rows="2" placeholder="Se vazio, é montada automaticamente a partir dos dados acima."></textarea></label>
+      <div class="evca-acoes"><span id="evcMsg"></span><button class="btn btn-gold" onclick="evcSalvar()">Salvar evento</button></div>
+    </div>
+    <div class="evca-lista-t">Eventos cadastrados</div>
+    <div id="evcLista" class="evca-lista">Carregando…</div>
+  </div>
+</div>
+<style>
+.evca-ov{position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.6);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto}
+.evca-box{width:min(920px,100%);background:#15171d;border:1px solid rgba(232,184,75,.25);border-radius:16px;padding:22px 24px;color:#e8e6e3;font-family:inherit}
+.evca-cab{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:16px}
+.evca-tit{font-size:19px;font-weight:800}.evca-sub{font-size:13.5px;color:#b8b3ab;margin-top:4px;line-height:1.5}
+.evca-x{background:transparent;border:0;color:#b8b3ab;font-size:20px;cursor:pointer}
+.evca-form{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:14px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07)}
+.evca-form label{display:flex;flex-direction:column;gap:5px;font-size:12.5px;font-weight:700;color:#b8b3ab}
+.evca-form input,.evca-form select,.evca-form textarea{background:#0f1115;border:1px solid rgba(255,255,255,.12);border-radius:9px;color:#e8e6e3;padding:9px 10px;font:600 14px inherit;font-family:inherit;outline:0}
+.evca-form input:focus,.evca-form select:focus,.evca-form textarea:focus{border-color:#e8b84b}
+.evca-l2{grid-column:span 2}.evca-acoes{grid-column:1 / -1;display:flex;justify-content:flex-end;align-items:center;gap:12px}
+#evcMsg{font-size:13px;font-weight:700}
+.evca-lista-t{font-size:15px;font-weight:800;margin:18px 0 8px}
+.evca-lista{display:flex;flex-direction:column;gap:8px;font-size:13.5px;color:#b8b3ab}
+.evca-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:12px 14px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07)}
+.evca-item b{color:#e8e6e3;font-size:14.5px}.evca-item em{font-style:normal;font-size:12.5px;color:#8e8a83}
+.evca-del{background:transparent;border:1px solid rgba(230,57,70,.5);color:#ef5b61;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer}
+@media (max-width:760px){.evca-form{grid-template-columns:1fr 1fr}.evca-l2{grid-column:1 / -1}}
+</style>
+<script>
+function evcAbrir(){ document.getElementById('evcModal').style.display = 'flex'; evcTipoMudou(); evcListar(); }
+function evcFechar(){ document.getElementById('evcModal').style.display = 'none'; }
+function evcTipoMudou(){ var liq = document.getElementById('evcTipo').value === 'liquidacao';
+  document.getElementById('evcParaL').style.display = liq ? 'none' : ''; document.getElementById('evcFatorL').style.display = liq ? 'none' : ''; }
+function _evcNum(v){ var n = parseFloat(String(v || '').replace(/\./g, '').replace(',', '.')); if(String(v || '').indexOf(',') < 0) n = parseFloat(String(v || '')); return isFinite(n) ? n : 0; }
+function _evcEsc(t){ return String(t == null ? '' : t).replace(/[&<>"]/g, function(c){ return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
+async function evcListar(){
+  var box = document.getElementById('evcLista');
+  try {
+    var snap = await db.collection('eventos_corporativos').get(), l = [];
+    snap.forEach(function(d){ var x = d.data(); x._id = d.id; l.push(x); });
+    l.sort(function(a, b){ return String(b.data).localeCompare(String(a.data)); });
+    box.innerHTML = l.length ? l.map(function(x){ var br = function(d){ return d ? d.split('-').reverse().join('/') : ''; };
+      return '<div class="evca-item"><div><b>' + _evcEsc(x.de) + (x.para ? ' → ' + _evcEsc(x.para) : ' (liquidação)') + '</b> · ' + br(x.data) +
+        (x.para ? ' · ' + String(x.fator).replace('.', ',') + ' por cota' : '') + (x.caixaPorCota ? ' · R$ ' + String(x.caixaPorCota).replace('.', ',') + ' por cota em dinheiro' : '') +
+        '<br><em>' + _evcEsc(x.fonte || 'sem fonte') + '</em></div><button class="evca-del" onclick="evcExcluir(\'' + x._id + '\')">Excluir</button></div>'; }).join('')
+      : 'Nenhum evento cadastrado ainda. O evento do IRDM11 já vem embutido na Minha Carteira.';
+  } catch(e){
+    box.innerHTML = '<span style="color:#ef5b61">Não foi possível ler a lista (' + _evcEsc(e.code || e.message) + '). Confira se a regra da coleção eventos_corporativos foi publicada no Firebase.</span>';
+  }
+}
+async function evcSalvar(){
+  var g = function(id){ return (document.getElementById(id) || {}).value || ''; }, msg = document.getElementById('evcMsg');
+  var tipo = g('evcTipo'), de = g('evcDe').trim().toUpperCase(), para = tipo === 'liquidacao' ? '' : g('evcPara').trim().toUpperCase(), data = g('evcData');
+  var fator = tipo === 'liquidacao' ? 0 : _evcNum(g('evcFator')), caixa = _evcNum(g('evcCaixa'));
+  var erro = !de ? 'Informe o código antigo' : (tipo !== 'liquidacao' && !para ? 'Informe o código novo' : (!data ? 'Informe a data da troca' : (tipo !== 'liquidacao' && !(fator > 0) ? 'Informe quantas cotas novas por 1 antiga' : '')));
+  if(erro){ msg.style.color = '#ef5b61'; msg.textContent = erro; return; }
+  var br = function(d){ return d ? d.split('-').reverse().join('/') : ''; };
+  var detalhe = g('evcDetalhe').trim() || (tipo === 'liquidacao' ? 'O ' + de + ' foi liquidado e saiu da bolsa em ' + br(data) + '.'
+    : 'Cada cota de ' + de + ' virou ' + String(fator).replace('.', ',') + ' cota de ' + para + ' (troca em ' + br(data) + ')' + (caixa > 0 ? ', mais R$ ' + caixa.toLocaleString('pt-BR', { maximumFractionDigits: 4 }) + ' em dinheiro por cota' + (g('evcDataCaixa') ? ' (pago em ' + br(g('evcDataCaixa')) + ')' : '') : '') + '.');
+  var titulo = tipo === 'incorporacao' ? 'O ' + de + ' foi incorporado pelo ' + para : (tipo === 'codigo' ? de + ' mudou de código para ' + para : 'O ' + de + ' foi liquidado');
+  var id = (de + '-' + (para || 'LIQ') + '-' + data.slice(0, 4)).replace(/[^A-Z0-9\-]/g, '');
+  var doc = { id: id, tipo: tipo, de: de, para: para || null, data: data, fator: fator, caixaPorCota: caixa || 0, dataCaixa: g('evcDataCaixa') || null,
+              titulo: titulo, detalhe: detalhe, fonte: g('evcFonte').trim(), ativo: true, criadoEm: firebase.firestore.FieldValue.serverTimestamp() };
+  try {
+    await db.collection('eventos_corporativos').doc(id).set(doc);
+    msg.style.color = '#22c55e'; msg.textContent = '✓ Evento salvo. Os alunos veem o aviso na próxima vez que abrirem a Minha Carteira.';
+    ['evcDe','evcPara','evcData','evcFator','evcCaixa','evcDataCaixa','evcFonte','evcDetalhe'].forEach(function(i){ var e = document.getElementById(i); if(e) e.value = ''; });
+    evcListar();
+  } catch(e){ msg.style.color = '#ef5b61'; msg.textContent = 'Não foi possível salvar (' + (e.code || e.message) + '). A regra da coleção eventos_corporativos precisa estar publicada no Firebase.'; }
+}
+async function evcExcluir(id){
+  if(!confirm('Excluir este evento? Os avisos deixam de aparecer para quem ainda não aplicou.')) return;
+  try { await db.collection('eventos_corporativos').doc(id).delete(); evcListar(); } catch(e){ alert('Não foi possível excluir: ' + (e.code || e.message)); }
 }
 </script>
 </body>
