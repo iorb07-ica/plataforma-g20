@@ -15215,7 +15215,7 @@ window.G20DiagRF = function(dias){
       var cAnt = (corte[i-1].cobertura === undefined) ? 1 : corte[i-1].cobertura;
       var cAtu = (corte[i].cobertura   === undefined) ? 1 : corte[i].cobertura;
       var valeu = (Math.abs(fluxo) < 0.01) &&
-                  (Math.abs(cAtu - cAnt) <= 0.001) && (cAtu >= 0.98);
+                  (Math.abs(cAtu - cAnt) <= 0.001) && (cAtu >= TWR_COB_MIN);
       if (valeu) {
         var vIni = corte[i-1].patrimonio, vFim = corte[i].patrimonio;
         if (vIni > TWR_SALDO_MIN) {
@@ -15286,6 +15286,12 @@ window.G20DiagRF = function(dias){
      ═══════════════════════════════════════════════════════════════════════ */
   var TWR_SALDO_MIN = 500;    // R$ — abaixo disso o percentual não tem sentido
   var TWR_TETO_DIA  = 0.40;   // 40% num único dia
+  /* COBERTURA MÍNIMA (R195). A exigência de 98% descartava TODOS os dias de
+     carteiras com um único ativo sem histórico (ex.: 22 de 23 = 95,65%),
+     e a rentabilidade ficava parada em +0,00%. O que evita retorno fantasma
+     é a cobertura ser IGUAL à do dia anterior (o ativo sem preço vale zero
+     nos dois dias), regra que continua valendo. O mínimo passa a 80%. */
+  var TWR_COB_MIN = 0.80;
 
   function _v21TwrDesde(serie, inicioStr) {
     if (!serie || serie.length < 2) return null;
@@ -15313,7 +15319,7 @@ window.G20DiagRF = function(dias){
       var cAnt = (corte[i-1].cobertura === undefined) ? 1 : corte[i-1].cobertura;
       var cAtu = (corte[i].cobertura   === undefined) ? 1 : corte[i].cobertura;
       if (Math.abs(cAtu - cAnt) > 0.001) continue;
-      if (cAtu < 0.98) continue;   // carteira incompleta não descreve rentabilidade
+      if (cAtu < TWR_COB_MIN) continue;   // carteira muito incompleta não descreve rentabilidade
 
       var vIni = corte[i-1].patrimonio, vFim = corte[i].patrimonio;
       if (!(vIni > TWR_SALDO_MIN)) continue;
@@ -15574,7 +15580,7 @@ window.G20DiagRF = function(dias){
 
       var cAnt = (s[i-1].cobertura === undefined) ? 1 : s[i-1].cobertura;
       var vale = Math.abs(parseFloat(s[i].fluxo)||0) < 0.01 &&
-                 Math.abs(c - cAnt) <= 0.001 && c >= 0.98 &&
+                 Math.abs(c - cAnt) <= 0.001 && c >= TWR_COB_MIN &&
                  s[i-1].patrimonio > TWR_SALDO_MIN;
       if (!vale) { a.pulados++; continue; }
       var r = (s[i].patrimonio - s[i-1].patrimonio) / s[i-1].patrimonio;
