@@ -1267,6 +1267,36 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
 .prov-hm2 .hm-ticker { font-size:9px; color:var(--text3); text-align:left; padding-right:6px; white-space:nowrap; }
 .prov-hm2 .hm-c { width:22px; height:16px; border-radius:3px; display:inline-block; cursor:pointer; transition:transform .15s; }
 .prov-hm2 .hm-c:hover { transform:scale(1.2); }
+/* ── Gráficos de proventos v2 ── */
+#provTab-graficos .prov-row2{grid-template-columns:1fr!important}
+#provBarras,#provPatrimonio,#provHeatmapCard{padding:20px 22px}
+.pgx-topo{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+.pgx-tit{font:800 18px 'DM Sans',sans-serif;color:var(--text)}
+.pgx-sub{font:500 13.5px 'DM Sans',sans-serif;color:var(--text2);margin-top:4px;line-height:1.5;max-width:760px}
+.pgx-leg{display:flex;gap:16px;flex-wrap:wrap;font:600 13px 'DM Sans',sans-serif;color:var(--text2)}
+.pgx-leg span{display:inline-flex;align-items:center;gap:7px}
+.pgx-leg i{width:12px;height:12px;border-radius:3px;display:inline-block}
+.pgx-leg b{color:var(--text)}
+.pgx-canvas{position:relative}
+.pgx-anos{display:flex;gap:4px;flex-wrap:wrap;padding:3px;border-radius:11px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)}
+.pgx-anos button{border:0;background:transparent;color:var(--text2);font:700 13px 'DM Sans',sans-serif;padding:7px 12px;border-radius:8px;cursor:pointer}
+.pgx-anos button.ativo{background:var(--gold);color:#1a191e}
+.pgx-hm{overflow:auto;max-height:640px;border-radius:10px;border:1px solid rgba(255,255,255,.05)}
+.pgx-hm table{width:100%;min-width:1100px;border-collapse:separate;border-spacing:3px;font:600 13px 'DM Sans',sans-serif}
+.pgx-hm thead th{position:sticky;top:0;z-index:2;background:#1f1e22;font:700 12.5px 'DM Sans',sans-serif;color:var(--text2);padding:8px 6px;text-align:right}
+.pgx-hm th.tk,.pgx-hm td.tk{position:sticky;left:0;z-index:1;background:#1f1e22;text-align:left;min-width:130px}
+.pgx-hm thead th.tk{z-index:3}
+.pgx-hm td{text-align:right;padding:8px 8px;border-radius:6px;color:var(--text);white-space:nowrap;font-variant-numeric:tabular-nums}
+.pgx-hm td.z{color:var(--text3);text-align:center;background:rgba(255,255,255,.02)}
+.pgx-hm td.f{color:#e8c766;background:rgba(201,169,97,.14);border:1px dashed rgba(232,199,102,.6)}
+.pgx-hm td.tt,.pgx-hm th.tt{font-weight:800;background:rgba(255,255,255,.04);min-width:110px}
+.pgx-hm tfoot td{font-weight:800;background:rgba(255,255,255,.04);position:sticky;bottom:0}
+.pgx-tk{display:inline-flex;align-items:center;gap:8px}
+.pgx-tk .asset-logo{width:26px;height:26px}
+.pgx-tk b{font:800 13.5px 'DM Sans',sans-serif}
+.light .pgx-hm thead th,.light .pgx-hm th.tk,.light .pgx-hm td.tk{background:#ebe7df}
+@media (max-width:760px){#provBarras,#provPatrimonio,#provHeatmapCard{padding:14px 12px}.pgx-tit{font-size:16px}}
+
 /* ── Calendário de proventos v2 ── */
 #provCalCard,#provCalLista{padding:20px 22px}
 .pcal-topo{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px;flex-wrap:wrap}
@@ -9449,109 +9479,107 @@ function provCalNav(dir){
 }
 
 function renderProvGraficos(){
-  var allDivs  = getDividendosValidos();
-  var hoje     = new Date().toISOString().split('T')[0];
-  var aportes  = loadData('aportes',[]);
-  var recebidos= allDivs.filter(function(d){ return d.data<hoje && d.status!=='futuro'; });
-  var futuros  = allDivs.filter(function(d){ return d.data>=hoje || d.status==='futuro'; });
-  var fmtK     = function(v){ return v>=1000?'R$'+(v/1000).toFixed(1)+'k':'R$'+v.toFixed(0); };
+  // Gráficos v2: mês a mês (por tipo, com valores), ano a ano (com crescimento) e mapa ativo × mês com valores
+  var allDivs = getDividendosValidos();
+  var hoje    = new Date().toISOString().split('T')[0];
+  var MES     = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  var brl     = function(v){ return 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  var curto   = function(v){ return v >= 1000 ? (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' mil' : Math.round(v).toLocaleString('pt-BR'); };
+  var tipoDe  = function(d){ var t = String(d.tipo || ''); return /jcp|juros/i.test(t) ? 'JCP' : (/rend/i.test(t) ? 'Rendimento' : (/amort|restit|bonif/i.test(t) ? 'Outro' : 'Dividendo')); };
+  var futuro  = function(d){ return d.data >= hoje || d.status === 'futuro'; };
+  var CORES   = { Dividendo: 'rgba(201,169,97,.85)', JCP: 'rgba(96,165,250,.85)', Rendimento: 'rgba(46,204,113,.8)', Outro: 'rgba(150,146,140,.7)' };
+  var ROT     = { Dividendo: 'Dividendos', JCP: 'JCP', Rendimento: 'Rendimentos', Outro: 'Outros' };
+  var TIPOS   = ['Dividendo', 'JCP', 'Rendimento', 'Outro'];
+  var corTexto = document.body.classList.contains('light') ? '#3a4258' : '#b8b3ab', corGrade = document.body.classList.contains('light') ? 'rgba(0,0,0,.06)' : 'rgba(255,255,255,.06)';
+  window._provGfx = window._provGfx || {};
+  var novo = function(id, cfg){ if(window._provGfx[id]){ try { window._provGfx[id].destroy(); } catch(e){} } var c = document.getElementById(id); if(!c || typeof Chart === 'undefined') return; window._provGfx[id] = new Chart(c.getContext('2d'), cfg); };
+  var rotulos = function(fmt){ return { id: 'rotulos', afterDatasetsDraw: function(ch){
+    var c = ch.ctx, n = ch.data.labels.length; c.save(); c.font = "700 12px 'DM Sans', sans-serif"; c.textAlign = 'center'; c.fillStyle = corTexto;
+    for(var i = 0; i < n; i++){ var tot = 0, topo = null;
+      ch.data.datasets.forEach(function(ds, di){ var v = ds.data[i] || 0; if(!(v > 0)) return; tot += v; var el = ch.getDatasetMeta(di).data[i]; if(el && (topo === null || el.y < topo)) topo = el.y; });
+      if(tot > 0 && topo !== null) c.fillText(fmt(tot, i), ch.getDatasetMeta(0).data[i].x, topo - 7); }
+    c.restore(); } }; };
+  var tooltip = { backgroundColor: 'rgba(26,25,30,.96)', borderColor: 'rgba(201,169,97,.35)', borderWidth: 1, padding: 12, titleFont: { size: 13, weight: '700' }, bodyFont: { size: 13 }, footerFont: { size: 13, weight: '700' },
+    filter: function(c){ return c.raw > 0; }, callbacks: { label: function(c){ return '  ' + c.dataset.label + ': ' + brl(c.raw); }, footer: function(it){ return 'Total: ' + brl(it.reduce(function(s, c){ return s + c.raw; }, 0)); } } };
+  // padrão hachurado para "a receber"
+  var pc = document.createElement('canvas'); pc.width = 8; pc.height = 8; var g = pc.getContext('2d');
+  g.fillStyle = 'rgba(201,169,97,.28)'; g.fillRect(0, 0, 8, 8); g.strokeStyle = 'rgba(232,199,102,.95)'; g.lineWidth = 2; g.beginPath(); g.moveTo(0, 8); g.lineTo(8, 0); g.moveTo(-2, 2); g.lineTo(2, -2); g.moveTo(6, 10); g.lineTo(10, 6); g.stroke();
+  var hachura = g.createPattern(pc, 'repeat');
 
-  // Barras mensais
+  // ── 1) Mês a mês ──
   var barrasEl = document.getElementById('provBarras');
   if(barrasEl){
-    var now2=new Date(); var meses=[];
-    for(var i=-14;i<=3;i++){
-      var d3=new Date(now2.getFullYear(),now2.getMonth()+i,1);
-      var key2=d3.getFullYear()+'-'+(''+(d3.getMonth()+1)).padStart(2,'0');
-      var lbl=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][d3.getMonth()]+'/'+(d3.getFullYear()+'').slice(2);
-      var val=allDivs.filter(function(d){ return d.data.startsWith(key2); }).reduce(function(s,d){ return s+provBRL(d); },0);
-      meses.push({key:key2,label:lbl,val:val,future:i>0});
-    }
-    var maxB=Math.max(1,...meses.map(function(m){ return m.val; }));
-    barrasEl.innerHTML =
-      '<div class="prov-stab-title">📊 Evolução mensal de renda passiva'+
-        '<div style="display:flex;gap:10px">'+
-          '<span style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--text3)"><span style="width:8px;height:8px;background:rgba(46,204,113,0.65);border-radius:2px;display:inline-block"></span>Recebido</span>'+
-          '<span style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--text3)"><span style="width:8px;height:8px;background:rgba(201,169,97,0.35);border-radius:2px;display:inline-block"></span>Previsto</span>'+
-        '</div>'+
-      '</div>'+
-      '<div style="display:flex;align-items:flex-end;gap:4px;height:100px;padding:4px 0">'+
-        meses.map(function(m){
-          var h=Math.max(3,Math.round((m.val/maxB)*88));
-          return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">'+
-            '<div style="font-size:7px;color:'+(m.val>maxB*0.7?'var(--green)':'var(--text3)')+';white-space:nowrap">'+(m.val>=400?fmtK(m.val):'')+'</div>'+
-            '<div style="width:100%;height:'+h+'px;background:'+(m.future?'rgba(201,169,97,0.35)':'rgba(46,204,113,0.65)')+';border-radius:3px 3px 0 0;transition:height .5s"></div>'+
-            '<div style="font-size:7px;color:var(--text3);transform:rotate(-40deg);transform-origin:top center;margin-top:4px;white-space:nowrap">'+m.label+'</div>'+
-          '</div>';
-        }).join('')+
-      '</div>';
+    var ag = new Date(), meses = [];
+    for(var i = -14; i <= 3; i++){ var d = new Date(ag.getFullYear(), ag.getMonth() + i, 1); meses.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')); }
+    var porMes = {}; meses.forEach(function(k){ porMes[k] = { Dividendo: 0, JCP: 0, Rendimento: 0, Outro: 0, fut: 0 }; });
+    allDivs.forEach(function(d){ var k = d.data.slice(0, 7); if(!porMes[k]) return; var v = provBRL(d); if(futuro(d)) porMes[k].fut += v; else porMes[k][tipoDe(d)] += v; });
+    while(meses.length && meses[meses.length - 1] > hoje.slice(0, 7) && !(porMes[meses[meses.length - 1]].fut > 0)) meses.pop();
+    var tot = { Dividendo: 0, JCP: 0, Rendimento: 0, Outro: 0, fut: 0 }; meses.forEach(function(k){ Object.keys(tot).forEach(function(t){ tot[t] += porMes[k][t]; }); });
+    barrasEl.innerHTML = '<div class="pgx-topo"><div><div class="pgx-tit">Renda passiva mês a mês</div><div class="pgx-sub">Em reais, por tipo de provento. Os meses tracejados são pagamentos já aprovados, a receber.</div></div>' +
+      '<div class="pgx-leg">' + TIPOS.filter(function(t){ return tot[t] > 0; }).map(function(t){ return '<span><i style="background:' + CORES[t] + '"></i>' + ROT[t] + ' <b>' + brl(tot[t]) + '</b></span>'; }).join('') +
+      (tot.fut > 0 ? '<span><i style="background:repeating-linear-gradient(45deg,#c9a961 0 3px,rgba(201,169,97,.35) 3px 6px)"></i>A receber <b>' + brl(tot.fut) + '</b></span>' : '') + '</div></div>' +
+      '<div class="pgx-canvas" style="height:320px"><canvas id="provGfxMes"></canvas></div>';
+    var ds = TIPOS.filter(function(t){ return tot[t] > 0; }).map(function(t){ return { label: ROT[t], data: meses.map(function(k){ return porMes[k][t]; }), backgroundColor: CORES[t], borderRadius: 4, borderSkipped: false, stack: 's', maxBarThickness: 54 }; });
+    ds.push({ label: 'A receber', data: meses.map(function(k){ return porMes[k].fut; }), backgroundColor: hachura, borderColor: 'rgba(232,199,102,.9)', borderWidth: 1, borderRadius: 4, borderSkipped: false, stack: 's', maxBarThickness: 54 });
+    novo('provGfxMes', { type: 'bar', data: { labels: meses.map(function(k){ return MES[parseInt(k.slice(5), 10) - 1] + '/' + k.slice(2, 4); }), datasets: ds }, plugins: [rotulos(function(v){ return curto(v); })],
+      options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 22 } }, interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: false }, tooltip: tooltip },
+        scales: { x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { color: corTexto, font: { size: 12.5, weight: '600' } } },
+                  y: { stacked: true, grid: { color: corGrade }, border: { display: false }, ticks: { color: corTexto, font: { size: 12 }, callback: function(v){ return 'R$ ' + curto(v); } } } } } });
   }
 
-  // Patrimônio vs Renda
+  // ── 2) Ano a ano ──
   var patEl = document.getElementById('provPatrimonio');
   if(patEl){
-    var porAnoR={}, porAnoA={};
-    recebidos.forEach(function(d){ var a=d.data.substring(0,4); porAnoR[a]=(porAnoR[a]||0)+provBRL(d); });
-    aportes.forEach(function(a){ var ano=a.data?a.data.substring(0,4):''; if(!ano) return; var v=(parseFloat(a.qtd)||0)*(parseFloat(a.preco)||0)*(a.op==='C'?1:-1); porAnoA[ano]=(porAnoA[ano]||0)+v; });
-    var anos=Object.keys(porAnoR).sort();
-    var rendaAcum=[], patAcum=[], ra=0, pa=0;
-    anos.forEach(function(a){ ra+=porAnoR[a]; pa+=(porAnoA[a]||0); rendaAcum.push(ra); patAcum.push(pa); });
-    var maxPat=Math.max(1,...patAcum,...rendaAcum);
-    var w=300, h=100;
-    var ptRenda=rendaAcum.map(function(v,i){ return [(i/(anos.length-1||1))*w, h-(v/maxPat)*h*0.9]; });
-    var ptPat=patAcum.map(function(v,i){ return [(i/(anos.length-1||1))*w, h-(v/maxPat)*h*0.9]; });
-    var poly=function(pts){ return pts.map(function(p){ return p[0].toFixed(1)+','+p[1].toFixed(1); }).join(' '); };
-    patEl.innerHTML =
-      '<div class="prov-stab-title">📈 Patrimônio vs Renda Passiva Acumulada</div>'+
-      '<div style="position:relative;height:120px">'+
-        '<svg viewBox="0 0 300 100" width="100%" height="100%" preserveAspectRatio="none">'+
-          '<polygon points="'+poly(ptPat)+' '+w+','+h+' 0,'+h+'" fill="rgba(52,152,219,0.08)"/>'+
-          '<polygon points="'+poly(ptRenda)+' '+w+','+h+' 0,'+h+'" fill="rgba(201,169,97,0.08)"/>'+
-          '<polyline points="'+poly(ptPat)+'" fill="none" stroke="#3498db" stroke-width="2"/>'+
-          '<polyline points="'+poly(ptRenda)+'" fill="none" stroke="#c9a961" stroke-width="2"/>'+
-        '</svg>'+
-        '<div style="position:absolute;bottom:0;left:0;right:0;display:flex;justify-content:space-between;font-size:9px;color:var(--text3)">'+
-          anos.filter(function(_,i){ return i===0||i===Math.floor(anos.length/2)||i===anos.length-1; }).map(function(a){ return '<span>'+a+'</span>'; }).join('')+
-        '</div>'+
-      '</div>'+
-      '<div style="display:flex;gap:16px;margin-top:8px;font-size:10px">'+
-        '<span style="display:flex;align-items:center;gap:4px;color:var(--text3)"><span style="width:16px;height:2px;background:#3498db;display:inline-block"></span>Patrimônio investido</span>'+
-        '<span style="display:flex;align-items:center;gap:4px;color:var(--text3)"><span style="width:16px;height:2px;background:#c9a961;display:inline-block"></span>Renda passiva acum.</span>'+
-      '</div>';
+    var porAno = {};
+    allDivs.forEach(function(d){ var a = d.data.slice(0, 4); var o = porAno[a] = porAno[a] || { rec: 0, fut: 0 }; if(futuro(d)) o.fut += provBRL(d); else o.rec += provBRL(d); });
+    var anos = Object.keys(porAno).sort();
+    var cres = anos.map(function(a, i){ if(!i) return null; var ant = porAno[anos[i - 1]].rec; return ant > 0 ? (porAno[a].rec / ant - 1) * 100 : null; });
+    var anoAtual = hoje.slice(0, 4);
+    var ultimoCompleto = anos.filter(function(a){ return a < anoAtual; }).pop();
+    var primeiro = anos[0];
+    var multiplo = (ultimoCompleto && primeiro && porAno[primeiro].rec > 0 && ultimoCompleto !== primeiro) ? porAno[ultimoCompleto].rec / porAno[primeiro].rec : null;
+    patEl.innerHTML = '<div class="pgx-topo"><div><div class="pgx-tit">Renda passiva ano a ano</div><div class="pgx-sub">Total recebido em cada ano e o crescimento sobre o ano anterior.' + (multiplo ? ' De ' + primeiro + ' para ' + ultimoCompleto + ', a renda passiva ficou <b style="color:var(--green)">' + multiplo.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' vezes maior</b>.' : '') + '</div></div></div>' +
+      '<div class="pgx-canvas" style="height:300px"><canvas id="provGfxAno"></canvas></div>';
+    novo('provGfxAno', { type: 'bar',
+      data: { labels: anos, datasets: [
+        { label: 'Recebido', data: anos.map(function(a){ return porAno[a].rec; }), backgroundColor: anos.map(function(a){ return a === anoAtual ? 'rgba(46,204,113,.55)' : 'rgba(46,204,113,.8)'; }), borderRadius: 6, borderSkipped: false, stack: 'a', maxBarThickness: 70 },
+        { label: 'A receber', data: anos.map(function(a){ return porAno[a].fut; }), backgroundColor: hachura, borderColor: 'rgba(232,199,102,.9)', borderWidth: 1, borderRadius: 6, borderSkipped: false, stack: 'a', maxBarThickness: 70 } ] },
+      plugins: [rotulos(function(v, i){ var c = cres[i]; return curto(v) + (c != null && anos[i] !== anoAtual ? '  ' + (c >= 0 ? '+' : '') + Math.round(c) + '%' : (anos[i] === anoAtual ? '  (em andamento)' : '')); })],
+      options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 24 } }, interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: false }, tooltip: tooltip },
+        scales: { x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { color: corTexto, font: { size: 13, weight: '700' } } },
+                  y: { stacked: true, grid: { color: corGrade }, border: { display: false }, ticks: { color: corTexto, font: { size: 12 }, callback: function(v){ return 'R$ ' + curto(v); } } } } } });
   }
 
-  // Heatmap ativo × mês
+  // ── 3) Mapa ativo × mês, com valores ──
   var hmEl = document.getElementById('provHeatmapCard');
   if(hmEl){
-    var anoHm = window._provHmAno || String(new Date().getFullYear());
-    var anos2 = [...new Set(allDivs.map(function(d){ return d.data.substring(0,4); }))].sort();
-    if(!anos2.includes(anoHm)) anoHm = anos2[anos2.length-1]||anoHm;
-    var hmDivs = allDivs.filter(function(d){ return d.data.startsWith(anoHm); });
-    var tickers = [...new Set(hmDivs.map(function(d){ return d.ticker; }))].sort();
-    var hmGrid = {};
-    hmDivs.forEach(function(d){ var m=parseInt(d.data.split('-')[1]); if(!hmGrid[d.ticker]) hmGrid[d.ticker]={}; hmGrid[d.ticker][m]=(hmGrid[d.ticker][m]||0)+provBRL(d); });
-    var allV=[]; tickers.forEach(function(t){ for(var m=1;m<=12;m++){ if(hmGrid[t]&&hmGrid[t][m]) allV.push(hmGrid[t][m]); } });
-    var maxHm=Math.max(1,...allV);
-    var mLbls=['J','F','M','A','M','J','J','A','S','O','N','D'];
-    var yearTabs=anos2.map(function(a){ return '<button onclick="window._provHmAno=\''+a+'\';renderProvGraficos()" style="padding:2px 8px;border-radius:4px;font-size:10px;border:0.5px solid '+(a===anoHm?'rgba(201,169,97,0.4)':'rgba(255,255,255,0.1)')+';background:'+(a===anoHm?'rgba(201,169,97,0.15)':'transparent')+';color:'+(a===anoHm?'#c9a961':'var(--text3)')+';cursor:pointer">'+a+'</button>'; }).join('');
-    hmEl.innerHTML =
-      '<div class="prov-stab-title">🗓️ Heatmap Ativo × Mês <div style="display:flex;gap:4px">'+yearTabs+'</div></div>'+
-      '<div class="prov-hm2"><table>'+
-        '<tr><th></th>'+mLbls.map(function(m){ return '<th>'+m+'</th>'; }).join('')+'</tr>'+
-        tickers.slice(0,12).map(function(t){
-          return '<tr><td class="hm-ticker">'+t+'</td>'+
-            mLbls.map(function(_,i){
-              var m=i+1; var v=(hmGrid[t]&&hmGrid[t][m])||0;
-              var intens=v>0?Math.max(0.12,v/maxHm):0;
-              return '<td><span class="hm-c" style="background:'+(v>0?'rgba(201,169,97,'+intens+')':'rgba(255,255,255,0.04)')+'" title="'+(v>0?t+' '+mLbls[i]+': R$'+v.toFixed(2):'—')+'"></span></td>';
-            }).join('')+'</tr>';
-        }).join('')+
-      '</table></div>'+
-      '<div style="display:flex;align-items:center;gap:6px;margin-top:10px">'+
-        '<span style="font-size:9px;color:var(--text3)">Menos</span>'+
-        [0.1,0.3,0.55,0.75,1].map(function(o){ return '<div style="width:14px;height:14px;border-radius:3px;background:rgba(201,169,97,'+o+')"></div>'; }).join('')+
-        '<span style="font-size:9px;color:var(--text3)">Mais</span>'+
-      '</div>';
+    var anosHm = [...new Set(allDivs.map(function(d){ return d.data.slice(0, 4); }))].sort();
+    var anoHm = window._provHmAno || hoje.slice(0, 4);
+    if(anosHm.indexOf(anoHm) < 0) anoHm = anosHm[anosHm.length - 1] || anoHm;
+    var grade = {}, futs = {}, totT = {}, max = 0;
+    allDivs.forEach(function(d){
+      if(d.data.slice(0, 4) !== anoHm) return;
+      var m = parseInt(d.data.slice(5, 7), 10), v = provBRL(d);
+      (grade[d.ticker] = grade[d.ticker] || {})[m] = (grade[d.ticker][m] || 0) + v;
+      if(futuro(d)) (futs[d.ticker] = futs[d.ticker] || {})[m] = true;
+      totT[d.ticker] = (totT[d.ticker] || 0) + v;
+    });
+    Object.keys(grade).forEach(function(t){ for(var m in grade[t]) if(grade[t][m] > max) max = grade[t][m]; });
+    var tks = Object.keys(grade).sort(function(a, b){ return totT[b] - totT[a]; });
+    var totMes = MES.map(function(_, i){ return tks.reduce(function(s, t){ return s + ((grade[t][i + 1]) || 0); }, 0); });
+    var fmtC = function(v){ return v >= 1000 ? (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' mil' : v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+    hmEl.innerHTML = '<div class="pgx-topo"><div><div class="pgx-tit">Quem pagou em cada mês</div><div class="pgx-sub">Valores em reais por ativo e mês. Verde mais forte = pagamento maior; dourado = a receber. Ativos do que mais pagou para o que menos pagou.</div></div>' +
+      '<div class="pgx-anos">' + anosHm.map(function(a){ return '<button class="' + (a === anoHm ? 'ativo' : '') + '" onclick="window._provHmAno=\'' + a + '\';renderProvGraficos()">' + a + '</button>'; }).join('') + '</div></div>' +
+      (tks.length ? '<div class="pgx-hm"><table><thead><tr><th class="tk">Ativo</th>' + MES.map(function(m){ return '<th>' + m + '</th>'; }).join('') + '<th class="tt">Total ' + anoHm + '</th></tr></thead><tbody>' +
+        tks.map(function(t){
+          return '<tr><td class="tk"><span class="pgx-tk">' + getLogoHtml(t, '') + '<b>' + t + '</b></span></td>' +
+            MES.map(function(_, i){ var v = grade[t][i + 1] || 0; if(!(v > 0)) return '<td class="z">·</td>';
+              var fut = futs[t] && futs[t][i + 1];
+              return '<td class="' + (fut ? 'f' : 'v') + '" style="' + (fut ? '' : 'background:rgba(46,204,113,' + (0.1 + 0.55 * Math.min(1, v / (max || 1))).toFixed(3) + ')') + '" title="' + t + ' · ' + MES[i] + '/' + anoHm + ': ' + brl(v) + (fut ? ' (a receber)' : '') + '">' + fmtC(v) + '</td>'; }).join('') +
+            '<td class="tt">' + brl(totT[t]) + '</td></tr>';
+        }).join('') +
+        '</tbody><tfoot><tr><td class="tk"><b>Total do mês</b></td>' + totMes.map(function(v){ return '<td>' + (v > 0 ? fmtC(v) : '·') + '</td>'; }).join('') + '<td class="tt">' + brl(totMes.reduce(function(s, v){ return s + v; }, 0)) + '</td></tr></tfoot></table></div>'
+      : '<div style="padding:30px;text-align:center;color:var(--text2)">Nenhum provento em ' + anoHm + '.</div>');
   }
 }
 
