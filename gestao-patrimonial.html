@@ -1197,6 +1197,18 @@ body:not(.light) .asset-logo{background:transparent;border-color:rgba(255,255,25
 .pv-ana-grade{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
 .pv-ana-grade .pv-card{margin-bottom:0}
 .pan-lista{display:flex;flex-direction:column;gap:12px}
+.pgx-hm th.pc,.pgx-hm td.pc{font-weight:700;color:var(--tx-t2);background:color-mix(in srgb, var(--text) 4%, transparent);min-width:86px;text-align:right}
+#pvGfxHm .pgx-hm table{min-width:980px}
+.pv-hm-fixa table{table-layout:fixed;width:100%}
+.pv-hm-fixa col.c-tk{width:124px}
+.pv-hm-fixa col.c-tt{width:124px}
+.pv-hm-fixa col.c-pc{width:74px}
+.pv-hm-fixa th.tk,.pv-hm-fixa td.tk{min-width:0!important;overflow:hidden;text-overflow:ellipsis}
+.pv-hm-fixa th.tt,.pv-hm-fixa td.tt{min-width:0!important}
+.pv-hm-fixa th.pc,.pv-hm-fixa td.pc{min-width:0!important}
+.pv-hm-fixa td{padding:8px 7px;font-size:12.5px}
+.pv-hm-filtros{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.pv-hm-nota{font:600 12.5px 'DM Sans',sans-serif;color:var(--gold);margin:-2px 0 10px}
 .pan-lista .pan-bar{margin-bottom:0}
 @media (max-width:1300px){.pv-ana-grade{grid-template-columns:repeat(2,minmax(0,1fr))}#pvAnaRitmo{grid-column:1 / -1}}
 @media (max-width:1100px){.pv-cal-duo{grid-template-columns:1fr}}
@@ -2316,7 +2328,6 @@ body:not(.light) .asset-logo{background:transparent;border-color:rgba(255,255,25
       </div>
 
       <div class="pv-sub" data-sub="graficos">
-        <div class="pv-grafico" id="pvGfxAtivo"></div>
         <div class="pv-grafico" id="pvGfxAno"></div>
         <div class="pv-grafico" id="pvGfxHm"></div>
       </div>
@@ -3966,7 +3977,8 @@ function calcRVTotal(){
   var el = null;
   function fmt(txt){
     var oculto = document.body.classList.contains('pat-hidden');
-    return String(txt).replace(/\$\[(-?[\d.]+)\]/g, function(_, n){ return oculto ? '••••' : fmtBRL(parseFloat(n)); });
+    return String(txt).replace(/\$U\[(-?[\d.]+)\]/g, function(_, n){ return oculto ? '••••' : 'US$ ' + parseFloat(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); })
+                      .replace(/\$\[(-?[\d.]+)\]/g, function(_, n){ return oculto ? '••••' : fmtBRL(parseFloat(n)); });
   }
   function esc(t){ return String(t).replace(/[&<>"]/g, function(c){ return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
   function mostrar(alvo, x, y){
@@ -10806,7 +10818,8 @@ function renderPvCalendario(){
 }
 
 // ── Gráficos: por ativo · ano a ano · quem pagou em cada mês ──
-var _pvGfx = { perAtivo: '12m', anoHm: null };
+var _pvGfx = { perAtivo: '12m', anoHm: null, moeda: 'BRL' };
+function pvGfxMoeda(m){ _pvGfx.moeda = m; renderPvGraficos(); }
 function pvGfxPer(v){ _pvGfx.perAtivo = v; renderPvGraficos(); }
 function pvGfxAno(a){ _pvGfx.anoHm = a; renderPvGraficos(); }
 function _pvChart(id, cfg){ if(_charts[id]){ try { _charts[id].destroy(); } catch(e){} } var c = document.getElementById(id); if(!c || typeof Chart === 'undefined') return; _charts[id] = new Chart(c.getContext('2d'), cfg); }
@@ -10815,33 +10828,6 @@ function renderPvGraficos(){
   var oculto = function(){ return document.body.classList.contains('pat-hidden'); };
   var nomes = {}; try { nomes = JSON.parse(localStorage.getItem('g20_tx_nomes') || '{}'); } catch(e){}
   var nomeDe = function(t){ return (typeof rvCotacoes !== 'undefined' && rvCotacoes[t] && rvCotacoes[t].nome) || nomes[t] || ''; };
-
-  // 1) Proventos por ativo
-  var boxA = document.getElementById('pvGfxAtivo');
-  if(boxA){
-    var d12 = new Date(); d12.setFullYear(d12.getFullYear() - 1); var lim = d12.toISOString().slice(0, 10);
-    var soma = {}, cl = {}, n = {}, tot = 0;
-    lista.forEach(function(p){ if(!p.data || _pvFuturo(p)) return; var per = _pvGfx.perAtivo;
-      if(per === '12m' && p.data < lim) return; if(per === 'ano' && p.data.slice(0, 4) !== anoAtual) return;
-      var v = _provTotalBRL(p); soma[p.ticker] = (soma[p.ticker] || 0) + v; n[p.ticker] = (n[p.ticker] || 0) + 1; cl[p.ticker] = _pvClasse(p); tot += v; });
-    var rk = Object.keys(soma).sort(function(a, b){ return soma[b] - soma[a]; });
-    var altura = Math.max(260, rk.length * 30 + 40);
-    boxA.innerHTML = '<div class="pv-grafico-topo"><div><div class="pv-titulo">Proventos por ativo</div><div class="pv-subtitulo">Quanto cada ativo pagou' + (_pvGfx.perAtivo === '12m' ? ' nos últimos 12 meses' : (_pvGfx.perAtivo === 'ano' ? ' em ' + anoAtual : ' desde o início')) + ': <b><span class="kpi-money">' + _txBRL(tot) + '</span></b> em ' + rk.length + ' ativos. A cor indica a classe.</div></div>' +
-      '<div class="tx2-grupo"><button class="tx2-pill' + (_pvGfx.perAtivo === '12m' ? ' ativo' : '') + '" onclick="pvGfxPer(\'12m\')">12 meses</button><button class="tx2-pill' + (_pvGfx.perAtivo === 'ano' ? ' ativo' : '') + '" onclick="pvGfxPer(\'ano\')">' + anoAtual + '</button><button class="tx2-pill' + (_pvGfx.perAtivo === 'tudo' ? ' ativo' : '') + '" onclick="pvGfxPer(\'tudo\')">Sempre</button></div></div>' +
-      '<div class="pv-legenda">' + _PV_ORDEM_CL.filter(function(c){ return rk.some(function(t){ return cl[t] === c; }); }).map(function(c){ return '<span><i style="background:' + _PV_CLASSES[c].cor + '"></i>' + _PV_CLASSES[c].rot + '</span>'; }).join('') + '</div>' +
-      (rk.length ? '<div class="pv-ativo-scroll"><div style="position:relative;height:' + altura + 'px"><canvas id="pvGfxAtivoCv"></canvas></div></div>' : '<div class="pcal-vazio">Nenhum provento recebido nesse período.</div>');
-    if(rk.length){
-      var rotV = { id: 'pvRotV', afterDatasetsDraw: function(ch){ var c = ch.ctx; c.save(); c.font = "700 12px 'DM Sans', sans-serif"; c.fillStyle = _gTextColor(); c.textBaseline = 'middle';
-        ch.getDatasetMeta(0).data.forEach(function(el, i){ var v = ch.data.datasets[0].data[i]; c.fillText(oculto() ? '••••' : _txBRL(v) + '  ·  ' + (v / tot * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%', el.x + 8, el.y); }); c.restore(); } };
-      _pvChart('pvGfxAtivoCv', { type: 'bar', plugins: [rotV],
-        data: { labels: rk, datasets: [{ data: rk.map(function(t){ return soma[t]; }), backgroundColor: rk.map(function(t){ return _PV_CLASSES[cl[t]].cor + 'd9'; }), borderRadius: 5, borderSkipped: false, barThickness: 20 }] },
-        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, layout: { padding: { right: 170 } },
-          plugins: { legend: { display: false }, tooltip: { callbacks: { title: function(it){ var t = it[0].label, nm = nomeDe(t); return t + (nm ? ' · ' + nm : ''); },
-            label: function(c){ var t = c.label; return ['  ' + _PV_CLASSES[cl[t]].rot, '  Recebido: ' + (oculto() ? '••••' : _txBRL(c.raw)), '  ' + n[t] + (n[t] === 1 ? ' pagamento' : ' pagamentos'), '  ' + (c.raw / tot * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '% do total']; } } } },
-          scales: { x: { grid: { color: _gGridColor() }, border: { display: false }, ticks: { color: _gTextColor(), font: { size: 11.5 }, callback: function(v){ return oculto() ? '' : 'R$ ' + _pvCurto(v); } } },
-                    y: { grid: { display: false }, border: { display: false }, ticks: { color: _gTextColor(), font: { size: 12.5, weight: '700' } } } } } });
-    }
-  }
 
   // 2) Renda passiva ano a ano
   var boxY = document.getElementById('pvGfxAno');
@@ -10868,27 +10854,43 @@ function renderPvGraficos(){
                   y: { stacked: true, grid: { color: _gGridColor() }, border: { display: false }, ticks: { color: _gTextColor(), font: { size: 12 }, callback: function(v){ return oculto() ? '' : 'R$ ' + _pvCurto(v); } } } } } });
   }
 
-  // 3) Quem pagou em cada mês
+  // 3) Quem pagou: por mês de um ano, ou "Todos" (colunas = anos)
   var boxH = document.getElementById('pvGfxHm');
   if(boxH){
     var anosH = Object.keys(lista.reduce(function(m, p){ if(p.data) m[p.data.slice(0, 4)] = 1; return m; }, {})).sort();
-    var ah = _pvGfx.anoHm && anosH.indexOf(_pvGfx.anoHm) >= 0 ? _pvGfx.anoHm : (anosH.indexOf(anoAtual) >= 0 ? anoAtual : anosH[anosH.length - 1]);
-    var grade = {}, futs = {}, totT = {}, mx = 0;
-    lista.forEach(function(p){ if(!p.data || p.data.slice(0, 4) !== ah) return; var m = parseInt(p.data.slice(5, 7), 10), v = _provTotalBRL(p);
-      (grade[p.ticker] = grade[p.ticker] || {})[m] = (grade[p.ticker][m] || 0) + v; if(_pvFuturo(p)) (futs[p.ticker] = futs[p.ticker] || {})[m] = true; totT[p.ticker] = (totT[p.ticker] || 0) + v; });
-    Object.keys(grade).forEach(function(t){ for(var m in grade[t]) if(grade[t][m] > mx) mx = grade[t][m]; });
+    var ah = _pvGfx.anoHm || 'todos';
+    if(ah !== 'todos' && anosH.indexOf(ah) < 0) ah = 'todos';
+    var todos = ah === 'todos';
+    var cols = todos ? anosH : _PV_MESES_CURTO.map(function(_, i){ return String(i + 1); });
+    var rotCol = function(c){ return todos ? c : _PV_MESES_CURTO[parseInt(c, 10) - 1]; };
+    var grade = {}, futs = {}, totT = {}, mx = 0, totGeral = 0;
+    lista.forEach(function(p){ if(!p.data) return; var a = p.data.slice(0, 4); if(!todos && a !== ah) return;
+      var c = todos ? a : String(parseInt(p.data.slice(5, 7), 10)), v = _provTotalBRL(p);
+      (grade[p.ticker] = grade[p.ticker] || {})[c] = (grade[p.ticker][c] || 0) + v; if(_pvFuturo(p)){ var ft = futs[p.ticker] = futs[p.ticker] || {}; ft[c] = (ft[c] || 0) + v; }
+      totT[p.ticker] = (totT[p.ticker] || 0) + v; totGeral += v; });
+    Object.keys(grade).forEach(function(t){ for(var c in grade[t]) if(grade[t][c] > mx) mx = grade[t][c]; });
     var tks = Object.keys(grade).sort(function(a, b){ return totT[b] - totT[a]; });
-    var totMes = _PV_MESES_CURTO.map(function(_, i){ return tks.reduce(function(s, t){ return s + (grade[t][i + 1] || 0); }, 0); });
-    var fc = function(v){ return v >= 1000 ? (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' mil' : v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
-    boxH.innerHTML = '<div class="pv-grafico-topo"><div><div class="pv-titulo">Quem pagou em cada mês</div><div class="pv-subtitulo">Valores em reais por ativo e mês. Verde mais forte = pagamento maior; dourado = a receber. Do ativo que mais pagou para o que menos pagou.</div></div>' +
-      '<div class="tx2-grupo pv-anos">' + anosH.map(function(a){ return '<button class="tx2-pill' + (a === ah ? ' ativo' : '') + '" onclick="pvGfxAno(\'' + a + '\')">' + a + '</button>'; }).join('') + '</div></div>' +
-      (tks.length ? '<div class="pgx-hm"><table><thead><tr><th class="tk">Ativo</th>' + _PV_MESES_CURTO.map(function(m){ return '<th>' + m + '</th>'; }).join('') + '<th class="tt">Total ' + ah + '</th></tr></thead><tbody>' +
+    var totCol = cols.map(function(c){ return tks.reduce(function(s, t){ return s + (grade[t][c] || 0); }, 0); });
+    // moeda: em dólar, tudo convertido pela cotação do dia
+    var usd = _pvGfx.moeda === 'USD', cot = (typeof rvUsdBRL !== 'undefined' && rvUsdBRL > 0) ? rvUsdBRL : 5.2;
+    var cv = function(v){ return usd ? v / cot : v; }, sim = usd ? 'US$ ' : 'R$ ', tk = usd ? '$U[' : '$[';
+    // valor cheio, sem "mil"; centavos só abaixo de 10 (senão 0,84 viraria 1)
+    var fc = function(v){ v = cv(v); return sim + (v < 10 ? v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Math.round(v).toLocaleString('pt-BR')); };
+    var ftot = function(v){ return sim + cv(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+    boxH.innerHTML = '<div class="pv-grafico-topo"><div><div class="pv-titulo">Quem pagou ' + (todos ? 'em cada ano' : 'em cada mês de ' + ah) + '</div><div class="pv-subtitulo">' +
+        (todos ? 'Quanto cada ativo pagou em cada ano, o total e a fatia de cada um. ' : 'Valores em reais por ativo e mês. ') + 'Verde mais forte = pagamento maior; dourado = a receber. Do ativo que mais pagou para o que menos pagou.</div></div>' +
+      '<div class="pv-hm-filtros"><div class="tx2-grupo" data-tip="' + (usd ? 'Convertido pela cotação de hoje: R$ ' + cot.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : 'Mostrar em dólar, pela cotação de hoje') + '"><button class="tx2-pill' + (!usd ? ' ativo' : '') + '" onclick="pvGfxMoeda(\'BRL\')">R$</button><button class="tx2-pill' + (usd ? ' ativo' : '') + '" onclick="pvGfxMoeda(\'USD\')">US$</button></div>' +
+      '<div class="tx2-grupo pv-anos"><button class="tx2-pill' + (todos ? ' ativo' : '') + '" onclick="pvGfxAno(\'todos\')">Todos</button>' + anosH.map(function(a){ return '<button class="tx2-pill' + (a === ah ? ' ativo' : '') + '" onclick="pvGfxAno(\'' + a + '\')">' + a + '</button>'; }).join('') + '</div></div></div>' +
+      (usd ? '<div class="pv-hm-nota">Valores em dólar, convertidos pela cotação de hoje (R$ ' + cot.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + ').</div>' : '') +
+      (tks.length ? '<div class="pgx-hm pv-hm-fixa"><table><colgroup><col class="c-tk">' + cols.map(function(){ return '<col>'; }).join('') + '<col class="c-tt"><col class="c-pc"></colgroup><thead><tr><th class="tk">Ativo</th>' + cols.map(function(c){ return '<th>' + rotCol(c) + '</th>'; }).join('') + '<th class="tt">' + (todos ? 'Total' : 'Total ' + ah) + '</th><th class="pc">% do total</th></tr></thead><tbody>' +
         tks.map(function(t){ return '<tr><td class="tk"><span class="pgx-tk">' + _txLogo({ kind: 'rv', ticker: t }) + '<b>' + _txEsc(t) + '</b></span></td>' +
-          _PV_MESES_CURTO.map(function(nm, i){ var v = grade[t][i + 1] || 0; if(!(v > 0)) return '<td class="z">·</td>'; var f = futs[t] && futs[t][i + 1];
-            return '<td class="' + (f ? 'f' : 'v') + '" style="' + (f ? '' : 'background:rgba(34,197,94,' + (0.1 + 0.55 * Math.min(1, v / (mx || 1))).toFixed(3) + ')') + '" data-tip-t="' + t + ' · ' + nm + '/' + ah + '" data-tip="' + (f ? 'hachura::A receber: ' : '#22c55e::Recebido: ') + '$[' + v.toFixed(2) + ']"><span class="kpi-money">' + fc(v) + '</span></td>'; }).join('') +
-          '<td class="tt"><span class="kpi-money">' + _txBRL(totT[t]) + '</span></td></tr>'; }).join('') +
-        '</tbody><tfoot><tr><td class="tk"><b>Total do mês</b></td>' + totMes.map(function(v){ return '<td>' + (v > 0 ? '<span class="kpi-money">' + fc(v) + '</span>' : '·') + '</td>'; }).join('') + '<td class="tt"><span class="kpi-money">' + _txBRL(totMes.reduce(function(s, v){ return s + v; }, 0)) + '</span></td></tr></tfoot></table></div>'
-      : '<div class="pcal-vazio">Nenhum provento em ' + ah + '.</div>');
+          cols.map(function(c){ var v = grade[t][c] || 0; if(!(v > 0)) return '<td class="z">·</td>'; var fv = (futs[t] && futs[t][c]) || 0, rv = v - fv, soFut = rv < 0.005;
+            // dourado só quando o valor inteiro é a receber; misturado fica verde, e o balão separa
+            var tip = (rv >= 0.005 ? '#22c55e::Recebido: ' + tk + cv(rv).toFixed(2) + ']' : '') + (fv > 0 ? (rv >= 0.005 ? '||' : '') + 'hachura::A receber: ' + tk + cv(fv).toFixed(2) + ']' : '') + (rv >= 0.005 && fv > 0 ? '||Total: ' + tk + cv(v).toFixed(2) + ']' : '');
+            return '<td class="' + (soFut ? 'f' : 'v') + '" style="' + (soFut ? '' : 'background:rgba(34,197,94,' + (0.1 + 0.55 * Math.min(1, v / (mx || 1))).toFixed(3) + ')') + '" data-tip-t="' + t + ' · ' + (todos ? c : rotCol(c) + '/' + ah) + '" data-tip="' + tip + '"><span class="kpi-money">' + fc(v) + '</span></td>'; }).join('') +
+          '<td class="tt"><span class="kpi-money">' + ftot(totT[t]) + '</span></td><td class="pc">' + (totT[t] / (totGeral || 1) * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%</td></tr>'; }).join('') +
+        '</tbody><tfoot><tr><td class="tk"><b>' + (todos ? 'Total do ano' : 'Total do mês') + '</b></td>' + totCol.map(function(v){ return '<td>' + (v > 0 ? '<span class="kpi-money">' + fc(v) + '</span>' : '·') + '</td>'; }).join('') + '<td class="tt"><span class="kpi-money">' + ftot(totGeral) + '</span></td><td class="pc">100%</td></tr></tfoot></table></div>'
+      : '<div class="pcal-vazio">Nenhum provento nesse período.</div>');
   }
 }
 
