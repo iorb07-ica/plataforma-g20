@@ -1216,6 +1216,10 @@ body:not(.light) .asset-logo{background:transparent;border-color:rgba(255,255,25
 .mh-leg i{width:16px;height:3px;border-radius:2px;display:inline-block}
 .mh-leg i.tracejado{background:repeating-linear-gradient(90deg,rgba(184,179,171,.9) 0 5px,transparent 5px 9px)}
 .mh-aviso{color:var(--gold)!important;font-weight:600}
+.mh-leg-bt{display:inline-flex;align-items:center;gap:7px;border:1px solid color-mix(in srgb, var(--text) 12%, transparent);background:transparent;color:var(--text);font:600 12.5px 'DM Sans',sans-serif;padding:5px 11px;border-radius:999px;cursor:pointer}
+.mh-leg-bt i{width:10px!important;height:10px!important;border-radius:3px!important}
+.mh-leg-bt.off{opacity:.42;text-decoration:line-through}
+.mh-leg-bt:hover{border-color:var(--gold)}
 .mh-evo-canvas{position:relative;height:300px}
 .mh-pills-per{margin:0 0 12px;width:fit-content;max-width:100%;overflow-x:auto;scrollbar-width:none}
 .mh-pills-per button{white-space:nowrap}
@@ -1698,8 +1702,8 @@ body:not(.light) .asset-logo{background:transparent;border-color:rgba(255,255,25
         <div class="mh-card mh-topo" id="mhTopo"></div>
         <div class="mh-grade">
           <div class="mh-card mh-evo">
-            <div class="mh-cab"><div><div class="mh-tit">Como o patrimônio evoluiu</div><div class="mh-sub">Em reais: patrimônio × total aportado (os bens entram na data de aquisição). Em rentabilidade: quanto os investimentos renderam, sem contar os aportes, comparados aos índices.</div></div>
-              <div class="mh-pills" id="mhEvoModo"><button data-v="reais" class="ativo" onclick="mhSetEvoModo('reais')">Em reais</button><button data-v="rent" onclick="mhSetEvoModo('rent')">Rentabilidade</button></div></div>
+            <div class="mh-cab"><div><div class="mh-tit">Como o patrimônio evoluiu</div><div class="mh-sub">Em reais: patrimônio × total aportado. Por classe: de onde veio o crescimento (clique na legenda para mostrar ou esconder cada camada). Rentabilidade: quanto os investimentos renderam, sem contar os aportes, comparados aos índices.</div></div>
+              <div class="mh-pills" id="mhEvoModo"><button data-v="reais" class="ativo" onclick="mhSetEvoModo('reais')">Em reais</button><button data-v="classe" onclick="mhSetEvoModo('classe')">Por classe</button><button data-v="rent" onclick="mhSetEvoModo('rent')">Rentabilidade</button></div></div>
             <div class="mh-pills mh-pills-per" id="mhEvoPer"><button data-v="6" onclick="mhSetEvoPer('6')">6 meses</button><button data-v="ytd" onclick="mhSetEvoPer('ytd')">No ano</button><button data-v="12" class="ativo" onclick="mhSetEvoPer('12')">12 meses</button><button data-v="24" onclick="mhSetEvoPer('24')">2 anos</button><button data-v="60" onclick="mhSetEvoPer('60')">5 anos</button><button data-v="max" onclick="mhSetEvoPer('max')">Desde o início</button></div>
             <div id="mhEvoRes"></div>
             <div class="mh-leg"><span id="mhEvoLeg" style="display:contents"></span><span id="mhEvoAviso" class="mh-aviso"></span></div>
@@ -3872,6 +3876,51 @@ function _mhBensNoMes(mes){
   var ref = mes + '-15';
   return loadPat().reduce(function(s, b){ if(b.dataAq && b.dataAq > ref) return s; return s + calcBemValorAtual(b) - (b.divida || 0); }, 0);
 }
+// Evolução por classe: mesma regra de patSerieRealVG, separada por classe
+var _MH_CLASSES = [
+  { k: 'Acao', rot: 'Ações', cor: '#22c55e' }, { k: 'FII', rot: 'FIIs', cor: '#c9a961' }, { k: 'FIAGRO', rot: 'FIAGROs', cor: '#a3e635' },
+  { k: 'FIInfra', rot: 'FI-Infra', cor: '#f59e0b' }, { k: 'Stock', rot: 'Stocks', cor: '#60a5fa' }, { k: 'REIT', rot: 'REITs', cor: '#a78bfa' },
+  { k: 'ETF', rot: 'ETFs', cor: '#22d3ee' }, { k: 'UCITs', rot: 'UCITs', cor: '#38bdf8' }, { k: 'Cripto', rot: 'Cripto', cor: '#f97316' },
+  { k: 'RF', rot: 'Renda fixa', cor: '#14b8a6' }, { k: 'Bens', rot: 'Bens (líquido)', cor: '#94a3b8' }
+];
+_mh.classesOff = _mh.classesOff || { Bens: true };      // bens começam desligados (achatariam as outras camadas)
+function mhToggleClasse(k){ _mh.classesOff[k] = !_mh.classesOff[k]; renderMhEvolucao(); }
+function _mhSerieClasses(labels){
+  var rfLista = loadRF(), rvAportes = loadRVAportes().slice().sort(function(a, b){ return a.data.localeCompare(b.data); });
+  var ult = labels[labels.length - 1], out = {};
+  _MH_CLASSES.forEach(function(c){ out[c.k] = labels.map(function(){ return 0; }); });
+  labels.forEach(function(mes, i){
+    var dataRef = mes + '-15';
+    // renda fixa (mesma conta da série do patrimônio)
+    out.RF[i] = rfLista.reduce(function(s, r){
+      if(!r.dataInicio || r.dataInicio > dataRef) return s;
+      if(r.encerrado){ var de = ''; if(r.resgates && r.resgates.length){ var ds = r.resgates.map(function(g){ return g.data || ''; }).filter(Boolean); if(ds.length) de = ds.sort().pop(); } if(de && de.substring(0, 7) < mes) return s; }
+      var dc = Math.max(0, Math.floor((new Date(dataRef) - new Date(r.dataInicio)) / 86400000)), taxa = parseFloat(r.taxa) / 100, rend = 0;
+      if(r.indexador === 'CDI') rend = (getCDI() / 100) * taxa; else if(r.indexador === 'Selic') rend = (getSelic() / 100) + taxa; else if(r.indexador === 'IPCA') rend = (getIPCA() / 100) + taxa; else if(r.indexador === 'IGPM') rend = (getIGPM() / 100) + taxa; else if(r.indexador === 'Prefixado') rend = taxa;
+      var fator = (['CDI', 'Selic'].indexOf(r.indexador) >= 0) ? Math.pow(1 + rend, diasUteisEstimados(dc) / 252) : Math.pow(1 + rend, dc / 365);
+      return s + (r._invOriginal || r.valorInv || 0) * fator;
+    }, 0);
+    out.Bens[i] = _mhBensNoMes(mes);
+    // renda variável por classe
+    var pos = {};
+    rvAportes.forEach(function(a){
+      if(!a || !a.data || a.data.substring(0, 7) > mes) return;
+      var p = pos[a.ticker] = pos[a.ticker] || { ticker: a.ticker, tipo: a.tipo || 'Acao', qtd: 0, totalInv: 0 };
+      var px = a.moeda === 'USD' ? a.preco * (a.fxRate || rvUsdBRL) : a.preco;
+      if(a.op === 'C' || !a.op){ p.qtd += a.qtd; p.totalInv += a.qtd * px; } else { var pm = p.qtd > 0 ? p.totalInv / p.qtd : 0; p.totalInv -= a.qtd * pm; p.qtd -= a.qtd; }
+    });
+    Object.keys(pos).forEach(function(t){
+      var p = pos[t]; if(p.qtd <= 0.001) return;
+      var br = rvIsBR(p.ticker, p.tipo), v;
+      if(mes === ult){ var cot = rvCotacoes[p.ticker]; v = cot ? p.qtd * (br ? cot.preco : cot.preco * rvUsdBRL) : p.totalInv; }
+      else { var h = _histEvoCache[_evoTickerSymbol(p.ticker, p.tipo)] || {}, px = h[mes]; v = (px && px > 0) ? p.qtd * px * (br ? 1 : rvUsdBRL) : p.totalInv; }
+      var k = out[p.tipo] ? p.tipo : 'Stock';
+      out[k][i] += v || 0;
+    });
+  });
+  return out;
+}
+
 function mhSetEvoPer(p){ _mh.evoPer = p; renderMhEvolucao(); }
 function mhSetEvoModo(m){ _mh.evoModo = m; renderMhEvolucao(); }
 
@@ -3924,6 +3973,28 @@ function renderMhEvolucao(){
         plugins: { legend: { display: false }, tooltip: Object.assign({}, tooltipBase, { callbacks: { label: function(c){ return '  ' + c.dataset.label + ': ' + (c.raw == null ? '—' : _mhPct(c.raw, 2)); } } }) },
         scales: { x: { grid: { display: false }, border: { display: false }, ticks: { color: txt, font: { size: 12, weight: '600' }, maxRotation: 0, autoSkip: true, maxTicksLimit: 13 } },
                   y: { grid: { color: grade }, border: { display: false }, ticks: { color: txt, font: { size: 12 }, callback: function(v){ return (v > 0 ? '+' : '') + v + '%'; } } } } } });
+    return;
+  }
+
+  if(_mh.evoModo === 'classe'){
+    var cls = _mhSerieClasses(labels);
+    var ativas = _MH_CLASSES.filter(function(c){ return cls[c.k].some(function(v){ return v > 0.5; }); });
+    var visiveis = ativas.filter(function(c){ return !_mh.classesOff[c.k]; });
+    var fimV = visiveis.reduce(function(s, c){ return s + cls[c.k][labels.length - 1]; }, 0);
+    var iniV = visiveis.reduce(function(s, c){ return s + cls[c.k][0]; }, 0);
+    if(res) res.innerHTML = '<div class="mh-evo-res"><span>Hoje, nas camadas visíveis <b><span class="kpi-money">' + fmtBRL(fimV) + '</span></b></span><span>Cresceu no período <b class="' + (fimV >= iniV ? 'pos' : 'neg') + '"><span class="kpi-money">' + (fimV >= iniV ? '+' : '') + fmtBRL(fimV - iniV) + '</span></b></span></div>';
+    if(leg) leg.innerHTML = ativas.map(function(c){ var off = !!_mh.classesOff[c.k];
+      return '<button class="mh-leg-bt' + (off ? ' off' : '') + '" onclick="mhToggleClasse(\'' + c.k + '\')" title="' + (off ? 'Mostrar ' : 'Esconder ') + c.rot + '"><i style="background:' + c.cor + '"></i>' + c.rot + '</button>'; }).join('');
+    var dsC = visiveis.map(function(c, i){
+      return { label: c.rot, data: cls[c.k], borderColor: c.cor, backgroundColor: c.cor + '8c', fill: i === 0 ? 'origin' : '-1', borderWidth: 1.5, tension: .3, pointRadius: 0, pointHoverRadius: 4 };
+    });
+    window._mhEvoChart = new Chart(g, { type: 'line', data: { labels: rot, datasets: dsC },
+      options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: false }, tooltip: Object.assign({}, tooltipBase, { itemSort: function(a, b){ return b.datasetIndex - a.datasetIndex; },
+          callbacks: { label: function(c){ return '  ' + c.dataset.label + ': ' + (oculto() ? '••••' : fmtBRL(c.raw)); },
+                       footer: function(it){ return oculto() ? '' : 'Total: ' + fmtBRL(it.reduce(function(s, c){ return s + c.raw; }, 0)); } } }) },
+        scales: { x: { grid: { display: false }, border: { display: false }, ticks: { color: txt, font: { size: 12, weight: '600' }, maxRotation: 0, autoSkip: true, maxTicksLimit: 13 } },
+                  y: { stacked: true, grid: { color: grade }, border: { display: false }, ticks: { color: txt, font: { size: 12 }, callback: function(v){ return oculto() ? '' : _mhCurto(v); } } } } } });
     return;
   }
 
