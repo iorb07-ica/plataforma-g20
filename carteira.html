@@ -2902,6 +2902,15 @@ body.pat-hidden .g-kpi-sub::after{justify-content:flex-start;padding-right:0;pad
 @media (max-width:760px){#tab-rebalancear .rb-card{padding:15px 14px}
   #tab-rebalancear .rb-tab-c,#tab-rebalancear .rb-tab-l,#tab-rebalancear .rb-tab-v .rb-tab-c,#tab-rebalancear .rb-tab-v .rb-tab-l{grid-template-columns:minmax(0,1fr) auto;row-gap:2px}
   #tab-rebalancear .rb-tab-c span:nth-child(n+3),#tab-rebalancear .rb-tab-v .rb-tab-l > *:nth-child(3),#tab-rebalancear .rb-tab-v .rb-tab-l > *:nth-child(4),#tab-rebalancear .rb-tab-v .rb-tab-l > *:nth-child(5),#tab-rebalancear .rb-tab-l .rb-tab-p{grid-column:1 / -1;text-align:left!important}}
+#tab-rebalancear .rb-ctrl{display:flex;align-items:center;gap:16px;margin:4px 0 10px}
+#tab-rebalancear .rb-ctrl input[type=range]{flex:1;accent-color:#c9a961;height:6px;cursor:pointer}
+#tab-rebalancear .rb-ctrl-v{display:flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid color-mix(in srgb, var(--text) 10%, transparent);border-radius:10px;padding:0 12px;height:44px}
+#tab-rebalancear .rb-ctrl-v span{font:700 14px 'DM Sans',sans-serif;color:var(--text2)}
+#tab-rebalancear .rb-ctrl-v input{width:120px;background:transparent;border:0;outline:0;color:var(--text);font:800 18px 'DM Sans',sans-serif;text-align:right}
+#tab-rebalancear .rb-zerar{font:500 13.5px 'DM Sans',sans-serif;color:var(--text2);margin-bottom:10px}
+#tab-rebalancear .rb-zerar b{color:var(--text)}
+#tab-rebalancear .rb-link{border:0;background:transparent;color:var(--gold);font:700 13.5px 'DM Sans',sans-serif;cursor:pointer;padding:0 0 0 6px}
+@media (max-width:760px){#tab-rebalancear .rb-ctrl{flex-wrap:wrap}#tab-rebalancear .rb-ctrl input[type=range]{flex-basis:100%}}
 #tab-rebalancear .rb-adm-tag{display:inline-block;margin-left:8px;padding:2px 9px;border-radius:9px;font:800 10.5px 'DM Sans',sans-serif;letter-spacing:.8px;background:rgba(201,169,97,.16);color:#e8c766;border:1px solid rgba(201,169,97,.35);vertical-align:middle}
 #tab-rebalancear .rb-mg{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-top:12px}
 #tab-rebalancear .rb-mi{display:flex;align-items:center;justify-content:space-between;gap:10px;background:color-mix(in srgb, var(--text) 3%, transparent);border:1px solid color-mix(in srgb, var(--text) 7%, transparent);border-left:3px solid var(--rbc);border-radius:10px;padding:10px 12px}
@@ -10409,19 +10418,50 @@ function _cgrSituacao(d){
     (d.reescalou ? '<div class="rb-nota">As metas somam ' + _cgrP(d.somaM) + '%; para comparar, foram reescaladas proporcionalmente para 100%.</div>' : '');
 }
 
+var _cgrAp = { v: null };   // valor escolhido pelo admin na barra (só na tela, não grava nada)
+function _cgrEhAdmin(){ return typeof _cg20IsAdmin !== 'undefined' && !!_cg20IsAdmin; }
 function _cgrAporte(d){
   var box = document.getElementById('rbAporte'); if(!box) return;
-  var f = d.folhas, ap = _cgrAporteMedio();
-  var cab = '<div class="rb-cab"><div><div class="rb-tit">Para onde iria o próximo aporte</div><div class="rb-sub">Simulação com o valor da média mensal que entrou na Carteira G20 nos últimos 12 meses. O dinheiro vai para as classes que estão abaixo da meta, na proporção do quanto falta para cada uma, sem vender nada. É assim que um aporte rebalanceia a carteira aos poucos.</div></div>';
-  if(!(ap > 0)){ box.innerHTML = cab + '</div><div class="rb-vazio">Ainda não há aportes suficientes nos últimos 12 meses para montar a simulação.</div>'; return; }
+  var media = _cgrAporteMedio(), adm = _cgrEhAdmin();
+  if(adm && _cgrAp.v == null) _cgrAp.v = media;
+  var ap = adm ? _cgrAp.v : media;
+  var sub = adm
+    ? 'Arraste ou digite o valor. O dinheiro vai para as classes que estão abaixo da meta, na proporção do quanto falta para cada uma, sem vender nada. A barra só simula na tela e não grava nada.'
+    : 'Simulação com o valor da média mensal que entrou na Carteira G20 nos últimos 12 meses. O dinheiro vai para as classes que estão abaixo da meta, na proporção do quanto falta para cada uma, sem vender nada. É assim que um aporte rebalanceia a carteira aos poucos.';
+  var html = '<div class="rb-cab"><div><div class="rb-tit">Para onde iria o próximo aporte' + (adm ? '<span class="rb-adm-tag">BARRA SÓ PARA VOCÊ</span>' : '') + '</div><div class="rb-sub">' + sub + '</div></div><div class="rb-ad" id="cgrAd"></div></div>';
+  if(adm){
+    var passo = d.T > 200000 ? 500 : (d.T > 20000 ? 100 : 50);
+    var max = Math.max(passo * 20, Math.ceil(Math.max(d.T * 0.2, media * 3) / passo) * passo);
+    if(ap > max) max = Math.ceil(ap / passo) * passo;
+    html += '<div class="rb-ctrl"><input type="range" id="cgrSl" min="0" step="' + passo + '" max="' + max + '" value="' + ap + '" oninput="cgrApSet(this.value, false, true)" aria-label="Valor do aporte">' +
+      '<div class="rb-ctrl-v"><span>R$</span><input id="cgrTxt" inputmode="numeric" value="' + (ap ? ap.toLocaleString('pt-BR') : '') + '" placeholder="0" oninput="cgrApDigitado(this)" aria-label="Valor do aporte em reais"></div></div>' +
+      '<div class="rb-zerar">Média mensal dos últimos 12 meses: <b>' + _cgrR(media) + '</b>' + (media > 0 ? ' <button class="rb-link" onclick="cgrApSet(' + media + ', true)">Usar a média</button>' : '') + ' · os alunos veem sempre a média, sem a barra.</div>';
+  } else if(ap > 0){
+    html += '<div class="rb-valor"><span>Aporte simulado</span><b>' + _cgrR(ap) + '</b></div>';
+  }
+  box.innerHTML = html + '<div id="rbFluxo"></div><div id="rbFluxoLista"></div>';
+  _cgrFluxo(d, ap);
+}
+function cgrApSet(v, moverBarra, deSlider){
+  _cgrAp.v = Math.max(0, Math.round(parseFloat(v) || 0));
+  var t = document.getElementById('cgrTxt'); if(t && (deSlider || document.activeElement !== t)) t.value = _cgrAp.v ? _cgrAp.v.toLocaleString('pt-BR') : '';
+  var sl = document.getElementById('cgrSl'); if(sl && !deSlider){ if(_cgrAp.v > +sl.max) sl.max = _cgrAp.v; sl.value = _cgrAp.v; }
+  _cgrFluxo(_cgrFolhas(), _cgrAp.v);
+}
+function cgrApDigitado(el){ var n = parseFloat(String(el.value).replace(/\./g, '').replace(/[^\d,]/g, '').replace(',', '.')) || 0; cgrApSet(n, true); }
+function _cgrFluxo(d, ap){
+  var f = d.folhas, fx = document.getElementById('rbFluxo'), ls = document.getElementById('rbFluxoLista'), adEl = document.getElementById('cgrAd');
+  if(!fx) return;
+  if(!(ap > 0)){
+    fx.innerHTML = '<div class="rb-vazio">' + (_cgrEhAdmin() ? 'Arraste a barra ou digite um valor para simular o aporte.' : 'Ainda não há aportes suficientes nos últimos 12 meses para montar a simulação.') + '</div>';
+    ls.innerHTML = ''; if(adEl) adEl.innerHTML = ''; return;
+  }
   var r = _cgrDistribuir(f, d.T, ap), T2 = d.T + ap;
   var ad0 = _cgrAderencia(f.map(function(x){ return [x.pa, x.meta]; })), ad1 = _cgrAderencia(f.map(function(x, i){ return [(x.atual + r[i]) / T2 * 100, x.meta]; }));
-  cab += '<div class="rb-ad"><span>Aderência</span><b>' + Math.round(ad0) + '% → <em>' + Math.round(ad1) + '%</em></b></div></div>';
+  if(adEl) adEl.innerHTML = '<span>Aderência</span><b>' + Math.round(ad0) + '% → <em>' + Math.round(ad1) + '%</em></b>';
   var rec = f.map(function(x, i){ return { f: x, v: r[i] }; }).filter(function(o){ return o.v >= 0.5; }).sort(function(a, b){ return b.v - a.v; });
   var fora = f.filter(function(x, i){ return r[i] < 0.5; });
-  box.innerHTML = cab + '<div class="rb-valor"><span>Aporte simulado</span><b>' + _cgrR(ap) + '</b></div><div id="rbFluxo"></div><div id="rbFluxoLista"></div>';
-  var fx = document.getElementById('rbFluxo'), ls = document.getElementById('rbFluxoLista');
-  var W = Math.max(320, Math.round(fx.clientWidth || box.clientWidth || 900)), mob = W < 560;
+  var W = Math.max(320, Math.round(fx.clientWidth || (fx.parentNode && fx.parentNode.clientWidth) || 900)), mob = W < 560;
   var minH = 38, gap = 10, y0 = 34, xs = 4, ws = 20, wd = 14, xd = W - (mob ? 150 : 250);
   var Hsrc = Math.max(200, rec.length * (minH + gap) - gap);
   var alt = rec.map(function(o){ return Math.max(minH, o.v / ap * Hsrc); });
