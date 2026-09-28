@@ -1209,6 +1209,14 @@ body:not(.light) .asset-logo{background:transparent;border-color:rgba(255,255,25
 .pv-hm-fixa td{padding:8px 7px;font-size:12.5px}
 .pv-hm-filtros{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .pv-hm-nota{font:600 12.5px 'DM Sans',sans-serif;color:var(--gold);margin:-2px 0 10px}
+/* linha de total em destaque */
+#pvGfxHm .pgx-hm tfoot td{padding:15px 8px!important;font:800 15px 'DM Sans',sans-serif!important;color:#e8c766!important;background:#2c2820!important;border-top:2px solid rgba(201,169,97,.55)!important}
+#pvGfxHm .pgx-hm tfoot td.tk b{font-size:14.5px;color:#e8c766}
+#pvGfxHm .pgx-hm tfoot td.tt{font-size:15.5px!important;background:#332d22!important}
+#pvGfxHm .pgx-hm tfoot td.pc{color:#e8c766!important}
+.light #pvGfxHm .pgx-hm tfoot td{background:#efe6d0!important;color:#8a6d2b!important}
+.light #pvGfxHm .pgx-hm tfoot td.tt{background:#e8dcc0!important}
+.light #pvGfxHm .pgx-hm tfoot td.tk b,.light #pvGfxHm .pgx-hm tfoot td.pc{color:#8a6d2b!important}
 .pan-lista .pan-bar{margin-bottom:0}
 @media (max-width:1300px){.pv-ana-grade{grid-template-columns:repeat(2,minmax(0,1fr))}#pvAnaRitmo{grid-column:1 / -1}}
 @media (max-width:1100px){.pv-cal-duo{grid-template-columns:1fr}}
@@ -10236,7 +10244,7 @@ function buscarProventosAuto(silent, forcarRefresh){
   var status = document.getElementById('provBuscarStatus');
   var btn    = document.getElementById('btnRVImportarProventos');
 
-  if(status) status.textContent = '⏳ Buscando proventos...';
+  if(status) status.textContent = '⏳ Buscando proventos dos seus ativos...';
   if(btn){ btn.textContent='Buscando...'; btn.disabled=true; }
 
   console.log('[Proventos GP] Iniciando: '+posBR.length+' BR + '+posUS.length+' US');
@@ -10264,7 +10272,8 @@ function buscarProventosAuto(silent, forcarRefresh){
   function _processarGrupoUS(lista, inicio){
     var grupo = lista.slice(inicio, inicio+5);
     var restantes = lista.length - inicio - grupo.length;
-    if(btn) btn.textContent = '⏳ US '+(inicio+grupo.length)+'/'+lista.length+'...';
+    if(btn) btn.textContent = '⏳ Atualizando... '+(inicio+grupo.length)+'/'+lista.length;
+    if(status) status.textContent = '⏳ Atualizando proventos dos ativos no exterior: '+(inicio+grupo.length)+' de '+lista.length;
     if(restantes>0) console.log('[Proventos GP US] Grupo '+(Math.floor(inicio/5)+1)+' ('+grupo.length+' ativos), '+restantes+' restantes');
     else console.log('[Proventos GP US] Último grupo ('+grupo.length+' ativos)');
 
@@ -10284,9 +10293,13 @@ function buscarProventosAuto(silent, forcarRefresh){
       if(prox >= lista.length){ _finalizarGP(); return; }
 
       console.log('[Proventos GP US] Aguardando 61s (rate limit Polygon)...');
-      if(btn) btn.textContent='⏳ Aguardando... ('+prox+'/'+lista.length+')';
-      if(status) status.textContent='⏳ Aguardando API US...';
-      setTimeout(function(){ _processarGrupoUS(lista, prox); }, 61000);
+      // a fonte gratuita libera 5 ativos por minuto: mostra o progresso e a contagem
+      if(btn) btn.textContent='⏳ Atualizando... '+prox+'/'+lista.length;
+      var falta = 61;
+      var _msgEspera = function(){ if(status) status.textContent = '⏳ Atualizando proventos dos ativos no exterior: '+prox+' de '+lista.length+'. A fonte gratuita libera 5 ativos por minuto: próximos em '+falta+' s'; };
+      _msgEspera();
+      var _cont = setInterval(function(){ falta--; if(falta <= 0){ clearInterval(_cont); return; } _msgEspera(); }, 1000);
+      setTimeout(function(){ clearInterval(_cont); _processarGrupoUS(lista, prox); }, 61000);
     });
   }
 
