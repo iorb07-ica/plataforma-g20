@@ -1698,7 +1698,7 @@ body:not(.light) .asset-logo{background:transparent;border-color:rgba(255,255,25
         <div class="mh-card mh-topo" id="mhTopo"></div>
         <div class="mh-grade">
           <div class="mh-card mh-evo">
-            <div class="mh-cab"><div><div class="mh-tit">Como o patrimônio evoluiu</div><div class="mh-sub">Em reais: patrimônio × total aportado. Em rentabilidade: quanto a carteira rendeu, sem contar os aportes, comparada aos índices.</div></div>
+            <div class="mh-cab"><div><div class="mh-tit">Como o patrimônio evoluiu</div><div class="mh-sub">Em reais: patrimônio × total aportado (os bens entram na data de aquisição). Em rentabilidade: quanto os investimentos renderam, sem contar os aportes, comparados aos índices.</div></div>
               <div class="mh-pills" id="mhEvoModo"><button data-v="reais" class="ativo" onclick="mhSetEvoModo('reais')">Em reais</button><button data-v="rent" onclick="mhSetEvoModo('rent')">Rentabilidade</button></div></div>
             <div class="mh-pills mh-pills-per" id="mhEvoPer"><button data-v="6" onclick="mhSetEvoPer('6')">6 meses</button><button data-v="ytd" onclick="mhSetEvoPer('ytd')">No ano</button><button data-v="12" class="ativo" onclick="mhSetEvoPer('12')">12 meses</button><button data-v="24" onclick="mhSetEvoPer('24')">2 anos</button><button data-v="60" onclick="mhSetEvoPer('60')">5 anos</button><button data-v="max" onclick="mhSetEvoPer('max')">Desde o início</button></div>
             <div id="mhEvoRes"></div>
@@ -3855,18 +3855,22 @@ function _mhCdiAcum(labels){
 }
 // Rentabilidade da carteira sem o efeito dos aportes (Dietz modificado mês a mês, encadeado)
 function _mhRentCarteira(labels, serie){
-  var bensLiq = loadPat().reduce(function(s, b){ return s + calcBemValorAtual(b) - (b.divida || 0); }, 0);
   var fluxo = {};
   loadRVAportes().forEach(function(a){ if(!a || !a.data) return; var k = a.data.slice(0, 7), px = a.moeda === 'USD' ? a.preco * (a.fxRate || rvUsdBRL) : a.preco; fluxo[k] = (fluxo[k] || 0) + (a.op === 'V' ? -1 : 1) * a.qtd * px; });
   loadRF().forEach(function(r){ if(r && r.dataInicio && !r.encerrado){ var k = r.dataInicio.slice(0, 7); fluxo[k] = (fluxo[k] || 0) + (r.valorInv || 0); } });
   var acc = 1, out = [0];
   for(var i = 1; i < labels.length; i++){
-    var v0 = serie[i - 1] - bensLiq, v1 = serie[i] - bensLiq, f = fluxo[labels[i]] || 0, den = v0 + 0.5 * f;
+    var v0 = serie[i - 1] - _mhBensNoMes(labels[i - 1]), v1 = serie[i] - _mhBensNoMes(labels[i]), f = fluxo[labels[i]] || 0, den = v0 + 0.5 * f;
     var r = den > 0 ? (v1 - v0 - f) / den : 0;
     if(!isFinite(r) || Math.abs(r) > 0.6) r = 0;       // protege contra buracos de dados
     acc *= 1 + r; out.push((acc - 1) * 100);
   }
   return out;
+}
+// Bens líquidos no mês: cada bem entra a partir da data de aquisição (mesma regra de patSerieRealVG)
+function _mhBensNoMes(mes){
+  var ref = mes + '-15';
+  return loadPat().reduce(function(s, b){ if(b.dataAq && b.dataAq > ref) return s; return s + calcBemValorAtual(b) - (b.divida || 0); }, 0);
 }
 function mhSetEvoPer(p){ _mh.evoPer = p; renderMhEvolucao(); }
 function mhSetEvoModo(m){ _mh.evoModo = m; renderMhEvolucao(); }
@@ -3924,15 +3928,16 @@ function renderMhEvolucao(){
   }
 
   // modo "Em reais": patrimônio × total aportado
-  var rv = loadRVAportes().slice().sort(function(a, b){ return a.data.localeCompare(b.data); }), rf = loadRF(), bensLiq = loadPat().reduce(function(s, b){ return s + calcBemValorAtual(b) - (b.divida || 0); }, 0);
+  var rv = loadRVAportes().slice().sort(function(a, b){ return a.data.localeCompare(b.data); }), rf = loadRF();
   var aport = labels.map(function(k){
     var fimM = new Date(parseInt(k.slice(0, 4), 10), parseInt(k.slice(5, 7), 10), 0).toISOString().slice(0, 10), inv = 0;
     rv.forEach(function(a){ if(a.data > fimM) return; var px = a.moeda === 'USD' ? a.preco * (a.fxRate || rvUsdBRL) : a.preco; inv += (a.op === 'V' ? -1 : 1) * a.qtd * px; });
     rf.forEach(function(r){ if(!r.encerrado && r.dataInicio && r.dataInicio <= fimM) inv += (r.valorInv || 0); });
-    return inv + bensLiq;
+    return inv + _mhBensNoMes(k);
   });
   var ult = serie[serie.length - 1], pri = serie[0], ga = ult - aport[aport.length - 1];
-  if(res) res.innerHTML = '<div class="mh-evo-res"><span>No período <b class="' + (ult >= pri ? 'pos' : 'neg') + '">' + _mhPct(pri > 0 ? (ult / pri - 1) * 100 : 0) + '</b></span><span>Patrimônio acima do aportado <b class="' + (ga >= 0 ? 'pos' : 'neg') + '"><span class="kpi-money">' + fmtBRL(ga) + '</span></b></span></div>';
+  var cresc = ult - pri, pctOk = pri > 0 && pri >= ult * 0.1;   // % só quando o início não é quase zero
+  if(res) res.innerHTML = '<div class="mh-evo-res"><span>Cresceu no período <b class="' + (cresc >= 0 ? 'pos' : 'neg') + '"><span class="kpi-money">' + (cresc >= 0 ? '+' : '') + fmtBRL(cresc) + '</span>' + (pctOk ? ' (' + _mhPct((ult / pri - 1) * 100) + ')' : '') + '</b></span><span>Patrimônio acima do aportado <b class="' + (ga >= 0 ? 'pos' : 'neg') + '"><span class="kpi-money">' + fmtBRL(ga) + '</span></b></span></div>';
   if(leg) leg.innerHTML = '<span><i style="background:#e8c766"></i>Patrimônio</span><span><i class="tracejado"></i>Total aportado</span>';
   var grad2 = g.createLinearGradient(0, 0, 0, 300); grad2.addColorStop(0, 'rgba(201,169,97,.35)'); grad2.addColorStop(1, 'rgba(201,169,97,0)');
   window._mhEvoChart = new Chart(g, { type: 'line',
