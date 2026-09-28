@@ -1226,9 +1226,27 @@ body:not(.light) .asset-logo{background:transparent;border-color:rgba(255,255,25
 .mh-chip.alfa{border-style:dashed}
 .mh-nota{font:500 12px 'DM Sans',sans-serif;color:var(--gold);margin-bottom:6px}
 .mh-renda{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+#mhRenda{display:flex;flex-direction:column}
+#mhRenda .mh-meta{margin-top:auto}
+.mh-renda b .kpi-money,.mh-num b .kpi-money,.mh-valor .kpi-money{font:inherit!important;color:inherit}
+.mh-pbars{display:grid;grid-template-columns:repeat(12,1fr);gap:5px;height:92px;margin-top:8px;align-items:end}
+.mh-pbar{display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;cursor:default}
+.mh-pbar-a{flex:1;width:100%;display:flex;flex-direction:column;justify-content:flex-end;border-radius:5px;background:color-mix(in srgb, var(--text) 4%, transparent);overflow:hidden}
+.mh-pbar-a i{display:block;width:100%;background:linear-gradient(180deg,#e8c766,#a08543);min-height:2px}
+.mh-pbar-a i.f{background:repeating-linear-gradient(45deg,rgba(232,199,102,.9) 0 3px,rgba(201,169,97,.35) 3px 6px)}
+.mh-pbar span{font:700 11px 'DM Sans',sans-serif;color:var(--text2)}
+.mh-pbar:hover .mh-pbar-a{outline:1px solid var(--gold)}
+.mh-prox{display:grid;grid-template-columns:44px minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:8px 0;border-top:1px solid color-mix(in srgb, var(--text) 7%, transparent)}
+.mh-prox:first-of-type{border-top:0}
+.mh-prox-d{text-align:center;border-radius:9px;background:color-mix(in srgb, var(--text) 5%, transparent);padding:5px 0;line-height:1}
+.mh-prox-d b{display:block;font:800 16px 'DM Sans',sans-serif;color:var(--text)}
+.mh-prox-d span{display:block;font:700 10px 'DM Sans',sans-serif;color:var(--gold);text-transform:uppercase;letter-spacing:.6px;margin-top:2px}
+.mh-prox-t{font:800 14.5px 'DM Sans',sans-serif;color:var(--text)}
+.mh-prox em{font:600 11.5px 'DM Sans',sans-serif;font-style:normal;color:var(--gold);background:rgba(201,169,97,.12);padding:2px 8px;border-radius:999px;white-space:nowrap}
+.mh-prox > span{font:800 14.5px 'DM Sans',sans-serif;color:#e8c766;white-space:nowrap}
 .mh-renda > div{background:color-mix(in srgb, var(--text) 4%, transparent);border-radius:12px;padding:12px 14px}
 .mh-renda span{display:block;font:600 12.5px 'DM Sans',sans-serif;color:var(--text2)}
-.mh-renda b{display:block;font:800 19px 'DM Sans',sans-serif;color:var(--text);margin:5px 0 2px}
+.mh-renda b{display:block;font:800 21px 'DM Sans',sans-serif;color:var(--text);margin:5px 0 2px}
 .mh-renda b.gold{color:#e8c766}
 .mh-renda em{display:block;font:500 12px 'DM Sans',sans-serif;font-style:normal;color:var(--text2);white-space:nowrap}
 .mh-renda em .kpi-money,.mh-num > span .kpi-money{display:inline!important}
@@ -3941,6 +3959,15 @@ function renderMcHome(){
   var d30 = new Date(); d30.setDate(d30.getDate() + 30); var lim30 = d30.toISOString().slice(0, 10);
   var prov = loadProventos(), p12 = 0, p30 = 0, n30 = 0;
   prov.forEach(function(p){ var fut = p.data > hoje || p.status === 'futuro', v = _provTotalBRL(p); if(!fut && p.data >= lim12) p12 += v; if(fut && p.data <= lim30){ p30 += v; n30++; } });
+  // últimos 12 meses, mês a mês (inclui o mês atual)
+  var mesesP = [], agoraD = new Date();
+  for(var mi = 11; mi >= 0; mi--){ var dm = new Date(agoraD.getFullYear(), agoraD.getMonth() - mi, 1); mesesP.push({ k: dm.getFullYear() + '-' + String(dm.getMonth() + 1).padStart(2, '0'), v: 0, f: 0 }); }
+  var idxP = {}; mesesP.forEach(function(m, i){ idxP[m.k] = i; });
+  prov.forEach(function(p){ var i = idxP[(p.data || '').slice(0, 7)]; if(i == null) return; var fut = p.data > hoje || p.status === 'futuro'; if(fut) mesesP[i].f += _provTotalBRL(p); else mesesP[i].v += _provTotalBRL(p); });
+  var maxP = Math.max.apply(null, mesesP.map(function(m){ return m.v + m.f; }).concat([1]));
+  var proxP = prov.filter(function(p){ return p.data >= hoje && (p.data > hoje || p.status === 'futuro'); }).sort(function(a, b){ return a.data.localeCompare(b.data); });
+  var agrP = [], vistoP = {};
+  proxP.forEach(function(p){ var k = p.ticker + '|' + p.data; if(vistoP[k]){ vistoP[k].v += _provTotalBRL(p); return; } vistoP[k] = { t: p.ticker, d: p.data, v: _provTotalBRL(p) }; agrP.push(vistoP[k]); });
   // meta
   var meta = 0; try { meta = parseFloat(JSON.parse(localStorage.getItem('g20_metaIF') || '{}').alvo) || 0; } catch(e){}
   var pctMeta = meta > 0 ? Math.min(100, total / meta * 100) : 0;
@@ -3978,10 +4005,18 @@ function renderMcHome(){
         ? 'Meta de <b><span class="kpi-money">' + fmtBRL(meta) + '</span></b> atingida. 🎉 Na regra dos 4% ao ano, esse patrimônio sustentaria cerca de <b><span class="kpi-money">' + fmtBRL(total * 0.04 / 12) + '</span> por mês</b>.'
         : 'Faltam <b><span class="kpi-money">' + fmtBRL(meta - total) + '</span></b> para a meta de <span class="kpi-money">' + fmtBRL(meta) + '</span>.')
     : 'Defina sua meta de independência financeira no Dashboard.';
+  var MESI = ['J','F','M','A','M','J','J','A','S','O','N','D'], MESN = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   document.getElementById('mhRenda').innerHTML = '<div class="mh-tit">Renda passiva e meta</div>' +
     '<div class="mh-renda"><div><span>Próximos 30 dias</span><b class="gold">' + _mhFmt(p30) + '</b><em>' + n30 + (n30 === 1 ? ' pagamento aprovado' : ' pagamentos aprovados') + '</em></div>' +
       '<div><span>Últimos 12 meses</span><b>' + _mhFmt(p12) + '</b><em>média de <span class="kpi-money">' + fmtBRL(p12 / 12) + '</span>/mês</em></div></div>' +
-    '<button class="mh-link" onclick="gpSwitchTab(\'proventos\', document.getElementById(\'gpTab-proventos\'))">Ver proventos →</button>' +
+    '<div class="mh-sub" style="margin-top:14px">Proventos mês a mês</div>' +
+    '<div class="mh-pbars">' + mesesP.map(function(m){ var n = parseInt(m.k.slice(5), 10) - 1, tot = m.v + m.f;
+      return '<div class="mh-pbar" title="' + MESN[n] + '/' + m.k.slice(2, 4) + ': ' + (m.v ? 'recebido ' + fmtBRL(m.v) : '') + (m.f ? (m.v ? ' · ' : '') + 'a receber ' + fmtBRL(m.f) : '') + (!tot ? 'sem proventos' : '') + '">' +
+        '<div class="mh-pbar-a">' + (m.f ? '<i class="f" style="height:' + (m.f / maxP * 100).toFixed(1) + '%"></i>' : '') + (m.v ? '<i style="height:' + (m.v / maxP * 100).toFixed(1) + '%"></i>' : '') + '</div><span>' + MESI[n] + '</span></div>'; }).join('') + '</div>' +
+    (agrP.length ? '<div class="mh-sub" style="margin-top:14px">Próximos pagamentos</div>' + agrP.slice(0, 3).map(function(x){
+        var dias = Math.round((new Date(x.d + 'T12:00:00') - new Date(hoje + 'T12:00:00')) / 86400000);
+        return '<div class="mh-prox"><div class="mh-prox-d"><b>' + x.d.slice(8, 10) + '</b><span>' + MESN[parseInt(x.d.slice(5, 7), 10) - 1] + '</span></div><b class="mh-prox-t">' + x.t + '</b><em>' + (dias <= 0 ? 'hoje' : 'em ' + dias + (dias === 1 ? ' dia' : ' dias')) + '</em><span class="kpi-money">' + fmtBRL(x.v) + '</span></div>'; }).join('') : '') +
+    '<button class="mh-link" onclick="gpSwitchTab(\'proventos\', document.getElementById(\'gpTab-proventos\'))">Ver todos os proventos →</button>' +
     '<div class="mh-meta"><div class="mh-meta-l"><span>Independência financeira</span><b>' + (meta > 0 ? Math.round(pctMeta) + '%' : '—') + '</b></div>' +
       '<div class="mh-meta-t"><i style="width:' + pctMeta.toFixed(1) + '%"></i></div><div class="mh-meta-s">' + metaTxt + '</div></div>';
 
