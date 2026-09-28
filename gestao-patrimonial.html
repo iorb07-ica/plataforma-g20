@@ -1217,6 +1217,14 @@ body:not(.light) .asset-logo{background:transparent;border-color:rgba(255,255,25
 .mh-leg i.tracejado{background:repeating-linear-gradient(90deg,rgba(184,179,171,.9) 0 5px,transparent 5px 9px)}
 .mh-aviso{color:var(--gold)!important;font-weight:600}
 .mh-evo-canvas{position:relative;height:300px}
+.mh-pills-per{margin:0 0 12px;width:fit-content;max-width:100%;overflow-x:auto;scrollbar-width:none}
+.mh-pills-per button{white-space:nowrap}
+.mh-chips{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.mh-chip{border:1px solid color-mix(in srgb, var(--text) 10%, transparent);border-radius:12px;padding:9px 14px;min-width:96px;text-align:center}
+.mh-chip b{display:block;font:800 18px 'DM Sans',sans-serif}
+.mh-chip span{display:block;font:600 12px 'DM Sans',sans-serif;color:var(--text2);margin-top:2px}
+.mh-chip.alfa{border-style:dashed}
+.mh-nota{font:500 12px 'DM Sans',sans-serif;color:var(--gold);margin-bottom:6px}
 .mh-renda{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
 .mh-renda > div{background:color-mix(in srgb, var(--text) 4%, transparent);border-radius:12px;padding:12px 14px}
 .mh-renda span{display:block;font:600 12.5px 'DM Sans',sans-serif;color:var(--text2)}
@@ -1712,10 +1720,11 @@ body:not(.light) .asset-logo{background:transparent;border-color:rgba(255,255,25
       <div class="mh-card mh-topo" id="mhTopo"></div>
       <div class="mh-grade">
         <div class="mh-card mh-evo">
-          <div class="mh-cab"><div><div class="mh-tit">Como o patrimônio evoluiu</div><div class="mh-sub">Patrimônio × total aportado: a distância entre as linhas é o quanto o dinheiro rendeu</div></div>
-            <div class="mh-pills" id="mhEvoPer"><button data-v="6" onclick="mhSetEvo(6)">6 meses</button><button data-v="12" class="ativo" onclick="mhSetEvo(12)">12 meses</button><button data-v="24" onclick="mhSetEvo(24)">24 meses</button></div></div>
-          <div class="mh-evo-res" id="mhEvoRes"></div>
-          <div class="mh-leg"><span><i style="background:#e8c766"></i>Patrimônio</span><span><i class="tracejado"></i>Total aportado</span><span id="mhEvoAviso" class="mh-aviso"></span></div>
+          <div class="mh-cab"><div><div class="mh-tit">Como o patrimônio evoluiu</div><div class="mh-sub">Em reais: patrimônio × total aportado. Em rentabilidade: quanto a carteira rendeu, sem contar os aportes, comparada aos índices.</div></div>
+            <div class="mh-pills" id="mhEvoModo"><button data-v="reais" class="ativo" onclick="mhSetEvoModo('reais')">Em reais</button><button data-v="rent" onclick="mhSetEvoModo('rent')">Rentabilidade</button></div></div>
+          <div class="mh-pills mh-pills-per" id="mhEvoPer"><button data-v="6" onclick="mhSetEvoPer('6')">6 meses</button><button data-v="ytd" onclick="mhSetEvoPer('ytd')">No ano</button><button data-v="12" class="ativo" onclick="mhSetEvoPer('12')">12 meses</button><button data-v="24" onclick="mhSetEvoPer('24')">2 anos</button><button data-v="60" onclick="mhSetEvoPer('60')">5 anos</button><button data-v="max" onclick="mhSetEvoPer('max')">Desde o início</button></div>
+          <div id="mhEvoRes"></div>
+          <div class="mh-leg"><span id="mhEvoLeg" style="display:contents"></span><span id="mhEvoAviso" class="mh-aviso"></span></div>
           <div class="mh-evo-canvas"><canvas id="mhEvoCanvas"></canvas></div>
         </div>
         <div class="mh-card" id="mhRenda"></div>
@@ -3804,7 +3813,7 @@ function calcRVTotal(){
 // 1) Quanto eu tenho  2) Como evoluiu  3) Mapa em blocos (tamanho = peso, cor =
 // rentabilidade ou dia)  4) Onde está o dinheiro  5) Renda passiva e meta.
 // Os blocos antigos seguem no HTML, escondidos, porque outras rotinas os atualizam.
-var _mh = { hmModo: 'total', evoMeses: 12 };
+var _mh = { hmModo: 'total', evoPer: '12', evoModo: 'reais' };
 function _mhFmt(v){ return '<span class="kpi-money">' + fmtBRL(v) + '</span>'; }
 function _mhCurto(v){ var a = Math.abs(v); return a >= 1e6 ? 'R$ ' + (v / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' mi' : (a >= 1e3 ? 'R$ ' + (v / 1e3).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' mil' : fmtBRL(v)); }
 function _mhPct(v, casas){ return (v >= 0 ? '+' : '') + v.toLocaleString('pt-BR', { minimumFractionDigits: casas == null ? 1 : casas, maximumFractionDigits: casas == null ? 1 : casas }) + '%'; }
@@ -3844,7 +3853,7 @@ function _mhCor(pct, modo){
   return t > 0 ? 'rgba(22,163,74,' + a.toFixed(2) + ')' : 'rgba(220,38,38,' + a.toFixed(2) + ')';
 }
 function mhSetHm(m){ _mh.hmModo = m; renderMhMapa(); }
-function mhSetEvo(n){ _mh.evoMeses = n; renderMhEvolucao(); }
+
 
 function renderMhMapa(){
   var box = document.getElementById('mhMapa'); if(!box) return;
@@ -3869,48 +3878,133 @@ function renderMhMapa(){
       (p.outros ? '' : ' onclick="abrirDrawerRV(\'' + p.t + '\')"') +
       ' title="' + p.t + (p.outros ? ' (' + p.outros + ' ativos pequenos)' : '') + ' · ' + peso.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '% da carteira · rentabilidade ' + _mhPct(p.total) + ' · hoje ' + _mhPct(p.dia, 2) + '">' +
       (medio ? '<b style="font-size:' + fs.toFixed(0) + 'px">' + p.t + '</b><span style="font-size:' + Math.max(11, fs * 0.62).toFixed(0) + 'px">' + _mhPct(v, _mh.hmModo === 'dia' ? 2 : 1) + '</span>' +
-        (grande ? '<em>' + peso.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '% · ' + _mhCurto(p.valor) + '</em>' : '') : '') +
+        (grande ? '<em>' + peso.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '% · <span class="kpi-money">' + _mhCurto(p.valor) + '</span></em>' : '') : '') +
     '</div>';
   }).join('');
 }
 
+// ── Evolução v2: prazos maiores e modo Rentabilidade (carteira × CDI × Ibovespa × S&P 500) ──
+var _mhBench = { ok: false, pedido: false, cdi: null, cdiAprox: false, ibov: null, sp: null };
+function _mhPrimeiroMes(){
+  var p = null; loadRVAportes().forEach(function(a){ if(a && a.data && (!p || a.data < p)) p = a.data; });
+  loadRF().forEach(function(r){ if(r && r.dataInicio && (!p || r.dataInicio < p)) p = r.dataInicio; });
+  return p ? p.slice(0, 7) : null;
+}
+function _mhMesesPeriodo(){
+  var hoje = new Date(), per = _mh.evoPer;
+  if(per === 'ytd') return Math.max(1, hoje.getMonth() + 1);          // base: dezembro do ano anterior
+  if(per === 'max'){ var p = _mhPrimeiroMes(); if(!p) return 12; return Math.max(2, (hoje.getFullYear() - parseInt(p.slice(0, 4), 10)) * 12 + (hoje.getMonth() + 1 - parseInt(p.slice(5, 7), 10)) + 1); }
+  var n = parseInt(per, 10) || 12, p0 = _mhPrimeiroMes();
+  if(p0){ var maxM = Math.max(2, (hoje.getFullYear() - parseInt(p0.slice(0, 4), 10)) * 12 + (hoje.getMonth() + 1 - parseInt(p0.slice(5, 7), 10)) + 1); n = Math.min(n, maxM); }
+  return n;
+}
+function _mhCarregarBench(labels, cb){
+  if(_mhBench.pedido){ if(_mhBench.ok) cb(); return; }
+  _mhBench.pedido = true;
+  var ini = _mhPrimeiroMes() || labels[0];
+  var hojeD = new Date(), dd = function(d){ return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear(); };
+  var iniD = new Date(parseInt(ini.slice(0, 4), 10), parseInt(ini.slice(5, 7), 10) - 2, 1);
+  // CDI mensal oficial (Banco Central, série 4391: % ao mês), em janelas de até 9 anos
+  var cdiP = fetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.4391/dados?formato=json&dataInicial=' + dd(iniD) + '&dataFinal=' + dd(hojeD))
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(arr){ if(!Array.isArray(arr) || !arr.length) return null; var m = {}; arr.forEach(function(x){ var p = String(x.data).split('/'); if(p.length === 3) m[p[2] + '-' + p[1]] = parseFloat(String(x.valor).replace(',', '.')); }); return m; })
+    .catch(function(){ return null; });
+  var hist = function(sym){ return fetch(PROXY_URL_RV + '/api/history?_src=monthly&symbol=' + encodeURIComponent(sym) + '&from=' + ini).then(function(r){ return r.ok ? r.json() : null; }).then(function(d){ return d && d.prices ? d.prices : null; }).catch(function(){ return null; }); };
+  Promise.all([cdiP, hist('^BVSP'), hist('^GSPC')]).then(function(r){
+    _mhBench.cdi = r[0]; _mhBench.cdiAprox = !r[0]; _mhBench.ibov = r[1]; _mhBench.sp = r[2]; _mhBench.ok = true; cb();
+  });
+}
+function _mhIndexado(hist, labels){
+  if(!hist) return null;
+  var val = labels.map(function(k){ var v = hist[k]; if(!v){ for(var b = 1; b <= 3 && !v; b++){ var d = new Date(parseInt(k.slice(0, 4), 10), parseInt(k.slice(5, 7), 10) - 1 - b, 1); v = hist[d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')]; } } return v || null; });
+  var base = val[0]; if(!base) return null;
+  return val.map(function(v){ return v ? (v / base - 1) * 100 : null; });
+}
+function _mhCdiAcum(labels){
+  var taxaAprox = (typeof getCDI === 'function' ? getCDI() : 13.65) / 100, mensalAprox = (Math.pow(1 + taxaAprox, 1 / 12) - 1) * 100;
+  var acc = 1; return labels.map(function(k, i){ if(i === 0) return 0; var m = _mhBench.cdi && _mhBench.cdi[k] != null ? _mhBench.cdi[k] : mensalAprox; acc *= 1 + m / 100; return (acc - 1) * 100; });
+}
+// Rentabilidade da carteira sem o efeito dos aportes (Dietz modificado mês a mês, encadeado)
+function _mhRentCarteira(labels, serie){
+  var bensLiq = loadPat().reduce(function(s, b){ return s + calcBemValorAtual(b) - (b.divida || 0); }, 0);
+  var fluxo = {};
+  loadRVAportes().forEach(function(a){ if(!a || !a.data) return; var k = a.data.slice(0, 7), px = a.moeda === 'USD' ? a.preco * (a.fxRate || rvUsdBRL) : a.preco; fluxo[k] = (fluxo[k] || 0) + (a.op === 'V' ? -1 : 1) * a.qtd * px; });
+  loadRF().forEach(function(r){ if(r && r.dataInicio && !r.encerrado){ var k = r.dataInicio.slice(0, 7); fluxo[k] = (fluxo[k] || 0) + (r.valorInv || 0); } });
+  var acc = 1, out = [0];
+  for(var i = 1; i < labels.length; i++){
+    var v0 = serie[i - 1] - bensLiq, v1 = serie[i] - bensLiq, f = fluxo[labels[i]] || 0, den = v0 + 0.5 * f;
+    var r = den > 0 ? (v1 - v0 - f) / den : 0;
+    if(!isFinite(r) || Math.abs(r) > 0.6) r = 0;       // protege contra buracos de dados
+    acc *= 1 + r; out.push((acc - 1) * 100);
+  }
+  return out;
+}
+function mhSetEvoPer(p){ _mh.evoPer = p; renderMhEvolucao(); }
+function mhSetEvoModo(m){ _mh.evoModo = m; renderMhEvolucao(); }
+
 function renderMhEvolucao(){
   var cv = document.getElementById('mhEvoCanvas'); if(!cv || typeof Chart === 'undefined') return;
-  document.querySelectorAll('#mhEvoPer button').forEach(function(b){ b.classList.toggle('ativo', b.getAttribute('data-v') === String(_mh.evoMeses)); });
-  var labels = _evoMesLabels(_mh.evoMeses);
+  _mh.evoPer = _mh.evoPer || '12'; _mh.evoModo = _mh.evoModo || 'reais';
+  document.querySelectorAll('#mhEvoPer button').forEach(function(b){ b.classList.toggle('ativo', b.getAttribute('data-v') === _mh.evoPer); });
+  document.querySelectorAll('#mhEvoModo button').forEach(function(b){ b.classList.toggle('ativo', b.getAttribute('data-v') === _mh.evoModo); });
+  var labels = _evoMesLabels(_mhMesesPeriodo());
   try { ensureHistEvoVG(labels, function(){ renderMhEvolucao(); }); } catch(e){}
   var serie = null;
   if(_vgTemHistReal()){ try { serie = patSerieRealVG(labels); } catch(e){} }
-  var aviso = document.getElementById('mhEvoAviso');
+  var aviso = document.getElementById('mhEvoAviso'), res = document.getElementById('mhEvoRes'), leg = document.getElementById('mhEvoLeg');
   if(!serie || !serie.some(function(v){ return v > 0; })){ if(aviso) aviso.textContent = 'Carregando o histórico de cotações…'; return; }
   if(aviso) aviso.textContent = '';
-  // aportado acumulado no fim de cada mês (RV pelo custo, RF pelo valor aplicado, bens líquidos)
-  var rv = loadRVAportes(), rf = loadRF(), bensLiq = loadPat().reduce(function(s, b){ return s + calcBemValorAtual(b) - (b.divida || 0); }, 0);
-  var aport = labels.map(function(k){
-    var fim = new Date(parseInt(k.slice(0, 4), 10), parseInt(k.slice(5, 7), 10), 0).toISOString().slice(0, 10);
-    var inv = 0;
-    rv.slice().sort(function(a, b){ return a.data.localeCompare(b.data); }).forEach(function(a){ if(a.data > fim) return; var px = a.moeda === 'USD' ? a.preco * (a.fxRate || rvUsdBRL) : a.preco; inv += (a.op === 'V' ? -1 : 1) * a.qtd * px; });
-    rf.forEach(function(r){ if(!r.encerrado && r.dataInicio && r.dataInicio <= fim) inv += (r.valorInv || 0); });
-    return inv + bensLiq;
-  });
   var mes = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   var rot = labels.map(function(k){ return mes[parseInt(k.slice(5), 10) - 1] + '/' + k.slice(2, 4); });
-  var ult = serie[serie.length - 1], pri = serie[0], ga = ult - aport[aport.length - 1];
-  var res = document.getElementById('mhEvoRes');
-  if(res) res.innerHTML = '<span>No período <b class="' + (ult >= pri ? 'pos' : 'neg') + '">' + _mhPct(pri > 0 ? (ult / pri - 1) * 100 : 0) + '</b></span><span>Patrimônio acima do aportado <b class="' + (ga >= 0 ? 'pos' : 'neg') + '"><span class="kpi-money">' + fmtBRL(ga) + '</span></b></span>';
-  if(window._mhEvoChart){ try { window._mhEvoChart.destroy(); } catch(e){} }
   var claro = document.body.classList.contains('light'), txt = claro ? '#3a4258' : '#b8b3ab', grade = claro ? 'rgba(0,0,0,.06)' : 'rgba(255,255,255,.06)';
-  var g = cv.getContext('2d'), grad = g.createLinearGradient(0, 0, 0, 300); grad.addColorStop(0, 'rgba(201,169,97,.35)'); grad.addColorStop(1, 'rgba(201,169,97,0)');
-  var oculto = document.body.classList.contains('pat-hidden');
+  var oculto = function(){ return document.body.classList.contains('pat-hidden'); };
+  var g = cv.getContext('2d');
+  if(window._mhEvoChart){ try { window._mhEvoChart.destroy(); } catch(e){} window._mhEvoChart = null; }
+  var tooltipBase = { backgroundColor: 'rgba(26,25,30,.96)', borderColor: 'rgba(201,169,97,.35)', borderWidth: 1, padding: 12, titleFont: { size: 13, weight: '700' }, bodyFont: { size: 13 } };
+
+  if(_mh.evoModo === 'rent'){
+    if(!_mhBench.ok){ if(aviso) aviso.textContent = 'Buscando CDI, Ibovespa e S&P 500…'; _mhCarregarBench(labels, function(){ renderMhEvolucao(); }); if(!_mhBench.ok) return; }
+    var cart = _mhRentCarteira(labels, serie), cdi = _mhCdiAcum(labels), ibov = _mhIndexado(_mhBench.ibov, labels), sp = _mhIndexado(_mhBench.sp, labels);
+    var fim = function(a){ if(!a) return null; for(var i = a.length - 1; i >= 0; i--) if(a[i] != null) return a[i]; return null; };
+    var chip = function(nome, v, cor){ return '<div class="mh-chip"><b style="color:' + cor + '">' + (v == null ? '—' : _mhPct(v, 2)) + '</b><span>' + nome + '</span></div>'; };
+    var vc = fim(cart), vcdi = fim(cdi);
+    if(res) res.innerHTML = '<div class="mh-chips">' + chip('Carteira', vc, '#e8c766') + chip('CDI', vcdi, '#9ca3af') + chip('Ibovespa', fim(ibov), '#22d3ee') + chip('S&P 500', fim(sp), '#60a5fa') +
+      (vc != null && vcdi != null ? '<div class="mh-chip alfa"><b class="' + (vc - vcdi >= 0 ? 'pos' : 'neg') + '">' + (vc - vcdi >= 0 ? '+' : '') + (vc - vcdi).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' p.p.</b><span>acima do CDI</span></div>' : '') + '</div>' +
+      (_mhBench.cdiAprox ? '<div class="mh-nota">CDI aproximado pela taxa atual (o Banco Central não respondeu agora).</div>' : '');
+    if(leg) leg.innerHTML = '<span><i style="background:#e8c766"></i>Carteira</span><span><i class="tracejado"></i>CDI</span><span><i style="background:#22d3ee"></i>Ibovespa</span><span><i style="background:#60a5fa"></i>S&P 500</span>';
+    var grad = g.createLinearGradient(0, 0, 0, 300); grad.addColorStop(0, 'rgba(201,169,97,.28)'); grad.addColorStop(1, 'rgba(201,169,97,0)');
+    var ds = [{ label: 'Carteira', data: cart, borderColor: '#e8c766', backgroundColor: grad, fill: 'origin', borderWidth: 2.8, tension: .3, pointRadius: 0, pointHoverRadius: 5 },
+              { label: 'CDI', data: cdi, borderColor: 'rgba(156,163,175,.9)', borderDash: [6, 5], borderWidth: 1.8, tension: .2, pointRadius: 0, fill: false }];
+    if(ibov) ds.push({ label: 'Ibovespa', data: ibov, borderColor: '#22d3ee', borderWidth: 1.8, tension: .3, pointRadius: 0, fill: false, spanGaps: true });
+    if(sp) ds.push({ label: 'S&P 500', data: sp, borderColor: '#60a5fa', borderWidth: 1.8, tension: .3, pointRadius: 0, fill: false, spanGaps: true });
+    window._mhEvoChart = new Chart(g, { type: 'line', data: { labels: rot, datasets: ds },
+      options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: false }, tooltip: Object.assign({}, tooltipBase, { callbacks: { label: function(c){ return '  ' + c.dataset.label + ': ' + (c.raw == null ? '—' : _mhPct(c.raw, 2)); } } }) },
+        scales: { x: { grid: { display: false }, border: { display: false }, ticks: { color: txt, font: { size: 12, weight: '600' }, maxRotation: 0, autoSkip: true, maxTicksLimit: 13 } },
+                  y: { grid: { color: grade }, border: { display: false }, ticks: { color: txt, font: { size: 12 }, callback: function(v){ return (v > 0 ? '+' : '') + v + '%'; } } } } } });
+    return;
+  }
+
+  // modo "Em reais": patrimônio × total aportado
+  var rv = loadRVAportes().slice().sort(function(a, b){ return a.data.localeCompare(b.data); }), rf = loadRF(), bensLiq = loadPat().reduce(function(s, b){ return s + calcBemValorAtual(b) - (b.divida || 0); }, 0);
+  var aport = labels.map(function(k){
+    var fimM = new Date(parseInt(k.slice(0, 4), 10), parseInt(k.slice(5, 7), 10), 0).toISOString().slice(0, 10), inv = 0;
+    rv.forEach(function(a){ if(a.data > fimM) return; var px = a.moeda === 'USD' ? a.preco * (a.fxRate || rvUsdBRL) : a.preco; inv += (a.op === 'V' ? -1 : 1) * a.qtd * px; });
+    rf.forEach(function(r){ if(!r.encerrado && r.dataInicio && r.dataInicio <= fimM) inv += (r.valorInv || 0); });
+    return inv + bensLiq;
+  });
+  var ult = serie[serie.length - 1], pri = serie[0], ga = ult - aport[aport.length - 1];
+  if(res) res.innerHTML = '<div class="mh-evo-res"><span>No período <b class="' + (ult >= pri ? 'pos' : 'neg') + '">' + _mhPct(pri > 0 ? (ult / pri - 1) * 100 : 0) + '</b></span><span>Patrimônio acima do aportado <b class="' + (ga >= 0 ? 'pos' : 'neg') + '"><span class="kpi-money">' + fmtBRL(ga) + '</span></b></span></div>';
+  if(leg) leg.innerHTML = '<span><i style="background:#e8c766"></i>Patrimônio</span><span><i class="tracejado"></i>Total aportado</span>';
+  var grad2 = g.createLinearGradient(0, 0, 0, 300); grad2.addColorStop(0, 'rgba(201,169,97,.35)'); grad2.addColorStop(1, 'rgba(201,169,97,0)');
   window._mhEvoChart = new Chart(g, { type: 'line',
     data: { labels: rot, datasets: [
-      { label: 'Patrimônio', data: serie, borderColor: '#e8c766', backgroundColor: grad, fill: true, tension: .35, borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5 },
+      { label: 'Patrimônio', data: serie, borderColor: '#e8c766', backgroundColor: grad2, fill: true, tension: .35, borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5 },
       { label: 'Total aportado', data: aport, borderColor: 'rgba(184,179,171,.8)', borderDash: [6, 5], borderWidth: 1.8, pointRadius: 0, pointHoverRadius: 4, fill: false, tension: .2 } ] },
     options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(26,25,30,.96)', borderColor: 'rgba(201,169,97,.35)', borderWidth: 1, padding: 12, titleFont: { size: 13, weight: '700' }, bodyFont: { size: 13 },
-        callbacks: { label: function(c){ return '  ' + c.dataset.label + ': ' + (oculto ? '••••' : fmtBRL(c.raw)); } } } },
+      plugins: { legend: { display: false }, tooltip: Object.assign({}, tooltipBase, { callbacks: { label: function(c){ return '  ' + c.dataset.label + ': ' + (oculto() ? '••••' : fmtBRL(c.raw)); } } }) },
       scales: { x: { grid: { display: false }, border: { display: false }, ticks: { color: txt, font: { size: 12, weight: '600' }, maxRotation: 0, autoSkip: true, maxTicksLimit: 13 } },
-                y: { grid: { color: grade }, border: { display: false }, ticks: { color: txt, font: { size: 12 }, callback: function(v){ return oculto ? '' : _mhCurto(v); } } } } } });
+                y: { grid: { color: grade }, border: { display: false }, ticks: { color: txt, font: { size: 12 }, callback: function(v){ return oculto() ? '' : _mhCurto(v); } } } } } });
 }
 
 function renderMcHome(){
@@ -4911,6 +5005,8 @@ function ensureHistEvoVG(mesLabels, cb){
     var uniq=syms.filter(function(s,i){return s&&syms.indexOf(s)===i;});
     if(!uniq.length) return;
     var fromMes=mesLabels[0];
+    // busca desde a primeira compra: o cache é único por ativo, e assim serve para qualquer prazo
+    loadRVAportes().forEach(function(a){ if(a && a.data && a.data.slice(0,7) < fromMes) fromMes = a.data.slice(0,7); });
     var toBuscar=uniq.filter(function(s){ return _histEvoCache[s]===undefined; });
     if(!toBuscar.length) return;
     Promise.all(toBuscar.map(function(sym){
@@ -7461,6 +7557,7 @@ function togglePatHide(){
   if(ico) ico.textContent = hidden ? '🙈' : '👁️';
   if(btn) btn.title = hidden ? 'Mostrar valores' : 'Ocultar valores';
   try{localStorage.setItem('g20_patHidden', hidden?'1':'0');}catch(e){}
+  try{ if(window._mhEvoChart) window._mhEvoChart.update('none'); }catch(e){}
 }
 (function(){
   try{
