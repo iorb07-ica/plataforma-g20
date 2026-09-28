@@ -2902,6 +2902,18 @@ body.pat-hidden .g-kpi-sub::after{justify-content:flex-start;padding-right:0;pad
 @media (max-width:760px){#tab-rebalancear .rb-card{padding:15px 14px}
   #tab-rebalancear .rb-tab-c,#tab-rebalancear .rb-tab-l,#tab-rebalancear .rb-tab-v .rb-tab-c,#tab-rebalancear .rb-tab-v .rb-tab-l{grid-template-columns:minmax(0,1fr) auto;row-gap:2px}
   #tab-rebalancear .rb-tab-c span:nth-child(n+3),#tab-rebalancear .rb-tab-v .rb-tab-l > *:nth-child(3),#tab-rebalancear .rb-tab-v .rb-tab-l > *:nth-child(4),#tab-rebalancear .rb-tab-v .rb-tab-l > *:nth-child(5),#tab-rebalancear .rb-tab-l .rb-tab-p{grid-column:1 / -1;text-align:left!important}}
+#tab-rebalancear .rb-adm-tag{display:inline-block;margin-left:8px;padding:2px 9px;border-radius:9px;font:800 10.5px 'DM Sans',sans-serif;letter-spacing:.8px;background:rgba(201,169,97,.16);color:#e8c766;border:1px solid rgba(201,169,97,.35);vertical-align:middle}
+#tab-rebalancear .rb-mg{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-top:12px}
+#tab-rebalancear .rb-mi{display:flex;align-items:center;justify-content:space-between;gap:10px;background:color-mix(in srgb, var(--text) 3%, transparent);border:1px solid color-mix(in srgb, var(--text) 7%, transparent);border-left:3px solid var(--rbc);border-radius:10px;padding:10px 12px}
+#tab-rebalancear .rb-mi-n{font:700 14px 'DM Sans',sans-serif;color:var(--text)}
+#tab-rebalancear .rb-mi-n em{display:block;font-style:normal;font:500 12px 'DM Sans',sans-serif;color:var(--text2);margin-top:2px}
+#tab-rebalancear .rb-mi-i{display:flex;align-items:center;gap:4px}
+#tab-rebalancear .rb-mi-i input{width:64px;height:38px;background:var(--bg3);border:1px solid color-mix(in srgb, var(--text) 12%, transparent);border-radius:9px;color:var(--text);font:800 16px 'DM Sans',sans-serif;text-align:center;outline:0}
+#tab-rebalancear .rb-mi-i input:focus{border-color:var(--gold)}
+#tab-rebalancear .rb-mi-i span{font:700 13px 'DM Sans',sans-serif;color:var(--text2)}
+#tab-rebalancear .rb-msoma{font:600 13px 'DM Sans',sans-serif;margin-top:12px;color:var(--text2)}
+#tab-rebalancear .rb-msoma.ok{color:#22c55e}#tab-rebalancear .rb-msoma.alerta{color:#f5b942}
+#tab-rebalancear .rb-msalvo{font:600 12.5px 'DM Sans',sans-serif;color:var(--text2)}#tab-rebalancear .rb-msalvo.ok{color:#22c55e}
 /* Balão padrão da plataforma */
 .g20-tip{position:fixed;z-index:10000;pointer-events:none;min-width:120px;max-width:280px;background:rgba(26,25,30,.96);border:1px solid rgba(201,169,97,.35);border-radius:8px;padding:10px 12px;box-shadow:0 10px 28px rgba(0,0,0,.45);color:#ecebe8;font:500 13px 'DM Sans',sans-serif;opacity:0;transform:translateY(4px);transition:opacity .12s ease,transform .12s ease}
 .g20-tip.on{opacity:1;transform:translateY(0)}
@@ -2912,6 +2924,7 @@ body.pat-hidden .g-kpi-sub::after{justify-content:flex-start;padding-right:0;pad
       <div class="rb-card" id="rbSituacao"></div>
       <div class="rb-card" id="rbAporte"></div>
       <div class="rb-card" id="rbTabela"></div>
+      <div class="rb-card" id="rbMetasAdm" style="display:none"></div>
     </div>
 
     <!-- TAB: IMPORTAR CSV -->
@@ -3292,7 +3305,7 @@ var _db_ready_cbs = [];
 var _DB_LOCAL_ONLY = ['indBCB_cache','indMkt_cache','cotacoesCache',
   'bonificacoes_cache','splits_cache'];
 
-var _DB_USER_KEYS = ['aportes','dividendos','rendaFixa','carteiraMeta',
+var _DB_USER_KEYS = ['aportes','dividendos','rendaFixa','carteiraMeta','cg20Meta',
   'splits','patrimonioBens','patrimonioSnaps','rvAportes',
   'tokenBrapi','tokenFmp','tokenLogoDev','tokenTwelve',
   'g20-theme'];
@@ -3307,7 +3320,10 @@ function _dbIsUserKey(k){
 // Chamado pelo Firebase Auth após login
 // Docs da carteira curada que o ALUNO pode ler. NUNCA inclui rvAportes,
 // rvDividendos, rendaFixa, patrimonioBens, patrimonioSnaps ou token* (dados pessoais/segredos).
-var CG20_PUBLIC_DOCS = ['aportes','dividendos','splits','carteiraMeta'];
+// cg20Meta = meta de alocação da CARTEIRA G20 (educativa). Fica separada de 'carteiraMeta',
+// que é a meta PESSOAL da Minha Carteira do admin: antes as duas usavam o mesmo documento
+// e uma apagava a outra (e o aluno acabava lendo a meta pessoal do admin).
+var CG20_PUBLIC_DOCS = ['aportes','dividendos','splits','cg20Meta'];
 function _dbInit(uid, callback){
   _db_uid = uid;
   _cg20RealAdmin = (uid === CG20_ADMIN_UID); // é o Israel?
@@ -3316,7 +3332,7 @@ function _dbInit(uid, callback){
     var _prevOwner = localStorage.getItem('g20_dados_owner');
     if(_prevOwner && _prevOwner !== uid){
       ['rvAportes','rvDividendos','aportes','dividendos','rendaFixa','splits',
-       'patrimonioBens','patrimonioSnaps','carteiraMeta','cotacoesCache',
+       'patrimonioBens','patrimonioSnaps','carteiraMeta','cg20Meta','cotacoesCache',
        'splits_cache','bonificacoes_cache'].forEach(function(k){
         try{ localStorage.removeItem('g20_'+k); }catch(e){}
       });
@@ -5874,7 +5890,7 @@ function renderGDesempenho(pos, posData, totalPos, totalInv){
 
 // ── DONUTS ─────────────────────────────────────────────────────
 var META_DEFAULTS = {Acao:45,FII:15,FIAGRO:0,Stock:15,REIT:5,ETF:10,Cripto:10};
-function getMeta(){ return loadData('carteiraMeta', META_DEFAULTS); }
+function getMeta(){ var m = loadData('cg20Meta', null); return (m && typeof m === 'object') ? m : META_DEFAULTS; }
 
 function salvarMeta(){
   var meta = {};
@@ -5885,7 +5901,7 @@ function salvarMeta(){
     meta[k] = v; soma += v;
   });
   if(Math.abs(soma-100)>0.5){ alert('Total deve ser 100%. Atual: '+soma.toFixed(1)+'%'); return; }
-  saveData('carteiraMeta', meta);
+  saveData('cg20Meta', meta);
   toggleEditMeta();
   renderGraficos();
 }
@@ -10301,7 +10317,7 @@ function showTab(t){
 // REBALANCEAMENTO (somente leitura, igual para admin e aluno)
 // Situação: anel duplo (carteira por fora, meta por dentro) · Próximo aporte:
 // fluxo com o valor da média mensal dos últimos 12 meses, sem controles ·
-// Distância da meta por classe. As metas vêm de 'carteiraMeta' (aba Gráficos).
+// Distância da meta por classe. As metas vêm de 'cg20Meta' (bloco de metas no fim desta aba, só admin).
 // ============================================================
 var CGR_CL = [
   {k:'Acao',l:'Ações BR',cor:'#22c55e'},{k:'FII',l:'FIIs',cor:'#facc15'},{k:'FIAGRO',l:'FIAGROs',cor:'#b7791f'},
@@ -10319,7 +10335,7 @@ function _cgrP(v, c){ return v.toLocaleString('pt-BR', { minimumFractionDigits: 
 
 // posição atual por classe + metas reescaladas para 100%
 function _cgrFolhas(){
-  var meta = (typeof getMeta === 'function' ? getMeta() : loadData('carteiraMeta', {})) || {};
+  var meta = (typeof getMeta === 'function' ? getMeta() : loadData('cg20Meta', {})) || {};
   var pos = calcPosicoes(), val = {};
   pos.forEach(function(p){
     var cot = cotacoes[p.ticker];
@@ -10440,7 +10456,47 @@ function _cgrTabela(d){
         '<b class="' + (aj >= 0 ? 'falta' : 'sobra') + '">' + (Math.abs(aj) < 1 ? '<span class="ok">na meta</span>' : (aj > 0 ? 'faltam ' : 'sobram ') + _cgrR(Math.abs(aj))) + '</b></div>'; }).join('') + '</div>';
 }
 
+
+// ── Metas da Carteira G20 (só o admin vê e edita; salva sozinho em 'cg20Meta') ──
+var _cgrMetaT = null;
+function _cgrMetasAdm(){
+  var box = document.getElementById('rbMetasAdm'); if(!box) return;
+  if(!(typeof _cg20IsAdmin !== 'undefined' && _cg20IsAdmin)){ box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = '';
+  if(document.getElementById('cgrMetaGrid')){ _cgrMetaSoma(); return; }   // não redesenha enquanto você digita
+  var meta = getMeta(), d = _cgrFolhas(), atual = {};
+  d.folhas.forEach(function(f){ atual[f.k] = f.pa; });
+  box.innerHTML = '<div class="rb-cab"><div><div class="rb-tit">Metas da Carteira G20<span class="rb-adm-tag">SÓ VOCÊ VÊ</span></div>' +
+    '<div class="rb-sub">A meta de alocação que os alunos veem nesta aba. Digite os percentuais; salva sozinho. Esta meta é só da Carteira G20 e não mexe na meta da sua Minha Carteira.</div></div>' +
+    '<span id="cgrMetaSalvo" class="rb-msalvo"></span></div>' +
+    '<div class="rb-mg" id="cgrMetaGrid">' + CGR_CL.map(function(c){
+      var v = parseFloat(meta[c.k]) || 0;
+      return '<div class="rb-mi" style="--rbc:' + c.cor + '"><div class="rb-mi-n">' + c.l + '<em>' + (atual[c.k] ? _cgrP(atual[c.k]) + '% hoje' : 'sem posição') + '</em></div>' +
+        '<div class="rb-mi-i"><input data-cgm="' + c.k + '" inputmode="decimal" value="' + (v || '') + '" placeholder="0" oninput="cgrMetaInput()" aria-label="Meta de ' + c.l + '"><span>%</span></div></div>'; }).join('') + '</div>' +
+    '<div id="cgrMetaSoma" class="rb-msoma"></div>';
+  _cgrMetaSoma();
+}
+function _cgrMetaLer(){ var m = {}; document.querySelectorAll('#cgrMetaGrid [data-cgm]').forEach(function(el){ m[el.getAttribute('data-cgm')] = parseFloat(String(el.value).replace(',', '.')) || 0; }); return m; }
+function _cgrMetaSoma(){
+  var el = document.getElementById('cgrMetaSoma'); if(!el) return;
+  var m = _cgrMetaLer(), s = Object.keys(m).reduce(function(a, k){ return a + m[k]; }, 0), ok = Math.abs(s - 100) < 0.05;
+  el.className = 'rb-msoma ' + (ok ? 'ok' : 'alerta');
+  el.innerHTML = 'Soma: <b>' + _cgrP(s) + '%</b>' + (ok ? ' ✓' : (s < 100 ? ' · faltam ' + _cgrP(100 - s) + '%' : ' · passou ' + _cgrP(s - 100) + '%') + '. Enquanto não fechar 100%, a aba reescala proporcionalmente.');
+}
+function cgrMetaInput(){
+  _cgrMetaSoma();
+  var st = document.getElementById('cgrMetaSalvo'); if(st){ st.textContent = 'Salvando…'; st.className = 'rb-msalvo'; }
+  clearTimeout(_cgrMetaT);
+  _cgrMetaT = setTimeout(function(){
+    var m = _cgrMetaLer();
+    if(Object.keys(m).reduce(function(a, k){ return a + m[k]; }, 0) <= 0){ if(st) st.textContent = ''; return; }
+    saveData('cg20Meta', m);
+    var s2 = document.getElementById('cgrMetaSalvo'); if(s2){ s2.textContent = '✓ Meta salva'; s2.className = 'rb-msalvo ok'; }
+    try { var d = _cgrFolhas(); if(d.folhas.length && d.T > 0 && d.somaM > 0){ document.getElementById('rbAporte').style.display = ''; document.getElementById('rbTabela').style.display = ''; _cgrSituacao(d); _cgrAporte(d); _cgrTabela(d); } } catch(e){}
+  }, 600);
+}
 function calcularRebalanceamento(){
+  _cgrMetasAdm();
   var d = _cgrFolhas();
   var sit = document.getElementById('rbSituacao'), apb = document.getElementById('rbAporte'), tab = document.getElementById('rbTabela');
   if(!sit) return;
