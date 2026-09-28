@@ -23,15 +23,50 @@
   if(typeof window.FLIX_CURRENT_EP === 'undefined') window.FLIX_CURRENT_EP = 84;
   if(typeof window.FLIX_CURRENT_TITLE === 'undefined') window.FLIX_CURRENT_TITLE = '';
 
-  // Busca o episódio mais recente do Firestore (roda uma vez por sessão)
+
+  /* ── Economia de leituras do sino ─────────────────────────────────────
+     O sino existe em todas as páginas e relia o Firestore a CADA página aberta.
+     Agora cada consulta guarda o resultado no aparelho por alguns minutos; ao
+     trocar de página dentro desse tempo, não lê nada. As datas (Timestamp)
+     são guardadas e reconstruídas, para o código que usa toMillis() funcionar. */
+  function _g20ParaCache(v){
+    if(v && typeof v.toMillis === 'function') return { __ts: v.toMillis() };
+    if(Array.isArray(v)) return v.map(_g20ParaCache);
+    if(v && typeof v === 'object'){ var o = {}; for(var k in v) o[k] = _g20ParaCache(v[k]); return o; }
+    return v;
+  }
+  function _g20DoCache(v){
+    if(v && typeof v === 'object' && v.__ts != null){ var ms = v.__ts; return { toMillis: function(){ return ms; }, toDate: function(){ return new Date(ms); }, seconds: Math.floor(ms / 1000) }; }
+    if(Array.isArray(v)) return v.map(_g20DoCache);
+    if(v && typeof v === 'object'){ var o = {}; for(var k in v) o[k] = _g20DoCache(v[k]); return o; }
+    return v;
+  }
+  function _g20Snap(itens){
+    var docs = itens.map(function(it){ var dados = _g20DoCache(it.d); return { id: it.id, data: function(){ return dados; } }; });
+    return { empty: !docs.length, size: docs.length, docs: docs, forEach: function(fn){ docs.forEach(fn); } };
+  }
+  window._g20NotifGet = function(chave, validadeMs, consultar){
+    var k = 'g20_nc_' + chave;
+    try {
+      var c = JSON.parse(localStorage.getItem(k) || 'null');
+      if(c && (Date.now() - c.em) < validadeMs) return Promise.resolve(_g20Snap(c.itens));
+    } catch(e){}
+    return consultar().then(function(snap){
+      var itens = [];
+      snap.forEach(function(doc){ itens.push({ id: doc.id, d: _g20ParaCache(doc.data() || {}) }); });
+      try { localStorage.setItem(k, JSON.stringify({ em: Date.now(), itens: itens })); } catch(e){}
+      return _g20Snap(itens);
+    });
+  };
+
+  // Busca o episódio mais recente do Firestore (guardado por 30 minutos)
   (function _fetchFlixEp(){
     try{
       if(!window.firebase || !window.firebase.firestore) return;
       var db = window.firebase.firestore();
-      db.collection('g20flix').doc('videos').collection('items')
-        .orderBy('ep', 'desc')
-        .limit(1)
-        .get()
+      window._g20NotifGet('flix', 30 * 60 * 1000, function(){
+        return db.collection('g20flix').doc('videos').collection('items').orderBy('ep', 'desc').limit(1).get();
+      })
         .then(function(snap){
           if(snap.empty) return;
           var data = snap.docs[0].data();
@@ -273,53 +308,29 @@
       var db = window.firebase && window.firebase.firestore ? window.firebase.firestore() : null;
       if(db){
         var lastLiveId = localStorage.getItem('g20_notifs_lastLive')||'';
-        db.collection('g20_aportes')
-          .orderBy('data','desc')
-          .limit(20)
-          .get()
+        // A Carteira G20 guarda os aportes em aportes_g20 (um documento por mês, com a
+        // lista de aportes dentro). Antes esta consulta apontava para "g20_aportes",
+        // que não existe nas regras: falhava sempre e a notificação nunca aparecia.
+        window._g20NotifGet('live', 30 * 60 * 1000, function(){
+          return db.collection('aportes_g20').orderBy('ordem', 'desc').limit(1).get();
+        })
           .then(function(snap){
             if(snap.empty) return;
-            // Agrupa por data (campo 'data' é string YYYY-MM-DD ou Timestamp)
-            var groups = {};
-            snap.forEach(function(doc){
-              var d = doc.data();
-              var rawDate = d.data || d.date || d.dt || '';
-              var dateKey = '';
-              if(rawDate && rawDate.toDate){
-                var dd = rawDate.toDate();
-                dateKey = dd.getFullYear()+'-'+String(dd.getMonth()+1).padStart(2,'0')+'-'+String(dd.getDate()).padStart(2,'0');
-              } else {
-                dateKey = String(rawDate).slice(0,10);
-              }
-              if(!dateKey) return;
-              if(!groups[dateKey]) groups[dateKey] = [];
-              groups[dateKey].push(d.ticker || d.ativo || '');
-            });
-            // Pega o grupo mais recente
-            var dates = Object.keys(groups).sort().reverse();
-            if(!dates.length) return;
-            var latestDate = dates[0];
-            var tickers = groups[latestDate].filter(Boolean);
-            var liveId = 'dyn-live-'+latestDate;
-            // Só notifica se for novo (não visto antes) e tiver 2+ aportes
+            var doc = snap.docs[0], d = doc.data() || {};
+            var tickers = (d.aportes || []).map(function(a){ return a && a.ticker; }).filter(Boolean);
+            var liveId = 'dyn-live-' + doc.id + '-' + tickers.length;
             if(tickers.length >= 2 && liveId !== lastLiveId){
-              var mes = (function(){
-                var meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-                var parts = latestDate.split('-');
-                return meses[parseInt(parts[1],10)-1]+'/'+(parts[0]||'');
-              })();
               var log = JSON.parse(localStorage.getItem(window.NOTIFS_LOG_KEY)||'[]');
               var jaViu = log.some(function(n){ return n.id===liveId; });
               if(!jaViu){
                 localStorage.setItem('g20_notifs_lastLive', liveId);
-                // Injeta na fila global de notificações via saveNotif
                 if(typeof window.saveNotif==='function'){
                   window.saveNotif({
                     id: liveId,
                     ico: '📊',
                     bg: 'rgba(201,169,97,.20)',
                     titulo: 'Live de aportes realizada',
-                    desc: tickers.length+' novos aportes na Carteira G20 · '+mes,
+                    desc: tickers.length+' aportes na Carteira G20' + (d.mesAno ? ' · ' + d.mesAno : ''),
                     ts: Date.now(),
                     link: 'carteira.html'
                   });
@@ -386,10 +397,9 @@
         try{ return JSON.parse(localStorage.getItem('g20_user_profile')||'{}').turma||''; }catch(e){ return ''; }
       })();
 
-      db.collection('g20_admin_notificacoes')
-        .orderBy('ts','desc')
-        .limit(10)
-        .get()
+      window._g20NotifGet('admin', 10 * 60 * 1000, function(){
+        return db.collection('g20_admin_notificacoes').orderBy('ts','desc').limit(10).get();
+      })
         .then(function(snap){
           if(snap.empty) return;
           var injected = [];
@@ -428,10 +438,9 @@
       var user = window.firebase.auth && window.firebase.auth().currentUser;
       if(!user) return;
       var db = window.firebase.firestore();
-      db.collection('feedback_respostas')
-        .where('uid','==',user.uid)
-        .limit(20)
-        .get()
+      window._g20NotifGet('fb_' + user.uid, 10 * 60 * 1000, function(){
+        return db.collection('feedback_respostas').where('uid','==',user.uid).limit(20).get();
+      })
         .then(function(snap){
           if(snap.empty) return;
           var injected = [];
@@ -466,11 +475,10 @@
       var user = window.firebase.auth && window.firebase.auth().currentUser;
       if(!user) return;
       var db = window.firebase.firestore();
-      db.collection('arena_notificacoes').doc(user.uid).collection('items')
-        .where('lido','==',false)
-        .orderBy('criadoEm','desc')
-        .limit(20)
-        .get()
+      window._g20NotifGet('arena_' + user.uid, 5 * 60 * 1000, function(){
+        return db.collection('arena_notificacoes').doc(user.uid).collection('items')
+          .where('lido','==',false).orderBy('criadoEm','desc').limit(20).get();
+      })
         .then(function(snap){
           if(snap.empty) return;
           var injected = [];
