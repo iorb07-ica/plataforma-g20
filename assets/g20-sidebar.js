@@ -1487,7 +1487,15 @@
     '  html body .sidebar.sidebar > .sidebar-collapse-btn{',
     '    position:fixed !important; right:auto !important;',
     '    left:var(--g20-sb-edge, 200px) !important; z-index:230 !important;',
+    /* a posição NÃO anima: o botão acompanha a borda quadro a quadro (antes a
+       transição própria de 0.22s fazia ele "perseguir" a borda, atrasado) */
+    '    transition:background .18s ease, width .18s ease, box-shadow .18s ease !important;',
+    '    will-change:left;',
     '  }',
+    /* recolher/expandir mais rápido e com a mesma curva na barra e no conteúdo */
+    '  :root{ --sidebar-transition:.26s cubic-bezier(.4,0,.2,1) !important; }',
+    '  html body .sidebar.sidebar{ transition:width .26s cubic-bezier(.4,0,.2,1), min-width .26s cubic-bezier(.4,0,.2,1) !important; }',
+    '  html body .main{ transition:margin-left .26s cubic-bezier(.4,0,.2,1) !important; }',
     /* tooltips antigos (::after) desligados — substituídos pelo balão fixo */
     '  html body .sidebar.sidebar .nav-item.nav-item::after,',
     '  html body .sidebar.sidebar .nav-item.nav-item:hover::after,',
@@ -1608,7 +1616,7 @@
     sb.addEventListener('transitionend', posicionarOrelha);
 
     /* recolher/expandir muda a largura com animação */
-    var mo = new MutationObserver(function(){ esconderTip(); acompanharAnimacao(500); });
+    var mo = new MutationObserver(function(){ esconderTip(); acompanharAnimacao(420); });
     mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
     mo.observe(sb, { attributes: true, attributeFilter: ['class'] });
 
