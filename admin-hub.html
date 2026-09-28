@@ -178,6 +178,13 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
       <span class="card-go">Verificar <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="arrow-right" aria-hidden="true" class="lucide lucide-arrow-right"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></span>
     </a>
 
+    <a href="#" onclick="abrirEventosCorp(event)" class="card" style="--ac:#e67e22;--acbg:rgba(230,126,34,.12);--acbd:rgba(230,126,34,.25)">
+      <div class="card-ico"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="lucide lucide-repeat"><path d="m17 2 4 4-4 4"></path><path d="M3 11v-1a4 4 0 0 1 4-4h14"></path><path d="m7 22-4-4 4-4"></path><path d="M21 13v1a4 4 0 0 1-4 4H3"></path></svg></div>
+      <div class="card-title">Eventos corporativos</div>
+      <div class="card-desc">Incorporacoes, mudancas de codigo e liquidacoes. Cada evento vira um aviso na Minha Carteira de quem tem o ativo.</div>
+      <span class="card-go">Cadastrar <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="arrow-right" aria-hidden="true" class="lucide lucide-arrow-right"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></span>
+    </a>
+
   </div>
 
   <div class="foot">G20 MASTERCLASS · PAINEL ADMIN · #NÃOFOISORTE</div>
@@ -912,5 +919,298 @@ auth.onAuthStateChanged(async function(user){
 if(window.lucide && lucide.createIcons) lucide.createIcons();
 </script>
 
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     EVENTOS CORPORATIVOS
+     Grava na coleção 'eventos_corporativos' (leitura: logados, escrita: admin).
+     A Minha Carteira (gestao-patrimonial.html) lê essa coleção e mostra o
+     aviso só para quem tinha o ativo antigo na data do evento. Nada muda na
+     carteira do aluno sem o clique dele.
+     Campos: id, tipo, de, para, data, fator, caixaPorCota, dataCaixa,
+             titulo, detalhe, fonte, ativo, criadoEm
+     ═══════════════════════════════════════════════════════════════════════ -->
+<style>
+#evcModal .evc-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px}
+#evcModal .evc-full{grid-column:1/-1}
+#evcModal label{display:flex;flex-direction:column;gap:6px;font-size:11.5px;font-weight:700;letter-spacing:.5px;color:#8b93a7;text-transform:uppercase}
+#evcModal label small{text-transform:none;letter-spacing:0;font-weight:500;color:#6b7a94;font-size:11.5px}
+#evcModal input,#evcModal select,#evcModal textarea{background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.12);border-radius:9px;color:#e8eaf0;font-family:'DM Sans',sans-serif;font-size:14px;padding:10px 12px;text-transform:none;letter-spacing:0;font-weight:500}
+#evcModal textarea{min-height:74px;resize:vertical;line-height:1.5}
+#evcModal input:focus,#evcModal select:focus,#evcModal textarea:focus{outline:none;border-color:rgba(230,126,34,.6)}
+#evcModal input[type=date]{color-scheme:dark}
+#evcModal .evc-sec{font-size:12px;font-weight:800;letter-spacing:1px;color:#e67e22;margin:22px 0 10px;text-transform:uppercase}
+#evcModal .evc-prev{background:rgba(230,126,34,.07);border:1px solid rgba(230,126,34,.25);border-radius:11px;padding:13px 15px;font-size:13px;line-height:1.6;color:#c9c6c1;margin-top:14px}
+#evcModal .evc-bt{padding:11px 20px;border-radius:10px;font-family:'DM Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer}
+#evcModal .evc-bt.pri{background:rgba(230,126,34,.16);border:1px solid rgba(230,126,34,.45);color:#f0a35e}
+#evcModal .evc-bt.pri:hover{background:rgba(230,126,34,.26)}
+#evcModal .evc-bt.sec{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);color:#8b93a7}
+#evcModal .evc-item{display:flex;gap:12px;align-items:flex-start;padding:13px 15px;border-radius:11px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);margin-bottom:9px}
+#evcModal .evc-item.off{opacity:.5}
+#evcModal .evc-item b{color:#e8eaf0;font-size:14px}
+#evcModal .evc-item .evc-meta{font-size:12px;color:#8b93a7;margin-top:3px;line-height:1.5}
+#evcModal .evc-item .evc-acts{margin-left:auto;display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
+#evcModal .evc-mini{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);color:#8b93a7;padding:6px 11px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
+#evcModal .evc-mini:hover{background:rgba(255,255,255,.1);color:#c9c6c1}
+#evcModal .evc-mini.del{color:#e63946;border-color:rgba(230,57,70,.35)}
+#evcModal .evc-tag{display:inline-block;padding:2px 8px;border-radius:9px;font-size:10px;font-weight:800;letter-spacing:.8px;margin-left:6px;vertical-align:middle}
+@media (max-width:620px){#evcModal .evc-grid{grid-template-columns:1fr}#evcModal .evc-item{flex-wrap:wrap}#evcModal .evc-item .evc-acts{margin-left:0}}
+</style>
+<div id="evcModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;
+     align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto">
+  <div style="background:#171b23;border:1px solid rgba(230,126,34,.25);border-radius:16px;
+       padding:26px 28px;width:100%;max-width:820px;box-shadow:0 24px 48px rgba(0,0,0,.6)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:1.2px;color:#e67e22">EVENTOS CORPORATIVOS</div>
+      <button onclick="fecharEventosCorp()" style="background:none;border:none;color:rgba(255,255,255,.5);font-size:22px;cursor:pointer;line-height:1">✕</button>
+    </div>
+    <div style="font-size:12.5px;color:#8b93a7;line-height:1.6">
+      Cadastre aqui quando um ativo for incorporado, mudar de código ou sair da bolsa. O aviso aparece na
+      Minha Carteira só para quem tinha o ativo antigo na data do evento, e nada muda sem o clique do aluno.
+      A troca é feita pelo custo, sem gerar lucro nem prejuízo.
+    </div>
+
+    <div class="evc-sec" id="evcFormTitulo">Novo evento</div>
+    <div class="evc-grid">
+      <label class="evc-full">Tipo
+        <select id="evcTipo" onchange="evcFormMudou()">
+          <option value="incorporacao">Incorporação (o ativo virou cotas de outro)</option>
+          <option value="mudanca_codigo">Mudança de código (mesmo ativo, código novo)</option>
+          <option value="liquidacao">Liquidação / saída da bolsa (não vira outro ativo)</option>
+        </select>
+      </label>
+      <label>Código antigo<input id="evcDe" placeholder="ex: IRDM11" oninput="this.value=this.value.toUpperCase();evcFormMudou()"></label>
+      <label id="evcParaBox">Código novo<input id="evcPara" placeholder="ex: IRIM11" oninput="this.value=this.value.toUpperCase();evcFormMudou()"></label>
+      <label>Data da troca<small>Quem tinha o ativo até essa data recebe o aviso</small><input id="evcData" type="date" onchange="evcFormMudou()"></label>
+      <label id="evcFatorBox">Cotas novas para cada 1 antiga<small>Use vírgula ou ponto. Ex: 0,884794245</small><input id="evcFator" inputmode="decimal" value="1" oninput="evcFormMudou()"></label>
+      <label>Dinheiro por cota (opcional)<small>R$ pago por cota antiga, se houve</small><input id="evcCaixa" inputmode="decimal" placeholder="ex: 4,306051918" oninput="evcFormMudou()"></label>
+      <label>Data do pagamento em dinheiro<small>Só se houve dinheiro</small><input id="evcDataCaixa" type="date" onchange="evcFormMudou()"></label>
+      <label class="evc-full">Título do aviso (opcional)<small>Em branco, eu monto sozinho</small><input id="evcTitulo" placeholder="" oninput="evcFormMudou()"></label>
+      <label class="evc-full">Explicação para o aluno (opcional)<small>Em branco, eu monto a partir dos números</small><textarea id="evcDetalhe" oninput="evcFormMudou()"></textarea></label>
+      <label class="evc-full">Fonte (opcional)<input id="evcFonte" placeholder="ex: Fato relevante de 27/11/2025"></label>
+    </div>
+
+    <div class="evc-prev" id="evcPrev"></div>
+
+    <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
+      <button class="evc-bt pri" id="evcSalvarBt" onclick="evcSalvar()">Salvar evento</button>
+      <button class="evc-bt sec" id="evcCancelarBt" onclick="evcLimpar()" style="display:none">Cancelar edição</button>
+    </div>
+    <div id="evcStatus" style="font-size:12.5px;color:#8b93a7;margin-top:12px;min-height:18px"></div>
+
+    <div class="evc-sec">Eventos cadastrados</div>
+    <div id="evcLista" style="font-size:13px;color:#8b93a7">Carregando…</div>
+    <div style="font-size:11.5px;color:#6b7a94;margin-top:12px;line-height:1.6">
+      O IRDM11 → IRIM11 também está gravado dentro do código da Minha Carteira, então funciona mesmo sem estar aqui.
+      Cada aluno guarda esta lista por até 12 horas; um evento novo pode levar esse tempo para aparecer para quem já abriu a página hoje.
+    </div>
+  </div>
+</div>
+
+<script>
+var _evcEditando = null, _evcCache = [];
+
+function abrirEventosCorp(ev){
+  if (ev) ev.preventDefault();
+  document.getElementById('evcModal').style.display = 'flex';
+  evcLimpar();
+  evcCarregar();
+}
+function fecharEventosCorp(){ document.getElementById('evcModal').style.display = 'none'; }
+document.addEventListener('keydown', function(e){
+  if (e.key !== 'Escape' && e.keyCode !== 27) return;
+  var m = document.getElementById('evcModal');
+  if (m && m.style.display === 'flex') fecharEventosCorp();
+});
+
+function _evcNum(s){
+  s = String(s == null ? '' : s).trim().replace(/\s/g, '');
+  if (!s) return NaN;
+  if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.');
+  return parseFloat(s);
+}
+function _evcDataBR(d){ return d ? d.split('-').reverse().join('/') : ''; }
+function _evcNumBR(n, casas){ return n.toLocaleString('pt-BR', { maximumFractionDigits: casas == null ? 9 : casas }); }
+function _evcEsc(t){ return String(t == null ? '' : t).replace(/[&<>"']/g, function(c){ return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; }); }
+function _evcTkOk(t){ return /^[A-Z0-9.\-]{2,12}$/.test(t); }
+
+function _evcLerForm(){
+  var tipo = document.getElementById('evcTipo').value;
+  var de   = document.getElementById('evcDe').value.trim().toUpperCase();
+  var para = tipo === 'liquidacao' ? '' : document.getElementById('evcPara').value.trim().toUpperCase();
+  var fator = tipo === 'liquidacao' ? 1 : _evcNum(document.getElementById('evcFator').value);
+  var caixa = _evcNum(document.getElementById('evcCaixa').value);
+  return {
+    tipo: tipo, de: de, para: para,
+    data: document.getElementById('evcData').value,
+    fator: fator, caixa: isNaN(caixa) ? 0 : caixa,
+    dataCaixa: document.getElementById('evcDataCaixa').value,
+    titulo: document.getElementById('evcTitulo').value.trim(),
+    detalhe: document.getElementById('evcDetalhe').value.trim(),
+    fonte: document.getElementById('evcFonte').value.trim()
+  };
+}
+function _evcTituloAuto(f){
+  if (f.tipo === 'liquidacao') return 'O ' + (f.de || '...') + ' foi liquidado e saiu da bolsa';
+  if (f.tipo === 'mudanca_codigo') return 'O ' + (f.de || '...') + ' mudou de código para ' + (f.para || '...');
+  return 'O ' + (f.de || '...') + ' foi incorporado pelo ' + (f.para || '...');
+}
+function _evcDetalheAuto(f){
+  var t = '';
+  if (f.tipo === 'liquidacao') {
+    t = 'O ' + f.de + ' deixou de ser negociado' + (f.data ? ' em ' + _evcDataBR(f.data) : '') + '.';
+  } else if (f.tipo === 'mudanca_codigo' && f.fator === 1) {
+    t = 'O ' + f.de + ' passou a ser negociado com o código ' + f.para + (f.data ? ' a partir de ' + _evcDataBR(f.data) : '') + '. A quantidade e o custo continuam os mesmos.';
+  } else {
+    t = 'Cada cota de ' + f.de + ' virou ' + _evcNumBR(f.fator) + ' cota de ' + f.para + (f.data ? ' (conversão em ' + _evcDataBR(f.data) + ')' : '') + '.';
+  }
+  if (f.caixa > 0) t += ' ' + (f.tipo === 'liquidacao' ? 'Foram pagos ' : 'Também foram pagos ') + 'R$ ' + _evcNumBR(f.caixa, 2) + ' em dinheiro por cota' + (f.dataCaixa ? ' (em ' + _evcDataBR(f.dataCaixa) + ')' : '') + '.';
+  if (f.tipo !== 'liquidacao' && f.fator % 1 !== 0) t += ' A fração de cota costuma ser vendida em leilão e paga em dinheiro.';
+  return t;
+}
+
+function evcFormMudou(){
+  var tipo = document.getElementById('evcTipo').value;
+  document.getElementById('evcParaBox').style.display  = tipo === 'liquidacao' ? 'none' : '';
+  document.getElementById('evcFatorBox').style.display = tipo === 'liquidacao' ? 'none' : '';
+  var f = _evcLerForm();
+  document.getElementById('evcTitulo').placeholder = _evcTituloAuto(f);
+  var ex = '';
+  if (f.tipo !== 'liquidacao' && f.fator > 0) {
+    var q = 100, qn = Math.floor(q * f.fator + 1e-9), fr = q * f.fator - qn;
+    ex = '<div style="margin-top:8px;font-size:12px;color:#8b93a7">Exemplo: quem tinha 100 ' + _evcEsc(f.de || 'cotas') + ' fica com <b style="color:#e8eaf0">' + qn + ' ' + _evcEsc(f.para || '') + '</b>' +
+      (fr > 0.0005 ? ' e a fração de ' + _evcNumBR(fr, 3) + ' em dinheiro' : '') +
+      (f.caixa > 0 ? ', mais R$ ' + _evcNumBR(q * f.caixa, 2) + ' em dinheiro' : '') + ', com o mesmo custo total.</div>';
+  }
+  document.getElementById('evcPrev').innerHTML =
+    '<div style="font-size:10.5px;font-weight:800;letter-spacing:.8px;color:#e67e22;margin-bottom:6px">COMO O ALUNO VAI VER</div>' +
+    '<b style="color:#e8eaf0">' + (f.tipo === 'liquidacao' ? '🏁 ' : '🔁 ') + _evcEsc(f.titulo || _evcTituloAuto(f)) + '</b><br>' +
+    _evcEsc(f.detalhe || (f.de ? _evcDetalheAuto(f) : 'Preencha os campos acima.')) +
+    (f.tipo === 'liquidacao' ? '' : '<div style="margin-top:8px"><span style="display:inline-block;padding:5px 11px;border-radius:7px;background:rgba(46,204,113,.14);border:1px solid rgba(46,204,113,.4);color:#2ecc71;font-size:12px;font-weight:700">Fiquei com as cotas e recebi ' + _evcEsc(f.para || '...') + '</span></div>') +
+    ex;
+}
+
+function evcLimpar(){
+  _evcEditando = null;
+  ['evcDe','evcPara','evcData','evcCaixa','evcDataCaixa','evcTitulo','evcDetalhe','evcFonte'].forEach(function(id){ document.getElementById(id).value = ''; });
+  document.getElementById('evcTipo').value = 'incorporacao';
+  document.getElementById('evcFator').value = '1';
+  document.getElementById('evcFormTitulo').textContent = 'Novo evento';
+  document.getElementById('evcSalvarBt').textContent = 'Salvar evento';
+  document.getElementById('evcCancelarBt').style.display = 'none';
+  document.getElementById('evcStatus').textContent = '';
+  evcFormMudou();
+}
+
+async function evcSalvar(){
+  var st = document.getElementById('evcStatus');
+  var f = _evcLerForm();
+  var erro = '';
+  if (!_evcTkOk(f.de)) erro = 'Informe o código antigo (ex: IRDM11).';
+  else if (f.tipo !== 'liquidacao' && !_evcTkOk(f.para)) erro = 'Informe o código novo.';
+  else if (f.tipo !== 'liquidacao' && f.para === f.de) erro = 'O código novo precisa ser diferente do antigo.';
+  else if (!f.data) erro = 'Informe a data da troca.';
+  else if (f.tipo !== 'liquidacao' && !(f.fator > 0)) erro = 'Informe quantas cotas novas para cada 1 antiga.';
+  else if (f.caixa < 0) erro = 'O dinheiro por cota não pode ser negativo.';
+  if (erro) { st.style.color = '#e63946'; st.textContent = erro; return; }
+
+  var id = _evcEditando || (f.de + '-' + (f.para || 'LIQ') + '-' + f.data.slice(0, 4));
+  var doc = {
+    id: id, tipo: f.tipo, de: f.de, para: f.para || null, data: f.data,
+    fator: f.tipo === 'liquidacao' ? 1 : f.fator,
+    caixaPorCota: f.caixa > 0 ? f.caixa : null,
+    dataCaixa: f.caixa > 0 && f.dataCaixa ? f.dataCaixa : null,
+    titulo: f.titulo || _evcTituloAuto(f),
+    detalhe: f.detalhe || _evcDetalheAuto(f),
+    fonte: f.fonte || null,
+    ativo: true,
+    atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
+  };
+  if (!_evcEditando) {
+    if (_evcCache.some(function(x){ return x.id === id; })) {
+      st.style.color = '#e63946'; st.textContent = 'Já existe um evento ' + id + '. Use Editar nele.'; return;
+    }
+    doc.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
+  } else {
+    var ant = _evcCache.filter(function(x){ return x.id === id; })[0];
+    if (ant && ant.ativo === false) doc.ativo = false;
+  }
+  var bt = document.getElementById('evcSalvarBt'); bt.disabled = true; bt.style.opacity = '.5';
+  st.style.color = '#8b93a7'; st.textContent = 'Salvando…';
+  try {
+    await db.collection('eventos_corporativos').doc(id).set(doc, { merge: true });
+    evcLimpar();
+    st.style.color = '#2ecc71'; st.textContent = '✅ Evento ' + id + ' salvo. Os alunos que tinham ' + f.de + ' vão ver o aviso.';
+    evcCarregar();
+  } catch(e) {
+    st.style.color = '#e63946';
+    st.textContent = 'Não salvou: ' + (e && e.code === 'permission-denied' ? 'sem permissão (confira se a regra da coleção eventos_corporativos está publicada no Firebase).' : (e && e.message || e));
+  } finally { bt.disabled = false; bt.style.opacity = ''; }
+}
+
+async function evcCarregar(){
+  var box = document.getElementById('evcLista');
+  box.textContent = 'Carregando…';
+  try {
+    var snap = await db.collection('eventos_corporativos').get();
+    _evcCache = [];
+    snap.forEach(function(d){ var x = d.data() || {}; x.id = d.id; _evcCache.push(x); });
+    _evcCache.sort(function(a, b){ return String(b.data || '').localeCompare(String(a.data || '')); });
+    if (!_evcCache.length) { box.innerHTML = 'Nenhum evento cadastrado ainda.'; return; }
+    box.innerHTML = _evcCache.map(function(x){
+      var liq = !x.para, off = x.ativo === false;
+      var tipoTxt = x.tipo === 'liquidacao' ? 'Liquidação' : x.tipo === 'mudanca_codigo' ? 'Mudança de código' : 'Incorporação';
+      return '<div class="evc-item' + (off ? ' off' : '') + '"><div style="font-size:20px;line-height:1">' + (liq ? '🏁' : '🔁') + '</div><div style="min-width:0">' +
+        '<b>' + _evcEsc(x.de) + (liq ? '' : ' → ' + _evcEsc(x.para)) + '</b>' +
+        '<span class="evc-tag" style="background:rgba(230,126,34,.14);color:#f0a35e">' + tipoTxt.toUpperCase() + '</span>' +
+        (off ? '<span class="evc-tag" style="background:rgba(255,255,255,.08);color:#8b93a7">DESATIVADO</span>' : '') +
+        '<div class="evc-meta">' + _evcDataBR(x.data) + (liq ? '' : ' · fator ' + _evcNumBR(+x.fator || 1)) +
+        (x.caixaPorCota ? ' · R$ ' + _evcNumBR(+x.caixaPorCota, 4) + '/cota' : '') + '<br>' + _evcEsc(x.titulo || '') + '</div></div>' +
+        '<div class="evc-acts"><button class="evc-mini" onclick="evcEditar(\'' + _evcEsc(x.id) + '\')">Editar</button>' +
+        '<button class="evc-mini" onclick="evcAlternar(\'' + _evcEsc(x.id) + '\')">' + (off ? 'Reativar' : 'Desativar') + '</button>' +
+        '<button class="evc-mini del" onclick="evcExcluir(\'' + _evcEsc(x.id) + '\')">Excluir</button></div></div>';
+    }).join('');
+  } catch(e) {
+    box.innerHTML = '<span style="color:#e63946">Não consegui ler a coleção: ' + _evcEsc(e && e.code || e) + '</span>';
+  }
+}
+
+function evcEditar(id){
+  var x = _evcCache.filter(function(e){ return e.id === id; })[0]; if (!x) return;
+  _evcEditando = id;
+  document.getElementById('evcTipo').value = x.tipo || (x.para ? 'incorporacao' : 'liquidacao');
+  document.getElementById('evcDe').value = x.de || '';
+  document.getElementById('evcPara').value = x.para || '';
+  document.getElementById('evcData').value = x.data || '';
+  document.getElementById('evcFator').value = x.fator != null ? String(x.fator).replace('.', ',') : '1';
+  document.getElementById('evcCaixa').value = x.caixaPorCota ? String(x.caixaPorCota).replace('.', ',') : '';
+  document.getElementById('evcDataCaixa').value = x.dataCaixa || '';
+  document.getElementById('evcTitulo').value = x.titulo || '';
+  document.getElementById('evcDetalhe').value = x.detalhe || '';
+  document.getElementById('evcFonte').value = x.fonte || '';
+  document.getElementById('evcFormTitulo').textContent = 'Editando ' + id;
+  document.getElementById('evcSalvarBt').textContent = 'Salvar alterações';
+  document.getElementById('evcCancelarBt').style.display = '';
+  document.getElementById('evcStatus').textContent = '';
+  evcFormMudou();
+  document.getElementById('evcFormTitulo').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function evcAlternar(id){
+  var x = _evcCache.filter(function(e){ return e.id === id; })[0]; if (!x) return;
+  try {
+    await db.collection('eventos_corporativos').doc(id).update({ ativo: x.ativo === false, atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() });
+    evcCarregar();
+  } catch(e) { alert('Não consegui alterar: ' + (e && e.code || e)); }
+}
+
+async function evcExcluir(id){
+  if (!confirm('Excluir o evento ' + id + '?\n\nQuem já aplicou continua com o ajuste na carteira. Quem ainda não aplicou deixa de ver o aviso.')) return;
+  try {
+    await db.collection('eventos_corporativos').doc(id).delete();
+    if (_evcEditando === id) evcLimpar();
+    evcCarregar();
+  } catch(e) { alert('Não consegui excluir: ' + (e && e.code || e)); }
+}
+</script>
 
 </body></html>
