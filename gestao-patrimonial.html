@@ -1364,6 +1364,22 @@ body:not(.light) .asset-logo{background:transparent;border-color:rgba(255,255,25
 @media (max-width:860px){.pv-ana-grade{grid-template-columns:1fr}#pvAnaMeta,#pvAnaClasse,#pvAnaRitmo{padding:14px 12px}.pan-meta{justify-content:center}}
 
 
+/* Eventos corporativos */
+#evcAviso{margin:12px 0 4px}
+.evc-card{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:14px;align-items:center;padding:16px 18px;border-radius:14px;border:1px solid rgba(201,169,97,.45);background:linear-gradient(135deg,rgba(201,169,97,.12),rgba(201,169,97,.03));margin-bottom:10px}
+.evc-ico{font-size:26px;text-align:center}
+.evc-txt{display:flex;flex-direction:column;gap:5px;font:500 13.5px 'DM Sans',sans-serif;color:var(--text2);line-height:1.5}
+.evc-txt > b{font:800 15.5px 'DM Sans',sans-serif;color:var(--text)}
+.evc-txt b{color:var(--text)}
+.evc-res{color:var(--text)}
+.evc-txt em{font-style:normal;font-size:12px;color:var(--text3)}
+.evc-bts{display:flex;flex-direction:column;gap:6px}
+.evc-ok{border:0;border-radius:10px;padding:10px 16px;background:var(--gold);color:#1a191e;font:800 13.5px 'DM Sans',sans-serif;cursor:pointer;white-space:nowrap}
+.evc-sec{border:1px solid rgba(201,169,97,.55);border-radius:10px;padding:9px 16px;background:transparent;color:var(--gold);font:700 13px 'DM Sans',sans-serif;cursor:pointer;white-space:nowrap}
+.evc-sec:hover{background:rgba(201,169,97,.1)}
+.evc-nao{border:0;background:transparent;color:var(--text2);font:600 12.5px 'DM Sans',sans-serif;cursor:pointer;text-decoration:underline}
+@media (max-width:760px){.evc-card{grid-template-columns:1fr}.evc-ico{display:none}.evc-bts{flex-direction:row;flex-wrap:wrap}}
+
 /* ═══ Rebalancear v2 ═══ */
 .rb-card{background:var(--bg2);border:1px solid color-mix(in srgb, var(--text) 7%, transparent);border-radius:16px;padding:20px 22px;margin-bottom:16px}
 .rb-card:empty{display:none}
@@ -1977,6 +1993,7 @@ body:not(.light) .asset-logo{background:transparent;border-color:rgba(255,255,25
       </button>
       <button class="pat-hide-btn gp-tabs-olho" id="patHideBtn" onclick="togglePatHide()" data-tip="Ocultar valores" aria-label="Ocultar valores"><span id="patHideIco">👁️</span></button>
     </div>
+    <div id="evcAviso" style="display:none"></div>
 
     <!-- ── PAINEL: VISÃO GERAL ── -->
     <div class="gp-panel active" id="gpPanel-visao-geral">
@@ -4441,6 +4458,88 @@ function renderMcHome(){
 }
 window.addEventListener('resize', function(){ clearTimeout(window._mhRz); window._mhRz = setTimeout(function(){ try { renderMhMapa(); } catch(e){} }, 150); });
 
+// ═══ EVENTOS CORPORATIVOS (incorporações e mudanças de código) ═════════════
+// Lista de eventos conhecidos. Quando o aluno ainda tem o ativo antigo na data
+// do evento, aparece um aviso com "Aplicar ajuste", que registra a saída do
+// ativo antigo pelo custo (sem lucro nem prejuízo) e a entrada do novo com o
+// mesmo custo total. Para incluir um evento novo, basta acrescentar na lista.
+var G20_EVENTOS_CORP = [
+  { id: 'IRDM11-IRIM11-2025', de: 'IRDM11', para: 'IRIM11', data: '2025-12-10', fator: 0.884794245,
+    caixaPorCota: 4.306051918, dataCaixa: '2025-12-09',
+    titulo: 'O IRDM11 foi incorporado pelo IRIM11',
+    detalhe: 'Cada cota de IRDM11 virou 0,884794245 cota de IRIM11 (conversão em 10/12/2025), mais R$ 4,31 em dinheiro por cota (pago em 09/12/2025). A fração de cota foi vendida em leilão e paga em dinheiro.',
+    fonte: 'Fato relevante do IRDM11 de 27/11/2025' }
+];
+function _evcNorm(t){ return String(t || '').toUpperCase().trim(); }
+function _evcPosicaoAte(tk, data){
+  var q = 0, custo = 0, tipo = null;
+  loadRVAportes().slice().sort(function(a, b){ return String(a.data).localeCompare(String(b.data)); }).forEach(function(a){
+    if(_evcNorm(a.ticker) !== tk || !a.data || a.data > data) return;
+    tipo = tipo || a.tipo;
+    var qt = +a.qtd || 0, px = (+a.preco || 0) * (a.moeda === 'USD' ? (a.fxRate || rvUsdBRL || 5) : 1);
+    if(a.op === 'V'){ var pm = q > 0 ? custo / q : 0; custo -= pm * qt; q -= qt; }
+    else { q += qt; custo += qt * px; }
+  });
+  return { q: q, custo: Math.max(0, custo), pm: q > 0 ? Math.max(0, custo) / q : 0, tipo: tipo || 'FII' };
+}
+function _evcPendentes(){
+  var ap = loadRVAportes(), feitos = {};
+  ap.forEach(function(a){ if(a && a._evento) feitos[a._evento] = true; });
+  var dispensados = {}; try { dispensados = JSON.parse(localStorage.getItem('g20_evc_dispensados') || '{}'); } catch(e){}
+  return G20_EVENTOS_CORP.map(function(ev){
+    if(feitos[ev.id] || dispensados[ev.id]) return null;
+    var p = _evcPosicaoAte(ev.de, ev.data);
+    if(!(p.q > 0.000001)) return null;
+    var qn = Math.floor(p.q * ev.fator + 1e-9);
+    return { ev: ev, pos: p, qtdNova: qn, fracao: p.q * ev.fator - qn };
+  }).filter(Boolean);
+}
+function renderEvcAviso(){
+  var box = document.getElementById('evcAviso'); if(!box) return;
+  var pend = []; try { pend = _evcPendentes(); } catch(e){ console.warn('[Eventos]', e); }
+  if(!pend.length){ box.innerHTML = ''; box.style.display = 'none'; return; }
+  box.style.display = '';
+  box.innerHTML = pend.map(function(x){ var ev = x.ev, qa = x.pos.q.toLocaleString('pt-BR', { maximumFractionDigits: 6 });
+    return '<div class="evc-card"><div class="evc-ico">🔁</div><div class="evc-txt"><b>' + ev.titulo + '</b>' +
+      '<span>Sua carteira ainda mostra <b>' + qa + ' ' + ev.de + '</b>, mas esse código não é mais negociado. ' + ev.detalhe + '</span>' +
+      '<span class="evc-res">Se você ficou com as cotas até o fim: saída de ' + qa + ' ' + ev.de + ' e entrada de <b>' + x.qtdNova + ' ' + ev.para + '</b>, com o mesmo custo total (<span class="kpi-money">' + fmtBRL(x.pos.custo) + '</span>), sem gerar lucro nem prejuízo.' +
+        (x.fracao > 0.0005 ? ' A fração de ' + x.fracao.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) + ' cota foi paga em dinheiro pela corretora.' : '') + '</span>' +
+      '<em>Fonte: ' + ev.fonte + '.</em></div>' +
+      '<div class="evc-bts"><button class="evc-ok" onclick="evcAplicar(\'' + ev.id + '\')">Fiquei com as cotas e recebi ' + ev.para + '</button>' +
+        '<button class="evc-sec" onclick="evcVendi(\'' + ev.id + '\')">Vendi antes da incorporação</button>' +
+        '<button class="evc-nao" onclick="evcDispensar(\'' + ev.id + '\')">Já registrei de outro jeito</button></div></div>'; }).join('');
+}
+// Vendeu antes: abre o formulário de transação já com a venda da sobra
+function evcVendi(id){
+  var x = _evcPendentes().filter(function(p){ return p.ev.id === id; })[0]; if(!x) return;
+  if(typeof abrirModalAporte !== 'function') return;
+  abrirModalAporte(x.ev.de);
+  setTimeout(function(){
+    var op = document.getElementById('apl_op0'); if(op){ op.value = 'V'; op.className = 'apl-sel apl-op-v'; try { op.dispatchEvent(new Event('change')); } catch(e){} }
+    var tp = document.getElementById('aporte_tipo'); if(tp && x.pos.tipo) tp.value = x.pos.tipo;
+    var q = document.getElementById('apl_qtd0'); if(q){ q.value = String(+x.pos.q.toFixed(6)).replace('.', ','); try { q.dispatchEvent(new Event('input')); } catch(e){} }
+    var d = document.getElementById('apl_data0'); if(d){ d.value = ''; d.focus(); }
+    showToast('Informe a data e o preço da venda de ' + x.ev.de + ' e salve', '#c9a961');
+  }, 150);
+}
+function evcDispensar(id){ try { var d = JSON.parse(localStorage.getItem('g20_evc_dispensados') || '{}'); d[id] = Date.now(); localStorage.setItem('g20_evc_dispensados', JSON.stringify(d)); } catch(e){} renderEvcAviso(); }
+function evcAplicar(id){
+  var x = _evcPendentes().filter(function(p){ return p.ev.id === id; })[0]; if(!x) return;
+  var ev = x.ev, p = x.pos, agora = Date.now().toString(36), ap = loadRVAportes().slice();
+  var qa = +p.q.toFixed(8);
+  ap.push({ id: agora + '_evc_s', ticker: ev.de, tipo: p.tipo, op: 'V', data: ev.data, qtd: qa, preco: +p.pm.toFixed(8), moeda: 'BRL', fxRate: 1,
+    obs: 'Incorporação: saída para ' + ev.para + ' pelo custo (sem lucro nem prejuízo)', _evento: ev.id });
+  if(x.qtdNova > 0) ap.push({ id: agora + '_evc_e', ticker: ev.para, tipo: p.tipo, op: 'C', data: ev.data, qtd: x.qtdNova, preco: +(p.custo / x.qtdNova).toFixed(8), moeda: 'BRL', fxRate: 1,
+    obs: 'Incorporação do ' + ev.de + ': ' + qa.toLocaleString('pt-BR') + ' × ' + String(ev.fator).replace('.', ',') + ' = ' + (x.qtdNova + x.fracao).toLocaleString('pt-BR', { maximumFractionDigits: 3 }) + ' cotas; custo transferido', _evento: ev.id });
+  _db_cache['rvAportes'] = ap;
+  try { localStorage.setItem('g20_rvAportes', JSON.stringify(ap)); } catch(e){}
+  if(typeof _db_ref !== 'undefined' && _db_ref){ _db_ref.doc('rvAportes').set({ value: ap, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }).catch(function(e){ console.warn(e); }); }
+  showToast('✅ Ajuste aplicado: ' + ev.de + ' → ' + ev.para, '#10b981');
+  renderEvcAviso();
+  if(typeof renderAll === 'function') renderAll();
+  if(typeof buscarCotacoesRV === 'function') setTimeout(buscarCotacoesRV, 300);
+}
+
 function renderKPIs(){
   var rfLista=loadRF();
   var bensList=loadPat();
@@ -4790,6 +4889,7 @@ function renderKPIs(){
   }
   patSetHeat(_patHeat);
   try { renderMcHome(); } catch(e){ console.warn('[Tela inicial]', e); }
+  try { renderEvcAviso(); } catch(e){ console.warn('[Eventos]', e); }
 }
 
 // ── TOGGLES MODO/HEATMAP ─────────────────────────────────────
