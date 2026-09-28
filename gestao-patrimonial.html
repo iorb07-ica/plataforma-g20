@@ -10447,15 +10447,89 @@ async function mvBuscar(){
     btn.disabled = false; btn.textContent = '🔎 Buscar minha carteira';
   }
 }
-function mvRenderPrevia(resumo){
-  var existentes = {};
-  var idsV1 = {};
-  loadData('rvAportes', []).forEach(function(a){ existentes[_mvChave(a)] = true; if(a.idV1) idsV1[a.idV1] = true; });
-  var novos = 0;
-  _mvItens.forEach(function(it){
-    it._dup = !!(existentes[_mvChave(it)] || (it.idV1 && idsV1[it.idV1]));
-    if(!it._dup) novos++;
+// ── Detecção de duplicados (vale para os três importadores) ─────────────────
+// Uma operação a importar é considerada já existente quando:
+//  1) veio da mesma origem antes (marca idV1/idSI), ou
+//  2) bate ativo, data, tipo e quantidade exatamente, ou
+//  3) mesmo ativo e tipo, datas até 4 dias de distância e VALOR TOTAL (qtd × preço)
+//     até 1,5% diferente. O valor total não muda com desdobramento/grupamento, então
+//     pega a mesma compra lançada antes ou depois do ajuste, pela data do pregão ou da
+//     liquidação, e vinda de outra plataforma. Também compara somas do mesmo dia (uma
+//     ordem de 400 lançada à mão contra 300 + 100 na planilha, e vice-versa).
+var _IMP_DIAS = 4, _IMP_TOL = 0.015;
+function _impDias(a, b){ return Math.abs((new Date(a + 'T12:00:00') - new Date(b + 'T12:00:00')) / 86400000); }
+function _impValor(x){ return Math.abs((+x.qtd || 0) * (+x.preco || 0)); }
+function _impPerto(v1, v2){ var m = Math.max(v1, v2); return m > 0 && Math.abs(v1 - v2) / m <= _IMP_TOL; }
+function _impMarcarDuplicados(itens){
+  var aportes = loadData('rvAportes', []);
+  var exatos = {}, ids = {}, porAtivo = {}, origens = {};
+  aportes.forEach(function(a){
+    exatos[_mvChave(a)] = (exatos[_mvChave(a)] || 0) + 1;     // conta: cada existente casa com UMA importada
+    if(a.idV1) ids['v1:' + a.idV1] = true;
+    if(a.idSI) ids['si:' + a.idSI] = true;
+    if(a.origem) origens[a.origem] = true;
+    var k = String(a.ticker).toUpperCase() + '|' + (a.op || 'C');
+    (porAtivo[k] = porAtivo[k] || []).push({ data: a.data, valor: _impValor(a), usado: false });
   });
+  // somas por dia do que já existe
+  var diaExist = {};
+  Object.keys(porAtivo).forEach(function(k){
+    porAtivo[k].forEach(function(e){ var kd = k + '|' + e.data; diaExist[kd] = (diaExist[kd] || 0) + e.valor; });
+  });
+  var pend = [];
+  itens.forEach(function(it){
+    it._dup = false; it._motivo = '';
+    if((it.idV1 && ids['v1:' + it.idV1]) || (it.idSI && ids['si:' + it.idSI])){ it._dup = true; it._motivo = 'já importado'; return; }
+    var k = String(it.ticker).toUpperCase() + '|' + (it.op || 'C'), v = _impValor(it);
+    var lista = porAtivo[k] || [];
+    var kx = _mvChave(it);
+    if(exatos[kx] > 0){
+      exatos[kx]--;
+      it._dup = true; it._motivo = 'já existe';
+      // marca a existente correspondente como usada (não casa de novo por valor)
+      for(var j = 0; j < lista.length; j++){ if(!lista[j].usado && lista[j].data === it.data){ lista[j].usado = true; break; } }
+      var kdx = k + '|' + it.data; if(diaExist[kdx] != null) diaExist[kdx] -= v;
+      return;
+    }
+    for(var i = 0; i < lista.length; i++){
+      var e = lista[i];
+      if(!e.usado && _impDias(e.data, it.data) <= _IMP_DIAS && _impPerto(e.valor, v)){
+        e.usado = true; it._dup = true; it._motivo = 'mesmo valor em ' + e.data.split('-').reverse().join('/'); return;
+      }
+    }
+    pend.push(it);
+  });
+  // ordens do mesmo dia somadas (dos dois lados)
+  var grupos = {};
+  pend.forEach(function(it){ var kd = String(it.ticker).toUpperCase() + '|' + (it.op || 'C') + '|' + it.data; (grupos[kd] = grupos[kd] || []).push(it); });
+  Object.keys(grupos).forEach(function(kd){
+    var g = grupos[kd], soma = g.reduce(function(s, it){ return s + _impValor(it); }, 0);
+    var partes = kd.split('|'), base = partes[0] + '|' + partes[1], data = partes[2];
+    Object.keys(diaExist).some(function(ke){
+      var pe = ke.split('|');
+      if(pe[0] + '|' + pe[1] !== base || _impDias(pe[2], data) > _IMP_DIAS) return false;
+      if(_impPerto(diaExist[ke], soma)){
+        g.forEach(function(it){ it._dup = true; it._motivo = 'mesmo valor somado em ' + pe[2].split('-').reverse().join('/'); });
+        delete diaExist[ke];
+        return true;
+      }
+      return false;
+    });
+  });
+  return origens;
+}
+// Aviso quando o aluno já trouxe operações de outra plataforma
+function _impAvisoOrigens(origens, atual){
+  var nomes = { 'plataforma-antiga': 'plataforma antiga', 'status-invest': 'Status Invest', 'myprofit': 'MyProfit' };
+  var outras = Object.keys(origens).filter(function(o){ return nomes[o] && o !== atual; }).map(function(o){ return nomes[o]; });
+  if(!outras.length) return '';
+  return '<div class="mv-status show info" style="margin:0 0 12px;font-size:13px">ℹ️ Você já importou operações do <b>' + outras.join(' e do ') +
+    '</b>. As operações iguais (mesmo ativo, data próxima e mesmo valor) são reconhecidas e ficam de fora, mas confira a lista abaixo: o que aparecer como <b>Nova</b> vai entrar.</div>';
+}
+
+function mvRenderPrevia(resumo){
+  var origensMV = _impMarcarDuplicados(_mvItens);
+  var novos = _mvItens.filter(function(it){ return !it._dup; }).length;
   document.getElementById('mvEtapaLogin').style.display = 'none';
   if(!_mvItens.length){
     mvStatus('Não encontramos compras ou vendas nessa conta da plataforma antiga.', 'erro');
@@ -10471,10 +10545,11 @@ function mvRenderPrevia(resumo){
   '</div>' +
   '<div style="font-size:11.5px;color:var(--text3);margin:-6px 0 10px">Não importados (a Minha Carteira calcula sozinha): ' +
     (resumo.proventos || 0) + ' proventos e ' + (resumo.eventos || 0) + ' desdobramentos/grupamentos. Lançamentos excluídos na antiga: ' + (resumo.excluidos || 0) + '.</div>' +
+  _impAvisoOrigens(origensMV, 'plataforma-antiga') +
   '<div class="mv-wrap"><table class="mv-tabela"><thead><tr><th>Data</th><th>Op.</th><th>Ativo</th><th>Tipo</th><th>Qtd</th><th>Preço</th><th>Situação</th></tr></thead><tbody>' +
   _mvItens.map(function(it){
     var d = it.data.split('-').reverse().join('/');
-    return '<tr class="' + (it._dup ? 'dup' : '') + '"><td>' + d + '</td><td>' + (it.op === 'V' ? '🔴 Venda' : '🟢 Compra') + '</td><td><b>' + it.ticker + '</b></td><td>' + ({Acao:'Ação',FIInfra:'FI-Infra'}[it.tipo] || it.tipo) + '</td><td>' + it.qtd + '</td><td>' + fmt(it.preco, it.moeda) + '</td><td>' + (it._dup ? 'Já existe' : 'Nova') + '</td></tr>';
+    return '<tr class="' + (it._dup ? 'dup' : '') + '"><td>' + d + '</td><td>' + (it.op === 'V' ? '🔴 Venda' : '🟢 Compra') + '</td><td><b>' + it.ticker + '</b></td><td>' + ({Acao:'Ação',FIInfra:'FI-Infra'}[it.tipo] || it.tipo) + '</td><td>' + it.qtd + '</td><td>' + fmt(it.preco, it.moeda) + '</td><td' + (it._dup ? ' title="' + _txEsc(it._motivo) + '"' : '') + '>' + (it._dup ? 'Já existe' : 'Nova') + '</td></tr>';
   }).join('') + '</tbody></table></div>';
   document.getElementById('mvPrevia').innerHTML = html;
   var foot = document.getElementById('mvFooter');
@@ -10671,10 +10746,8 @@ function _siProcessar(html, texto){
   siRenderPrevia();
 }
 function siRenderPrevia(){
-  var existentes = {}, idsSI = {};
-  loadData('rvAportes', []).forEach(function(a){ existentes[_mvChave(a)] = true; if(a.idSI) idsSI[a.idSI] = true; });
-  var novos = 0;
-  _siItens.forEach(function(it){ it._dup = !!(existentes[_mvChave(it)] || idsSI[it.idSI]); if(!it._dup) novos++; });
+  var origensSI = _impMarcarDuplicados(_siItens);
+  var novos = _siItens.filter(function(it){ return !it._dup; }).length;
   var r = _siResumo;
   document.getElementById('siEtapas').style.display = 'none';
   siStatus(novos ? 'Transações encontradas! Confira abaixo e clique em Importar.' : 'Tudo o que foi colado já está na sua Minha Carteira.', 'ok');
@@ -10690,12 +10763,13 @@ function siRenderPrevia(){
     (r.repetidas ? r.repetidas + ' linhas repetidas no que foi colado. ' : '') +
     (ign.length ? 'Não importados: ' + ign.map(function(k){ return k + ' (' + r.tiposIgnorados[k] + ')'; }).join(', ') + '.' : '') +
   '</div>' +
+  _impAvisoOrigens(origensSI, _siModo === 'mp' ? 'myprofit' : 'status-invest') +
   _siAvisoNegativos() +
   '<div class="mv-wrap"><table class="mv-tabela"><thead><tr><th>Data</th><th>Operação</th><th>Ativo</th><th>Tipo</th><th>Qtd</th><th>Preço</th><th>Corretora</th><th>Situação</th></tr></thead><tbody>' +
   _siItens.map(function(it){
     var rot = it.bonificacao ? '🎁 Bonificação' : (/convers/i.test(it.ordem) ? (it.op === 'C' ? '🔁 Conversão (entrada)' : '🔁 Conversão (saída)') : (it.op === 'V' ? '🔴 Venda' : '🟢 Compra'));
     return '<tr class="' + (it._dup ? 'dup' : '') + '"><td>' + it.data.split('-').reverse().join('/') + '</td><td>' + rot + '</td><td><b>' + it.ticker + '</b></td><td>' + ({Acao:'Ação',FIInfra:'FI-Infra'}[it.tipo] || it.tipo) +
-      '</td><td>' + it.qtd + '</td><td>' + fmt(it.preco, it.moeda) + '</td><td>' + _txEsc(it.corretora) + '</td><td>' + (it._dup ? 'Já existe' : 'Nova') + '</td></tr>';
+      '</td><td>' + it.qtd + '</td><td>' + fmt(it.preco, it.moeda) + '</td><td>' + _txEsc(it.corretora) + '</td><td' + (it._dup ? ' title="' + _txEsc(it._motivo) + '"' : '') + '>' + (it._dup ? 'Já existe' : 'Nova') + '</td></tr>';
   }).join('') + '</tbody></table></div>' +
   '<div style="margin-top:10px">' + (_siModo === 'mp'
     ? '<button class="btn-sm btn-outline" onclick="abrirImportMP()">Escolher outro arquivo</button>'
