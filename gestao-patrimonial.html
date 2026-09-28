@@ -4053,15 +4053,23 @@ function renderMhEvolucao(){
       return '<button class="mh-leg-bt' + (off ? ' off' : '') + '" onclick="mhToggleClasse(\'' + c.k + '\')" data-tip="' + (off ? 'Clique para mostrar ' : 'Clique para esconder ') + c.rot + '"><i style="background:' + c.cor + '"></i>' + c.rot + '</button>'; }).join('');
     // degradê vertical por camada: mais intensa em cima, suave embaixo
     var hexRgb = function(h){ h = h.replace('#', ''); return [parseInt(h.substr(0, 2), 16), parseInt(h.substr(2, 2), 16), parseInt(h.substr(4, 2), 16)]; };
-    var degrade = function(cor){ var c = hexRgb(cor); return function(ctx){
-      var ca = ctx.chart.chartArea; if(!ca) return 'rgba(' + c.join(',') + ',.5)';
-      var gr = ctx.chart.ctx.createLinearGradient(0, ca.top, 0, ca.bottom);
-      gr.addColorStop(0, 'rgba(' + c.join(',') + ',.92)'); gr.addColorStop(.55, 'rgba(' + c.join(',') + ',.55)'); gr.addColorStop(1, 'rgba(' + c.join(',') + ',.22)');
-      return gr; }; };
-    var brilho = { id: 'mhBrilho', beforeDatasetDraw: function(ch, a){ if(a.index === ch.data.datasets.length - 1){ ch.ctx.save(); ch.ctx.shadowColor = 'rgba(232,199,102,.45)'; ch.ctx.shadowBlur = 12; } },
-                   afterDatasetDraw: function(ch, a){ if(a.index === ch.data.datasets.length - 1) ch.ctx.restore(); } };
+    var mistura = function(c, alvo, t){ return c.map(function(v, i){ return Math.round(v + (alvo[i] - v) * t); }); };
+    // degradê com contraste: claro e brilhante em cima, profundo embaixo
+    var degrade = function(cor){ var c = hexRgb(cor), claro = mistura(c, [255, 255, 255], .35), escuro = mistura(c, [10, 10, 14], .45);
+      return function(ctx){
+        var ca = ctx.chart.chartArea; if(!ca) return 'rgba(' + c.join(',') + ',.7)';
+        var gr = ctx.chart.ctx.createLinearGradient(0, ca.top, 0, ca.bottom);
+        gr.addColorStop(0, 'rgba(' + claro.join(',') + ',.98)');
+        gr.addColorStop(.45, 'rgba(' + c.join(',') + ',.88)');
+        gr.addColorStop(1, 'rgba(' + escuro.join(',') + ',.78)');
+        return gr; }; };
+    // brilho na borda de todas as faixas, cada uma na sua cor
+    var brilho = { id: 'mhBrilho',
+      beforeDatasetDraw: function(ch, a){ var cor = hexRgb(visiveis[a.index] ? visiveis[a.index].cor : '#e8c766'); ch.ctx.save(); ch.ctx.shadowColor = 'rgba(' + cor.join(',') + ',.75)'; ch.ctx.shadowBlur = a.index === ch.data.datasets.length - 1 ? 16 : 9; },
+      afterDatasetDraw: function(ch){ ch.ctx.restore(); } };
     var dsC = visiveis.map(function(c, i){
-      return { label: c.rot, data: cls[c.k], borderColor: c.cor, backgroundColor: degrade(c.cor), fill: i === 0 ? 'origin' : '-1', borderWidth: 2, tension: .35, pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: c.cor, pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2 };
+      var bc = mistura(hexRgb(c.cor), [255, 255, 255], .25);
+      return { label: c.rot, data: cls[c.k], borderColor: 'rgb(' + bc.join(',') + ')', backgroundColor: degrade(c.cor), fill: i === 0 ? 'origin' : '-1', borderWidth: 2.4, tension: .35, pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: c.cor, pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2 };
     });
     window._mhEvoChart = new Chart(g, { type: 'line', data: { labels: rot, datasets: dsC }, plugins: [brilho],
       options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
