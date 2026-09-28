@@ -3917,8 +3917,11 @@ function _mhCarregarBench(labels, cb){
 function _mhIndexado(hist, labels){
   if(!hist) return null;
   var val = labels.map(function(k){ var v = hist[k]; if(!v){ for(var b = 1; b <= 3 && !v; b++){ var d = new Date(parseInt(k.slice(0, 4), 10), parseInt(k.slice(5, 7), 10) - 1 - b, 1); v = hist[d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')]; } } return v || null; });
-  var base = val[0]; if(!base) return null;
-  return val.map(function(v){ return v ? (v / base - 1) * 100 : null; });
+  var i0 = -1; for(var i = 0; i < val.length; i++){ if(val[i]){ i0 = i; break; } }
+  if(i0 < 0) return null;
+  var base = val[i0], out = val.map(function(v, i){ return (i >= i0 && v) ? (v / base - 1) * 100 : null; });
+  out._inicio = i0;
+  return out;
 }
 function _mhCdiAcum(labels){
   var taxaAprox = (typeof getCDI === 'function' ? getCDI() : 13.65) / 100, mensalAprox = (Math.pow(1 + taxaAprox, 1 / 12) - 1) * 100;
@@ -3964,13 +3967,22 @@ function renderMhEvolucao(){
 
   if(_mh.evoModo === 'rent'){
     if(!_mhBench.ok){ if(aviso) aviso.textContent = 'Buscando CDI, Ibovespa e S&P 500…'; _mhCarregarBench(labels, function(){ renderMhEvolucao(); }); if(!_mhBench.ok) return; }
-    var cart = _mhRentCarteira(labels, serie), cdi = _mhCdiAcum(labels), ibov = _mhIndexado(_mhBench.ibov, labels), sp = _mhIndexado(_mhBench.sp, labels);
+    var cart = _mhRentCarteira(labels, serie);
+    // Antes de a carteira ter valor de mercado medido, a série fica parada em 0%.
+    // O gráfico começa no mês anterior à primeira variação, e todos os índices partem daí.
+    var k0 = 0; for(var q = 1; q < cart.length; q++){ if(Math.abs(cart[q]) > 1e-9){ k0 = q - 1; break; } }
+    if(k0 > 0){ labels = labels.slice(k0); serie = serie.slice(k0); rot = rot.slice(k0); cart = _mhRentCarteira(labels, serie); }
+    var cdi = _mhCdiAcum(labels), ibov = _mhIndexado(_mhBench.ibov, labels), sp = _mhIndexado(_mhBench.sp, labels);
+    var notaIdx = [];
+    [[ibov, 'Ibovespa'], [sp, 'S&P 500']].forEach(function(x){ if(x[0] && x[0]._inicio > 0) notaIdx.push(x[1] + ' a partir de ' + rot[x[0]._inicio]); if(!x[0]) notaIdx.push(x[1] + ' sem histórico disponível agora'); });
     var fim = function(a){ if(!a) return null; for(var i = a.length - 1; i >= 0; i--) if(a[i] != null) return a[i]; return null; };
     var chip = function(nome, v, cor){ return '<div class="mh-chip"><b style="color:' + cor + '">' + (v == null ? '—' : _mhPct(v, 2)) + '</b><span>' + nome + '</span></div>'; };
     var vc = fim(cart), vcdi = fim(cdi);
     if(res) res.innerHTML = '<div class="mh-chips">' + chip('Carteira', vc, '#e8c766') + chip('CDI', vcdi, '#9ca3af') + chip('Ibovespa', fim(ibov), '#22d3ee') + chip('S&P 500', fim(sp), '#60a5fa') +
       (vc != null && vcdi != null ? '<div class="mh-chip alfa"><b class="' + (vc - vcdi >= 0 ? 'pos' : 'neg') + '">' + (vc - vcdi >= 0 ? '+' : '') + (vc - vcdi).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' p.p.</b><span>acima do CDI</span></div>' : '') + '</div>' +
-      (_mhBench.cdiAprox ? '<div class="mh-nota">CDI aproximado pela taxa atual (o Banco Central não respondeu agora).</div>' : '');
+      (_mhBench.cdiAprox ? '<div class="mh-nota">CDI aproximado pela taxa atual (o Banco Central não respondeu agora).</div>' : '') +
+      (k0 > 0 ? '<div class="mh-nota">Comparação a partir de ' + rot[0] + ', primeiro mês com variação da carteira.</div>' : '') +
+      (notaIdx.length ? '<div class="mh-nota">' + notaIdx.join(' · ') + '.</div>' : '');
     if(leg) leg.innerHTML = '<span><i style="background:#e8c766"></i>Carteira</span><span><i class="tracejado"></i>CDI</span><span><i style="background:#22d3ee"></i>Ibovespa</span><span><i style="background:#60a5fa"></i>S&P 500</span>';
     var grad = g.createLinearGradient(0, 0, 0, 300); grad.addColorStop(0, 'rgba(201,169,97,.28)'); grad.addColorStop(1, 'rgba(201,169,97,0)');
     var ds = [{ label: 'Carteira', data: cart, borderColor: '#e8c766', backgroundColor: grad, fill: 'origin', borderWidth: 2.8, tension: .3, pointRadius: 0, pointHoverRadius: 5 },
