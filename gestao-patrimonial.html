@@ -2945,13 +2945,15 @@ function buscarIndicadores(){
     });
   }
 
-  // Mercado via proxy — cache 15min, mas SEMPRE refaz o fetch em paralelo
-  // (cache vazio / falhas anteriores não deixam o ticker 'preso' em --)
+  // Mercado via proxy — cache 15min. Se o cache é válido, usa e NÃO chama o
+  // proxy (a fita já é de 15min mesmo). Só busca quando o cache venceu ou está
+  // vazio. Antes refazia o fetch em toda abertura, o que sobrecarregava o proxy.
   var mktCache = loadData('indMkt_cache', null);
   var cacheValido = mktCache && (Date.now()-mktCache.ts) < 15*60*1000 && mktCache.data && Object.keys(mktCache.data).length>0;
   if(cacheValido){
     IND_MKT = mktCache.data;
     renderTape();
+    return; // cache fresco: não bate no proxy
   }
 
   var symbols = TT_ITEMS.filter(function(i){ return i.tipo==='mkt'; }).map(function(i){ return i.symbol; });
