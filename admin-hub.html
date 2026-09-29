@@ -185,6 +185,13 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
       <span class="card-go">Cadastrar <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="arrow-right" aria-hidden="true" class="lucide lucide-arrow-right"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></span>
     </a>
 
+    <a href="#" onclick="fazerBackup(event)" class="card" style="--ac:#3b82f6;--acbg:rgba(59,130,246,.12);--acbd:rgba(59,130,246,.25)">
+      <div class="card-ico"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="lucide lucide-database-backup"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5V19A9 3 0 0 0 15 21.84"></path><path d="M21 5V8"></path><path d="M21 12L18 17H22"></path><path d="M3 12A9 3 0 0 0 14.59 14.87"></path></svg></div>
+      <div class="card-title">Backup dos dados</div>
+      <div class="card-desc">Copia de seguranca de tudo (alunos, carteiras, gestao financeira). Roda sozinho todo domingo; aqui voce faz na hora.</div>
+      <span class="card-go" id="backupGo">Fazer backup agora <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="arrow-right" aria-hidden="true" class="lucide lucide-arrow-right"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></span>
+    </a>
+
   </div>
 
   <div class="foot">G20 MASTERCLASS · PAINEL ADMIN · #NÃOFOISORTE</div>
@@ -1213,4 +1220,38 @@ async function evcExcluir(id){
 }
 </script>
 
+
+<script>
+// Backup manual: chama a rota /api/backup do proxy com o token do admin.
+// O backup automático semanal roda pelo cron da Vercel, sem precisar desta tela.
+async function fazerBackup(ev){
+  if (ev) ev.preventDefault();
+  var go = document.getElementById('backupGo');
+  var user = auth.currentUser;
+  if (!user){ alert('Faca login de novo para rodar o backup.'); return; }
+  if (!confirm('Fazer um backup de todos os dados agora?\n\nPode levar de 30 segundos a 1 minuto.')) return;
+  var textoOrig = go ? go.innerHTML : '';
+  if (go) go.textContent = 'Fazendo backup...';
+  try {
+    var token = await user.getIdToken();
+    var r = await fetch('https://g20-proxy.vercel.app/api/backup', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
+    });
+    var d = await r.json().catch(function(){ return {}; });
+    if (!r.ok) throw new Error(d.error || ('erro ' + r.status));
+    alert('Backup concluido.\n\n' +
+          'Alunos salvos: ' + (d.alunos != null ? d.alunos : '-') + '\n' +
+          'Colecoes: ' + (d.colecoes != null ? d.colecoes : '-') + '\n' +
+          'Tamanho: ' + (d.tamanhoKB != null ? d.tamanhoKB + ' KB' : '-') + '\n' +
+          'Arquivo: ' + (d.arquivo || '-') + '\n\n' +
+          'Guardado no R2 (pasta backups). Os 8 mais recentes ficam; os antigos sao apagados sozinhos.');
+  } catch(e) {
+    alert('Nao consegui fazer o backup: ' + (e.message || e) +
+          '\n\nSe falou em CRON_SECRET ou variavel de ambiente, confira a configuracao na Vercel.');
+  } finally {
+    if (go) go.innerHTML = textoOrig;
+  }
+}
+</script>
 </body></html>
