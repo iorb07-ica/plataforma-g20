@@ -21,6 +21,7 @@
 <link rel="stylesheet" href="assets/g20-search.css?v=10">
 <link rel="stylesheet" href="assets/g20-topbar-v21.css?v=15">
 <script src="assets/g20-sidebar.js?v=11"></script>
+<script src="assets/g20-rf.js?v=1"></script>
 <script src="assets/g20-search.js?v=10"></script>
 <script src="assets/b3-classificacao.js?v=1"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
@@ -2524,6 +2525,12 @@ canvas{touch-action:pan-y}
         <option value="DEB">Debênture</option>
         <option value="CRI">CRI — Certificado de Recebíveis Imobiliários</option>
         <option value="CRA">CRA — Certificado de Recebíveis do Agronegócio</option>
+        <option value="DEBI">Debênture incentivada (isenta de IR)</option>
+        <option value="LCD">LCD — Letra de Crédito do Desenvolvimento</option>
+        <option value="RDB">RDB — Recibo de Depósito Bancário</option>
+        <option value="LC">LC — Letra de Câmbio</option>
+        <option value="CCB">CCB — Cédula de Crédito Bancário</option>
+        <option value="POUP">Poupança</option>
       </select>
     </div>
     <div id="rf_tdSubtipo_wrap" style="display:none;margin-bottom:14px">
@@ -2532,6 +2539,7 @@ canvas{touch-action:pan-y}
         <option value="selic">Tesouro Selic</option>
         <option value="ipca">Tesouro IPCA+</option>
         <option value="prefixado">Tesouro Prefixado</option>
+        <option value="prefixado_juros">Tesouro Prefixado com Juros Semestrais</option>
         <option value="ipca_juros">Tesouro IPCA+ com Juros Semestrais</option>
         <option value="rendamais">Tesouro Renda+</option>
         <option value="educa">Tesouro Educa+</option>
@@ -2994,9 +3002,9 @@ function buscarIndicadores(){
   if(!cacheValido) renderTape(); // render imediato com '--' quando ainda sem cache
 }
 
-function getCDI(){ return IND.cdi || 10.65; }
-function getSelic(){ return IND.selic || 10.65; }
-function getIPCA(){ return IND.ipca || 4.83; }
+function getCDI(){ return (window.G20RF ? G20RF.taxaAnual('cdi') : 0) || IND.cdi || 14.65; }
+function getSelic(){ return IND.selic || (window.G20RF ? G20RF.taxaAnual('selic') : 0) || 14.75; }
+function getIPCA(){ return (window.G20RF ? G20RF.taxaAnual('ipca') : 0) || IND.ipca || 4.8; }
 function getIGPM(){ return IND.igpm || 6.54; }
 
 function forcarAtualizacaoBCB(){
@@ -3207,8 +3215,8 @@ function initTickerDrag(){
 }
 
 // ── RENDA FIXA ────────────────────────────────────────────────
-var RF_CORES = {CDB:'#3b82f6',LCI:'#10b981',LCA:'#f59e0b',TD:'#8b5cf6',LIG:'#ec4899',DEB:'#ef4444',CRI:'#14b8a6',CRA:'#eab308'};
-var RF_ICONS  = {CDB:'🏦',LCI:'🏠',LCA:'🌾',TD:'🇧🇷',LIG:'📄',DEB:'📊',CRI:'🏗️',CRA:'🌱'};
+var RF_CORES = {CDB:'#3b82f6',LCI:'#10b981',LCA:'#f59e0b',TD:'#8b5cf6',LIG:'#ec4899',DEB:'#ef4444',CRI:'#14b8a6',CRA:'#eab308',DEBI:'#f97316',LCD:'#06b6d4',RDB:'#6366f1',LC:'#a855f7',CCB:'#64748b',POUP:'#22c55e'};
+var RF_ICONS  = {CDB:'🏦',LCI:'🏠',LCA:'🌾',TD:'🇧🇷',LIG:'📄',DEB:'📊',CRI:'🏗️',CRA:'🌱',DEBI:'⚡',LCD:'🏭',RDB:'🏦',LC:'💱',CCB:'📝',POUP:'🐷'};
 
 function loadRF(){ return loadData('rendaFixa',[]); }
 function saveRF(d){ saveData('rendaFixa',d); }
@@ -3263,7 +3271,11 @@ function _aliquotaIR(diasCorridos){
 }
 
 // Capitalização bruta de um aporte simples (sem impostos)
-function _calcBruto(valorInv, dataInicio, indexador, taxa){
+function _calcBruto(valorInv, dataInicio, indexador, taxa, rfObj){
+  if(window.G20RF){
+    var o = Object.assign({}, rfObj||{}, {valorInv:valorInv, dataInicio:dataInicio, indexador:indexador, taxa:taxa});
+    return G20RF.bruto(o).valor;
+  }
   if(!valorInv || !dataInicio || taxa===undefined || taxa===null || taxa==='') return valorInv||0;
   var diasCorridos = Math.max(0, Math.floor((new Date() - new Date(dataInicio)) / 86400000));
   if(diasCorridos <= 0) return valorInv;
@@ -3290,7 +3302,11 @@ function _calcBruto(valorInv, dataInicio, indexador, taxa){
 }
 
 // Calcula saldo líquido de um aporte (bruto - IOF - IR)
-function _calcLiquidoAporte(valorInv, dataInicio, indexador, taxa, tipo){
+function _calcLiquidoAporte(valorInv, dataInicio, indexador, taxa, tipo, rfObj){
+  if(window.G20RF){
+    var o = Object.assign({}, rfObj||{}, {valorInv:valorInv, dataInicio:dataInicio, indexador:indexador, taxa:taxa, tipo:tipo||(rfObj&&rfObj.tipo)});
+    return G20RF.liquido(o).liquido;
+  }
   var bruto = _calcBruto(valorInv, dataInicio, indexador, taxa);
   var rendimento = bruto - valorInv;
   if(rendimento <= 0) return valorInv;
@@ -3316,6 +3332,22 @@ function _calcLiquidoAporte(valorInv, dataInicio, indexador, taxa, tipo){
 }
 
 // calcRFAtual: retorna bruto (usado internamente para rentabilidade %)
+/* Linha de detalhe do card: bruto, IR, IOF, custódia, cupons e aviso de
+   índice estimado, tudo vindo do motor único (assets/g20-rf.js). */
+function _rfLinhaDetalhe(itens, atual, rent){
+  var t={ir:0,iof:0,cust:0,cup:0,est:false,venc:false};
+  if(window.G20RF) itens.forEach(function(a){ if(!a||a.encerrado) return; var d=G20RF.liquido(a); t.ir+=d.ir; t.iof+=d.iof; t.cust+=d.custodia; t.cup+=d.cuponsLiquido; t.est=t.est||d.estimado; t.venc=t.venc||d.vencido; });
+  var p=['Bruto '+fmtBRL(atual)+' ('+(rent>=0?'+':'')+_rfNum(rent)+'%)'];
+  if(t.ir>0.005) p.push('IR '+fmtBRL(t.ir));
+  if(t.iof>0.005) p.push('IOF '+fmtBRL(t.iof));
+  if(t.cust>0.005) p.push('Custódia '+fmtBRL(t.cust));
+  if(t.ir<=0.005 && t.iof<=0.005 && itens[0] && window.G20RF && G20RF.isentoIR(itens[0].tipo)) p.push('isento de IR');
+  var html='<div class="rf-base-info">'+p.join(' · ')+'</div>';
+  if(t.cup>0.005) html+='<div class="rf-base-info">Cupons recebidos (estimado, líquido): '+fmtBRL(t.cup)+'</div>';
+  if(t.venc) html+='<div class="rf-base-info" style="color:#f59e0b">Título vencido: o valor parou de render na data de vencimento. Registre o resgate.</div>';
+  if(t.est) html+='<div class="rf-base-info" style="opacity:.8">Parte do período usa índice estimado (série do Banco Central ainda carregando).</div>';
+  return html;
+}
 function _rfNum(n){ return (Number(n)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 /* Saldo líquido de UM aporte, regra única para toda a página: se o aluno
    informou o saldo líquido manualmente (valorAtual > 0), vale ele; senão,
@@ -3324,12 +3356,12 @@ function _rfNum(n){ return (Number(n)||0).toLocaleString('pt-BR',{minimumFractio
 function _rfLiqDe(r){
   if(!r) return 0;
   if(r.valorAtual && r.valorAtual>0) return r.valorAtual;
-  return _calcLiquidoAporte(r.valorInv||0, r.dataInicio, r.indexador, r.taxa, r.tipo);
+  return _calcLiquidoAporte(r.valorInv||0, r.dataInicio, r.indexador, r.taxa, r.tipo, r);
 }
 function calcRFAtual(rf){
   if(rf.valorAtual && rf.valorAtual>0) return rf.valorAtual;
   if(!rf.valorInv || !rf.dataInicio || rf.taxa===undefined || rf.taxa===null || rf.taxa==='') return rf.valorInv||0;
-  return _calcBruto(rf.valorInv, rf.dataInicio, rf.indexador, rf.taxa);
+  return _calcBruto(rf.valorInv, rf.dataInicio, rf.indexador, rf.taxa, rf);
 }
 
 // calcRFLiquido: retorna saldo líquido real (o que o usuário recebe no banco)
@@ -3356,6 +3388,7 @@ function calcRFLiquido(rf, allRF_opcional){
     if(a.encerrado || !(a.valorInv>0 || a.valorAtual>0)) return;
     totalLiq += _rfLiqDe({
       valorInv: a.valorInv, valorAtual: a.valorAtual, dataInicio: a.dataInicio,
+      vencimento: a.vencimento || rf.vencimento, tdSubtipo: a.tdSubtipo || rf.tdSubtipo,
       indexador: a.indexador || rf.indexador,
       taxa: a.taxa !== undefined ? a.taxa : rf.taxa,
       tipo: a.tipo || rf.tipo
@@ -3368,6 +3401,7 @@ function calcRFLiquido(rf, allRF_opcional){
 // Retorna descrição legível da taxa para exibir no card
 function descTaxaRF(rf){
   var t = parseFloat(rf.taxa);
+  if(rf.tipo === 'POUP') return 'Regra da poupança';
   if(isNaN(t)) return '—';
   if(rf.indexador === 'CDI')       return _rfNum(t) + '% do CDI';
   if(rf.indexador === 'Selic')     return t === 0 ? '100% Selic' : 'Selic + ' + _rfNum(t) + '% a.a.';
@@ -3388,6 +3422,13 @@ function onRFTipoChange(){
   var hint    = document.getElementById('rf_taxa_hint');
 
   tdWrap.style.display = tipo === 'TD' ? 'block' : 'none';
+  // Poupança: sem taxa, sem indexador e sem vencimento (rende por aniversário)
+  var _ehPoup = (tipo === 'POUP');
+  ['rf_indexador','rf_taxa','rf_vencimento'].forEach(function(id){
+    var el = document.getElementById(id); if(!el) return;
+    var box = el.parentElement; if(box) box.style.display = _ehPoup ? 'none' : '';
+  });
+  if(_ehPoup){ idxSel.value = 'CDI'; taxaInp.value = '0'; if(hint) hint.textContent = ''; return; }
 
   // Se for TD, reagir ao subtipo também
   if(tipo === 'TD'){
@@ -3397,7 +3438,7 @@ function onRFTipoChange(){
       taxaLbl.textContent = 'Spread adicional (% a.a.)';
       taxaInp.placeholder = '0 para Tesouro Selic puro';
       if(hint) hint.textContent = 'Tesouro Selic rende Selic + spread. Spread padrão ≈ 0.';
-    } else if(sub === 'prefixado'){
+    } else if(sub === 'prefixado' || sub === 'prefixado_juros'){
       idxSel.value = 'Prefixado';
       taxaLbl.textContent = 'Taxa prefixada (% a.a.)';
       taxaInp.placeholder = 'Ex: 13.50';
@@ -3409,12 +3450,12 @@ function onRFTipoChange(){
       taxaInp.placeholder = 'Ex: 7.80';
       if(hint) hint.textContent = 'Informe apenas o spread. Ex: "IPCA+ 7,80%" → digite 7.80';
     }
-  } else if(['CDB','LCI','LCA','LIG'].includes(tipo)){
+  } else if(['CDB','LCI','LCA','LIG','LCD','RDB','LC'].includes(tipo)){
     idxSel.value = 'CDI';
     taxaLbl.textContent = '% do CDI';
     taxaInp.placeholder = 'Ex: 110 para 110% CDI';
     if(hint) hint.textContent = 'Percentual do CDI contratado. Ex: 110 = 110% do CDI.';
-  } else if(tipo === 'DEB' || tipo === 'CRI' || tipo === 'CRA'){
+  } else if(tipo === 'DEB' || tipo === 'DEBI' || tipo === 'CRI' || tipo === 'CRA' || tipo === 'CCB'){
     taxaLbl.textContent = 'Taxa / Spread (% a.a.)';
     taxaInp.placeholder = 'Ex: 8.50';
     if(hint) hint.textContent = 'Para CDI+: use indexador CDI e informe % do CDI. Para IPCA+: use indexador IPCA e informe o spread.';
@@ -3494,6 +3535,16 @@ function abrirModalRF(idx){
     document.getElementById('rf_liquidez').value='vencimento';
   }
   onRFTipoChange();
+  /* Edição: onRFTipoChange sugere um indexador padrão por tipo (ex.: CDI para
+     CDB) e isso sobrescrevia o indexador salvo. Um CDB prefixado virava
+     "% do CDI" ao editar e salvar. Restaura o indexador do título. */
+  if(idx!==undefined){
+    var _rfE = loadRF()[idx];
+    if(_rfE && _rfE.indexador && _rfE.tipo!=='TD' && _rfE.tipo!=='POUP'){
+      document.getElementById('rf_indexador').value = _rfE.indexador;
+      onRFIndexadorChange();
+    }
+  }
   // Liga formatação em tempo real para DIGITAÇÃO (não re-formata valor já preenchido)
   ['rf_valorInv','rf_valorAtual'].forEach(function(id){ bindValorInput(id); });
   document.getElementById('modalRF').style.display='block';
@@ -3510,7 +3561,7 @@ function salvarRF(){
   var vencimento=document.getElementById('rf_vencimento').value;
   var liquidez=document.getElementById('rf_liquidez').value;
   var valorAtual=parseBRLInput(document.getElementById('rf_valorAtual'));
-  var tdSubtipo=document.getElementById('rf_tdSubtipo').value;
+  var tdSubtipo=(tipo==='TD') ? document.getElementById('rf_tdSubtipo').value : '';
   if(!nome||isNaN(valorInv)||valorInv<=0||isNaN(taxa)||!dataInicio){alert('Preencha nome, valor, taxa e data.');return;}
   var lista=loadRF();
   var editIdx=document.getElementById('rf_editId').value;
@@ -3616,6 +3667,7 @@ function renderRF(){
         var a = allRF[idx];
         if(!a) return s;
         return s + _rfLiqDe({valorInv:a.valorInv, valorAtual:a.valorAtual, dataInicio:a.dataInicio,
+          vencimento:a.vencimento||rf.vencimento, tdSubtipo:a.tdSubtipo||rf.tdSubtipo,
           indexador:a.indexador||rf.indexador, taxa:a.taxa!==undefined?a.taxa:rf.taxa, tipo:a.tipo||rf.tipo});
       }, 0);
     } else {
@@ -3628,7 +3680,7 @@ function renderRF(){
     var _manualEm = (!isGroup && allRF[realIdx] && allRF[realIdx].valorAtualEm) ? new Date(allRF[realIdx].valorAtualEm+'T12:00:00').toLocaleDateString('pt-BR') : '';
     var _linhaBase = _temManual
       ? '<div class="rf-base-info">Saldo líquido informado manualmente'+(_manualEm?' em '+_manualEm:'')+(isGroup?' (em parte dos aportes)':'')+'</div>'
-      : '<div class="rf-base-info">Bruto '+fmtBRL(atual)+' ('+(rent>=0?'+':'')+_rfNum(rent)+'%) · IR/IOF '+fmtBRL(Math.max(0,atual-liquido))+'</div>';
+      : _rfLinhaDetalhe(isGroup ? groupIdxs.map(function(i){ return allRF[i]; }).filter(Boolean) : [allRF[realIdx]||rf], atual, rent);
     var dias=diasVenc(rf.vencimento);
     var prog=0;
     if(rf.dataInicio&&rf.vencimento){
@@ -13216,6 +13268,22 @@ function g20ExportClick(qual){
   if (!g20EhAdmin()) { g20EmBreve('export'); return; }
   if (qual === 'tx') txExportar(); else provExportar();
 }
+</script>
+
+<script>
+/* Motor único de renda fixa: carrega as séries históricas do Banco Central
+   (desde o título mais antigo) e redesenha quando chegarem. */
+(function(){
+  function iniciar(){
+    if(!window.G20RF) return;
+    var desde = null;
+    try { (JSON.parse(localStorage.getItem('g20_rendaFixa')||'[]')||[]).forEach(function(r){ var d=String(r&&r.dataInicio||'').slice(0,10); if(d && (!desde || d<desde)) desde=d; }); } catch(e){}
+    G20RF.aoAtualizar(function(){ try{ if(typeof renderAll==='function') renderAll(); }catch(e){} });
+    G20RF.carregar(desde || '2015-01-01');
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(iniciar, 1500); });
+  else setTimeout(iniciar, 1500);
+})();
 </script>
 </body>
 </html>
