@@ -253,7 +253,8 @@ body.day .a-ticker{color:#111113}
 .a-badge.stock{background:rgba(96,165,250,.12);color:#60a5fa;border:1px solid rgba(96,165,250,.3)}
 .a-badge.reit{background:rgba(74,222,128,.12);color:#4ade80;border:1px solid rgba(74,222,128,.3)}
 .a-badge.etf{background:rgba(192,132,252,.12);color:#c084fc;border:1px solid rgba(192,132,252,.3)}
-.a-badge.cripto{background:rgba(251,146,60,.12);color:#fb923c;border:1px solid rgba(251,146,60,.3)}position:absolute;inset:0;z-index:30;background:rgba(10,9,16,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;transition:opacity .5s}
+.a-badge.cripto{background:rgba(251,146,60,.12);color:#fb923c;border:1px solid rgba(251,146,60,.3)}
+#globe-loading{position:absolute;inset:0;z-index:30;background:rgba(10,9,16,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;transition:opacity .5s}
 .ld-logo{font-size:22px;font-weight:800;color:var(--gold);letter-spacing:-1px}
 .ld-bar-w{width:150px;height:2px;background:#1a1828;border-radius:2px;overflow:hidden}
 .ld-bar{height:100%;background:linear-gradient(90deg,var(--gold),var(--gold2));border-radius:2px;animation:ldprog 3s ease forwards}
@@ -376,6 +377,14 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
 <script src="auth-guard.js"></script>
 </head>
 <body>
+<script>
+/* Formato brasileiro para o Atlas (set/2026) */
+function _atlasNum(v,c){ return (Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:c,maximumFractionDigits:c}); }
+function _atlasBRL(v,c){ return 'R$ '+_atlasNum(v,c==null?2:c); }
+function _atlasFmtCompacto(v){ v=Number(v)||0; if(v>=1e6) return 'R$ '+_atlasNum(v/1e6,2)+' mi'; if(v>=1e3) return 'R$ '+_atlasNum(v/1e3,1)+' mil'; return _atlasBRL(v,0); }
+function _atlasQtd(q,cripto){ q=Number(q)||0; var inteiro=Math.abs(q-Math.round(q))<1e-9; var t=inteiro?_atlasNum(q,0):q.toLocaleString('pt-BR',{maximumFractionDigits:8}); return t+(cripto?' unid.':(inteiro&&q===1?' cota':' cotas')); }
+</script>
+
 <script>
 // Aplica classes do perfil no body (is-admin, etc)
 (function(){
@@ -608,7 +617,7 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
       <div class="sum-card">
         <div class="sc-lbl">PATRIMÔNIO</div>
         <div class="sc-v" id="rp-patrimonio">--</div>
-        <div class="sc-sub">▲ +2.4% hoje</div>
+        <div class="sc-sub" id="rp-patr-sub">calculando…</div>
       </div>
       <div class="sum-card">
         <div class="sc-lbl">ATIVOS</div>
@@ -616,9 +625,9 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
         <div class="sc-sub" id="rp-regioes">4 regiões</div>
       </div>
       <div class="sum-card">
-        <div class="sc-lbl">DIVIDENDOS/MÊS</div>
-        <div class="sc-v">R$1.2k</div>
-        <div class="sc-sub">yield 5.1%</div>
+        <div class="sc-lbl">MAIOR POSIÇÃO</div>
+        <div class="sc-v" id="rp-maior">--</div>
+        <div class="sc-sub" id="rp-maior-sub">--</div>
       </div>
       <div class="sum-card">
         <div class="sc-lbl">CÂMBIO BRL/USD</div>
@@ -665,7 +674,7 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
 <!-- Three.js -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Sidebar G20 -->
-<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
+<script src="https://unpkg.com/lucide@0.383.0/dist/umd/lucide.min.js" defer></script>
 <script src="assets/g20-sidebar.js?v=11"></script>
 <script>
 // Inicializa ícones Lucide após carregar
@@ -1200,21 +1209,21 @@ function _buildAssetsFromGrouped(ativos, quotes){
     const precoShow=g.precoAtual>0?g.precoAtual:(g.custo/g.qtd);
     const isUSD = g.isUSD;
     const posExibida=isUSD
-      ? 'R$ '+(g.posAtualBRL).toFixed(0)+' (US$ '+g.posAtual.toFixed(0)+')'
-      : 'R$ '+g.posAtualBRL.toFixed(0);
-    const priceExibido=isUSD?('US$ '+precoShow.toFixed(2)):('R$ '+precoShow.toFixed(2));
+      ? _atlasBRL(g.posAtualBRL,0)+' (US$ '+_atlasNum(g.posAtual,0)+')'
+      : _atlasBRL(g.posAtualBRL,0);
+    const priceExibido=isUSD?('US$ '+_atlasNum(precoShow,2)):_atlasBRL(precoShow,2);
     // Rentabilidade real = (precoAtual - precoMedio) / precoMedio * 100
     const precoMedio = g.qtd>0 ? g.custo/g.qtd : 0;
     const rentReal = (precoMedio>0 && g.precoAtual>0) ? ((g.precoAtual - precoMedio)/precoMedio*100) : 0;
-    const pmExibido = isUSD?('US$ '+precoMedio.toFixed(2)):('R$ '+precoMedio.toFixed(2));
+    const pmExibido = isUSD?('US$ '+_atlasNum(precoMedio,2)):_atlasBRL(precoMedio,2);
     return{
       ticker:g.ticker, name:COMPANY_NAMES[g.ticker]||g.nome||g.ticker,
       region:coords?coords.region:(g.moeda==='BRL'?'brasil':'eua'),
       type:tipo, lat, lon,
       price:priceExibido,
-      qty:g.qtd.toFixed(0)+' cotas',
+      qty:_atlasQtd(g.qtd, g.isCripto),
       pos:posExibida,
-      pct:+pct.toFixed(2), chg:'0%', up:true,
+      pct:+pct.toFixed(2), chg:(precoMedio>0&&g.precoAtual>0)?((rentReal>=0?'+':'')+_atlasNum(rentReal,2)+'% desde a compra'):'sem cotação', up:rentReal>=0, posBRL:g.posAtualBRL, custoBRL:(g.isUSD?g.custo*CAMBIO_BRL:g.custo), semCot:!(g.precoAtual>0),
       rent:+rentReal.toFixed(2), pm:pmExibido,
       city:coords?coords.city:(g.moeda==='BRL'?'Brasil':'EUA'),
       color:coords?coords.color:col,
@@ -1236,7 +1245,7 @@ function _buildAssetsFromGrouped(ativos, quotes){
     const elPatr=document.getElementById('rp-patrimonio');
     if(elPatr){
       const totalBRL=comPos.reduce((s,g)=>s+g.posAtualBRL,0);
-      elPatr.textContent='R$'+(totalBRL>=1000?(totalBRL/1000).toFixed(1).replace('.',',')+'k':totalBRL.toFixed(0));
+      elPatr.textContent=_atlasFmtCompacto(totalBRL);
     }
     preloadAssets();
     buildMarkers();buildArcs();updateClassPanel();updateRegionPanel();
@@ -1319,11 +1328,13 @@ function carregarMinhaCarteira(){
       if(g.moeda==='BRL') semCoordsBR2.push(g.ticker); else semCoordsEUA2.push(g.ticker);
     });
 
-    const total=Object.values(grouped).reduce((s,v)=>s+v.custo,0)||1;
+    /* custo em reais: ativos em dólar convertidos pelo câmbio (antes somava R$ com US$ direto) */
+    const _custoBRL=g=>(g.moeda==='USD'?g.custo*(CAMBIO_BRL||0):g.custo);
+    const total=Object.values(grouped).reduce((s,v)=>s+_custoBRL(v),0)||1;
     const novos=Object.values(grouped).filter(g=>g.custo>0).map(g=>{
       const coords=COORDS_TABLE[g.ticker];
       const tipo=coords?.type||detectTipo(g.ticker,g.tipo);
-      const pct=(g.custo/total)*100;
+      const pct=(_custoBRL(g)/total)*100;
       let lat,lon;
       if(coords){lat=coords.lat;lon=coords.lon;}
       else if(g.moeda==='BRL'){
@@ -1339,9 +1350,9 @@ function carregarMinhaCarteira(){
         ticker:g.ticker,name: COMPANY_NAMES[g.ticker] || g.nome || g.ticker,
         region:coords?coords.region:(g.moeda==='BRL'?'brasil':'eua'),type:tipo,
         lat,lon,
-        price:(g.moeda==='USD'?'US$ ':'R$ ')+(g.custo/g.qtd).toFixed(2),
-        qty:g.qtd.toFixed(0)+' cotas',pos:(g.moeda==='BRL'?'R$ ':'US$ ')+(g.custo).toFixed(0),
-        pct:+pct.toFixed(2),chg:'0%',up:true,
+        price:(g.moeda==='USD'?'US$ '+_atlasNum(g.custo/g.qtd,2):_atlasBRL(g.custo/g.qtd,2))+' (preço médio)',
+        qty:_atlasQtd(g.qtd, g.isCripto),pos:(g.moeda==='USD'?_atlasBRL(_custoBRL(g),0)+' (US$ '+_atlasNum(g.custo,0)+')':_atlasBRL(g.custo,0))+' a custo',
+        pct:+pct.toFixed(2),chg:'valor de custo',up:true, posBRL:_custoBRL(g), custoBRL:_custoBRL(g), aCusto:true,
         city:coords?coords.city:(g.moeda==='BRL'?'Brasil':'EUA'),
         color:coords?coords.color:(tipo==='fii'?'#e8c766':tipo==='reit'?'#4ade80':tipo==='etf'?'#c084fc':'#60a5fa'),
         logo:coords?coords.logo:g.ticker.toLowerCase(),
@@ -1594,7 +1605,7 @@ function updateClassPanel(){
   const total=Object.values(totals).reduce((s,v)=>s+v,0)||1;
   const cats=['acoes','stock','reit','etf','fii','cripto'];
   cats.forEach(t=>{
-    const pct=totals[t]||0, pctR=(pct/total*100).toFixed(2)+'%';
+    const pct=totals[t]||0, pctR=_atlasNum(pct/total*100,1)+'%';
     const el=document.getElementById('cp-'+t+'s')||document.getElementById('cp-'+t);
     if(el)el.textContent=pctR;
     const bar=document.getElementById('cpb-'+t+'s')||document.getElementById('cpb-'+t);
@@ -1609,14 +1620,14 @@ function updateRegionPanel(){
   const total=Object.values(rg).reduce((s,v)=>s+v,0)||1;
   Object.entries(rg).forEach(([r,p])=>{
     const el=document.getElementById('rt-'+{eua:'eua',brasil:'br',europa:'eu',asia:'as'}[r]);
-    if(el)el.textContent=(p/total*100).toFixed(2)+'%';
+    if(el)el.textContent=_atlasNum(p/total*100,1)+'%';
   });
 }
 
 /* ══ THREE.JS SETUP ══ */
 const container=document.getElementById('gc'),canvas3=document.getElementById('three-canvas');
 const renderer=new THREE.WebGLRenderer({canvas:canvas3,antialias:true,alpha:true});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, (window.innerWidth<=900 ? 1.5 : 2)));
 // Usa dimensões da janela como fallback se container ainda não tiver tamanho
 const _initW = container.clientWidth || (window.innerWidth - 200) || 800;
 const _initH = container.clientHeight || window.innerHeight || 600;
@@ -2410,7 +2421,7 @@ function renderAssetListBody(){
           <div class="a-name">${a.name}</div>
         </div>
         <div class="a-right">
-          <div class="a-pct" style="color:${RG_COLORS[rg]}">${(a.pct/total*100).toFixed(1)}%</div>
+          <div class="a-pct" style="color:${RG_COLORS[rg]}">${_atlasNum(a.pct/total*100,1)}%</div>
           <div class="a-pos">${a.pos}</div>
           <div class="a-badge ${a.type}${a.region==='brasil'&&a.type==='stock'?' acoes':''}">${a.type==='stock'&&a.region==='brasil'?'AÇÃO BR':a.type==='fii'?'FII/FIAGRO':a.type.toUpperCase()}</div>
         </div>
@@ -2420,7 +2431,7 @@ function renderAssetListBody(){
       <div class="rg-head ${isCollapsed?'collapsed':''}" onclick="toggleRegionCollapse('${rg}')">
         <span class="rg-dot" style="background:${RG_COLORS[rg]}"></span>
         ${RG_LABELS[rg]}
-        <span class="rg-pct" style="color:${RG_COLORS[rg]}">${(rgTot/total*100).toFixed(1)}%</span>
+        <span class="rg-pct" style="color:${RG_COLORS[rg]}">${_atlasNum(rgTot/total*100,1)}%</span>
         <span class="rg-chevron">▾</span>
       </div>
       <div class="rg-body ${isCollapsed?'collapsed':''}" style="max-height:${isCollapsed?'0':grp.length*80+'px'}">
@@ -2496,7 +2507,8 @@ function showTooltip(a,cx,cy){
   document.getElementById('tt-price').textContent=a.price;
   document.getElementById('tt-qty').textContent=a.qty;
   document.getElementById('tt-posv').textContent=a.pos;
-  document.getElementById('tt-pct').textContent=a.pct.toFixed(1)+'%';
+  window._ttAsset=a;
+  document.getElementById('tt-pct').textContent=_atlasNum(a.pct,1)+'%';
   const cb=document.getElementById('tt-chg-big');cb.textContent=a.chg;cb.className='tt-chg-big '+(a.up?'tt-up':'tt-dn');
   const ttLogoUrl=(window.TV_LOGOS&&window.TV_LOGOS.getUrl?window.TV_LOGOS.getUrl(a.ticker):'')||(a.logo&&TV_WHITELIST.has(a.logo)?`https://s3-symbol-logo.tradingview.com/${a.logo}.svg?v=3`:'')||CRYPTO_LOGOS[a.ticker]||getFallbackLogoUrl(a.ticker)||'';
   document.getElementById('tt-logo').innerHTML=`<img src="${ttLogoUrl}" style="width:40px;height:40px;object-fit:contain" onerror="this.style.display='none'">`;
@@ -2506,7 +2518,7 @@ function showTooltip(a,cx,cy){
   document.getElementById('tt-city').textContent='📍 '+a.city;
   const cc=(a.type==='cripto')?null:FLAG_CODES[a.flag];const fl=document.getElementById('tt-flag');
   if(fl){if(cc){fl.style.display='inline-block';fl.src=`https://flagcdn.com/w40/${cc}.png`;}else fl.style.display='none';}
-  const cnt=SOCIAL_COUNTS[a.ticker]||0;const sc=document.getElementById('tt-social');
+  const cnt=0; /* antes: números fixos inventados (ex.: AAPL 47); contagem real exigiria agregação no servidor */const sc=document.getElementById('tt-social');
   if(cnt>0){document.getElementById('tt-social-count').textContent=cnt;sc.style.display='flex';}else sc.style.display='none';
 
   const rect=container.getBoundingClientRect();
@@ -2737,13 +2749,13 @@ function fetchCambio(){
       const q=data.USDBRL;
       if(!q) return;
       CAMBIO_BRL=parseFloat(q.bid);
-      const rate=CAMBIO_BRL.toFixed(2);
+      const rate=_atlasNum(CAMBIO_BRL,2);
       const pct=parseFloat(q.pctChange);
       const el=document.getElementById('rp-cambio');
       const sub=document.getElementById('rp-cambio-sub');
       if(el) el.textContent=rate;
       if(sub){
-        sub.textContent=(pct>=0?'▲ +':'▼ ')+pct.toFixed(2)+'%';
+        sub.textContent=(pct>=0?'▲ +':'▼ ')+_atlasNum(pct,2)+'%';
         sub.className='sc-sub '+(pct>=0?'':'sc-neg');
       }
       // Recalcula posições com câmbio atualizado se já tiver dados
@@ -2757,7 +2769,7 @@ function fetchCambio(){
           if(rate){
             CAMBIO_BRL=parseFloat(rate);
             const el=document.getElementById('rp-cambio');
-            if(el) el.textContent=CAMBIO_BRL.toFixed(2);
+            if(el) el.textContent=_atlasNum(CAMBIO_BRL,2);
           }
         }).catch(()=>{});
     });
@@ -2771,6 +2783,7 @@ let _animStarted=false;
 function animate(){
   if(!_animStarted){ _animStarted=true; }
   requestAnimationFrame(animate);
+  if(window._atlasPausado){ clock.getDelta(); return; }
   const dt=clock.getDelta();
   currentZoom+=(targetZoom-currentZoom)*.08;camera.position.z=currentZoom;
   if(earthMesh){
@@ -3024,7 +3037,7 @@ let _isAdmin=false;
 (function(){
   try{
     var cached=JSON.parse(localStorage.getItem('g20_user_profile')||'{}');
-    if(cached.role==='admin') _isAdmin=true;
+    /* papel confirmado no Firestore (g20-atlas-mobile); o cache do aparelho não libera edição */
   }catch(e){}
 })();
 
@@ -3442,5 +3455,270 @@ function _pararAudio(){
     </div>
   </div>
 </div>
+
+<style id="g20-atlas-mobile">
+/* ════════ ATLAS G20 · CELULAR E TABLET (set/2026) ════════
+   body.atlas-empilhado : celular em pé e tablet em pé → globo em cima, painel embaixo
+   body.atlas-compacto  : qualquer tela pequena (inclui celular deitado) → controles
+                          no botão "Opções", filtros e regiões em faixas roláveis,
+                          informações do ativo em painel de baixo para cima */
+
+/* a área principal não pode ser alargada pelo conteúdo (a barra do topo forçava 547px num celular de 375px) */
+.main { min-width: 0 !important; }
+.atlas-main { min-width: 0; }
+/* painel direito proporcional (tablet deitado); no desktop largo continua 420px */
+body:not(.atlas-empilhado) .right-panel { width: clamp(300px, 38vw, 420px) !important; }
+
+/* ── empilhado ── */
+body.atlas-empilhado .main { height: auto !important; min-height: 100svh; overflow: visible !important; }
+body.atlas-empilhado .atlas-main { flex-direction: column !important; overflow: visible !important; height: auto !important; flex: none !important; }
+body.atlas-empilhado #gc { flex: none !important; width: 100% !important; height: clamp(300px, 52svh, 560px) !important; }
+body.atlas-empilhado .right-panel { width: 100% !important; border-left: 0 !important; border-top: 1px solid var(--border); overflow: visible !important; }
+body.atlas-empilhado .asset-list { overflow: visible !important; flex: none !important; }
+#atlasTopo { display: none; }
+@media (max-width: 600px) { .sum-card .sc-v { font-size: 22px !important; line-height: 1.15; word-break: break-word; } }
+@media (max-width: 600px) { .topbar .live-badge, .topbar .v21-theme-switch { display: none !important; } .topbar .page-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; } }
+body.atlas-empilhado #atlasTopo { display: flex; justify-content: center; padding: 10px 12px 8px; }
+body.atlas-empilhado #atlasTopo .portfolio-toggle { margin: 0 !important; }
+
+/* ── celular deitado: lado a lado ── */
+body.atlas-compacto:not(.atlas-empilhado) .right-panel { width: 42% !important; }
+
+/* ── compacto: globo limpo ── */
+body.atlas-compacto #gc { touch-action: none; }
+body.atlas-compacto .zoom-hint { display: none !important; }
+body.atlas-compacto .filters-bar { top: 10px !important; left: 8px !important; right: 58px !important; flex-wrap: nowrap !important;
+  overflow-x: auto; scrollbar-width: none; gap: 6px !important; padding-bottom: 2px; -webkit-mask-image: linear-gradient(90deg,#000 90%,transparent); mask-image: linear-gradient(90deg,#000 90%,transparent); }
+body.atlas-compacto .filters-bar::-webkit-scrollbar { display: none; }
+body.atlas-compacto .filter-btn { flex: 0 0 auto; min-height: 34px; }
+body.atlas-compacto .region-tabs { top: auto !important; bottom: 10px !important; left: 8px !important; right: 8px !important; transform: none !important;
+  flex-direction: row !important; overflow-x: auto; scrollbar-width: none; border-right: 0 !important; border-radius: 12px; gap: 4px; }
+body.atlas-compacto .region-tabs::-webkit-scrollbar { display: none; }
+body.atlas-compacto .region-tab { flex: 1 0 auto; min-width: 76px; padding: 6px 10px !important; border-bottom: 0 !important; }
+body.atlas-compacto .timeline-bar { left: 8px !important; right: 8px !important; transform: none !important; width: auto !important; bottom: 64px !important; max-width: none !important; }
+body.atlas-compacto .tl-slider { height: 28px; }
+#atlasBtnOpcoes { display: none; }
+body.atlas-compacto #atlasBtnOpcoes { display: flex; position: absolute; top: 8px; right: 8px; z-index: 12; width: 44px; height: 44px; border-radius: 12px;
+  align-items: center; justify-content: center; background: rgba(14,13,20,.92); border: 1px solid rgba(201,169,97,.35); color: var(--gold,#c9a961); font-size: 18px; cursor: pointer; }
+
+/* painel "Opções" */
+#atlasOpcoes { position: fixed; inset: 0; z-index: 9600; display: none; }
+#atlasOpcoes.show { display: block; }
+#atlasOpcoes .ao-fundo { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
+#atlasOpcoes .ao-painel { position: absolute; left: 0; right: 0; bottom: 0; max-height: 82svh; overflow: auto; background: #14121c; border-top: 1px solid rgba(201,169,97,.3);
+  border-radius: 18px 18px 0 0; padding: 10px 16px calc(18px + env(safe-area-inset-bottom,0px)); }
+#atlasOpcoes .ao-alca { width: 40px; height: 4px; border-radius: 4px; background: rgba(255,255,255,.2); margin: 0 auto 12px; }
+#atlasOpcoes .ao-cab { display: flex; align-items: center; margin-bottom: 10px; }
+#atlasOpcoes .ao-cab b { flex: 1; font: 800 16px 'DM Sans', sans-serif; color: #e8e6e3; }
+#atlasOpcoes .ao-fechar { min-height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,.2); background: transparent; color: #e8e6e3; font: 600 13px 'DM Sans', sans-serif; }
+#atlasOpcoes .ao-sec { font: 800 10.5px 'DM Sans', sans-serif; letter-spacing: .12em; text-transform: uppercase; color: #9a958e; margin: 14px 2px 8px; }
+#atlasOpcoes .controls-bar, #atlasOpcoes .mode-toggle, #atlasOpcoes .classes-panel, #atlasOpcoes .share-btn, #atlasOpcoes .cinema-btn {
+  position: static !important; transform: none !important; inset: auto !important; margin: 0 !important; }
+#atlasOpcoes .controls-bar { display: grid !important; grid-template-columns: 1fr 1fr; gap: 8px !important; background: none !important; border: 0 !important; padding: 0 !important; }
+#atlasOpcoes .controls-bar .ctrl-sep { display: none !important; }
+#atlasOpcoes .ctrl-btn { min-height: 44px; border-radius: 10px !important; border: 1px solid rgba(255,255,255,.12) !important; font-size: 12.5px !important; }
+#atlasOpcoes .ao-linha { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+#atlasOpcoes .mode-toggle, #atlasOpcoes .share-btn, #atlasOpcoes .cinema-btn { display: flex !important; align-items: center; justify-content: center; min-height: 44px; width: 100%; border-radius: 10px !important; }
+#atlasOpcoes .classes-panel { display: block !important; width: auto !important; }
+
+/* informações do ativo: painel de baixo para cima */
+.tt-acoes-mob { display: none; }
+body.atlas-compacto #tooltip { position: fixed !important; left: 8px !important; right: 8px !important; top: auto !important;
+  bottom: calc(8px + env(safe-area-inset-bottom,0px)) !important; width: auto !important; max-height: 72svh; overflow: auto; pointer-events: auto !important; z-index: 9400 !important; padding: 18px !important; }
+body.atlas-compacto #tooltip .tt-click-hint { display: none !important; }
+body.atlas-compacto .tt-acoes-mob { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 14px; }
+.tt-acoes-mob button { min-height: 44px; border-radius: 10px; font: 700 14px 'DM Sans', sans-serif; cursor: pointer; }
+.tt-acoes-mob .tt-ver { background: var(--gold,#c9a961); color: #1a191e; border: 0; }
+.tt-acoes-mob .tt-fechar { background: transparent; color: var(--text,#e8e6e3); border: 1px solid rgba(255,255,255,.2); padding: 0 16px; }
+
+/* tese e modais cabendo na tela */
+body.atlas-compacto #tese-panel.open { position: fixed !important; inset: 0 !important; width: 100% !important; height: 100% !important; z-index: 9500 !important; }
+body.atlas-compacto #tese-edit-modal { width: 100% !important; max-width: 100% !important; max-height: 100svh !important; border-radius: 0 !important; }
+body.atlas-compacto .share-card { width: calc(100% - 24px) !important; }
+
+/* aviso quando o aparelho descarta o globo */
+#atlasGlobeAviso { position: absolute; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center; text-align: center; padding: 24px;
+  background: rgba(8,6,16,.92); color: #e8e6e3; font: 600 14px 'DM Sans', sans-serif; }
+</style>
+
+<div id="atlasOpcoes" aria-hidden="true">
+  <div class="ao-fundo" onclick="atlasOpcoes(false)"></div>
+  <div class="ao-painel" role="dialog" aria-modal="true" aria-label="Opções do globo">
+    <div class="ao-alca"></div>
+    <div class="ao-cab"><b>Opções do globo</b><button type="button" class="ao-fechar" onclick="atlasOpcoes(false)">Fechar</button></div>
+    <div class="ao-sec">Visualização</div><div id="aoControles"></div>
+    <div class="ao-sec">Ações</div><div class="ao-linha" id="aoAcoes"></div>
+    <div class="ao-sec">Por classe</div><div id="aoClasses"></div>
+  </div>
+</div>
+
+<script id="g20-atlas-mobile-js">
+(function(){
+  'use strict';
+  var gc = document.getElementById('gc'); if (!gc) return;
+  var q = function(s){ return document.querySelector(s); };
+
+  /* ── botão Opções e área do seletor de carteira no topo ── */
+  var btnOp = document.createElement('button');
+  btnOp.id = 'atlasBtnOpcoes'; btnOp.type = 'button'; btnOp.setAttribute('aria-label', 'Opções do globo'); btnOp.textContent = '⚙';
+  btnOp.onclick = function(){ atlasOpcoes(true); };
+  gc.appendChild(btnOp);
+  var topo = document.createElement('div'); topo.id = 'atlasTopo';
+  var main = q('.atlas-main'); main.parentNode.insertBefore(topo, main);
+
+  var aviso = document.createElement('div'); aviso.id = 'atlasGlobeAviso';
+  aviso.innerHTML = '<div>O aparelho pausou o globo 3D para economizar memória.<br><br><button type="button" onclick="location.reload()" style="min-height:44px;padding:0 18px;border-radius:10px;border:0;background:#c9a961;color:#1a191e;font-weight:800">Recarregar o globo</button></div>';
+  gc.appendChild(aviso);
+
+  window.atlasOpcoes = function(abrir){
+    var o = document.getElementById('atlasOpcoes');
+    o.classList.toggle('show', !!abrir); o.setAttribute('aria-hidden', abrir ? 'false' : 'true');
+    document.body.style.overflow = abrir ? 'hidden' : '';
+  };
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') atlasOpcoes(false); });
+
+  /* ── mover controles entre o globo e o painel "Opções" conforme a tela ── */
+  var moveis = [
+    { el: q('.controls-bar'), destino: 'aoControles' },
+    { el: q('#modeBtn'), destino: 'aoAcoes' },
+    { el: q('.share-btn'), destino: 'aoAcoes' },
+    { el: q('.cinema-btn'), destino: 'aoAcoes' },
+    { el: q('.classes-panel'), destino: 'aoClasses' }
+  ].filter(function(m){ return m.el; });
+  moveis.forEach(function(m){ m.pai = m.el.parentNode; m.depois = m.el.nextSibling; });
+  var toggle = q('.portfolio-toggle'), tPai = toggle && toggle.parentNode, tDepois = toggle && toggle.nextSibling;
+
+  var modoAtual = '';
+  function aplicarModo(){
+    var w = window.innerWidth, h = window.innerHeight;
+    var empilhado = w <= 600 || (w <= 900 && h >= w);
+    // compacto também em tablets (< 1280px): os controles sobre o globo se sobrepunham
+    var compacto = empilhado || (h <= 520 && w > h) || w < 1280;
+    var modo = (empilhado ? 'E' : '') + (compacto ? 'C' : '');
+    if (modo === modoAtual) return;
+    modoAtual = modo;
+    document.body.classList.toggle('atlas-empilhado', empilhado);
+    document.body.classList.toggle('atlas-compacto', compacto);
+    moveis.forEach(function(m){
+      if (compacto) document.getElementById(m.destino).appendChild(m.el);
+      else m.pai.insertBefore(m.el, m.depois && m.depois.parentNode === m.pai ? m.depois : null);
+    });
+    if (toggle) {
+      if (empilhado) topo.appendChild(toggle);
+      else tPai.insertBefore(toggle, tDepois && tDepois.parentNode === tPai ? tDepois : null);
+    }
+    if (!compacto) atlasOpcoes(false);
+    // o renderizador recalcula o tamanho do globo
+    setTimeout(function(){ window.dispatchEvent(new Event('resize')); }, 30);
+  }
+  var tm = null;
+  window.addEventListener('resize', function(){ clearTimeout(tm); tm = setTimeout(aplicarModo, 120); });
+  window.addEventListener('orientationchange', function(){ setTimeout(aplicarModo, 250); });
+  aplicarModo();
+
+  /* ── painel do ativo no toque: "Ver tese" e "Fechar" ── */
+  var tt = document.getElementById('tooltip');
+  if (tt) {
+    var acoes = document.createElement('div'); acoes.className = 'tt-acoes-mob';
+    acoes.innerHTML = '<button type="button" class="tt-ver">Ver tese ›</button><button type="button" class="tt-fechar">Fechar</button>';
+    tt.appendChild(acoes);
+    acoes.querySelector('.tt-ver').onclick = function(){ tt.classList.remove('show'); try { if (window._ttAsset && typeof openTese === 'function') openTese(window._ttAsset); } catch(e){} };
+    acoes.querySelector('.tt-fechar').onclick = function(){ tt.classList.remove('show'); };
+  }
+
+  /* ── gestos: 1 dedo gira, pinça aproxima, toque seleciona ── */
+  function sint(tipo, x, y){ gc.dispatchEvent(new MouseEvent(tipo, { clientX: x, clientY: y, bubbles: true, cancelable: true })); }
+  var t0 = null, pinca = null;
+  function ehControle(el){ return el && el.closest && el.closest('button, input, .filter-btn, .region-tab, .timeline-bar, #tooltip, #atlasBtnOpcoes, #atlasGlobeAviso'); }
+  gc.addEventListener('touchstart', function(e){
+    if (ehControle(e.target)) { t0 = null; return; }
+    if (e.touches.length === 1) {
+      var t = e.touches[0]; t0 = { x: t.clientX, y: t.clientY, ts: Date.now(), moveu: false };
+      sint('mousedown', t.clientX, t.clientY);
+    } else if (e.touches.length === 2) {
+      var a = e.touches[0], b = e.touches[1];
+      try { pinca = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1, z: targetZoom }; } catch(err){ pinca = null; }
+      if (t0) sint('mouseup', t0.x, t0.y); t0 = null;
+    }
+  }, { passive: true });
+  gc.addEventListener('touchmove', function(e){
+    if (pinca && e.touches.length === 2) {
+      e.preventDefault();
+      var a = e.touches[0], b = e.touches[1], d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1;
+      try { targetZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, pinca.z * pinca.d / d)); } catch(err){}
+      return;
+    }
+    if (t0 && e.touches.length === 1) {
+      e.preventDefault();
+      var t = e.touches[0];
+      if (Math.hypot(t.clientX - t0.x, t.clientY - t0.y) > 8) t0.moveu = true;
+      sint('mousemove', t.clientX, t.clientY);
+      if (t0.moveu && tt) tt.classList.remove('show');
+    }
+  }, { passive: false });
+  gc.addEventListener('touchend', function(e){
+    if (pinca && e.touches.length < 2) { pinca = null; return; }
+    if (!t0) return;
+    e.preventDefault();            // evita cliques duplicados emulados pelo navegador
+    var ch = e.changedTouches[0]; sint('mouseup', ch.clientX, ch.clientY);
+    var toque = !t0.moveu && (Date.now() - t0.ts) < 350, x = t0.x, y = t0.y; t0 = null;
+    if (toque) {
+      if (tt) tt.classList.remove('show');
+      sint('mousemove', x, y);                                  // marca o ativo sob o dedo
+      if (!(tt && tt.classList.contains('show'))) sint('click', x, y);  // sem ativo: agrupamentos etc.
+    }
+  }, { passive: false });
+
+  /* ── desempenho: pausa fora da tela, aba oculta; menos movimento se pedido ── */
+  var visivel = true;
+  function atualizarPausa(){ window._atlasPausado = !visivel || document.hidden; }
+  try { new IntersectionObserver(function(en){ visivel = en[0].isIntersecting; atualizarPausa(); }, { threshold: 0.02 }).observe(gc); } catch(e){}
+  document.addEventListener('visibilitychange', atualizarPausa);
+  try { if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) autoRotate = false; } catch(e){}
+  var cv = document.getElementById('three-canvas');
+  if (cv) {
+    cv.addEventListener('webglcontextlost', function(e){ e.preventDefault(); aviso.style.display = 'flex'; });
+    cv.addEventListener('webglcontextrestored', function(){ aviso.style.display = 'none'; });
+  }
+
+  /* ── resumo com dados reais (antes: "+2.4% hoje" e dividendos fixos) ── */
+  function atualizarResumo(){
+    try {
+      var lista = (typeof getActiveAssets === 'function') ? getActiveAssets() : (window.ASSETS || []);
+      var tot = 0, custo = 0, aCusto = true, maior = null, comCot = 0;
+      lista.forEach(function(a){ if (a.posBRL > 0) { tot += a.posBRL; custo += (a.custoBRL || 0); if (!a.aCusto) aCusto = false; if (!a.semCot && !a.aCusto) comCot++; if (!maior || a.posBRL > maior.posBRL) maior = a; } });
+      if (!(tot > 0)) return;
+      var elP = document.getElementById('rp-patrimonio'); if (elP) elP.textContent = _atlasFmtCompacto(tot);
+      var sub = document.getElementById('rp-patr-sub');
+      if (sub) {
+        if (aCusto || !(custo > 0)) { sub.textContent = 'valor de custo'; sub.className = 'sc-sub'; }
+        else if (!comCot) { sub.textContent = 'aguardando cotações'; sub.className = 'sc-sub'; }
+        else { var r = (tot / custo - 1) * 100; sub.textContent = (r >= 0 ? '▲ +' : '▼ ') + _atlasNum(r, 1) + '% sobre o custo'; sub.className = 'sc-sub' + (r < 0 ? ' sc-neg' : ''); }
+      }
+      if (maior) {
+        var em = document.getElementById('rp-maior'), es = document.getElementById('rp-maior-sub');
+        if (em) em.textContent = maior.ticker;
+        if (es) es.textContent = _atlasNum(maior.posBRL / tot * 100, 1) + '% da carteira';
+      }
+    } catch(e){}
+  }
+  if (typeof window.buildAssetList === 'function') {
+    var _orig = window.buildAssetList;
+    window.buildAssetList = function(){ var r = _orig.apply(this, arguments); atualizarResumo(); return r; };
+  }
+  setTimeout(atualizarResumo, 4000);
+
+  /* ── edição de tese só para admin confirmado no Firestore ── */
+  try {
+    firebase.auth().onAuthStateChanged(function(u){
+      if (!u) { try { _isAdmin = false; } catch(e){} return; }
+      firebase.firestore().collection('users').doc(u.uid).get().then(function(d){
+        try { _isAdmin = !!(d.exists && d.data().role === 'admin'); } catch(e){}
+        var b = document.getElementById('tp-admin-btn'); if (b && !_isAdmin) b.style.display = 'none';
+      }).catch(function(){ try { _isAdmin = false; } catch(e){} });
+    });
+  } catch(e){}
+})();
+</script>
 </body>
 </html>
