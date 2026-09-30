@@ -484,6 +484,14 @@
           var injected = [];
           snap.forEach(function(doc){
             var n = doc.data() || {};
+            // Avisos de CONSULTORIA (gravados pelo servidor: agendamento, cancelamento, link da sala)
+            if(n.tipo === 'consultoria'){
+              var tsC = (n.criadoEm && n.criadoEm.toMillis) ? n.criadoEm.toMillis() : (n.ts || Date.now());
+              injected.push({ id:'cons-' + doc.id, ico:'🗓️', bg:'rgba(201,169,97,.22)',
+                titulo: n.titulo || 'Consultoria', desc: n.mensagem || '', ts: tsC,
+                link: (n.link === 'admin-consultoria.html' ? 'admin-consultoria.html' : 'consultoria.html') });
+              return;
+            }
             // Escopo: apenas tipo 'resposta' (resposta no post). Sub-respostas ('reply') ficam fora.
             if(n.tipo && n.tipo !== 'resposta') return;
             if(!n.postId) return;
