@@ -6528,6 +6528,20 @@ body.didactic-on .didactic-note{ display:block; }
             renderAll();
         }
 
+        // Soma 'meses' a uma data YYYY-MM-DD mantendo SEMPRE o mesmo dia, sem
+        // usar setMonth (que "transborda" quando o dia não existe no mês, ex.:
+        // 31/10 -> 01/12) e sem passar por Date/UTC (que trocava o dia por causa
+        // do fuso -03). Se o dia não existe no mês destino, usa o último dia dele.
+        function addMesesISO(iso, meses) {
+            const [y, m, d] = iso.split('-').map(Number);
+            let ano = y, mes = (m - 1) + meses;          // m-1 = mês base 0
+            ano += Math.floor(mes / 12);
+            mes = ((mes % 12) + 12) % 12;                 // normaliza 0..11
+            const ultimoDia = new Date(ano, mes + 1, 0).getDate();
+            const dia = Math.min(d, ultimoDia);
+            return ano + '-' + String(mes + 1).padStart(2, '0') + '-' + String(dia).padStart(2, '0');
+        }
+
         // V117.33: Função Helper para normalizar e formatar tags
         function normalizeTagsInput(tagString) {
             if (!tagString) return [];
@@ -6595,14 +6609,12 @@ body.didactic-on .didactic-note{ display:block; }
                 const initialVerifiedStatus = type === 'expense';
 
                 for (let i = 0; i < limit; i++) {
-                    const d = new Date(baseDate);
-                    d.setHours(12, 0, 0, 0);
-                    d.setMonth(d.getMonth() + i);
+                    const dateISO = addMesesISO(baseDate, i);   // mesmo dia todo mês
                     let finalDesc = mode === 'installment' ? `${desc} (${current + i}/${total})` : `${desc} (Recorrente)`;
 
                     data.transactions.unshift({
                         id: Date.now() + i,
-                        date: d.toISOString().split('T')[0],
+                        date: dateISO,
                         desc: finalDesc,
                         amount: amount,
                         type: type,
@@ -6770,9 +6782,7 @@ body.didactic-on .didactic-note{ display:block; }
                 }
 
                 for (let i = 0; i < limit; i++) {
-                    const d = new Date(baseDate);
-                    d.setHours(12, 0, 0, 0);
-                    d.setMonth(d.getMonth() + i);
+                    const dateISO = addMesesISO(baseDate, i);   // mesmo dia todo mês
 
                     let finalDesc;
                     if (recMode === 'installment') {
@@ -6783,7 +6793,7 @@ body.didactic-on .didactic-note{ display:block; }
 
                     data.transactions.unshift({
                         id: Date.now() + i,
-                        date: d.toISOString().split('T')[0],
+                        date: dateISO,
                         desc: finalDesc,
                         amount: amount,
                         type: type,
