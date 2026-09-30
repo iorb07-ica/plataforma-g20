@@ -119,7 +119,9 @@ body{background:var(--bg);color:var(--text);font-family:"DM Sans",sans-serif;min
           <div style="display:flex;gap:8px">
             <button class="adm-btn adm-btn-ghost" onclick="filtrarStatus('todos')" id="filt-todos" style="border-color:var(--gold-border);color:var(--gold)">Todos</button>
             <button class="adm-btn adm-btn-ghost" onclick="filtrarStatus('confirmado')" id="filt-confirmado">Confirmados</button>
-            <button class="adm-btn adm-btn-ghost" onclick="filtrarStatus('cancelado')" id="filt-cancelado">Cancelados</button>
+            <button class="adm-btn adm-btn-ghost" onclick="filtrarStatus('realizada')" id="filt-realizada">Realizadas</button>
+<button class="adm-btn adm-btn-ghost" onclick="filtrarStatus('faltou')" id="filt-faltou">Faltas</button>
+<button class="adm-btn adm-btn-ghost" onclick="filtrarStatus('cancelado')" id="filt-cancelado">Cancelados</button>
           </div>
         </div>
         <div id="agendaList"><div style="text-align:center;padding:40px;color:var(--text3)">Carregando...</div></div>
@@ -212,16 +214,24 @@ auth.onAuthStateChanged(function(user){
 });
 
 function carregarTudo(){
-  Promise.all([carregarDisponibilidade(),carregarBloqueios(),carregarAgendamentos(),carregarAlunos()]);
+  Promise.all([carregarDisponibilidade(),carregarBloqueios(),carregarAgendamentos(),carregarAlunos()])
+    .then(function(){ renderAgenda(); }); // redesenha com os nomes dos alunos já carregados
+  // cria as travas de horário das reservas feitas antes delas existirem (seguro repetir)
+  _consultoriaApi('admin_sincronizar',{}).catch(function(){});
+}
+/* Chamada segura ao servidor da consultoria (ações de admin conferidas no servidor) */
+var API_CONSULTORIA='https://g20-proxy.vercel.app/api/consultoria';
+function _consultoriaApi(acao,dados){
+  var u=firebase.auth().currentUser;
+  if(!u) return Promise.reject(new Error('Sessão expirada.'));
+  return u.getIdToken().then(function(tk){
+    return fetch(API_CONSULTORIA,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+tk},body:JSON.stringify(Object.assign({acao:acao},dados||{}))});
+  }).then(function(r){ return r.json().catch(function(){return {};}).then(function(j){ if(!r.ok){ var e=new Error(j.error||('Erro '+r.status)); e.status=r.status; throw e; } return j; }); });
 }
 
 function carregarDisponibilidade(){
   return db.collection('consultoria').doc('config').get().then(function(doc){
-    _slots=doc.exists?(doc.data().slots||[]):[
-      {diasSemana:[1,2,3,4,5],hora:'10:00'},
-      {diasSemana:[1,2,3,4,5],hora:'15:00'},
-      {diasSemana:[0,1,2,3,4,5,6],hora:'16:00'}
-    ];
+    _slots=(doc.exists&&Array.isArray(doc.data().slots))?doc.data().slots:[];
     renderSlots();
   });
 }
@@ -269,7 +279,7 @@ function showTab(tab){
 // ─── AGENDA ───
 function filtrarStatus(status){
   _filtroStatus=status;
-  ['todos','confirmado','cancelado'].forEach(function(s){
+  ['todos','confirmado','realizada','faltou','cancelado'].forEach(function(s){
     var el=document.getElementById('filt-'+s);
     if(el){el.style.color=s===status?'var(--gold)':'';el.style.borderColor=s===status?'var(--gold-border)':'';}
   });
@@ -280,37 +290,64 @@ function renderAgenda(){
   var list=document.getElementById('agendaList');
   var items=_filtroStatus==='todos'?_agendamentos:_agendamentos.filter(function(a){return a.status===_filtroStatus;});
   if(!items.length){list.innerHTML='<div style="text-align:center;padding:40px;color:var(--text3)">Nenhum agendamento.</div>';return;}
+  var ROT={confirmado:'✅ Confirmado',realizada:'🎓 Realizada',faltou:'⚠️ Faltou',cancelado:'❌ Cancelado'};
   list.innerHTML=items.map(function(a){
-    var d=new Date(a.data+'T00:00:00');
+    var d=new Date(a.data+'T12:00:00');
     var aluno=_alunos.find(function(u){return u.uid===a.uid;})||{name:'Aluno',email:''};
-    var cancelBtn=a.status==='confirmado'?'<button onclick="adminCancelar(\''+a.id+'\',\''+a.uid+'\')" class="adm-btn adm-btn-danger" style="font-size:11px;padding:5px 10px">Cancelar</button>':'';
-    var calBtn=a.status==='confirmado'?'<button onclick="adminAdicionarCalendar(\''+a.id+'\')" class="adm-btn" style="font-size:11px;padding:5px 10px;background:rgba(66,133,244,.15);color:#4285f4;border:1px solid rgba(66,133,244,.3);margin-right:4px">📅</button>':'';
-    return '<div class="ag-item '+a.status+'">' +
+    var futura=a.timestamp>Date.now(), ativo=(a.status!=='cancelado');
+    var btn=function(txt,fn,cls){ return '<button onclick="'+fn+'" class="adm-btn '+(cls||'')+'" style="font-size:11px;padding:5px 10px">'+txt+'</button>'; };
+    var sala='';
+    if(ativo){
+      sala = a.meetLink
+        ? '<a href="'+_esc(a.meetLink)+'" target="_blank" rel="noopener" style="font-size:11.5px;color:var(--gold);font-weight:700">🎥 '+_esc(a.meetLink.replace('https://',''))+'</a>'
+        : '<span style="font-size:11.5px;color:#f59e0b;font-weight:700">🔗 Link pendente'+(a.linkPendenteMotivo?' · '+_esc(a.linkPendenteMotivo):'')+'</span>';
+    }
+    var acoes='';
+    if(ativo && !a.meetLink) acoes+=btn('Gerar link Meet',"adminGerarLink('"+a.id+"')")+btn('Colar link',"adminDefinirLink('"+a.id+"')");
+    if(ativo && !futura) acoes+=btn('Realizada',"adminStatus('"+a.id+"','realizada')")+btn('Faltou',"adminStatus('"+a.id+"','faltou')");
+    if(ativo && a.status!=='confirmado') acoes+=btn('Voltar p/ confirmada',"adminStatus('"+a.id+"','confirmado')");
+    if(ativo) acoes+=btn('Cancelar',"adminCancelar('"+a.id+"')",'adm-btn-danger');
+    return '<div class="ag-item '+a.status+'" style="flex-wrap:wrap">' +
       '<div class="ag-data"><div class="ag-dia">'+String(d.getDate()).padStart(2,'0')+'</div><div class="ag-mes">'+MESES[d.getMonth()]+'</div></div>'+
-      '<div class="ag-info"><div class="ag-aluno">'+_esc(aluno.name||aluno.email||a.uid)+'</div><div class="ag-hora">⏰ '+a.hora+' – '+_addHour(a.hora)+'</div></div>'+
-      '<span class="ag-status '+a.status+'">'+(a.status==='confirmado'?'✅ Confirmado':'❌ Cancelado')+'</span>'+
-      calBtn+cancelBtn+
+      '<div class="ag-info"><div class="ag-aluno">'+_esc(aluno.name||aluno.email||a.uid)+'</div><div class="ag-hora">⏰ '+a.hora+' – '+_addHour(a.hora)+' (Brasília)</div>'+(sala?'<div style="margin-top:4px">'+sala+'</div>':'')+'</div>'+
+      '<span class="ag-status '+a.status+'">'+(ROT[a.status]||a.status)+'</span>'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">'+acoes+'</div>'+
     '</div>';
   }).join('');
 }
 
-function adminCancelar(agId,uid){
-  if(!confirm('Cancelar este agendamento e devolver crédito ao aluno?'))return;
-  db.collection('consultoria').doc('agendamentos').collection('items').doc(agId)
-    .update({status:'cancelado'})
-    .then(function(){
-      return db.collection('users').doc(uid).update({creditosConsultoria:firebase.firestore.FieldValue.increment(1)});
-    })
-    .then(function(){
-      var idx=_agendamentos.findIndex(function(a){return a.id===agId;});
-      if(idx>=0)_agendamentos[idx].status='cancelado';
-      renderAgenda();toast('Agendamento cancelado. Crédito devolvido.');
-    });
+function _atualizarAg(){ return carregarAgendamentos(); }
+function adminCancelar(agId){
+  var a=_agendamentos.find(function(x){return x.id===agId;}); if(!a) return;
+  if(!confirm('Cancelar a sessão de '+a.data.split('-').reverse().join('/')+' às '+a.hora+'? O aluno será avisado.'))return;
+  var devolver=confirm('Devolver o crédito ao aluno?\n\nOK = devolver · Cancelar = não devolver');
+  _consultoriaApi('admin_cancelar',{id:agId,devolver:devolver})
+    .then(function(r){ toast('Sessão cancelada.'+(r.creditoDevolvido?' Crédito devolvido.':'')); return Promise.all([_atualizarAg(),carregarAlunos()]); })
+    .catch(function(e){ toast('Erro: '+e.message); });
+}
+function adminStatus(agId,status){
+  _consultoriaApi('admin_status',{id:agId,status:status})
+    .then(function(){ toast('Status atualizado.'); return _atualizarAg(); })
+    .catch(function(e){ toast('Erro: '+e.message); });
+}
+function adminGerarLink(agId){
+  toast('Gerando sala no Google Meet…');
+  _consultoriaApi('admin_gerar_link',{id:agId})
+    .then(function(){ toast('✅ Sala criada e enviada ao aluno.'); return _atualizarAg(); })
+    .catch(function(e){ toast('Não foi possível gerar automaticamente: '+e.message+'. Use "Conectar Google Calendar" e o botão do calendário, ou "Colar link".'); });
+}
+function adminDefinirLink(agId){
+  var link=prompt('Cole o link do Google Meet desta sessão (https://meet.google.com/...)');
+  if(!link) return;
+  _consultoriaApi('admin_link',{id:agId,meetLink:link.trim()})
+    .then(function(){ toast('✅ Link salvo e aluno avisado.'); return _atualizarAg(); })
+    .catch(function(e){ toast('Erro: '+e.message); });
 }
 
 // ─── DISPONIBILIDADE ───
 function renderSlots(){
   var list=document.getElementById('slotsList');
+  if(!_slots.length){ list.innerHTML='<div style="padding:18px;color:var(--text3);font-size:13px">Nenhum horário configurado. Enquanto a agenda estiver vazia, os alunos não conseguem agendar. Clique em "+ Novo horário" e depois em "Salvar horários".</div>'; return; }
   list.innerHTML=_slots.map(function(slot,i){
     var diasHtml=DIAS.map(function(d,di){
       return '<div class="dia-chip'+(slot.diasSemana.indexOf(di)!==-1?' active':'')+'" onclick="toggleDia('+i+','+di+')">'+d+'</div>';
@@ -342,7 +379,7 @@ function removeSlot(i){
 
 function salvarDisponibilidade(){
   db.collection('consultoria').doc('config').set({
-    slots:_slots,duracao:60,meetLink:'https://meet.google.com/psx-kifx-qgc'
+          slots:_slots,duracao:60
   },{merge:true}).then(function(){toast('✅ Horários salvos!');});
 }
 
@@ -391,13 +428,14 @@ function renderAlunos(){
   if(!_alunosFiltrados.length){list.innerHTML='<div style="text-align:center;padding:40px;color:var(--text3)">Nenhum aluno.</div>';return;}
   list.innerHTML=_alunosFiltrados.map(function(u){
     var cred=u.creditosConsultoria!==undefined?u.creditosConsultoria:0;
-    var ilim=u.consultoriaIlimitada===true;
+        var ilim=u.consultoriaIlimitada===true;
+    var legado=!ilim && cred>=99;
     var ini=u.name||u.email||'Aluno';
     return '<div class="aluno-row">'+
       '<div class="aluno-avatar">'+ini.charAt(0).toUpperCase()+'</div>'+
       '<div class="aluno-info"><div class="aluno-name">'+_esc(u.name||'—')+'</div><div class="aluno-email">'+_esc(u.email||u.uid)+'</div></div>'+
       '<div class="credito-ctrl">'+
-        (ilim?'<span style="color:var(--gold);font-size:12px;font-weight:700">∞ Ilimitado</span>':(
+              (ilim?'<span style="color:var(--gold);font-size:12px;font-weight:700">∞ Ilimitado</span>':legado?'<span style="color:#f59e0b;font-size:11.5px;font-weight:700">∞ Ilimitado antigo ('+cred+' créditos) <button class="credito-btn" style="width:auto;padding:0 8px" onclick="converterLegado(\''+u.uid+'\')">Converter</button></span>':(
           '<button class="credito-btn" onclick="ajustarCredito(\''+u.uid+'\',-1)">−</button>'+
           '<div class="credito-num">'+cred+'</div>'+
           '<button class="credito-btn" onclick="ajustarCredito(\''+u.uid+'\',1)">+</button>'
@@ -420,6 +458,8 @@ function filtrarAlunos(){
 }
 
 function ajustarCredito(uid,delta){
+  var _u=_alunos.find(function(a){return a.uid===uid;});
+  if(delta<0 && (!_u || (_u.creditosConsultoria||0)<=0)){ toast('O aluno já está com 0 créditos.'); return; }
   db.collection('users').doc(uid).update({creditosConsultoria:firebase.firestore.FieldValue.increment(delta)})
     .then(function(){
       var u=_alunos.find(function(a){return a.uid===uid;});
@@ -437,6 +477,11 @@ function toggleIlimitado(uid,val){
     });
 }
 
+function converterLegado(uid){
+  if(!confirm('Converter para o novo "Ilimitado" (marcado por você) e zerar os créditos antigos?')) return;
+  db.collection('users').doc(uid).update({consultoriaIlimitada:true,creditosConsultoria:0})
+    .then(function(){ var u=_alunos.find(function(a){return a.uid===uid;}); if(u){u.consultoriaIlimitada=true;u.creditosConsultoria=0;} renderAlunos(); toast('Convertido para Ilimitado.'); });
+}
 function darCreditoTodos(){
   if(!confirm('Dar 1 crédito de consultoria para TODOS os alunos?'))return;
   var promises=_alunos.map(function(u){
@@ -451,7 +496,8 @@ function adminAdicionarCalendar(agId) {
   if (!ag) return;
   var aluno = _alunos.find(function(u){ return u.uid === ag.uid; });
   var nomeAluno = aluno ? (aluno.name || aluno.email) : 'Aluno';
-  ag.firestoreId = agId;
+    ag.firestoreId = agId;
+  ag._email = aluno ? (aluno.email || '') : '';
   if (!_gcalToken) {
     toast('Conecte o Google Calendar primeiro (botão no topo).');
     gcalConectar();
@@ -460,7 +506,7 @@ function adminAdicionarCalendar(agId) {
   gcalCriarEvento(ag, nomeAluno);
 }
 
-var MEET_LINK = 'https://meet.google.com/psx-kifx-qgc';
+
 
 // ─── HELPERS ───
 function _esc(s){return(s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -517,13 +563,13 @@ function gcalCriarEvento(agendamento, nomeAluno) {
   var dataHoraFim = agendamento.data + 'T' + horaFim + ':00';
   var evento = {
     summary: '📊 Consultoria G20 · ' + (nomeAluno || 'Aluno'),
-    description: 'Consultoria 1:1 G20 Masterclass\n\nLink do Meet: ' + MEET_LINK + '\n\nAgendado pela plataforma G20.',
+        description: 'Consultoria 1:1 G20 Masterclass.\n\nAgendado pela plataforma G20.',
     start: { dateTime: dataHoraInicio, timeZone: 'America/Sao_Paulo' },
     end:   { dateTime: dataHoraFim,   timeZone: 'America/Sao_Paulo' },
     conferenceData: {
-      createRequest: { requestId: agendamento.id || Date.now().toString() }
+      createRequest: { requestId: 'g20-' + (agendamento.id || Date.now().toString()), conferenceSolutionKey: { type: 'hangoutsMeet' } }
     },
-    attendees: [],
+    attendees: (agendamento._email ? [{ email: agendamento._email }] : []),
     reminders: {
       useDefault: false,
       overrides: [
@@ -533,7 +579,7 @@ function gcalCriarEvento(agendamento, nomeAluno) {
     }
   };
 
-  return fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+    return fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1&sendUpdates=all', {
     method: 'POST',
     headers: {
       'Authorization': 'Bearer ' + _gcalToken,
@@ -559,8 +605,14 @@ function gcalCriarEvento(agendamento, nomeAluno) {
       if (agendamento.firestoreId) {
         db.collection('consultoria').doc('agendamentos').collection('items')
           .doc(agendamento.firestoreId)
-          .update({ gcalEventLink: data.htmlLink })
+          .update({ gcalEventLink: data.htmlLink, eventId: data.id })
           .catch(function(){});
+        // Sala única desta sessão: salva pelo servidor e avisa o aluno
+        if (data.hangoutLink) {
+          _consultoriaApi('admin_link', { id: agendamento.firestoreId, meetLink: data.hangoutLink })
+            .then(function(){ toast('✅ Sala do Meet criada e enviada ao aluno.'); carregarAgendamentos(); })
+            .catch(function(e){ toast('Evento criado, mas o link não foi salvo: ' + e.message); });
+        }
       }
     }
   })
