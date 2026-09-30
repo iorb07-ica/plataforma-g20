@@ -387,6 +387,41 @@ function _atlasFmtCompacto(v){ v=Number(v)||0; if(v>=1e6) return 'R$ '+_atlasNum
 var _ATLAS_CRIPTO_MOEDAS = {BTC:1,'BTC-USD':1,ETH:1,'ETH-USD':1,SOL:1,BNB:1,XRP:1,ADA:1,DOGE:1,DOT:1,LINK:1,AVAX:1,MATIC:1,POL:1,LTC:1,TRX:1,TON:1,SHIB:1,UNI:1,AAVE:1,ATOM:1,NEAR:1,APT:1,ARB:1,OP:1,SUI:1,MANA:1,SAND:1,HNT:1,PEPE:1,RNDR:1,INJ:1};
 var _ATLAS_CRIPTO_ETF = {IBIT:1,FBTC:1,ARKB:1,BITB:1,GBTC:1,HODL:1,BRRR:1,EZBC:1,BTCO:1,BTCW:1,BITO:1,BITX:1,BITU:1,ETHA:1,FETH:1,ETHE:1,ETHW:1,CETH:1,QETH:1,EZET:1,ETHV:1,BSOL:1,GSOL:1,
   HASH11:1,QBTC11:1,BITH11:1,ETHE11:1,QETH11:1,QSOL11:1,SOLH11:1,XRPH11:1,BITI11:1,WEB311:1,DEFI11:1,CRPT11:1,QDFI11:1,NASD11:0};
+/* Agrupa aportes em posições pelo PREÇO MÉDIO, em ordem de data:
+   - vendas abatem a quantidade E a parte proporcional do custo (antes o custo
+     ficava com todas as compras, inflando o custo e piorando o "sobre o custo");
+   - custo em reais usa o câmbio do DIA DA COMPRA (fxRate do aporte) para ativos
+     em dólar; sem fxRate, usa o câmbio atual.
+   Serve para a Carteira G20 e para a Minha Carteira (antes a Minha Carteira
+   ignorava as vendas). */
+function _atlasAgrupar(aportes){
+  var lista=(aportes||[]).slice().sort(function(a,b){ return String(a.data||'').localeCompare(String(b.data||'')); });
+  var g={};
+  lista.forEach(function(a){
+    var t=String(a.ticker||'').trim().toUpperCase(); if(!t) return;
+    var qtd=parseFloat(a.qtd||a.quantidade||0)||0, preco=parseFloat(a.preco||a.precoMedio||0)||0;
+    if(!(qtd>0)) return;
+    var venda=String(a.op||'').toUpperCase()==='V';
+    if(!g[t]) g[t]={ticker:t,custo:0,custoBRLCompra:0,qtd:0,tipo:a.tipo||'',moeda:a.moeda||'BRL',nome:a.nome||t,semFx:false};
+    var p=g[t];
+    if(a.moeda) p.moeda=a.moeda;
+    if(a.tipo && !p.tipo) p.tipo=a.tipo;
+    if(venda){
+      var f=p.qtd>0?Math.min(1,qtd/p.qtd):1;
+      p.custo*=(1-f); p.custoBRLCompra*=(1-f); p.qtd=Math.max(0,p.qtd-qtd);
+    } else {
+      var fx=1;
+      if(p.moeda==='USD'){ fx=parseFloat(a.fxRate)>1?parseFloat(a.fxRate):0; if(!fx){ p.semFx=true; fx=(typeof CAMBIO_BRL!=='undefined'&&CAMBIO_BRL)||0; } }
+      p.custo+=qtd*preco; p.custoBRLCompra+=qtd*preco*fx; p.qtd+=qtd;
+    }
+  });
+  return Object.keys(g).map(function(k){ return g[k]; }).filter(function(p){ return p.qtd>0.000001&&p.custo>0; });
+}
+/* Giro: sensibilidade proporcional ao tamanho do globo na tela e ao zoom
+   (mesma sensação no celular e no desktop); inclinação limitada a ±70°. */
+var _ATLAS_TILT=1.22;
+function _atlasSens(){ try{ var w=container.clientWidth,h=container.clientHeight; return (1/(Math.max(240,Math.min(w,h))*0.38))*(currentZoom/3.2); }catch(e){ return .003; } }
+function _atlasLogoFalhou(img,t){ try{ var s=document.createElement('span'); s.className='a-logo-ini'; s.textContent=String(t||'').slice(0,4); img.replaceWith(s); }catch(e){ img.style.display='none'; } }
 function _atlasEhCripto(t){ t=String(t||'').toUpperCase(); return !!(_ATLAS_CRIPTO_MOEDAS[t] || _ATLAS_CRIPTO_ETF[t] || /-USD$/.test(t)); }
 function _atlasQtd(q,cripto){ q=Number(q)||0; var inteiro=Math.abs(q-Math.round(q))<1e-9; var t=inteiro?_atlasNum(q,0):q.toLocaleString('pt-BR',{maximumFractionDigits:8}); return t+(cripto?' unid.':(inteiro&&q===1?' cota':' cotas')); }
 </script>
@@ -641,12 +676,7 @@ function _atlasQtd(q,cripto){ q=Number(q)||0; var inteiro=Math.abs(q-Math.round(
         <div class="sc-sub" id="rp-cambio-sub">carregando...</div>
       </div>
     </div>
-    <!-- Exposição cripto: aparece sempre; tocar filtra o globo -->
-    <button type="button" class="sum-cripto" id="rpCripto" onclick="atlasFiltrarCripto()" aria-label="Exposição cripto: mostrar no globo">
-      <span class="scr-ico">₿</span>
-      <span class="scr-txt"><span class="scr-lbl">EXPOSIÇÃO CRIPTO</span><span class="scr-sub" id="rpCriptoSub">calculando…</span></span>
-      <span class="scr-v" id="rpCriptoPct">--</span>
-    </button>
+    <div id="atlasBlocos"></div>
     <!-- Busca + Lista de ativos -->
     <div class="asset-list" id="assetList">
       <div class="rp-search">
@@ -1037,20 +1067,7 @@ function carregarCG20(){
     const aportes=JSON.parse(raw);
     if(!Array.isArray(aportes)||!aportes.length) return;
 
-    const grouped={};
-    aportes.forEach(a=>{
-      const t=(a.ticker||'').trim().toUpperCase();
-      if(!t) return;
-      const qtd=parseFloat(a.qtd||a.quantidade||0);
-      const preco=parseFloat(a.preco||a.precoMedio||0);
-      const isVenda=(a.op||'').toUpperCase()==='V';
-      if(!grouped[t]) grouped[t]={ticker:t,custo:0,qtd:0,qtdV:0,tipo:a.tipo||'Stock',moeda:a.moeda||'BRL',nome:a.nome||t};
-      if(isVenda){ grouped[t].qtdV+=qtd; } else { grouped[t].custo+=qtd*preco; grouped[t].qtd+=qtd; }
-    });
-    Object.values(grouped).forEach(g=>{ g.qtd=g.qtd-g.qtdV; });
-
-    // Só ativos com posição aberta
-    const ativos=Object.values(grouped).filter(g=>g.qtd>0.001&&g.custo>0);
+    const ativos=_atlasAgrupar(aportes); ativos.__modo='cg20';
 
     // Mostra loading nos percentuais de região e patrimônio até cotações chegarem
     ['rt-eua','rt-br','rt-eu','rt-as'].forEach(id=>{
@@ -1173,6 +1190,8 @@ function _fetchQuotes(ativos){
 }
 
 function _buildAssetsFromGrouped(ativos, quotes){
+  /* trocou de carteira enquanto as cotações chegavam: ignora a resposta antiga */
+  if(ativos && ativos.__modo && typeof activePortfolio!=='undefined' && ativos.__modo!==activePortfolio) return;
   const semCoordsBR=[], semCoordsEUA=[];
   ativos.forEach(g=>{
     if(COORDS_TABLE[g.ticker]) return;
@@ -1189,7 +1208,7 @@ function _buildAssetsFromGrouped(ativos, quotes){
     const precoAtual=q?parseFloat(q.price||q.regularMarketPrice||q.close||q.bid||0)||0:0;
     if(precoAtual>0) comCotacao.push(`${g.ticker}=${precoAtual}`);
     else semCotacao.push(g.ticker);
-    const isCripto=!!({'BTC':1,'BTC-USD':1,'ETH':1,'SOL':1,'BNB':1,'AVAX':1,'DOT':1,'LINK':1,'ADA':1,'MATIC':1,'MANA':1,'SAND':1,'HNT':1}[g.ticker]);
+    const isCripto=!!({'BTC':1,'BTC-USD':1,'ETH':1,'SOL':1,'BNB':1,'AVAX':1,'DOT':1,'LINK':1,'ADA':1,'MATIC':1,'MANA':1,'SAND':1,'HNT':1}[g.ticker] || (typeof _ATLAS_CRIPTO_MOEDAS!=='undefined' && _ATLAS_CRIPTO_MOEDAS[g.ticker]));
     const isUSD = g.moeda==='USD' || isCripto;
     const posAtualNativa=precoAtual>0 ? precoAtual*g.qtd : g.custo;
     const posAtualBRL = isUSD ? posAtualNativa*CAMBIO_BRL : posAtualNativa;
@@ -1235,7 +1254,7 @@ function _buildAssetsFromGrouped(ativos, quotes){
       price:priceExibido,
       qty:_atlasQtd(g.qtd, g.isCripto),
       pos:posExibida,
-      pct:+pct.toFixed(2), chg:(precoMedio>0&&g.precoAtual>0)?((rentReal>=0?'+':'')+_atlasNum(rentReal,2)+'% desde a compra'):'sem cotação', up:rentReal>=0, posBRL:g.posAtualBRL, custoBRL:(g.isUSD?g.custo*CAMBIO_BRL:g.custo), semCot:!(g.precoAtual>0),
+      pct:+pct.toFixed(2), chg:(precoMedio>0&&g.precoAtual>0)?((rentReal>=0?'+':'')+_atlasNum(rentReal,2)+'% desde a compra'):'sem cotação', up:rentReal>=0, posBRL:g.posAtualBRL, custoBRL:(g.custoBRLCompra>0?g.custoBRLCompra:(g.isUSD?g.custo*CAMBIO_BRL:g.custo)), semCot:!(g.precoAtual>0), isUSD:g.isUSD, posNativa:g.posAtual, custoNativo:g.custo,
       rent:+rentReal.toFixed(2), pm:pmExibido,
       city:coords?coords.city:(g.moeda==='BRL'?'Brasil':'EUA'),
       color:coords?coords.color:col,
@@ -1251,7 +1270,7 @@ function _buildAssetsFromGrouped(ativos, quotes){
   if(novos.length){
     ASSETS.length=0;
     novos.forEach(a=>ASSETS.push(a));
-    ASSETS_CG20=[...ASSETS];
+    if(typeof activePortfolio==='undefined' || activePortfolio==='cg20') ASSETS_CG20=[...ASSETS];
     if(quotes) _fetchHistoricoBackground(ativos, novos);
     // Atualiza patrimônio com total real das posições em BRL
     const elPatr=document.getElementById('rp-patrimonio');
@@ -1308,7 +1327,12 @@ function detectTipo(ticker,tipoRaw){
   if(CRIPTO.includes(ticker)) return 'cripto';
   if(_ATLAS_CRIPTO_ETF[String(ticker).toUpperCase()]) return 'etf';
   if(t.includes('cripto')||t.includes('crypto')) return 'cripto';
+  var _BR_ETF={BOVA11:1,IVVB11:1,SMAL11:1,SPXI11:1,BOVV11:1,BOVX11:1,DIVO11:1,FIND11:1,GOLD11:1,NASD11:1,XINA11:1,EURP11:1,ACWI11:1,BBSD11:1,ECOO11:1,MATB11:1,PIBB11:1,BRAX11:1,IMAB11:1,B5P211:1,IRFM11:1,FIXA11:1,USDB11:1,WRLD11:1,TECK11:1,QQQM11:1,SPYI11:1,ESGB11:1,AGRI11:1,DNAI11:1,UTEC11:1,NDIV11:1,LFTS11:1,IB5M11:1,IMBB11:1};
+  if(_BR_ETF[String(ticker).toUpperCase()]) return 'etf';
   if(t.includes('fii')||t.includes('fundo')) return 'fii';
+  /* unit ou ação informada no aporte: não é FII mesmo terminando em 11 */
+  if(/a[cç][aã]o|unit|bdr/.test(t)) return 'stock';
+
   if(t.includes('reit')) return 'reit';
   if(t.includes('etf')) return 'etf';
   if(/11$/.test(ticker)&&!['BPAC11','TAEE11','SAPR11','KLBN11','ENGI11'].includes(ticker)) return 'fii';
@@ -1323,60 +1347,12 @@ function carregarMinhaCarteira(){
     if(!raw){mostrarMinhaCarteiraVazia();return;}
     const aportes=JSON.parse(raw);
     if(!Array.isArray(aportes)||!aportes.length){mostrarMinhaCarteiraVazia();return;}
-
-    const compras=aportes.filter(a=>a.op==='C'||!a.op);
-    const grouped={};
-    compras.forEach(a=>{
-      const t=(a.ticker||'').trim().toUpperCase();
-      if(!t)return;
-      const qtd=parseFloat(a.qtd||a.quantidade||0);
-      const preco=parseFloat(a.preco||a.precoMedio||0);
-      if(!grouped[t])grouped[t]={ticker:t,custo:0,qtd:0,tipo:a.tipo||'Stock',moeda:a.moeda||'BRL',nome:a.nome||t};
-      grouped[t].custo+=qtd*preco;grouped[t].qtd+=qtd;
-    });
-
-    const semCoordsBR2=[], semCoordsEUA2=[];
-    Object.values(grouped).filter(g=>g.custo>0).forEach(g=>{
-      if(COORDS_TABLE[g.ticker]) return;
-      if(g.moeda==='BRL') semCoordsBR2.push(g.ticker); else semCoordsEUA2.push(g.ticker);
-    });
-
-    /* custo em reais: ativos em dólar convertidos pelo câmbio (antes somava R$ com US$ direto) */
-    const _custoBRL=g=>(g.moeda==='USD'?g.custo*(CAMBIO_BRL||0):g.custo);
-    const total=Object.values(grouped).reduce((s,v)=>s+_custoBRL(v),0)||1;
-    const novos=Object.values(grouped).filter(g=>g.custo>0).map(g=>{
-      const coords=COORDS_TABLE[g.ticker];
-      const tipo=coords?.type||detectTipo(g.ticker,g.tipo);
-      const pct=(_custoBRL(g)/total)*100;
-      let lat,lon;
-      if(coords){lat=coords.lat;lon=coords.lon;}
-      else if(g.moeda==='BRL'){
-        const idx=semCoordsBR2.indexOf(g.ticker);
-        const sp=assignAnchorCoord(idx,semCoordsBR2.length,BR_ANCHORS);
-        lat=sp.lat;lon=sp.lon;
-      } else {
-        const idx=semCoordsEUA2.indexOf(g.ticker);
-        const sp=assignAnchorCoord(idx,semCoordsEUA2.length,EUA_ANCHORS);
-        lat=sp.lat;lon=sp.lon;
-      }
-      return{
-        ticker:g.ticker,name: COMPANY_NAMES[g.ticker] || g.nome || g.ticker,
-        region:coords?coords.region:(g.moeda==='BRL'?'brasil':'eua'),type:tipo,
-        lat,lon,
-        price:(g.moeda==='USD'?'US$ '+_atlasNum(g.custo/g.qtd,2):_atlasBRL(g.custo/g.qtd,2))+' (preço médio)',
-        qty:_atlasQtd(g.qtd, g.isCripto),pos:(g.moeda==='USD'?_atlasBRL(_custoBRL(g),0)+' (US$ '+_atlasNum(g.custo,0)+')':_atlasBRL(g.custo,0))+' a custo',
-        pct:+pct.toFixed(2),chg:'valor de custo',up:true, posBRL:_custoBRL(g), custoBRL:_custoBRL(g), aCusto:true,
-        city:coords?coords.city:(g.moeda==='BRL'?'Brasil':'EUA'),
-        color:coords?coords.color:(tipo==='fii'?'#e8c766':tipo==='reit'?'#4ade80':tipo==='etf'?'#c084fc':'#60a5fa'),
-        logo:coords?coords.logo:g.ticker.toLowerCase(),
-        flag:coords?coords.flag:(g.moeda==='BRL'?'🇧🇷':'🇺🇸'),
-        spark:[100,101,99,102,101,103,102,104,103,105,104,103,105,104,106],
-      };
-    }).filter(a=>a.pct>=0).sort((a,b)=>b.pct-a.pct);
-
-    if(!novos.length){mostrarMinhaCarteiraVazia();return;}
-    ASSETS.length=0;novos.forEach(a=>ASSETS.push(a));
-    preloadAssets();buildMarkers();buildArcs();updateClassPanel();updateRegionPanel();
+    /* mesmo agrupamento da Carteira G20 (vendas e preço médio) e mesmas cotações;
+       antes: só compras, avaliadas a custo */
+    const ativos=_atlasAgrupar(aportes); ativos.__modo='minha';
+    if(!ativos.length){mostrarMinhaCarteiraVazia();return;}
+    const elPatr=document.getElementById('rp-patrimonio'); if(elPatr) elPatr.textContent='...';
+    _fetchQuotes(ativos).then(q=>{ _buildAssetsFromGrouped(ativos,q); }).catch(()=>{ _buildAssetsFromGrouped(ativos,null); });
   }catch(e){console.warn('Erro ao carregar Minha Carteira:',e);mostrarMinhaCarteiraVazia();}
 }
 
@@ -2265,8 +2241,13 @@ container.addEventListener('mousemove',e=>{
   mouse2.y=-((e.clientY-rect.top)/rect.height)*2+1;
 
   if(isDragging&&earthMesh){
-    earthMesh.rotation.y+=(e.clientX-prevMouse.x)*.003;
-    earthMesh.rotation.x=Math.max(-Math.PI/2,Math.min(Math.PI/2,earthMesh.rotation.x+(e.clientY-prevMouse.y)*.003));
+    const _sv=_atlasSens(), _dy=(e.clientX-prevMouse.x)*_sv, _dx=(e.clientY-prevMouse.y)*_sv;
+    earthMesh.rotation.y+=_dy;
+    earthMesh.rotation.x=Math.max(-_ATLAS_TILT,Math.min(_ATLAS_TILT,earthMesh.rotation.x+_dx));
+    /* velocidade por quadro, suavizada, para continuar girando ao soltar */
+    const _agora=performance.now(), _dtm=Math.max(8,_agora-(window._atlasUltMov||(_agora-16))); window._atlasUltMov=_agora; window._atlasDtMov=_dtm;
+    const _v=window._atlasVel||{x:0,y:0};
+    window._atlasVel={y:_v.y*0.4+(_dy*16/_dtm)*0.6, x:_v.x*0.4+(_dx*16/_dtm)*0.6};
     syncGroups();prevMouse={x:e.clientX,y:e.clientY};
     // Mantém cache durante drag — logos preservam separação ao arrastar
   }
@@ -2278,7 +2259,7 @@ container.addEventListener('mousemove',e=>{
   // Verifica ativos em clusters explodidos primeiro
   if(window._explodedHits){
     for(const h of window._explodedHits){
-      if(Math.hypot(mx-h.sx,my-h.sy)<=h.r+2){hit={asset:h.a};break;}
+      if(Math.hypot(mx-h.sx,my-h.sy)<=Math.max(h.r+2,window._atlasToque?22:0)){hit={asset:h.a};break;}
     }
   }
   // Verifica marcadores desenhados no overlay
@@ -2286,7 +2267,7 @@ container.addEventListener('mousemove',e=>{
     // Percorre de trás para frente (maior prioridade = último desenhado = mais na frente)
     for(let i=window._drawnMarkers.length-1;i>=0;i--){
       const m=window._drawnMarkers[i];
-      if(Math.hypot(mx-m.sx,my-m.sy)<=m.r+2){hit={asset:m.a};break;}
+      if(Math.hypot(mx-m.sx,my-m.sy)<=Math.max(m.r+2,window._atlasToque?22:0)){hit={asset:m.a};break;}
     }
   }
 
@@ -2300,8 +2281,9 @@ container.addEventListener('mousemove',e=>{
     canvas3.style.cursor=isDragging?'grabbing':'grab';
   }
 });
-container.addEventListener('mousedown',e=>{isDragging=true;prevMouse={x:e.clientX,y:e.clientY};canvas3.style.cursor='grabbing'});
-container.addEventListener('mouseup',()=>{isDragging=false;canvas3.style.cursor='grab';_lastOffsetKey='';});
+container.addEventListener('mousedown',e=>{isDragging=true;window._atlasInercia=false;window._atlasVel={x:0,y:0};window._atlasUltMov=performance.now();prevMouse={x:e.clientX,y:e.clientY};canvas3.style.cursor='grabbing'});
+container.addEventListener('mouseup',()=>{ /* inércia se soltou ainda em movimento; a janela acompanha o ritmo do aparelho (celular lento entrega menos eventos) */
+  if(isDragging && window._atlasVel && (performance.now()-(window._atlasUltMov||0))<Math.max(100,2.5*(window._atlasDtMov||16))) window._atlasInercia=true; isDragging=false;canvas3.style.cursor='grab';_lastOffsetKey='';});
 container.addEventListener('mouseleave',()=>{
   isDragging=false;hoveredAsset=null;_lastOffsetKey='';
   document.getElementById('tooltip').classList.remove('show');
@@ -2427,7 +2409,7 @@ function renderAssetListBody(){
         <div class="a-logo">
           <img src="${(window.TV_LOGOS&&window.TV_LOGOS.getUrl?window.TV_LOGOS.getUrl(a.ticker):'')||(a.logo&&TV_WHITELIST.has(a.logo)?'https://s3-symbol-logo.tradingview.com/'+a.logo+'.svg?v=3':'')||CRYPTO_LOGOS[a.ticker]||getFallbackLogoUrl(a.ticker)||''}"
                style="width:42px;height:42px;object-fit:cover;border-radius:10px"
-               onload="this.parentNode.style.background='transparent';this.parentNode.style.border='none'" onerror="this.style.display='none'">
+               onload="this.parentNode.style.background='transparent';this.parentNode.style.border='none'" onerror="_atlasLogoFalhou(this,'${a.ticker}')">
         </div>
         <div class="a-main">
           <div class="a-ticker">${a.ticker}</div>
@@ -2546,7 +2528,7 @@ function showTooltip(a,cx,cy){
 /* ══ FLY-TO ══ */
 function latLonToRot(lat,lon){const t=(lon+180)*Math.PI/180;return{rotY:Math.PI/2-t,rotX:Math.max(-1.2,Math.min(1.2,lat*Math.PI/180))};}
 const REGIONS={eua:latLonToRot(38,-100),brasil:latLonToRot(-15,-55),europa:latLonToRot(50,15),asia:latLonToRot(35,105)};
-function flyTo(r,el){document.querySelectorAll('.region-tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');flyTarget=REGIONS[r];flyProgress=0;autoRotate=false;document.getElementById('btn-auto').classList.remove('on');}
+function flyTo(r,el){window._atlasInercia=false;document.querySelectorAll('.region-tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');flyTarget=REGIONS[r];flyProgress=0;autoRotate=false;document.getElementById('btn-auto').classList.remove('on');}
 
 /* ══ CONTROLS ══ */
 /* ══ SIDEBAR ══ */
@@ -2801,7 +2783,13 @@ function animate(){
   currentZoom+=(targetZoom-currentZoom)*.08;camera.position.z=currentZoom;
   if(earthMesh){
     if(!earthMesh._init){earthMesh._init=true;buildMarkers();buildArcs();buildAssetList();}
-    if(autoRotate&&!isDragging&&!hoveredAsset){earthMesh.rotation.y+=.000035;syncGroups();}
+    if(window._atlasInercia&&!isDragging){
+      const _v=window._atlasVel, _d=window._atlasAmort||0.94;
+      earthMesh.rotation.y+=_v.y; earthMesh.rotation.x=Math.max(-_ATLAS_TILT,Math.min(_ATLAS_TILT,earthMesh.rotation.x+_v.x));
+      _v.y*=_d; _v.x*=_d; if(Math.abs(_v.y)<0.00008&&Math.abs(_v.x)<0.00008) window._atlasInercia=false;
+      syncGroups();
+    }
+    if(autoRotate&&!isDragging&&!hoveredAsset&&!window._atlasInercia){earthMesh.rotation.y+=.000035;syncGroups();}
     if(flyTarget){
       flyProgress=Math.min(flyProgress+dt*1.2,1);const ease=1-Math.pow(1-flyProgress,3);
       let dy=flyTarget.rotY-earthMesh.rotation.y;dy=Math.atan2(Math.sin(dy),Math.cos(dy));
@@ -3020,13 +3008,13 @@ function openTese(a){
   const imgEl=document.getElementById('tp-img'); if(imgEl) imgEl.src=logoUrl||'';
   const tickerEl=document.getElementById('tp-ticker'); if(tickerEl) tickerEl.textContent=a.ticker;
   const nomeEl=document.getElementById('tp-nome'); if(nomeEl) nomeEl.textContent=(a.name||'')+(a.city?' · '+a.city:'');
-  const rentNum=parseFloat(a.pct)||0;
+  const rentNum=parseFloat(a.rent)||0; /* antes: a.pct (peso na carteira) */
   const rentEl=document.getElementById('tp-rent');
-  if(rentEl){rentEl.textContent=(rentNum>=0?'+':'')+rentNum.toFixed(2)+'%';rentEl.style.color=rentNum>=0?'#3b9e32':'#e24b4a';}
-  const pesoEl=document.getElementById('tp-peso'); if(pesoEl) pesoEl.textContent=a.pct?(parseFloat(a.pct).toFixed(2)+'%'):'—';
+  if(rentEl){rentEl.textContent=(rentNum>=0?'+':'')+_atlasNum(rentNum,2)+'%';rentEl.style.color=rentNum>=0?'#3b9e32':'#e24b4a';}
+  const pesoEl=document.getElementById('tp-peso'); if(pesoEl) pesoEl.textContent=a.pct?(_atlasNum(parseFloat(a.pct),2)+'%'):'—';
   const pmEl=document.getElementById('tp-pm'); if(pmEl) pmEl.textContent=a.pm||'—';
   const cotEl=document.getElementById('tp-cot'); if(cotEl) cotEl.textContent=a.price||'—';
-  const teseEl=document.getElementById('tp-tese'); if(teseEl) teseEl.textContent=tdata.tese||'Tese não cadastrada. Acesse Admin Atlas G20 para adicionar.';
+  const teseEl=document.getElementById('tp-tese'); if(teseEl) teseEl.textContent=tdata.tese||(_isAdmin?'Tese não cadastrada. Use o botão de edição abaixo para adicionar.':'A tese deste ativo ainda não foi publicada.');
   const tagsEl=document.getElementById('tp-tags');
   if(tagsEl) tagsEl.innerHTML=(tdata.tags||[]).map(function(t){return '<span class="tp-tag">'+t+'</span>';}).join('');
   const entradaEl=document.getElementById('tp-entrada'); if(entradaEl) entradaEl.textContent=a.pm||'—';
@@ -3082,7 +3070,7 @@ function abrirTeseModal(a){
   // Popula métricas no modo aluno
   const rentNum=typeof a.rent!=='undefined'?a.rent:0;
   const rentEl=document.getElementById('aluno-rent');
-  if(rentEl){rentEl.textContent=(rentNum>=0?'+':'')+rentNum.toFixed(2)+'%';rentEl.className='aluno-metric-val '+(rentNum>=0?'up':'dn');}
+  if(rentEl){rentEl.textContent=(rentNum>=0?'+':'')+_atlasNum(rentNum,2)+'%';rentEl.className='aluno-metric-val '+(rentNum>=0?'up':'dn');}
   const posEl=document.getElementById('aluno-pos');
   if(posEl) posEl.textContent=a.pos||'—';
   const pctEl=document.getElementById('aluno-pct');
@@ -3489,6 +3477,35 @@ body.atlas-empilhado #gc { flex: none !important; width: 100% !important; height
 body.atlas-empilhado .right-panel { width: 100% !important; border-left: 0 !important; border-top: 1px solid var(--border); overflow: visible !important; }
 body.atlas-empilhado .asset-list { overflow: visible !important; flex: none !important; }
 #atlasTopo { display: none; }
+/* barra CRIPTO com detalhe */
+.cp-cripto-row { position: relative; cursor: pointer; border-radius: 8px; }
+.cp-cripto-row:focus-visible { outline: 2px solid #fb923c; outline-offset: 2px; }
+.cp-extra { margin-left: 6px; font-size: 10px; font-weight: 700; color: #fb923c; white-space: nowrap; }
+.cp-pop { display: none; position: absolute; left: 0; top: calc(100% + 6px); z-index: 80; width: 280px; max-width: calc(100vw - 32px);
+  background: #14121c; border: 1px solid rgba(251,146,60,.4); border-radius: 12px; padding: 12px 14px; box-shadow: 0 16px 40px rgba(0,0,0,.55);
+  font: 500 12.5px 'DM Sans', sans-serif; color: #e8e6e3; text-transform: none; letter-spacing: 0; }
+.cp-cripto-row.aberto .cp-pop { display: block; }
+.cp-pop b { display: block; font-size: 13.5px; color: #fb923c; }
+.cp-pop-v { display: block; font-size: 12px; color: #9a958e; margin: 2px 0 8px; }
+.cp-pop-l { display: flex; justify-content: space-between; font-weight: 700; margin-top: 8px; }
+.cp-pop-t { font-size: 11.5px; color: #9a958e; margin-top: 2px; line-height: 1.45; }
+body.day .cp-pop { background: #fff; color: #1a191e; border-color: rgba(251,146,60,.5); }
+/* logo que falha: iniciais no lugar do quadrado vazio */
+.a-logo-ini { width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: rgba(201,169,97,.14);
+  color: var(--gold,#c9a961); font: 800 11px 'DM Sans', sans-serif; letter-spacing: .02em; }
+/* celular/tablet em pé: classes e regiões no painel */
+#atlasBlocos { display: none; }
+body.atlas-empilhado #atlasBlocos { display: grid; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+body.atlas-empilhado #aoSecClasses { display: none; }
+body.atlas-empilhado #atlasBlocos .classes-panel { position: relative !important; z-index: 40 !important; transform: none !important; inset: auto !important; width: auto !important; display: block !important; margin: 0 !important; }
+body.atlas-empilhado #atlasBlocos .region-tabs { z-index: 1 !important; }
+.classes-panel:has(.cp-cripto-row.aberto) { z-index: 60 !important; }
+body.atlas-empilhado #atlasBlocos .region-tabs { position: static !important; transform: none !important; inset: auto !important; display: grid !important;
+  grid-template-columns: 1fr 1fr; gap: 8px !important; overflow: visible !important; border: 0 !important; background: none !important; }
+body.atlas-empilhado #atlasBlocos .region-tab { min-width: 0 !important; border: 1px solid var(--border) !important; border-radius: 12px !important; padding: 10px 12px !important; }
+body.atlas-empilhado #atlasBlocos .rt-pct { font-size: 22px !important; }
+body.atlas-empilhado #atlasBlocos .rt-lbl, body.atlas-empilhado #atlasBlocos .rt-st { font-size: 11px !important; }
+@media (max-width: 600px) { .sum-card .sc-v { font-size: clamp(17px, 5vw, 22px) !important; white-space: nowrap; } }
 .sum-cripto { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 18px; border: 0; border-bottom: 1px solid var(--border);
   background: linear-gradient(90deg, rgba(251,146,60,.10), rgba(251,146,60,.02)); color: var(--text); text-align: left; cursor: pointer; font-family: inherit; }
 .sum-cripto:hover { background: linear-gradient(90deg, rgba(251,146,60,.16), rgba(251,146,60,.04)); }
@@ -3500,7 +3517,7 @@ body.atlas-empilhado .asset-list { overflow: visible !important; flex: none !imp
 .sum-cripto .scr-sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sum-cripto .scr-v { font: 800 24px 'JetBrains Mono', monospace; color: #fb923c; white-space: nowrap; }
 body.day .sum-cripto { color: #1a191e; }
-@media (max-width: 600px) { .sum-card .sc-v { font-size: 22px !important; line-height: 1.15; word-break: break-word; } }
+
 @media (max-width: 600px) { .topbar .live-badge, .topbar .v21-theme-switch { display: none !important; } .topbar .page-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; } }
 body.atlas-empilhado #atlasTopo { display: flex; justify-content: center; padding: 10px 12px 8px; }
 body.atlas-empilhado #atlasTopo .portfolio-toggle { margin: 0 !important; }
@@ -3572,7 +3589,7 @@ body.atlas-compacto .share-card { width: calc(100% - 24px) !important; }
     <div class="ao-cab"><b>Opções do globo</b><button type="button" class="ao-fechar" onclick="atlasOpcoes(false)">Fechar</button></div>
     <div class="ao-sec">Visualização</div><div id="aoControles"></div>
     <div class="ao-sec">Ações</div><div class="ao-linha" id="aoAcoes"></div>
-    <div class="ao-sec">Por classe</div><div id="aoClasses"></div>
+    <div class="ao-sec" id="aoSecClasses">Por classe</div><div id="aoClasses"></div>
   </div>
 </div>
 
@@ -3606,9 +3623,12 @@ body.atlas-compacto .share-card { width: calc(100% - 24px) !important; }
     { el: q('.controls-bar'), destino: 'aoControles' },
     { el: q('#modeBtn'), destino: 'aoAcoes' },
     { el: q('.share-btn'), destino: 'aoAcoes' },
-    { el: q('.cinema-btn'), destino: 'aoAcoes' },
-    { el: q('.classes-panel'), destino: 'aoClasses' }
+    { el: q('.cinema-btn'), destino: 'aoAcoes' }
   ].filter(function(m){ return m.el; });
+  var classes = q('.classes-panel'), cPai = classes && classes.parentNode, cDepois = classes && classes.nextSibling;
+  var regioes = q('.region-tabs'), rPai = regioes && regioes.parentNode, rDepois = regioes && regioes.nextSibling;
+  var blocos = document.getElementById('atlasBlocos');
+  function devolver(el, pai, depois){ if (el && pai) pai.insertBefore(el, depois && depois.parentNode === pai ? depois : null); }
   moveis.forEach(function(m){ m.pai = m.el.parentNode; m.depois = m.el.nextSibling; });
   var toggle = q('.portfolio-toggle'), tPai = toggle && toggle.parentNode, tDepois = toggle && toggle.nextSibling;
 
@@ -3627,6 +3647,17 @@ body.atlas-compacto .share-card { width: calc(100% - 24px) !important; }
       if (compacto) document.getElementById(m.destino).appendChild(m.el);
       else m.pai.insertBefore(m.el, m.depois && m.depois.parentNode === m.pai ? m.depois : null);
     });
+    /* celular/tablet em pé: "Por classe" e "Por região" saem do globo e vão para o
+       painel, abaixo do resumo; lado a lado compacto: classes no Opções */
+    if (classes) {
+      if (empilhado && blocos) blocos.appendChild(classes);
+      else if (compacto) document.getElementById('aoClasses').appendChild(classes);
+      else devolver(classes, cPai, cDepois);
+    }
+    if (regioes) {
+      if (empilhado && blocos) blocos.appendChild(regioes);
+      else devolver(regioes, rPai, rDepois);
+    }
     if (toggle) {
       if (empilhado) topo.appendChild(toggle);
       else tPai.insertBefore(toggle, tDepois && tDepois.parentNode === tPai ? tDepois : null);
@@ -3646,8 +3677,8 @@ body.atlas-compacto .share-card { width: calc(100% - 24px) !important; }
     var acoes = document.createElement('div'); acoes.className = 'tt-acoes-mob';
     acoes.innerHTML = '<button type="button" class="tt-ver">Ver tese ›</button><button type="button" class="tt-fechar">Fechar</button>';
     tt.appendChild(acoes);
-    acoes.querySelector('.tt-ver').onclick = function(){ tt.classList.remove('show'); try { if (window._ttAsset && typeof openTese === 'function') openTese(window._ttAsset); } catch(e){} };
-    acoes.querySelector('.tt-fechar').onclick = function(){ tt.classList.remove('show'); };
+    acoes.querySelector('.tt-ver').onclick = function(){ tt.classList.remove('show'); try { hoveredAsset = null; } catch(e){} try { if (window._ttAsset && typeof openTese === 'function') openTese(window._ttAsset); } catch(e){} };
+    acoes.querySelector('.tt-fechar').onclick = function(){ tt.classList.remove('show'); try { hoveredAsset = null; } catch(e){} };
   }
 
   /* ── gestos: 1 dedo gira, pinça aproxima, toque seleciona ── */
@@ -3655,6 +3686,7 @@ body.atlas-compacto .share-card { width: calc(100% - 24px) !important; }
   var t0 = null, pinca = null;
   function ehControle(el){ return el && el.closest && el.closest('button, input, .filter-btn, .region-tab, .timeline-bar, #tooltip, #atlasBtnOpcoes, #atlasGlobeAviso'); }
   gc.addEventListener('touchstart', function(e){
+    window._atlasToque = true;
     if (ehControle(e.target)) { t0 = null; return; }
     if (e.touches.length === 1) {
       var t = e.touches[0]; t0 = { x: t.clientX, y: t.clientY, ts: Date.now(), moveu: false };
@@ -3686,6 +3718,7 @@ body.atlas-compacto .share-card { width: calc(100% - 24px) !important; }
     e.preventDefault();            // evita cliques duplicados emulados pelo navegador
     var ch = e.changedTouches[0]; sint('mouseup', ch.clientX, ch.clientY);
     var toque = !t0.moveu && (Date.now() - t0.ts) < 350, x = t0.x, y = t0.y; t0 = null;
+    if (!toque) { try { hoveredAsset = null; } catch(err){} }   // soltou um arraste: nada fica destacado
     if (toque) {
       if (tt) tt.classList.remove('show');
       sint('mousemove', x, y);                                  // marca o ativo sob o dedo
@@ -3698,7 +3731,7 @@ body.atlas-compacto .share-card { width: calc(100% - 24px) !important; }
   function atualizarPausa(){ window._atlasPausado = !visivel || document.hidden; }
   try { new IntersectionObserver(function(en){ visivel = en[0].isIntersecting; atualizarPausa(); }, { threshold: 0.02 }).observe(gc); } catch(e){}
   document.addEventListener('visibilitychange', atualizarPausa);
-  try { if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) autoRotate = false; } catch(e){}
+  try { if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { autoRotate = false; window._atlasAmort = 0.8; } } catch(e){}
   var cv = document.getElementById('three-canvas');
   if (cv) {
     cv.addEventListener('webglcontextlost', function(e){ e.preventDefault(); aviso.style.display = 'flex'; });
@@ -3712,6 +3745,49 @@ body.atlas-compacto .share-card { width: calc(100% - 24px) !important; }
     FETH:'Fidelity Ethereum Fund', ETHE:'Grayscale Ethereum Trust', HASH11:'Hashdex Nasdaq Crypto Index', QBTC11:'QR Bitcoin ETF',
     BITH11:'Hashdex Bitcoin ETF', ETHE11:'Hashdex Ethereum ETF', QETH11:'QR Ether ETF', QSOL11:'QR Solana ETF', SOLH11:'Hashdex Solana ETF',
     XRPH11:'Hashdex XRP ETF', BITI11:'It Now Bloomberg Galaxy Bitcoin', WEB311:'Hashdex Web3 ETF', DEFI11:'Hashdex DeFi ETF' }); } catch(e){}
+
+  document.querySelectorAll('.region-tab').forEach(function(tab){
+    tab.addEventListener('click', function(){ if (document.body.classList.contains('atlas-empilhado')) { try { gc.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch(e){} } });
+  });
+
+  /* ── EXPOSIÇÃO CRIPTO NA BARRA "CRIPTO" do painel Por classe ──
+     passar o mouse (desktop), tocar (celular) ou focar pelo teclado mostra o total:
+     moedas + ETFs de cripto, em qualquer país. */
+  var cpRow = (function(){ var b = document.getElementById('cpb-cripto'); return b && b.closest('.cp-row'); })();
+  var cpPop = null, cpExtra = null;
+  if (cpRow) {
+    cpRow.classList.add('cp-cripto-row'); cpRow.setAttribute('tabindex', '0'); cpRow.setAttribute('role', 'button');
+    cpRow.setAttribute('aria-label', 'Exposição cripto: ver detalhe');
+    cpExtra = document.createElement('span'); cpExtra.className = 'cp-extra';
+    var lbl = cpRow.querySelector('.cp-lbl'); if (lbl) lbl.appendChild(cpExtra);
+    cpPop = document.createElement('div'); cpPop.className = 'cp-pop'; cpPop.setAttribute('role', 'tooltip');
+    cpRow.appendChild(cpPop);
+    var abrir = function(){ cpRow.classList.add('aberto'); }, fechar = function(){ cpRow.classList.remove('aberto'); };
+    cpRow.addEventListener('mouseenter', abrir); cpRow.addEventListener('mouseleave', fechar);
+    cpRow.addEventListener('focus', abrir); cpRow.addEventListener('blur', fechar);
+    cpRow.addEventListener('click', function(e){ e.stopPropagation(); cpRow.classList.toggle('aberto'); });
+    document.addEventListener('click', function(e){ if (!cpRow.contains(e.target)) fechar(); });
+    document.addEventListener('keydown', function(e){ if (e.key === 'Escape') fechar(); });
+  }
+  function atualizarCriptoBarra(){
+    if (!cpRow || typeof ASSETS === 'undefined') return;
+    var tot = ASSETS.reduce(function(s2, a){ return s2 + (a.pct || 0); }, 0) || 1;
+    var moedas = ASSETS.filter(function(a){ return a.type === 'cripto'; });
+    var etfs = ASSETS.filter(function(a){ return a.type !== 'cripto' && _atlasEhCripto(a.ticker); });
+    var pM = moedas.reduce(function(s2, a){ return s2 + a.pct; }, 0) / tot * 100;
+    var pE = etfs.reduce(function(s2, a){ return s2 + a.pct; }, 0) / tot * 100;
+    var vTot = ASSETS.filter(function(a){ return a.type === 'cripto' || _atlasEhCripto(a.ticker); }).reduce(function(s2, a){ return s2 + (a.posBRL || 0); }, 0);
+    var nomes = function(l){ return l.slice().sort(function(a,b){ return b.pct - a.pct; }).slice(0, 5).map(function(a){ return a.ticker + (a.region === 'brasil' ? ' (Brasil)' : ''); }).join(', ') + (l.length > 5 ? ' e mais ' + (l.length - 5) : ''); };
+    cpExtra.textContent = pE > 0.05 ? '+' + _atlasNum(pE, 1) + '% via ETFs' : '';
+    cpPop.innerHTML = (pM + pE) <= 0.05 ? '<b>Sem exposição a cripto</b>' :
+      '<b>Exposição cripto total: ' + _atlasNum(pM + pE, 1) + '%</b>' + (vTot > 0 ? '<span class="cp-pop-v">' + _atlasFmtCompacto(vTot) + '</span>' : '') +
+      '<div class="cp-pop-l"><span>Moedas</span><span>' + _atlasNum(pM, 1) + '%</span></div>' + (moedas.length ? '<div class="cp-pop-t">' + nomes(moedas) + '</div>' : '') +
+      (pE > 0.05 ? '<div class="cp-pop-l"><span>ETFs de cripto</span><span>' + _atlasNum(pE, 1) + '%</span></div><div class="cp-pop-t">' + nomes(etfs) + '</div>' : '<div class="cp-pop-t">Tudo em moedas.</div>');
+  }
+  if (typeof window.updateClassPanel === 'function') {
+    var _ucp = window.updateClassPanel;
+    window.updateClassPanel = function(){ var r = _ucp.apply(this, arguments); atualizarCriptoBarra(); return r; };
+  }
 
   /* ── atalho do card Exposição cripto: filtra o globo e a lista ── */
   window.atlasFiltrarCripto = function(){
@@ -3736,7 +3812,14 @@ body.atlas-compacto .share-card { width: calc(100% - 24px) !important; }
       if (sub) {
         if (aCusto || !(custo > 0)) { sub.textContent = 'valor de custo'; sub.className = 'sc-sub'; }
         else if (!comCot) { sub.textContent = 'aguardando cotações'; sub.className = 'sc-sub'; }
-        else { var r = (tot / custo - 1) * 100; sub.textContent = (r >= 0 ? '▲ +' : '▼ ') + _atlasNum(r, 1) + '% sobre o custo'; sub.className = 'sc-sub' + (r < 0 ? ' sc-neg' : ''); }
+        else {
+          var r = (tot / custo - 1) * 100; sub.textContent = (r >= 0 ? '▲ +' : '▼ ') + _atlasNum(r, 1) + '% sobre o custo'; sub.className = 'sc-sub' + (r < 0 ? ' sc-neg' : '');
+          /* quanto do resultado veio do dólar: posição em US$ × (câmbio hoje − câmbio médio da compra) */
+          var fx = 0; lista.forEach(function(a){ if (a.isUSD && !a.semCot && a.custoNativo > 0 && a.posNativa > 0) { fx += a.posNativa * ((typeof CAMBIO_BRL !== 'undefined' ? CAMBIO_BRL : 0) - a.custoBRL / a.custoNativo); } });
+          var lf = document.getElementById('rp-patr-fx');
+          if (!lf) { lf = document.createElement('div'); lf.id = 'rp-patr-fx'; lf.className = 'sc-sub'; sub.parentNode.appendChild(lf); }
+          lf.textContent = Math.abs(fx) >= 1 ? ('câmbio: ' + (fx >= 0 ? '+' : '−') + _atlasFmtCompacto(Math.abs(fx)) + ' do resultado') : '';
+        }
       }
       /* exposição cripto: moedas + ETFs de cripto, em qualquer classe e país */
       var cr = lista.filter(function(a){ return a.posBRL > 0 && (a.type === 'cripto' || _atlasEhCripto(a.ticker)); });
@@ -3773,6 +3856,11 @@ body.atlas-compacto .share-card { width: calc(100% - 24px) !important; }
       firebase.firestore().collection('users').doc(u.uid).get().then(function(d){
         try { _isAdmin = !!(d.exists && d.data().role === 'admin'); } catch(e){}
         var b = document.getElementById('tp-admin-btn'); if (b && !_isAdmin) b.style.display = 'none';
+        /* tickers extras de cripto sem mexer no código (opcional): documento config/atlas, campo criptoExtras */
+        firebase.firestore().collection('config').doc('atlas').get().then(function(c){
+          var x = c.exists && c.data() && c.data().criptoExtras;
+          if (Array.isArray(x) && x.length) { x.forEach(function(t){ _ATLAS_CRIPTO_ETF[String(t).toUpperCase()] = 1; }); try { updateClassPanel(); } catch(e){} }
+        }).catch(function(){});
       }).catch(function(){ try { _isAdmin = false; } catch(e){} });
     });
   } catch(e){}
