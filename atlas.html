@@ -544,7 +544,7 @@ function _atlasQtd(q,cripto){ q=Number(q)||0; var inteiro=Math.abs(q-Math.round(
       </div>
 
       <!-- Toggle noite/dia -->
-      <div class="mode-toggle" onclick="toggleDay()" id="modeBtn">🌙 NOTURNO</div>
+      <div class="mode-toggle" onclick="toggleDay()" id="modeBtn">☀️ VER DIURNO</div>
 
       <!-- Controles -->
       <div class="controls-bar">
@@ -1667,10 +1667,42 @@ function onTex(w){return function(t){
 };}
 function onTexErr(){loadedCount++;if(loadedCount>=3)tryInit();}
 
-// CDN primário: unpkg
-loader.load('https://unpkg.com/three-globe@2.31.2/example/img/earth-night.jpg',onTex('night'),undefined,onTexErr);
-loader.load('https://unpkg.com/three-globe@2.31.2/example/img/earth-blue-marble.jpg',onTex('day'),undefined,onTexErr);
-loader.load('https://unpkg.com/three-globe@2.31.2/example/img/earth-topology.png',onTex('bump'),undefined,onTexErr);
+/* TEXTURAS (set/2026): hospedadas no próprio repositório (assets/), em 2k
+   para celular/tablet e 4k para desktop; a CDN externa virou reserva. Antes, se
+   a CDN falhasse, o globo ficava para sempre com a cor lisa provisória. */
+window._atlasTexStatus = {};
+(function(){
+  var maxTex = 4096; try { maxTex = renderer.capabilities.maxTextureSize || 4096; } catch(e){}
+  var pequeno = window.innerWidth <= 900 || maxTex < 4096;
+  var CDN = 'https://unpkg.com/three-globe@2.31.2/example/img/';
+  var FONTES = {
+    night: [pequeno ? 'assets/earth-night-2k.jpg' : 'assets/earth-night-4k.jpg', CDN + 'earth-night.jpg'],
+    day:   [pequeno ? 'assets/earth-day-2k.jpg'   : 'assets/earth-day-4k.jpg',   CDN + 'earth-blue-marble.jpg'],
+    bump:  [pequeno ? 'assets/earth-topology-1k.png' : 'assets/earth-topology-2k.png', CDN + 'earth-topology.png']
+  };
+  window._atlasTexStatus._maxTextureSize = maxTex;
+  function carregar(nome){
+    var urls = FONTES[nome], i = 0, tent = 0, t0 = performance.now();
+    window._atlasTexStatus[nome] = { estado: 'carregando', url: urls[0] };
+    (function tentar(){
+      loader.load(urls[i], function(t){
+        window._atlasTexStatus[nome] = { estado: 'ok', url: urls[i], largura: t.image && t.image.width, ms: Math.round(performance.now() - t0) };
+        onTex(nome)(t);
+        if (typeof window._atlasTexPronta === 'function') window._atlasTexPronta();
+      }, undefined, function(){
+        tent++;
+        if (tent < 2) { setTimeout(tentar, 900 * tent); return; }          // nova tentativa na mesma fonte
+        i++; tent = 0;
+        if (i < urls.length) { window._atlasTexStatus[nome].url = urls[i]; tentar(); return; }   // reserva
+        window._atlasTexStatus[nome] = { estado: 'falhou', url: urls.join(' | ') };
+        onTexErr();
+        if (typeof window._atlasTexPronta === 'function') window._atlasTexPronta();
+      });
+    })();
+  }
+  carregar('night'); carregar('day'); carregar('bump');
+  window.G20AtlasDiag = function(){ return JSON.parse(JSON.stringify(window._atlasTexStatus)); };
+})();
 
 // Força abertura em 1.5s — não espera textura carregar
 setTimeout(()=>{ if(!initiated) tryInit(); }, 1500);
@@ -1870,8 +1902,11 @@ function drawSingle(sx,sy,baseR,col,a,fade,ci,isHov){
     }
   }
 
-  // ── LOD 1: PONTO (zoom muito longe, baseR < 7)
-  if(baseR < 7){
+  /* nível de detalhe proporcional ao tamanho do globo na tela: no celular o raio
+     em pixels é menor, e sem isso o zoom inicial só mostrava bolinhas lisas */
+  const lodR = baseR * (window._atlasLodK || 1);
+  // ── LOD 1: PONTO (zoom muito longe)
+  if(lodR < 7){
     const r=Math.max(2.5, baseR);
     oc.beginPath();oc.arc(sx,sy,r,0,Math.PI*2);
     oc.fillStyle=col+Math.round(fade*220).toString(16).padStart(2,'0');
@@ -1883,8 +1918,8 @@ function drawSingle(sx,sy,baseR,col,a,fade,ci,isHov){
     return;
   }
 
-  // ── LOD 2: BOLINHA COM LOGO (zoom médio, baseR 7-16)
-  if(baseR < 16){
+  // ── LOD 2: BOLINHA COM LOGO (zoom médio)
+  if(lodR < 16){
     oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);
     oc.fillStyle=col+Math.round(fade*210).toString(16).padStart(2,'0');oc.fill();
     const imgM=logoImgs[a.ticker];
@@ -1892,10 +1927,10 @@ function drawSingle(sx,sy,baseR,col,a,fade,ci,isHov){
       oc.save();oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);oc.clip();
       oc.globalAlpha=fade*.92;oc.drawImage(imgM,sx-baseR,sy-baseR,baseR*2,baseR*2);oc.restore();
     } else {
-      oc.font=`700 ${Math.max(6,Math.round(baseR*.7))}px DM Sans,sans-serif`;
+      oc.font=`700 ${Math.max(6,Math.round(baseR*(baseR>=9?.55:.62)))}px DM Sans,sans-serif`;
       oc.textAlign='center';oc.textBaseline='middle';
       oc.fillStyle='rgba(255,255,255,.85)';oc.globalAlpha=fade;
-      oc.fillText(a.ticker[0],sx,sy+.5);oc.globalAlpha=1;
+      oc.fillText(baseR>=9?a.ticker.slice(0,3):a.ticker.slice(0,2),sx,sy+.5);oc.globalAlpha=1;
     }
     oc.beginPath();oc.arc(sx,sy,baseR,0,Math.PI*2);
     oc.strokeStyle=isHovered?'#e8c766':col+'99';oc.lineWidth=isHovered?2:1;oc.stroke();
@@ -2563,7 +2598,10 @@ function toggleCluster(){clusterMode=!clusterMode;explodedClusters.clear();docum
 /* ══ DIA/NOITE ══ */
 function toggleDay(){
   isDayMode=!isDayMode;document.body.classList.toggle('day',isDayMode);
-  document.getElementById('modeBtn').textContent=isDayMode?'🌙 NOTURNO':'☀️ DIURNO';
+  /* rótulo = modo para o qual o botão leva (antes alternava entre estado e ação) */
+  document.getElementById('modeBtn').textContent=isDayMode?'🌙 VER NOTURNO':'☀️ VER DIURNO';
+  try{ localStorage.setItem('g20_atlas_modo', isDayMode?'dia':'noite'); }catch(e){}
+  if(typeof window._atlasTexPronta==='function') window._atlasTexPronta();
   if(!earthMesh)return;
   earthMesh.material.map=isDayMode?texDay:texNight;earthMesh.material.emissiveMap=isDayMode?null:texNight;
   earthMesh.material.emissiveIntensity=isDayMode?0:1.1;earthMesh.material.emissive.set(isDayMode?0x000000:0x886633);
@@ -3505,7 +3543,33 @@ body.atlas-empilhado #atlasBlocos .region-tabs { position: static !important; tr
 body.atlas-empilhado #atlasBlocos .region-tab { min-width: 0 !important; border: 1px solid var(--border) !important; border-radius: 12px !important; padding: 10px 12px !important; }
 body.atlas-empilhado #atlasBlocos .rt-pct { font-size: 22px !important; }
 body.atlas-empilhado #atlasBlocos .rt-lbl, body.atlas-empilhado #atlasBlocos .rt-st { font-size: 11px !important; }
-@media (max-width: 600px) { .sum-card .sc-v { font-size: clamp(17px, 5vw, 22px) !important; white-space: nowrap; } }
+/* aviso de carregamento do globo */
+#atlasTexAviso { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 15; display: none; padding: 8px 14px; border-radius: 20px;
+  background: rgba(14,13,20,.85); border: 1px solid rgba(201,169,97,.3); color: #e8e6e3; font: 600 12.5px 'DM Sans', sans-serif; pointer-events: none; text-align: center; max-width: 80%; }
+/* celular e tablet em pé: cards grandes e legíveis */
+body.atlas-empilhado .topbar { background: var(--bg, #0b0a10) !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+body.atlas-empilhado .sum-grid { grid-template-columns: repeat(3, minmax(0,1fr)) !important; }
+body.atlas-empilhado .sum-card { padding: 16px 14px !important; min-width: 0; }
+body.atlas-empilhado .sum-card:first-child { grid-column: 1 / -1; padding: 20px 18px !important; }
+body.atlas-empilhado .sum-card:first-child .sc-v { font-size: clamp(30px, 9vw, 38px) !important; white-space: nowrap; }
+body.atlas-empilhado .sum-card:not(:first-child) .sc-v { font-size: clamp(20px, 6.2vw, 26px) !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.atlas-empilhado .sum-card .sc-lbl { font-size: 10.5px !important; }
+body.atlas-empilhado .sum-card .sc-sub { font-size: 12.5px !important; }
+body.atlas-empilhado #atlasBlocos .region-tabs { gap: 10px !important; width: auto !important; min-width: 0 !important; max-width: none !important; }
+body.atlas-empilhado #atlasBlocos .region-tab { width: auto !important; }
+body.atlas-empilhado #atlasBlocos .rt-pct { white-space: nowrap; }
+body.atlas-empilhado #atlasBlocos .region-tab { padding: 16px 16px 14px !important; min-height: 118px; display: flex !important; flex-direction: column; justify-content: space-between; }
+body.atlas-empilhado #atlasBlocos .rt-pct { font-size: clamp(30px, 9vw, 38px) !important; line-height: 1.05; }
+body.atlas-empilhado #atlasBlocos .rt-lbl { font-size: 12.5px !important; letter-spacing: .1em; }
+body.atlas-empilhado #atlasBlocos .rt-st { font-size: 11.5px !important; }
+body.atlas-empilhado #atlasBlocos .classes-panel { padding: 18px 18px !important; }
+body.atlas-empilhado #atlasBlocos .cp-row { padding: 7px 0 !important; }
+body.atlas-empilhado #atlasBlocos .cp-lbl { font-size: 14px !important; }
+body.atlas-empilhado #atlasBlocos .cp-val { font-size: 14.5px !important; }
+body.atlas-empilhado #atlasBlocos .cp-bar-w { height: 7px !important; border-radius: 4px; }
+body.atlas-empilhado #atlasBlocos .cp-bar { height: 7px !important; border-radius: 4px; }
+body.atlas-empilhado #atlasBlocos .cp-title { font-size: 11px !important; margin-bottom: 8px; }
+@media (min-width: 601px) { body.atlas-empilhado #atlasBlocos { grid-template-columns: 1fr 1fr; } body.atlas-empilhado #atlasBlocos .region-tabs { grid-template-columns: 1fr 1fr; } }
 .sum-cripto { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 18px; border: 0; border-bottom: 1px solid var(--border);
   background: linear-gradient(90deg, rgba(251,146,60,.10), rgba(251,146,60,.02)); color: var(--text); text-align: left; cursor: pointer; font-family: inherit; }
 .sum-cripto:hover { background: linear-gradient(90deg, rgba(251,146,60,.16), rgba(251,146,60,.04)); }
@@ -3671,6 +3735,38 @@ body.atlas-compacto .share-card { width: calc(100% - 24px) !important; }
   window.addEventListener('orientationchange', function(){ setTimeout(aplicarModo, 250); });
   aplicarModo();
 
+  /* ── textura: aviso enquanto a do modo atual não chega; modo salvo; noturno padrão ── */
+  var avisoTex = document.createElement('div'); avisoTex.id = 'atlasTexAviso'; avisoTex.textContent = 'Carregando o globo…';
+  gc.appendChild(avisoTex);
+  window._atlasTexPronta = function(){
+    var st = window._atlasTexStatus || {}, modo = (typeof isDayMode !== 'undefined' && isDayMode) ? 'day' : 'night';
+    var e = st[modo] && st[modo].estado;
+    avisoTex.style.display = (e === 'carregando') ? 'block' : 'none';
+    if (e === 'falhou') { avisoTex.textContent = 'Não foi possível carregar a imagem do globo. Verifique a conexão.'; avisoTex.style.display = 'block'; }
+  };
+  window._atlasTexPronta();
+  (function aplicarModoSalvo(t){
+    var salvo = null; try { salvo = localStorage.getItem('g20_atlas_modo'); } catch(e){}
+    if (salvo !== 'dia') return;
+    if (typeof earthMesh !== 'undefined' && earthMesh && typeof isDayMode !== 'undefined' && !isDayMode) { try { toggleDay(); } catch(e){} return; }
+    if (t < 40) setTimeout(function(){ aplicarModoSalvo(t + 1); }, 250);
+  })(0);
+
+  /* ── nível de detalhe dos marcadores proporcional à tela (logos no celular) ── */
+  function calcLod(){ var m = Math.min(gc.clientWidth, gc.clientHeight) || 700; window._atlasLodK = Math.max(1, Math.min(1.8, 700 / m)); }
+  calcLod(); window.addEventListener('resize', function(){ setTimeout(calcLod, 150); });
+
+  /* ── celular: zoom inicial mais próximo e globo voltado para a região de maior peso ── */
+  var focou = false;
+  function focarMaiorRegiao(){
+    if (focou || !document.body.classList.contains('atlas-compacto') || typeof ASSETS === 'undefined' || !ASSETS.length || typeof earthMesh === 'undefined' || !earthMesh) return;
+    focou = true;
+    try { targetZoom = Math.max(ZOOM_MIN, Math.min(targetZoom, 2.9)); } catch(e){}
+    var soma = {}; ASSETS.forEach(function(a){ soma[a.region] = (soma[a.region] || 0) + (a.pct || 0); });
+    var r = Object.keys(soma).sort(function(x, y){ return soma[y] - soma[x]; })[0];
+    try { if (r && REGIONS[r]) { flyTarget = REGIONS[r]; flyProgress = 0; } } catch(e){}
+  }
+
   /* ── painel do ativo no toque: "Ver tese" e "Fechar" ── */
   var tt = document.getElementById('tooltip');
   if (tt) {
@@ -3818,7 +3914,7 @@ body.atlas-compacto .share-card { width: calc(100% - 24px) !important; }
           var fx = 0; lista.forEach(function(a){ if (a.isUSD && !a.semCot && a.custoNativo > 0 && a.posNativa > 0) { fx += a.posNativa * ((typeof CAMBIO_BRL !== 'undefined' ? CAMBIO_BRL : 0) - a.custoBRL / a.custoNativo); } });
           var lf = document.getElementById('rp-patr-fx');
           if (!lf) { lf = document.createElement('div'); lf.id = 'rp-patr-fx'; lf.className = 'sc-sub'; sub.parentNode.appendChild(lf); }
-          lf.textContent = Math.abs(fx) >= 1 ? ('câmbio: ' + (fx >= 0 ? '+' : '−') + _atlasFmtCompacto(Math.abs(fx)) + ' do resultado') : '';
+          lf.textContent = Math.abs(fx) >= 1 ? ('inclui ' + (fx >= 0 ? '+' : '−') + _atlasFmtCompacto(Math.abs(fx)) + ' de câmbio') : '';
         }
       }
       /* exposição cripto: moedas + ETFs de cripto, em qualquer classe e país */
@@ -3848,6 +3944,7 @@ body.atlas-compacto .share-card { width: calc(100% - 24px) !important; }
     window.buildAssetList = function(){ var r = _orig.apply(this, arguments); atualizarResumo(); return r; };
   }
   setTimeout(atualizarResumo, 4000);
+  var _tf = setInterval(function(){ focarMaiorRegiao(); if (focou) clearInterval(_tf); }, 500); setTimeout(function(){ clearInterval(_tf); }, 20000);
 
   /* ── edição de tese só para admin confirmado no Firestore ── */
   try {
