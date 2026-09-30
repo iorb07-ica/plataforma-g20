@@ -10791,15 +10791,23 @@ window.loadPatStrip = loadPatStrip;
 
   function _histIdxKey(chave){ return CACHE_PREFIX + chave; }
 
+  /* Histórico guardado só é reaproveitado se chegar até perto de hoje. Um
+     histórico parado (ex.: em 28/07) dentro do prazo de validade fazia o
+     aparelho montar a série inteira com preços velhos. */
+  function _histEmDia(c) {
+    var p = c && c.pontos; if (!p || !p.length) return false;
+    var d = String((p[p.length - 1] && (p[p.length - 1].d || p[p.length - 1].data)) || '').slice(0, 10);
+    return !!d && (Date.now() - Date.parse(d + 'T12:00:00-03:00')) < 6 * 86400000;
+  }
   function lerCache(chave) {
     var k = _histIdxKey(chave);
     // 1) espelho em memória (preenchido pela pré-carga)
     var m = _histMem[k];
-    if (m && m.loadedAt && (Date.now() - m.loadedAt) < CACHE_TTL && m.pontos) return m.pontos;
+    if (m && m.loadedAt && (Date.now() - m.loadedAt) < CACHE_TTL && m.pontos && _histEmDia(m)) return m.pontos;
     // 2) localStorage — versões anteriores gravavam aqui
     try {
       var c = JSON.parse(localStorage.getItem(k) || 'null');
-      if (c && c.loadedAt && (Date.now() - c.loadedAt) < CACHE_TTL && c.pontos) {
+      if (c && c.loadedAt && (Date.now() - c.loadedAt) < CACHE_TTL && c.pontos && _histEmDia(c)) {
         _histMem[k] = c;                       // promove para a memória
         return c.pontos;
       }
@@ -10929,9 +10937,11 @@ window.loadPatStrip = loadPatStrip;
         .then(parseYahoo);
     }
 
+    /* Proxy G20 com uma segunda tentativa (rede móvel oscila). Os serviços
+       públicos corsproxy/allorigins saíram: fora do ar desde 31/08/26, cada um
+       consumia até 18s por ativo e fazia a reconstrução no celular não terminar. */
     return tentar(urlG20)
-      .catch(function () { return tentar('https://corsproxy.io/?' + encodeURIComponent(yUrl)); })
-      .catch(function () { return tentar('https://api.allorigins.win/raw?url=' + encodeURIComponent(yUrl)); })
+      .catch(function () { return new Promise(function (ok) { setTimeout(ok, 1500); }).then(function () { return tentar(urlG20); }); })
       .then(function (pontos) { gravarCache(sym, pontos); return pontos; })
       .catch(function () { return null; });
   }
@@ -12056,7 +12066,9 @@ function _patSnapUpsert(total,rf,rv){
             // Mesma trava de sanidade de baixo: valor ao vivo muito distante
             // da série indica cálculo defeituoso, não movimento de mercado.
             var _base = _pt.rv || 0;
-            var _ok = !(_base > 0) || (Math.abs(rv - _base) / _base * 100) <= 15;
+            var _ok = !(_base > 0) || (Math.abs(rv - _base) / _base * 100) <= 15 ||
+                  /* série do aparelho atrasada: a base é velha, o valor ao vivo é o certo */
+                  (typeof g20SerieInfo === 'function' && g20SerieInfo(arr).atrasada);
             if (_ok && _pt.rvVivo !== rv) { _pt.rvVivo = rv; mudou = true; }
             else if (!_ok) {
               console.warn('[G20Rent] cotação ao vivo descartada: R$ ' +
@@ -14113,6 +14125,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
      constante no modo "total", em vez de virem do snapshot. Isso mantém
      todos os quatro modos na MESMA base e elimina a descontinuidade que
      aparecia como um salto vertical no fim do gráfico. */
+  try { window._gpBensLiquidos = function(){ return _gpBensLiquidos(); }; } catch(e){}
   function _gpBensLiquidos(){
     try {
       var b = JSON.parse(localStorage.getItem('g20_patrimonioBens')||'[]');
@@ -14241,6 +14254,7 @@ window.G20DiagRF = function(dias){
   return linhas;
 };
 
+  try { window._gpValorDoSnap = function(){ return _gpValorDoSnap.apply(null, arguments); }; } catch(e){}
   function _gpValorDoSnap(s, modo, bens, ignorarVivo){
     if (!s) return 0;
     var t  = s.t  || 0;
@@ -21602,6 +21616,230 @@ html body .topbar {
     if(desde) G20RF.carregar(desde);
   }
   setTimeout(iniciar, 3000);
+})();
+</script>
+<script id="g20-diag-patrimonio">
+/* ════════════════════════════════════════════════════════════════════
+   PATRIMÔNIO · DIAGNÓSTICO NO APARELHO + AUTOCORREÇÃO DA SÉRIE (set/2026)
+
+   Causa encontrada: o card "Minha Carteira" usa a série de patrimônio
+   guardada NO APARELHO. Quando essa série fica velha (histórico de preços
+   parado), a trava de 15% em _patSnapUpsert passava a descartar o valor ao
+   vivo CORRETO por ser "muito diferente" da série velha, e o card ficava
+   preso num fechamento antigo (ex.: "em 28/07"). Sair e entrar com a mesma
+   conta não limpava nada (a limpeza só roda na troca de usuário).
+
+   Aqui:
+   - g20SerieInfo(): diz se a série do aparelho está atrasada (último ponto
+     real com mais de 3 dias úteis);
+   - autocorreção: série atrasada → descarta históricos velhos DESTE aparelho,
+     invalida a série e reconstrói, uma vez a cada 6h;
+   - painel de diagnóstico SÓ para admin (papel confirmado no Firestore),
+     aberto tocando 5 vezes no título do card ou com ?diag=1 na URL.
+   ════════════════════════════════════════════════════════════════════ */
+(function(){
+  'use strict';
+  var ATRASO_MAX = 3;                 // dias úteis
+  var AUTOHEAL_KEY = 'g20_autoheal_ts';
+  var AUTOHEAL_INTERVALO = 6 * 3600 * 1000;
+
+  function hojeBR(){ return new Date(Date.now() - 3*3600e3).toISOString().slice(0,10); }
+  function diasUteis(a, b){
+    if (!a || !b || b <= a) return 0;
+    if (window.G20RF && G20RF.diasUteis) return G20RF.diasUteis(a, b);
+    var d = new Date(a + 'T12:00:00'), f = new Date(b + 'T12:00:00'), n = 0;
+    while (d < f) { var w = d.getDay(); if (w && w < 6) n++; d.setDate(d.getDate() + 1); }
+    return n;
+  }
+  function serie(){ try { return (window._patSnapLoad ? _patSnapLoad() : []) || []; } catch(e){ return []; } }
+
+  window.g20SerieInfo = function(arr){
+    arr = arr || serie();
+    var reais = arr.filter(function(p){ return p && p.real && !p.copia; });
+    var ult = reais.length ? reais[reais.length - 1] : null;
+    var atraso = ult ? diasUteis(ult.d, hojeBR()) : 999;
+    return { pontos: arr.length, ultimaReal: ult ? ult.d : null, atraso: ult ? atraso : null, atrasada: !!ult && atraso > ATRASO_MAX,
+             ultimo: arr[arr.length - 1] || null };
+  };
+
+  /* Histórico de preço de um ativo cuja última data está atrasada: velho. */
+  function historicoVelho(c){
+    var pts = c && c.pontos; if (!pts || !pts.length) return true;
+    var u = pts[pts.length - 1], d = String((u && (u.d || u.data)) || '').slice(0,10);
+    return !d || diasUteis(d, hojeBR()) > ATRASO_MAX;
+  }
+  window.g20DescartarHistoricosVelhos = function(tudo){
+    var n = 0;
+    try {
+      var mem = window._g20HistMem || {};
+      Object.keys(mem).forEach(function(k){ if (tudo || historicoVelho(mem[k])) { delete mem[k]; n++; try { if (window.G20Store) G20Store.del(k); } catch(e){} } });
+    } catch(e){}
+    try {
+      Object.keys(localStorage).forEach(function(k){
+        if (k.indexOf('g20_histpx_') !== 0) return;
+        var c = null; try { c = JSON.parse(localStorage.getItem(k) || 'null'); } catch(e){}
+        if (tudo || historicoVelho(c)) { localStorage.removeItem(k); n++; }
+      });
+    } catch(e){}
+    try {
+      if (tudo && window.G20Store && G20Store.list) {
+        G20Store.list('g20_histpx_').then(function(r){ ((r && r.keys) || []).forEach(function(k){ G20Store.del(k); }); }).catch(function(){});
+      }
+    } catch(e){}
+    return n;
+  };
+
+  /* Reconstrói a série deste aparelho (usado pela autocorreção e pelo botão). */
+  window.g20ReconstruirSerie = function(tudo){
+    var n = g20DescartarHistoricosVelhos(!!tudo);
+    try { if (window.G20Rent) G20Rent.invalidar(); } catch(e){}
+    if (tudo) { try { if (window._patSnapSave) _patSnapSave([]); } catch(e){} try { localStorage.removeItem('g20_patSnapshots'); } catch(e){} try { if (window.G20Store) G20Store.del('g20_patSnapshots'); } catch(e){} }
+    try { localStorage.setItem(AUTOHEAL_KEY, String(Date.now())); } catch(e){}
+    ['loadPatStrip','v21LoadGP'].forEach(function(fn){ try { if (typeof window[fn] === 'function') window[fn](); } catch(e){} });
+    return n;
+  };
+
+  /* Autocorreção: roda depois que o dashboard terminou de carregar. */
+  function autocorrigir(){
+    try {
+      if (window._g20DadosProntos === false) return;
+      var info = g20SerieInfo();
+      if (!info.atrasada) return;
+      var ult = 0; try { ult = parseInt(localStorage.getItem(AUTOHEAL_KEY) || '0', 10) || 0; } catch(e){}
+      if (Date.now() - ult < AUTOHEAL_INTERVALO) return;
+      console.warn('[G20 autocorreção] série do aparelho atrasada ' + info.atraso + ' dias úteis (último ponto real ' + info.ultimaReal + '). Reconstruindo.');
+      g20ReconstruirSerie(false);
+      var chg = document.getElementById('v21-gp-change');
+      if (chg) chg.innerHTML = '<span class="v21-change-extra">atualizando histórico…</span>';
+    } catch(e){}
+  }
+  setTimeout(autocorrigir, 12000);
+
+  /* ─────────────────────── painel de diagnóstico (admin) ─────────────────────── */
+  function fmt(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0}); }
+  function fonteCotacao(t, precos){
+    var v;
+    try { v = parseFloat(g20PriceOf(precos && precos[t])) || 0; if (v > 0) return { p: v, f: 'cotações do dashboard' }; } catch(e){}
+    try { var cc = JSON.parse(localStorage.getItem('g20_cotacoesCache') || 'null'); if (cc && cc.cotacoes && cc.cotacoes[t]) { v = parseFloat(cc.cotacoes[t].preco || cc.cotacoes[t].price) || 0; if (v > 0) return { p: v, f: 'cache Carteira G20' }; } } catch(e){}
+    try { if (window._dashRVCot && _dashRVCot[t]) { v = parseFloat(_dashRVCot[t].preco) || 0; if (v > 0) return { p: v, f: 'ao vivo (sessão)' }; } } catch(e){}
+    try { var hp = g20UltimoFechamento()[t]; if (hp && hp.preco > 0) return { p: hp.preco, f: 'fechamento do histórico', d: hp.data }; } catch(e){}
+    try { var uc = g20UltCotLer()[t]; if (uc) return { p: parseFloat(uc.preco || uc.p || uc) || 0, f: 'última vista (sessão antiga)' }; } catch(e){}
+    return { p: 0, f: 'SEM PREÇO' };
+  }
+  function ping(url){
+    var t0 = Date.now();
+    return fetch(url).then(function(r){ return { ok: r.ok, st: r.status, ms: Date.now() - t0 }; })
+      .catch(function(e){ return { ok: false, st: 'falhou: ' + e.message, ms: Date.now() - t0 }; });
+  }
+
+  function montarRelatorio(){
+    var L = [], info = g20SerieInfo(), arr = serie(), u = info.ultimo || {};
+    var bens = 0; try { bens = _gpBensLiquidos(); } catch(e){}
+    L.push('RELATÓRIO PATRIMÔNIO · ' + new Date().toLocaleString('pt-BR'));
+    L.push('Aparelho: ' + (navigator.userAgent.match(/iPhone|iPad|Android|Macintosh|Windows/) || ['?'])[0] +
+      ' · ' + ((window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone ? 'APP instalado' : 'navegador') +
+      ' · tela ' + innerWidth + 'px');
+    L.push('');
+    L.push('— SÉRIE GUARDADA NESTE APARELHO —');
+    L.push('Pontos: ' + info.pontos + ' · primeiro: ' + ((arr[0]||{}).d||'-') + ' · último: ' + (u.d||'-') + ' · último REAL: ' + (info.ultimaReal||'-'));
+    L.push('Atraso: ' + info.atraso + ' dias úteis → ' + (info.atrasada ? 'ATRASADA' : 'ok') + ' · versão sv=' + (u.sv||'-') + ' · último é cópia: ' + (!!u.copia));
+    L.push('Último ponto: rv=' + fmt(u.rv) + ' rf=' + fmt(u.rf) + ' rvVivo=' + (u.rvVivo>0?fmt(u.rvVivo):'AUSENTE') + ' rfVivo=' + (u.rfVivo>0?fmt(u.rfVivo):'AUSENTE') + ' cobertura=' + (u.cobertura!=null?Math.round(u.cobertura*100)+'%':'-'));
+    var reais = arr.filter(function(p){ return p && p.real && !p.copia; }).slice(-10);
+    L.push('Cobertura últimos 10 reais: ' + reais.map(function(p){ return (p.d||'').slice(5) + '=' + (p.cobertura!=null?Math.round(p.cobertura*100)+'%':'-'); }).join(' '));
+    L.push('');
+    L.push('— VALOR DO CARD (pela série) —');
+    ['rv','rf','rvrf','total'].forEach(function(m){ try { L.push('  ' + m.padEnd(6) + fmt(_gpValorDoSnap(u, m, bens))); } catch(e){} });
+    L.push('');
+    L.push('— VALOR AO VIVO (jeito Minha Carteira) —');
+    var av = null, aportes = [];
+    try { aportes = loadData('rvAportes', []); av = g20AvaliarRV(aportes); } catch(e){}
+    var rf = 0; try { rf = loadData('rendaFixa', []).filter(function(r){ return !r.encerrado; }).reduce(function(s,r){ return s + ((r.valorAtual>0)?r.valorAtual:(window.G20RF?G20RF.liquido(r).liquido:(r.valorInv||0))); }, 0); } catch(e){}
+    if (av) {
+      L.push('  RV a mercado: ' + fmt(av.total) + (av.completo ? ' (completa)' : ' (INCOMPLETA, faltam: ' + av.faltando.join(', ') + ')'));
+      L.push('  RF líquida:   ' + fmt(rf) + ' · Bens líquidos: ' + fmt(bens));
+      L.push('  RV+RF: ' + fmt(av.total + rf) + ' · TOTAL: ' + fmt(av.total + rf + bens));
+      try { var cardRvrf = _gpValorDoSnap(u, 'rvrf', bens); L.push('  Diferença card (rvrf) x ao vivo: ' + fmt(cardRvrf - (av.total + rf)) + ' (' + (((cardRvrf/(av.total+rf))-1)*100).toFixed(1) + '%)'); } catch(e){}
+    }
+    var fx = 0; try { fx = g20UsdBRL(JSON.parse(localStorage.getItem('g20_precos')||'{}')); } catch(e){}
+    L.push('  Dólar usado: ' + (fx||'-') + (typeof _dashUsdBRLok !== 'undefined' ? (_dashUsdBRLok ? ' (real)' : ' (VALOR DE SEGURANÇA)') : ''));
+    L.push('');
+    L.push('— ATIVO A ATIVO —');
+    try {
+      var precos = JSON.parse(localStorage.getItem('g20_precos') || '{}');
+      Object.keys(av ? av.porTicker : {}).sort().forEach(function(t){
+        var p = av.porTicker[t]; if (!(p.qtd > 0.001)) return;
+        var fc = fonteCotacao(t, precos);
+        L.push('  ' + t.padEnd(8) + ' qtd ' + String(Math.round(p.qtd*1000)/1000).padEnd(9) + ' ' + fmt(p.valor).padEnd(14) + ' ' + fc.f + (fc.d ? ' (' + fc.d + ')' : ''));
+      });
+    } catch(e){ L.push('  (erro ao listar: ' + e.message + ')'); }
+    L.push('');
+    L.push('— HISTÓRICOS DE PREÇO NESTE APARELHO —');
+    try {
+      var mem = window._g20HistMem || {}, ks = Object.keys(mem), velhos = [];
+      ks.forEach(function(k){ if (historicoVelho(mem[k])) { var pts = mem[k].pontos||[]; velhos.push(k.replace('g20_histpx_','') + ' até ' + (((pts[pts.length-1]||{}).d)||'?')); } });
+      L.push('  Em memória: ' + ks.length + ' · velhos (>' + ATRASO_MAX + ' dias úteis): ' + velhos.length);
+      velhos.slice(0, 25).forEach(function(v){ L.push('    ' + v); });
+    } catch(e){}
+    return L;
+  }
+
+  function abrirPainel(){
+    var ov = document.getElementById('g20DiagPat');
+    if (!ov) {
+      ov = document.createElement('div'); ov.id = 'g20DiagPat';
+      ov.style.cssText = 'position:fixed;inset:0;z-index:100100;background:rgba(0,0,0,.75);display:flex;align-items:flex-start;justify-content:center;padding:calc(env(safe-area-inset-top,0px) + 14px) 10px 14px;overflow:auto';
+      ov.innerHTML = '<div style="width:100%;max-width:760px;background:#1f1e22;border:1px solid rgba(201,169,97,.35);border-radius:14px;padding:14px;font-family:DM Sans,sans-serif;color:#e8e6e3">' +
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><b style="color:#c9a961;font-size:14px;flex:1">🩺 Diagnóstico do patrimônio (só admin)</b>' +
+        '<button id="g20DiagFechar" style="background:none;border:1px solid rgba(255,255,255,.2);color:#e8e6e3;border-radius:8px;padding:6px 10px">Fechar</button></div>' +
+        '<pre id="g20DiagTexto" style="white-space:pre-wrap;word-break:break-word;font:11.5px/1.5 JetBrains Mono,monospace;background:#15141a;border-radius:10px;padding:10px;max-height:60vh;overflow:auto;margin:0 0 10px"></pre>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:8px">' +
+          '<button id="g20DiagCopiar" style="flex:1;min-width:140px;height:42px;border:0;border-radius:10px;background:#c9a961;color:#1a191e;font-weight:800">Copiar relatório</button>' +
+          '<button id="g20DiagPing" style="flex:1;min-width:140px;height:42px;border:1px solid rgba(255,255,255,.2);border-radius:10px;background:transparent;color:#e8e6e3;font-weight:700">Testar servidores</button>' +
+          '<button id="g20DiagRebuild" style="flex:1;min-width:140px;height:42px;border:1px solid rgba(230,57,70,.5);border-radius:10px;background:transparent;color:#ff8a8a;font-weight:700">Reconstruir série agora</button>' +
+        '</div><div id="g20DiagStatus" style="font-size:12px;color:#9a958e;margin-top:8px"></div></div>';
+      document.body.appendChild(ov);
+      document.getElementById('g20DiagFechar').onclick = function(){ ov.style.display = 'none'; };
+      document.getElementById('g20DiagCopiar').onclick = function(){
+        var txt = document.getElementById('g20DiagTexto').textContent;
+        (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function(){ document.getElementById('g20DiagStatus').textContent = 'Relatório copiado. Cole no chat.'; })
+          .catch(function(){ var r = document.createRange(); r.selectNodeContents(document.getElementById('g20DiagTexto')); var s = getSelection(); s.removeAllRanges(); s.addRange(r); document.getElementById('g20DiagStatus').textContent = 'Texto selecionado: toque em Copiar.'; });
+      };
+      document.getElementById('g20DiagPing').onclick = function(){
+        var st = document.getElementById('g20DiagStatus'); st.textContent = 'Testando…';
+        var P = (typeof PROXY_URL !== 'undefined' ? PROXY_URL : 'https://g20-proxy.vercel.app');
+        Promise.all([ping(P + '/api/quote?symbol=PETR4.SA'), ping(P + '/api/history?symbol=PETR4.SA&range=1mo&interval=1d')]).then(function(r){
+          var t = '\n— SERVIDORES —\n  cotação (/api/quote): ' + (r[0].ok?'OK':'ERRO ') + r[0].st + ' · ' + r[0].ms + 'ms\n  histórico (/api/history): ' + (r[1].ok?'OK':'ERRO ') + r[1].st + ' · ' + r[1].ms + 'ms';
+          document.getElementById('g20DiagTexto').textContent += t; st.textContent = 'Teste concluído.';
+        });
+      };
+      document.getElementById('g20DiagRebuild').onclick = function(){
+        if (!confirm('Apagar a série e os históricos de preço guardados NESTE aparelho e reconstruir do zero? Mantenha o app aberto até terminar.')) return;
+        var n = g20ReconstruirSerie(true);
+        document.getElementById('g20DiagStatus').textContent = 'Reconstruindo (' + n + ' históricos descartados). Mantenha o app aberto 1 a 3 minutos; depois feche e abra este painel de novo.';
+      };
+    }
+    document.getElementById('g20DiagTexto').textContent = montarRelatorio().join('\n');
+    document.getElementById('g20DiagStatus').textContent = '';
+    ov.style.display = 'flex';
+  }
+
+  function ehAdmin(){
+    try {
+      var u = firebase.auth().currentUser; if (!u) return Promise.resolve(false);
+      return firebase.firestore().collection('users').doc(u.uid).get().then(function(d){ return d.exists && d.data().role === 'admin'; }).catch(function(){ return false; });
+    } catch(e){ return Promise.resolve(false); }
+  }
+  window.g20AbrirDiagnostico = function(){ ehAdmin().then(function(ok){ if (ok) abrirPainel(); }); };
+
+  // Gatilhos: 5 toques no título do card, ou ?diag=1
+  var toques = [];
+  document.addEventListener('click', function(e){
+    var alvo = e.target.closest && e.target.closest('.v21-card-gp .v21-card-title, .v21-card-gp .v21-gp-title, #v21-gp-title, .v21-card-gp [class*="title"]');
+    if (!alvo) return;
+    var agora = Date.now(); toques = toques.filter(function(t){ return agora - t < 3000; }); toques.push(agora);
+    if (toques.length >= 5) { toques = []; g20AbrirDiagnostico(); }
+  }, true);
+  if (/[?&]diag=1/.test(location.search)) setTimeout(g20AbrirDiagnostico, 9000);
 })();
 </script>
 </body>
