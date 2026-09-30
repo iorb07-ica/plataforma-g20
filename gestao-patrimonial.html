@@ -324,6 +324,7 @@ body.pat-hidden .pat-kpi-sub .kpi-money::after{justify-content:flex-start;paddin
 /* CARDS DE BENS */
 .bens-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-bottom:24px}
 @media(max-width:600px){.bens-grid{grid-template-columns:1fr}}
+.bem-confira{display:inline-flex;align-items:center;gap:5px;margin:4px 0 2px;padding:3px 9px;border-radius:20px;border:1px solid rgba(245,158,11,.45);background:rgba(245,158,11,.12);color:#f59e0b;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}
 .bem-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;position:relative;overflow:hidden;transition:box-shadow .2s,transform .2s;animation:fadeUp .3s ease both}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 .bem-card:hover{box-shadow:0 8px 28px rgba(0,0,0,.22);transform:translateY(-2px)}
@@ -3865,7 +3866,12 @@ function onPrevIdxChange(){
   }
 }
 
+/* Número -> texto BRL pronto para o campo com máscara. Antes o campo recebia o
+   número cru (100000) e a máscara de centavos o transformava em 1.000,00: cada
+   abrir+salvar dividia o valor por 100. */
+function _patCampoBRL(n){ n=parseFloat(n); return (n>0) ? n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}) : ''; }
 function abrirModalPat(idx){
+  ['pat_valor','pat_custo','pat_divida'].forEach(bindValorInput);
   document.getElementById('pat_editId').value=idx!==undefined?idx:'';
   document.getElementById('modalPatTitulo').textContent=idx!==undefined?'Editar Bem':'Novo Bem';
   if(idx!==undefined){
@@ -3875,10 +3881,10 @@ function abrirModalPat(idx){
       onPatTipoChange();
       document.getElementById('pat_subtipo').value=b.subtipo||'';
       document.getElementById('pat_nome').value=b.nome||'';
-      document.getElementById('pat_valor').value=b.valor||'';
-      document.getElementById('pat_custo').value=b.custo||'';
+      document.getElementById('pat_valor').value=_patCampoBRL(b.valor);
+      document.getElementById('pat_custo').value=_patCampoBRL(b.custo);
       document.getElementById('pat_dataAq').value=b.dataAq||'';
-      document.getElementById('pat_divida').value=b.divida||'';
+      document.getElementById('pat_divida').value=_patCampoBRL(b.divida);
       document.getElementById('pat_obs').value=b.obs||'';
       if(b.tipo==='prev'){
         document.getElementById('pat_prev_idx').value=b.prevIdx||'CDI';
@@ -3895,9 +3901,6 @@ function abrirModalPat(idx){
     document.getElementById('pat_tipo').value='imovel';
     onPatTipoChange();
   }
-  bindValorInput('pat_valor');
-  var pv=document.getElementById('pat_valor');
-  if(pv&&pv.value) formatarValorInput(pv);
   var _mp=document.getElementById('modalPat'); _mp.style.display='flex'; _mp.classList.add('show');
 }
 
@@ -3929,29 +3932,29 @@ function calcBemValorAtual(b){
 function salvarPat(){
   var tipo=document.getElementById('pat_tipo').value;
   var nome=document.getElementById('pat_nome').value.trim();
-  var custo=parseFloat(document.getElementById('pat_custo').value.replace(',','.'))||0;
+  var custo=parseBRLInput(document.getElementById('pat_custo'));
   var dataAq=document.getElementById('pat_dataAq').value;
   var obs=document.getElementById('pat_obs').value.trim();
   var subtipo=document.getElementById('pat_subtipo').value;
 
   // Para previdência, valor pode ser calculado
-  var valorRaw=String(parseBRLInput(document.getElementById('pat_valor')));
-  var valor=valorRaw?parseFloat(valorRaw):0;
-  var divida=tipo!=='prev'?(parseFloat(document.getElementById('pat_divida').value.replace(',','.'))||0):0;
+  var valor=parseBRLInput(document.getElementById('pat_valor'));
+  var divida=tipo!=='prev'?parseBRLInput(document.getElementById('pat_divida')):0;
 
   // Campos de previdência
   var prevIdx='', prevTaxa=0;
   if(tipo==='prev'){
     prevIdx=document.getElementById('pat_prev_idx').value;
-    prevTaxa=parseFloat(document.getElementById('pat_prev_taxa').value)||0;
-    // Calcula valor se não informado manualmente
-    if(!valorRaw && prevIdx!=='manual' && custo>0 && dataAq){
-      valor = calcPrevAtual({custo:custo,dataAq:dataAq,prevIdx:prevIdx,prevTaxa:prevTaxa});
-    }
+    prevTaxa=parseFloat(String(document.getElementById('pat_prev_taxa').value).replace(',','.'))||0;
+    /* Valor em branco = cálculo automático e contínuo pelo índice (calcPrevAtual
+       roda a cada exibição). Não congelar um valor aqui, senão ele vira
+       "valor manual" e para de render. */
   }
 
   if(!nome||(!valor&&tipo!=='prev')){alert('Preencha nome e valor de avaliação.');return;}
   if(tipo==='prev'&&!custo){alert('Preencha o total aportado.');return;}
+  if(dataAq){ var _hj=new Date(); _hj.setHours(23,59,59,999); if(new Date(dataAq+'T12:00:00')>_hj){ alert('A data de aquisição não pode ser no futuro.'); return; } }
+  if(tipo!=='prev' && divida>valor && !confirm('O saldo devedor ('+fmtBRL(divida)+') é maior que o valor de avaliação ('+fmtBRL(valor)+'). O patrimônio líquido deste bem ficará negativo. Salvar mesmo assim?')) return;
 
   var lista=loadPat();
   var editIdx=document.getElementById('pat_editId').value;
@@ -3969,6 +3972,16 @@ function excluirPat(idx){
   var l=loadPat(); l.splice(idx,1); savePat(l); renderAll();
 }
 
+function _patPct(n){ return (Number(n)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+/* Valores com cara de terem sido gravados pelo bug antigo da edição (÷100) ou
+   digitados errado. Só avisa; nunca altera nada sozinho. */
+function _patSuspeito(b, valorAtual){
+  if(b.tipo==='prev') return false;
+  if((b.tipo==='imovel'||b.tipo==='veiculo') && valorAtual>0 && valorAtual<5000) return true;
+  if(valorAtual>0 && b.custo>0 && b.custo>valorAtual*50) return true;
+  if(valorAtual>0 && b.divida>0 && b.divida>valorAtual*50) return true;
+  return false;
+}
 function renderBens(){
   var allBens=loadPat();
   var lista=_filtroTipoPat?allBens.filter(function(b){return b.tipo===_filtroTipoPat;}):allBens;
@@ -3991,15 +4004,15 @@ function renderBens(){
     var gain = baseComparacao>0 ? ((valorAtual - baseComparacao)/baseComparacao*100) : null;
     var gainStr = gain!==null ?
       '<span style="font-size:11px;font-weight:700;color:'+(gain>=0?'var(--green)':'var(--red)')+'">'+
-        (gain>=0?'▲ +':'▼ ')+gain.toFixed(2)+'% '+(b.tipo==='prev'?'de rentabilidade':'vs custo')+'</span>' : '';
+        (gain>=0?'▲ +':'▼ ')+_patPct(gain)+'% '+(b.tipo==='prev'?'de rentabilidade':'vs custo')+'</span>' : '';
 
     // Linha de taxa para previdência com cálculo automático
     var prevTaxaStr = '';
     if(b.tipo==='prev' && b.prevIdx && b.prevIdx!=='manual'){
       var taxa = parseFloat(b.prevTaxa)||0;
-      if(b.prevIdx==='CDI') prevTaxaStr = taxa.toFixed(2)+'% do CDI';
-      else if(b.prevIdx==='IPCA') prevTaxaStr = 'IPCA + '+taxa.toFixed(2)+'% a.a.';
-      else if(b.prevIdx==='Prefixado') prevTaxaStr = taxa.toFixed(2)+'% a.a. (pré)';
+      if(b.prevIdx==='CDI') prevTaxaStr = _patPct(taxa)+'% do CDI';
+      else if(b.prevIdx==='IPCA') prevTaxaStr = 'IPCA + '+_patPct(taxa)+'% a.a.';
+      else if(b.prevIdx==='Prefixado') prevTaxaStr = _patPct(taxa)+'% a.a. (pré)';
     }
 
     return '<div class="bem-card" style="--bc:'+cor+'">'+
@@ -4010,6 +4023,7 @@ function renderBens(){
       '<span class="bem-icon">'+cfg.icon+'</span>'+
       '<div class="bem-subtipo" style="background:'+cor+'22;color:'+cor+'">'+(b.subtipo||cfg.label)+'</div>'+
       '<div class="bem-nome">'+b.nome+'</div>'+
+      (_patSuspeito(b,valorAtual)?'<button class="bem-confira" onclick="abrirModalPat('+realIdx+')" title="Algum valor deste bem parece fora do esperado">⚠ Confira este valor</button>':'')+
       (b.obs?'<div class="bem-obs">'+b.obs+'</div>':'')+
       '<div class="bem-vals">'+
         '<div class="bem-val-box"><div class="bem-val-label">'+(b.tipo==='prev'?'Saldo Atual':'Avaliação')+(isCalcPrev?' 🔢':'')+
@@ -8144,6 +8158,8 @@ function parseBRLInput(input){
 function bindValorInput(id){
   var el = document.getElementById(id);
   if(!el) return;
+  if(el.dataset.mascaraBRL) return;
+  el.dataset.mascaraBRL='1';
   el.setAttribute('type','text');
   el.setAttribute('inputmode','numeric');
   el.addEventListener('input', function(){ formatarValorInput(this); });
