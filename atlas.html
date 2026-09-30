@@ -382,6 +382,12 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
 function _atlasNum(v,c){ return (Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:c,maximumFractionDigits:c}); }
 function _atlasBRL(v,c){ return 'R$ '+_atlasNum(v,c==null?2:c); }
 function _atlasFmtCompacto(v){ v=Number(v)||0; if(v>=1e6) return 'R$ '+_atlasNum(v/1e6,2)+' mi'; if(v>=1e3) return 'R$ '+_atlasNum(v/1e3,1)+' mil'; return _atlasBRL(v,0); }
+/* Exposição cripto (tema que atravessa as classes): moedas e ETFs de cripto.
+   As classes NÃO mudam: IBIT e HASH11 continuam ETF; BTC continua Cripto. */
+var _ATLAS_CRIPTO_MOEDAS = {BTC:1,'BTC-USD':1,ETH:1,'ETH-USD':1,SOL:1,BNB:1,XRP:1,ADA:1,DOGE:1,DOT:1,LINK:1,AVAX:1,MATIC:1,POL:1,LTC:1,TRX:1,TON:1,SHIB:1,UNI:1,AAVE:1,ATOM:1,NEAR:1,APT:1,ARB:1,OP:1,SUI:1,MANA:1,SAND:1,HNT:1,PEPE:1,RNDR:1,INJ:1};
+var _ATLAS_CRIPTO_ETF = {IBIT:1,FBTC:1,ARKB:1,BITB:1,GBTC:1,HODL:1,BRRR:1,EZBC:1,BTCO:1,BTCW:1,BITO:1,BITX:1,BITU:1,ETHA:1,FETH:1,ETHE:1,ETHW:1,CETH:1,QETH:1,EZET:1,ETHV:1,BSOL:1,GSOL:1,
+  HASH11:1,QBTC11:1,BITH11:1,ETHE11:1,QETH11:1,QSOL11:1,SOLH11:1,XRPH11:1,BITI11:1,WEB311:1,DEFI11:1,CRPT11:1,QDFI11:1,NASD11:0};
+function _atlasEhCripto(t){ t=String(t||'').toUpperCase(); return !!(_ATLAS_CRIPTO_MOEDAS[t] || _ATLAS_CRIPTO_ETF[t] || /-USD$/.test(t)); }
 function _atlasQtd(q,cripto){ q=Number(q)||0; var inteiro=Math.abs(q-Math.round(q))<1e-9; var t=inteiro?_atlasNum(q,0):q.toLocaleString('pt-BR',{maximumFractionDigits:8}); return t+(cripto?' unid.':(inteiro&&q===1?' cota':' cotas')); }
 </script>
 
@@ -635,6 +641,12 @@ function _atlasQtd(q,cripto){ q=Number(q)||0; var inteiro=Math.abs(q-Math.round(
         <div class="sc-sub" id="rp-cambio-sub">carregando...</div>
       </div>
     </div>
+    <!-- Exposição cripto: aparece sempre; tocar filtra o globo -->
+    <button type="button" class="sum-cripto" id="rpCripto" onclick="atlasFiltrarCripto()" aria-label="Exposição cripto: mostrar no globo">
+      <span class="scr-ico">₿</span>
+      <span class="scr-txt"><span class="scr-lbl">EXPOSIÇÃO CRIPTO</span><span class="scr-sub" id="rpCriptoSub">calculando…</span></span>
+      <span class="scr-v" id="rpCriptoPct">--</span>
+    </button>
     <!-- Busca + Lista de ativos -->
     <div class="asset-list" id="assetList">
       <div class="rp-search">
@@ -1294,6 +1306,7 @@ function detectTipo(ticker,tipoRaw){
   // Cripto
   const CRIPTO=['BTC','BTC-USD','ETH','BNB','SOL','DOT','LINK','MANA','SAND','HNT','ADA','MATIC','AVAX'];
   if(CRIPTO.includes(ticker)) return 'cripto';
+  if(_ATLAS_CRIPTO_ETF[String(ticker).toUpperCase()]) return 'etf';
   if(t.includes('cripto')||t.includes('crypto')) return 'cripto';
   if(t.includes('fii')||t.includes('fundo')) return 'fii';
   if(t.includes('reit')) return 'reit';
@@ -1581,7 +1594,7 @@ function getActiveAssets(){
   return ASSETS.filter(a=>{
     if(!tlF.includes(a.ticker)) return false;
     if(activeFilter==='all') return true;
-    if(activeFilter==='cripto') return a.type==='cripto';
+    if(activeFilter==='cripto') return a.type==='cripto' || _atlasEhCripto(a.ticker);
     if(activeFilter==='fii') return a.type==='fii';
     if(activeFilter==='reit') return a.type==='reit';
     if(activeFilter==='etf') return a.type==='etf';
@@ -3476,6 +3489,17 @@ body.atlas-empilhado #gc { flex: none !important; width: 100% !important; height
 body.atlas-empilhado .right-panel { width: 100% !important; border-left: 0 !important; border-top: 1px solid var(--border); overflow: visible !important; }
 body.atlas-empilhado .asset-list { overflow: visible !important; flex: none !important; }
 #atlasTopo { display: none; }
+.sum-cripto { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 18px; border: 0; border-bottom: 1px solid var(--border);
+  background: linear-gradient(90deg, rgba(251,146,60,.10), rgba(251,146,60,.02)); color: var(--text); text-align: left; cursor: pointer; font-family: inherit; }
+.sum-cripto:hover { background: linear-gradient(90deg, rgba(251,146,60,.16), rgba(251,146,60,.04)); }
+.sum-cripto.vazio { cursor: default; opacity: .7; }
+.sum-cripto .scr-ico { width: 36px; height: 36px; flex-shrink: 0; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+  background: rgba(251,146,60,.15); color: #fb923c; font-weight: 800; font-size: 18px; }
+.sum-cripto .scr-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sum-cripto .scr-lbl { font-size: 10px; letter-spacing: 2px; font-weight: 700; color: var(--muted); }
+.sum-cripto .scr-sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sum-cripto .scr-v { font: 800 24px 'JetBrains Mono', monospace; color: #fb923c; white-space: nowrap; }
+body.day .sum-cripto { color: #1a191e; }
 @media (max-width: 600px) { .sum-card .sc-v { font-size: 22px !important; line-height: 1.15; word-break: break-word; } }
 @media (max-width: 600px) { .topbar .live-badge, .topbar .v21-theme-switch { display: none !important; } .topbar .page-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; } }
 body.atlas-empilhado #atlasTopo { display: flex; justify-content: center; padding: 10px 12px 8px; }
@@ -3681,10 +3705,29 @@ body.atlas-compacto .share-card { width: calc(100% - 24px) !important; }
     cv.addEventListener('webglcontextrestored', function(){ aviso.style.display = 'none'; });
   }
 
+  /* nomes dos ETFs de cripto (a página não os conhecia) */
+  try { Object.assign(COMPANY_NAMES, {
+    IBIT:'iShares Bitcoin Trust (BlackRock)', FBTC:'Fidelity Wise Origin Bitcoin', ARKB:'ARK 21Shares Bitcoin ETF', BITB:'Bitwise Bitcoin ETF',
+    GBTC:'Grayscale Bitcoin Trust', HODL:'VanEck Bitcoin ETF', BITO:'ProShares Bitcoin Strategy', ETHA:'iShares Ethereum Trust (BlackRock)',
+    FETH:'Fidelity Ethereum Fund', ETHE:'Grayscale Ethereum Trust', HASH11:'Hashdex Nasdaq Crypto Index', QBTC11:'QR Bitcoin ETF',
+    BITH11:'Hashdex Bitcoin ETF', ETHE11:'Hashdex Ethereum ETF', QETH11:'QR Ether ETF', QSOL11:'QR Solana ETF', SOLH11:'Hashdex Solana ETF',
+    XRPH11:'Hashdex XRP ETF', BITI11:'It Now Bloomberg Galaxy Bitcoin', WEB311:'Hashdex Web3 ETF', DEFI11:'Hashdex DeFi ETF' }); } catch(e){}
+
+  /* ── atalho do card Exposição cripto: filtra o globo e a lista ── */
+  window.atlasFiltrarCripto = function(){
+    var c = document.getElementById('rpCripto'); if (c && c.classList.contains('vazio')) return;
+    var btn = Array.prototype.slice.call(document.querySelectorAll('.filter-btn')).filter(function(b){ return /setFilter\('cripto'/.test(b.getAttribute('onclick') || ''); })[0];
+    try { if (btn && typeof setFilter === 'function') setFilter('cripto', btn); if (typeof renderAssetListBody === 'function') renderAssetListBody(); } catch(e){}
+    if (document.body.classList.contains('atlas-empilhado')) { try { gc.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch(e){} }
+  };
+  /* ao voltar para "Todos", a lista volta completa */
+  document.querySelectorAll('.filter-btn').forEach(function(b){ b.addEventListener('click', function(){ setTimeout(function(){ try { renderAssetListBody(); } catch(e){} }, 0); }); });
+
   /* ── resumo com dados reais (antes: "+2.4% hoje" e dividendos fixos) ── */
   function atualizarResumo(){
     try {
-      var lista = (typeof getActiveAssets === 'function') ? getActiveAssets() : (window.ASSETS || []);
+      /* carteira inteira (não só o filtro ativo), senão o patrimônio mudaria ao filtrar */
+      var lista = (typeof ASSETS !== 'undefined') ? ASSETS : [];
       var tot = 0, custo = 0, aCusto = true, maior = null, comCot = 0;
       lista.forEach(function(a){ if (a.posBRL > 0) { tot += a.posBRL; custo += (a.custoBRL || 0); if (!a.aCusto) aCusto = false; if (!a.semCot && !a.aCusto) comCot++; if (!maior || a.posBRL > maior.posBRL) maior = a; } });
       if (!(tot > 0)) return;
@@ -3694,6 +3737,21 @@ body.atlas-compacto .share-card { width: calc(100% - 24px) !important; }
         if (aCusto || !(custo > 0)) { sub.textContent = 'valor de custo'; sub.className = 'sc-sub'; }
         else if (!comCot) { sub.textContent = 'aguardando cotações'; sub.className = 'sc-sub'; }
         else { var r = (tot / custo - 1) * 100; sub.textContent = (r >= 0 ? '▲ +' : '▼ ') + _atlasNum(r, 1) + '% sobre o custo'; sub.className = 'sc-sub' + (r < 0 ? ' sc-neg' : ''); }
+      }
+      /* exposição cripto: moedas + ETFs de cripto, em qualquer classe e país */
+      var cr = lista.filter(function(a){ return a.posBRL > 0 && (a.type === 'cripto' || _atlasEhCripto(a.ticker)); });
+      var vCr = cr.reduce(function(s2, a){ return s2 + a.posBRL; }, 0);
+      var eP = document.getElementById('rpCriptoPct'), eS = document.getElementById('rpCriptoSub'), eC = document.getElementById('rpCripto');
+      if (eP && eS && eC) {
+        if (vCr > 0) {
+          eP.textContent = _atlasNum(vCr / tot * 100, 1) + '%';
+          cr.sort(function(a, b){ return b.posBRL - a.posBRL; });
+          var nomes = cr.slice(0, 3).map(function(a){ return a.ticker; }).join(', ') + (cr.length > 3 ? ' +' + (cr.length - 3) : '');
+          eS.textContent = _atlasFmtCompacto(vCr) + ' · ' + nomes;
+          eC.classList.remove('vazio'); eC.disabled = false;
+        } else {
+          eP.textContent = '0%'; eS.textContent = 'Sem exposição a cripto'; eC.classList.add('vazio'); eC.disabled = true;
+        }
       }
       if (maior) {
         var em = document.getElementById('rp-maior'), es = document.getElementById('rp-maior-sub');
