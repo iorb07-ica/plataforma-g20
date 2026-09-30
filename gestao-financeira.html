@@ -4200,8 +4200,9 @@ body.didactic-on .didactic-note{ display:block; }
                 </div>
 
                             <div class="profile-actions">
-                                <button class="profile-action-btn" onclick="openModal(&#39;new-profile-modal&#39;)">
-                                    <i class="fa-solid fa-plus" style="margin-right: 8px;"></i> Novo Perfil
+                                <button class="profile-action-btn g20-embreve-btn" onclick="g20NovoPerfilClick()">
+                                    <i class="fa-solid fa-lock" style="margin-right: 8px;"></i> Novo Perfil
+                                    <span class="g20-embreve-tag">Em breve</span>
                                 </button>
                                 <button class="profile-action-btn logout" onclick="performLogout()">
                                     <i class="fa-solid fa-arrow-right-from-bracket" style="margin-right: 8px;"></i> Sair
@@ -5244,6 +5245,7 @@ body.didactic-on .didactic-note{ display:block; }
         };
 
         window.createNewProfile = () => {
+            if (!g20EhAdmin()) { var _np = document.getElementById('new-profile-modal'); if (_np) _np.classList.remove('active'); g20MostrarEmBreve(); return; }
             const input = document.getElementById('new-profile-name');
             const newName = input.value.trim();
 
@@ -7408,7 +7410,7 @@ body.didactic-on .didactic-note{ display:block; }
                             touchTimer = setTimeout(() => {
                                 const id = row.dataset.id;
                                 if (id && !row.querySelector('input')) {
-                                    editTrans(parseInt(id));
+                                    if (typeof g20AbrirAcoes === 'function') g20AbrirAcoes(row); else editTrans(parseInt(id));
                                 }
                             }, 500);
                         });
@@ -9653,6 +9655,171 @@ body.didactic-on .didactic-note{ display:block; }
     var box = e.target.closest && e.target.closest('.header-center-filters .help-button-container');
     document.querySelectorAll('.header-center-filters .help-button-container.open').forEach(function(b){ if (b !== box) b.classList.remove('open'); });
     if (box) box.classList.toggle('open');
+  });
+})();
+</script>
+
+<!-- ══ RECURSO EM DESENVOLVIMENTO: perfis separados (Fase 0 do freemium) ══
+     O aluno vê o botão com cadeado e "Em breve". Ao tocar, só a mensagem abaixo.
+     O admin continua conseguindo criar perfis para testes. -->
+<style>
+.g20-embreve-btn { opacity: .85; }
+.g20-embreve-tag { margin-left: 8px; font-size: 10px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 20px; background: rgba(201,169,97,.16); color: #b8935a; border: 1px solid rgba(201,169,97,.4); vertical-align: middle; }
+#embreve-perfil-modal .modal-content { max-width: 380px; width: 90%; text-align: center; padding: 26px 22px; }
+#embreve-perfil-modal .eb-ico { width: 54px; height: 54px; margin: 0 auto 14px; border-radius: 16px; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #c9a961, #b8935a); color: #0d0c10; font-size: 22px; }
+#embreve-perfil-modal h3 { font-weight: 800; font-size: 17px; margin: 0 0 8px; color: var(--primary); }
+#embreve-perfil-modal p { font-size: 14px; line-height: 1.6; color: var(--text2, #6b6862); margin: 0 0 18px; }
+#embreve-perfil-modal .eb-btn { width: 100%; height: 44px; border: 0; border-radius: 11px; background: var(--primary, #1b4332); color: #fff; font-weight: 700; font-size: 14.5px; cursor: pointer; }
+</style>
+<div id="embreve-perfil-modal" class="modal-overlay">
+  <div class="modal-content">
+    <div class="eb-ico"><i class="fa-solid fa-lock"></i></div>
+    <h3>Perfis separados: em breve</h3>
+    <p>Estamos desenvolvendo a possibilidade de criar perfis separados, como Empresa ou Família, cada um com seus próprios lançamentos, orçamentos e gráficos. Assim que estiver pronto, avisaremos por aqui.</p>
+    <button class="eb-btn" onclick="document.getElementById('embreve-perfil-modal').classList.remove('active')">Entendi</button>
+  </div>
+</div>
+<script>
+function g20EhAdmin(){
+  try { var u = JSON.parse(localStorage.getItem('g20_user_profile') || '{}'); return u.role === 'admin'; } catch(e) { return false; }
+}
+function g20MostrarEmBreve(){
+  var dd = document.getElementById('profile-selector-btn'); if (dd) dd.classList.remove('active');
+  var m = document.getElementById('embreve-perfil-modal'); if (m) m.classList.add('active');
+}
+function g20NovoPerfilClick(){
+  if (g20EhAdmin()) { var np = document.getElementById('new-profile-modal'); if (np) np.classList.add('active'); return; }
+  g20MostrarEmBreve();
+}
+</script>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     GESTÃO FINANCEIRA · MOBILE v2 (set/2026)
+     A) topbar limpa: sem sombra, só ☰ escuro/dourado + título
+     B) cabeçalho do dashboard em 3 linhas (grid): ano+ações / meses / tag+perfil
+     C) extrato: tocar na linha abre painel de ações (Editar, Confirmar, Excluir)
+     Desktop e tablet não são afetados.
+     ══════════════════════════════════════════════════════════════════════ -->
+<style id="g20-gf-mobile-v2">
+@media (max-width: 600px) {
+  /* ── A) TOPBAR ── */
+  body .topbar { box-shadow: none !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+    border-radius: 0 !important; margin: 0 !important; left: 0 !important; right: 0 !important; width: 100% !important; }
+  body .topbar > :not(.topbar-left) { display: none !important; }
+  body .topbar .btn-menu { background: #27252c !important; border: 1px solid rgba(201,169,97,.28) !important;
+    color: #c9a961 !important; border-radius: 10px !important; width: 44px !important; height: 44px !important;
+    justify-content: center !important; }
+  body .topbar .btn-menu svg, body .topbar .btn-menu [data-lucide] { color: #c9a961 !important; stroke: #c9a961 !important; }
+
+  /* ── B) CABEÇALHO EM GRID DE 3 LINHAS ── */
+  #dashboard-view header {
+    display: grid !important;
+    grid-template-columns: auto 1fr auto auto auto !important;
+    grid-template-areas: "ano . priv did help" "meses meses meses meses meses" "tag . perfil perfil perfil" !important;
+    align-items: center !important; gap: 10px 8px !important;
+    height: auto !important; min-height: 0 !important; padding: 12px !important; position: relative !important;
+  }
+  #dashboard-view .header-left { display: none !important; }
+  /* achata os wrappers (vários têm display:flex inline) para os itens virarem filhos do grid */
+  #dashboard-view .header-center-filters,
+  #dashboard-view .header-center-filters > div:first-child,
+  #dashboard-view .header-center-filters > div:first-child > div:last-child { display: contents !important; }
+  #dashboard-view .header-center-filters label { display: none !important; }
+
+  #dashboard-view .year-filter-group { grid-area: ano !important; margin: 0 !important; width: auto !important; display: block !important; }
+  #dashboard-view #filter-year { width: auto !important; min-width: 170px !important; max-width: 200px !important; height: 40px !important;
+    border-radius: 10px !important; font-size: 15px !important; }
+  #dashboard-view .privacy-toggle-btn { grid-area: priv !important; }
+  #dashboard-view .didactic-toggle-btn { grid-area: did !important; }
+  #dashboard-view .privacy-toggle-btn, #dashboard-view .didactic-toggle-btn { width: 40px !important; height: 40px !important; margin: 0 !important; }
+  #dashboard-view .theme-toggle-btn { display: none !important; }
+  #dashboard-view .help-button-container { grid-area: help !important; position: relative !important; top: auto !important; right: auto !important;
+    margin: 0 !important; justify-self: end !important; }
+  #dashboard-view .help-button-container .help-tooltip { right: 0 !important; left: auto !important; top: 30px !important; }
+
+  #dashboard-view #month-buttons-container { grid-area: meses !important; min-width: 0 !important; width: 100% !important; }
+
+  #dashboard-view .tag-filter-group { grid-area: tag !important; margin: 0 !important; width: auto !important; display: block !important; }
+  #dashboard-view #filter-tag { width: auto !important; min-width: 150px !important; max-width: 190px !important; height: 40px !important;
+    border-radius: 10px !important; font-size: 15px !important; text-overflow: ellipsis; }
+
+  #dashboard-view .header-right { grid-area: perfil !important; position: relative !important; right: auto !important; bottom: auto !important;
+    justify-self: end !important; margin: 0 !important; width: auto !important; }
+  #dashboard-view .header-right .header-logo-img { display: none !important; }
+  #dashboard-view .profile-dropdown { right: 0 !important; left: auto !important; width: min(280px, calc(100vw - 32px)) !important; }
+}
+
+/* ── C) EXTRATO: indicador "⋮" e painel de ações (onde a coluna Ações some) ── */
+@media (max-width: 768px) {
+  #main-table tbody tr[data-id] { cursor: pointer; }
+  #main-table tbody tr[data-id] td:nth-child(3)::after { content: "⋮"; display: inline-block; margin-left: 8px; color: #9aa0a6; font-weight: 700; }
+}
+#g20AcoesSheet { position: fixed; inset: 0; z-index: 100040; display: none; }
+#g20AcoesSheet.show { display: block; }
+#g20AcoesSheet .ac-fundo { position: absolute; inset: 0; background: rgba(0,0,0,.45); }
+#g20AcoesSheet .ac-painel { position: absolute; left: 0; right: 0; bottom: 0; background: #fff; border-radius: 18px 18px 0 0;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom,0px)); box-shadow: 0 -10px 30px rgba(0,0,0,.18);
+  font-family: 'DM Sans', sans-serif; animation: g20SheetUp .2s ease; }
+@keyframes g20SheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+#g20AcoesSheet .ac-alca { width: 40px; height: 4px; border-radius: 4px; background: #d6d3cc; margin: 0 auto 14px; }
+#g20AcoesSheet .ac-resumo { padding: 4px 4px 14px; border-bottom: 1px solid #eee; margin-bottom: 12px; }
+#g20AcoesSheet .ac-desc { font-size: 15px; font-weight: 700; color: #1a191e; }
+#g20AcoesSheet .ac-meta { display: flex; justify-content: space-between; margin-top: 4px; font-size: 13px; color: #6b6862; }
+#g20AcoesSheet .ac-valor { font-weight: 800; }
+#g20AcoesSheet button { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; height: 48px; margin-bottom: 8px;
+  border-radius: 12px; border: 1px solid #e5e2da; background: #f7f5f0; color: #1a191e; font-size: 15px; font-weight: 700; font-family: inherit; cursor: pointer; }
+#g20AcoesSheet button.ac-excluir { color: #c1392b; border-color: #f3d4cf; background: #fdf3f1; }
+#g20AcoesSheet button.ac-cancelar { background: transparent; border-color: transparent; color: #6b6862; margin-bottom: 0; }
+</style>
+<div id="g20AcoesSheet">
+  <div class="ac-fundo" onclick="g20FecharAcoes()"></div>
+  <div class="ac-painel" role="dialog" aria-label="Ações da transação">
+    <div class="ac-alca"></div>
+    <div class="ac-resumo"><div class="ac-desc" id="g20AcDesc"></div><div class="ac-meta"><span id="g20AcData"></span><span class="ac-valor" id="g20AcValor"></span></div></div>
+    <button id="g20AcEditar"><i class="fa-solid fa-pen"></i> Editar</button>
+    <button id="g20AcConfirmar"><i class="fa-solid fa-circle-check"></i> <span id="g20AcConfTxt">Confirmar</span></button>
+    <button id="g20AcExcluir" class="ac-excluir"><i class="fa-solid fa-trash"></i> Excluir</button>
+    <button class="ac-cancelar" onclick="g20FecharAcoes()">Cancelar</button>
+  </div>
+</div>
+<script>
+/* Painel de ações do extrato no celular. Reaproveita os MESMOS botões da coluna
+   Ações (que fica oculta no mobile): editar, excluir (com a confirmação e o caso
+   de recorrentes já existentes) e confirmar. Nenhuma lógica nova de dados. */
+(function(){
+  var sheet = document.getElementById('g20AcoesSheet');
+  var linhaAtual = null;
+  function txt(el){ return el ? el.textContent.replace(/\s+/g,' ').trim() : ''; }
+  function botao(sel){ return linhaAtual ? linhaAtual.querySelector(sel) : null; }
+  window.g20FecharAcoes = function(){ sheet.classList.remove('show'); linhaAtual = null; };
+  window.g20AbrirAcoes = function(tr){
+    if (!tr || !tr.dataset.id || tr.querySelector('input,select,textarea')) return;
+    linhaAtual = tr;
+    var tds = tr.querySelectorAll('td');
+    var descEl = tds[1] ? (tds[1].querySelector('.extrato-desc, span, div') || tds[1]) : null;
+    document.getElementById('g20AcDesc').textContent = txt(descEl) || 'Transação';
+    document.getElementById('g20AcData').textContent = txt(tds[0]);
+    var val = document.getElementById('g20AcValor');
+    val.textContent = txt(tds[2]).replace('⋮','');
+    val.style.color = tds[2] ? getComputedStyle(tds[2]).color : '';
+    var ver = botao('.btn-verify');
+    document.getElementById('g20AcConfirmar').style.display = ver ? '' : 'none';
+    document.getElementById('g20AcConfTxt').textContent = (ver && ver.classList.contains('verified')) ? 'Desmarcar confirmação' : 'Confirmar';
+    sheet.classList.add('show');
+  };
+  function acionar(sel){ var b = botao(sel); g20FecharAcoes(); if (b) b.click(); }
+  document.getElementById('g20AcEditar').onclick = function(){ acionar('.btn-edit'); };
+  document.getElementById('g20AcExcluir').onclick = function(){ acionar('.btn-del'); };
+  document.getElementById('g20AcConfirmar').onclick = function(){ acionar('.btn-verify'); };
+  // toque (click) na linha abre o painel; rolar a lista não dispara click
+  document.addEventListener('click', function(e){
+    if (window.innerWidth > 768) return;
+    var tr = e.target.closest && e.target.closest('#main-table tbody tr[data-id]');
+    if (!tr) return;
+    if (e.target.closest('button, a, input, select, textarea, label')) return;
+    g20AbrirAcoes(tr);
   });
 })();
 </script>
