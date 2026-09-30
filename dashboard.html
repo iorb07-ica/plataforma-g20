@@ -925,6 +925,7 @@ function renderProvAgenda(){
 
 </script>
 <script src="assets/g20-sidebar.js?v=13"></script>
+<script src="assets/g20-rf.js?v=1"></script>
 <script src="assets/g20-search.js?v=10"></script>
 <style>
 :root{--bg:#1a191e;--bg2:#1f1e22;--bg3:#15141a;--surface:#27252c;--sur2:#2d2a33;--border:rgba(255,255,255,0.06);--gold:#e8b84b;--goldd:#c8943a;--red:#e63946;--green:#2ecc71;--blue:#3b82f6;--purple:#8b5cf6;--text:#eef0f4;--text2:#9aa5b8;--text3:#7a8599;--r:12px;--ease:cubic-bezier(.4,0,.2,1);--sidebar:200px;--sidebar-collapsed:68px;--topbar:56px;--safe-bottom:env(safe-area-inset-bottom,0px)}
@@ -9821,7 +9822,9 @@ var _RF_ISENTO_IR={LCI:1,LCA:1,CRI:1,CRA:1};
 var _RF_ISENTO_IOF={LCI:1,LCA:1};
 function _aliqIOF(d){ return d<=0?96:d>=30?0:_IOF_TAB[d-1]; }
 function _aliqIR(d){ return d<=180?22.5:d<=360?20:d<=720?17.5:15; }
-function _calcBrutoRF(valorInv,dataInicio,indexador,taxa){
+function _calcBrutoRF(valorInv,dataInicio,indexador,taxa,rfObj){
+  /* Motor único (assets/g20-rf.js): mesmo número da Minha Carteira. */
+  if(window.G20RF) return G20RF.bruto(Object.assign({}, rfObj||{}, {valorInv:valorInv,dataInicio:dataInicio,indexador:indexador,taxa:taxa})).valor;
   if(!valorInv||!dataInicio||taxa===undefined||taxa===null||taxa==='') return valorInv||0;
   var dc=Math.max(0,Math.floor((Date.now()-new Date(dataInicio))/86400000));
   if(dc<=0) return valorInv;
@@ -9837,6 +9840,7 @@ function _calcBrutoRF(valorInv,dataInicio,indexador,taxa){
 // Rendimento de 1 dia  til estimado para RF
 function _calcRFVarDia(rf){
   if(rf.encerrado) return 0;
+  if(window.G20RF && (rf.valorInv||0)>0 && rf.dataInicio) return G20RF.varDia(rf);
   var inv=rf.valorInv||0;
   if(!inv||!rf.dataInicio||rf.taxa===undefined) return 0;
   var hoje=_calcBrutoRF(inv,rf.dataInicio,rf.indexador,rf.taxa);
@@ -9898,7 +9902,7 @@ function _renderVarEl(elId, varPct, varBRL){
 function _calcRFVariacaoDia(){
   var rfData=loadData('rendaFixa',[]);
   var rfAtivos=rfData.filter(function(r){return !r.encerrado;});
-  var rfHoje=rfAtivos.reduce(function(s,r){return s+_calcBrutoRF(r.valorInv||0,r.dataInicio,r.indexador,r.taxa);},0);
+  var rfHoje=rfAtivos.reduce(function(s,r){return s+_calcBrutoRF(r.valorInv||0,r.dataInicio,r.indexador,r.taxa,r);},0);
   var rfVar1d=rfAtivos.reduce(function(s,r){return s+_calcRFVarDia(r);},0);
   var rfPct=rfHoje>0?(rfVar1d/(rfHoje-rfVar1d))*100:0;
   _renderVarEl('dashRFVar',rfPct,rfVar1d);
@@ -10105,7 +10109,9 @@ function _buscarCotacoesEAtualizarRV(){
     // Atualiza total com cota  es reais
     var rfData=loadData('rendaFixa',[]);
     var rfLiq=rfData.filter(function(r){return !r.encerrado;}).reduce(function(s,r){
-      return s+_calcBrutoRF(r.valorInv||0,r.dataInicio,r.indexador,r.taxa);
+      /* Líquido, como na Minha Carteira (antes somava o bruto com nome de líquido). */
+      if(window.G20RF) return s+((r.valorAtual>0)?r.valorAtual:G20RF.liquido(r).liquido);
+      return s+_calcBrutoRF(r.valorInv||0,r.dataInicio,r.indexador,r.taxa,r);
     },0);
     var bensData=loadData('patrimonioBens',[]);
     var bensLiq=bensData.reduce(function(s,b){return s+(b.valor||0)-(b.divida||0);},0);
@@ -11128,6 +11134,7 @@ window.loadPatStrip = loadPatStrip;
     var vi = parseFloat(rf.valorInv || rf.valor || 0);
     var ini = String(rf.dataInicio || rf.data || '').substring(0, 10);
     if (!(vi > 0) || !ini || dataRefISO < ini) return 0;
+    if (window.G20RF) return G20RF.bruto(Object.assign({}, rf, {valorInv: vi, dataInicio: ini}), dataRefISO).valor;
     var taxa = parseFloat(rf.taxa);
     if (!isFinite(taxa)) taxa = 0;
     var t = taxa / 100;
@@ -11156,6 +11163,8 @@ window.loadPatStrip = loadPatStrip;
 
   function rfLiquido(rf, dataRefISO, idx) {
     var vi = parseFloat(rf.valorInv || rf.valor || 0);
+    var _ini0 = String(rf.dataInicio || rf.data || '').substring(0, 10);
+    if (window.G20RF) { if (!(vi > 0) || !_ini0 || dataRefISO < _ini0) return 0; return G20RF.liquido(Object.assign({}, rf, {valorInv: vi, dataInicio: _ini0}), {ate: dataRefISO}).liquido; }
     var bruto = rfBruto(rf, dataRefISO, idx);
     if (!(bruto > 0)) return 0;
     var rend = bruto - vi;
@@ -21581,6 +21590,20 @@ html body .topbar {
   html body .v21-page-date { white-space: nowrap !important; overflow: hidden; text-overflow: ellipsis; }
 }
 </style>
+
+<script>
+/* Motor único de renda fixa: garante as séries do Banco Central também quando
+   o aluno abre o Dashboard antes da Minha Carteira. */
+(function(){
+  function iniciar(){
+    if(!window.G20RF) return;
+    var desde=null;
+    try { (JSON.parse(localStorage.getItem('g20_rendaFixa')||'[]')||[]).forEach(function(r){ var d=String(r&&r.dataInicio||'').slice(0,10); if(d&&(!desde||d<desde)) desde=d; }); } catch(e){}
+    if(desde) G20RF.carregar(desde);
+  }
+  setTimeout(iniciar, 3000);
+})();
+</script>
 </body>
 </html>
 
