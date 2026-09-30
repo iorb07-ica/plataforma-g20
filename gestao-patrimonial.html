@@ -324,6 +324,7 @@ body.pat-hidden .pat-kpi-sub .kpi-money::after{justify-content:flex-start;paddin
 /* CARDS DE BENS */
 .bens-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-bottom:24px}
 @media(max-width:600px){.bens-grid{grid-template-columns:1fr}}
+.rf-base-info{font-size:11px;color:var(--text3);margin:-2px 0 8px;line-height:1.4}
 .bem-confira{display:inline-flex;align-items:center;gap:5px;margin:4px 0 2px;padding:3px 9px;border-radius:20px;border:1px solid rgba(245,158,11,.45);background:rgba(245,158,11,.12);color:#f59e0b;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}
 .bem-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;position:relative;overflow:hidden;transition:box-shadow .2s,transform .2s;animation:fadeUp .3s ease both}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
@@ -2595,7 +2596,7 @@ canvas{touch-action:pan-y}
       </div>
     </div>
     <div style="margin-bottom:14px">
-      <label style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;display:block">Valor Atual (R$) <span style="font-weight:400;color:var(--text3)">— opcional, calculado automaticamente se vazio</span></label>
+      <label style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;display:block">Saldo líquido atual (R$) <span style="font-weight:400;color:var(--text3)">— opcional, deixe vazio para calcular automaticamente</span></label>
       <input style="width:100%;background:var(--bg3);border:1px solid rgba(255,255,255,0.15);color:var(--text);padding:9px 12px;border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box" id="rf_valorAtual" type="number" min="0" step="0.01" placeholder="Deixe vazio para calcular">
     </div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.1);">
@@ -3315,6 +3316,16 @@ function _calcLiquidoAporte(valorInv, dataInicio, indexador, taxa, tipo){
 }
 
 // calcRFAtual: retorna bruto (usado internamente para rentabilidade %)
+function _rfNum(n){ return (Number(n)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+/* Saldo líquido de UM aporte, regra única para toda a página: se o aluno
+   informou o saldo líquido manualmente (valorAtual > 0), vale ele; senão,
+   cálculo automático (bruto menos IOF e IR). Antes os totais ignoravam o valor
+   manual enquanto a rentabilidade o usava. */
+function _rfLiqDe(r){
+  if(!r) return 0;
+  if(r.valorAtual && r.valorAtual>0) return r.valorAtual;
+  return _calcLiquidoAporte(r.valorInv||0, r.dataInicio, r.indexador, r.taxa, r.tipo);
+}
 function calcRFAtual(rf){
   if(rf.valorAtual && rf.valorAtual>0) return rf.valorAtual;
   if(!rf.valorInv || !rf.dataInicio || rf.taxa===undefined || rf.taxa===null || rf.taxa==='') return rf.valorInv||0;
@@ -3324,7 +3335,7 @@ function calcRFAtual(rf){
 // calcRFLiquido: retorna saldo líquido real (o que o usuário recebe no banco)
 // Suporta múltiplos aportes (array) ou aporte único
 function calcRFLiquido(rf, allRF_opcional){
-  if(rf.valorAtual && rf.valorAtual>0) return rf.valorAtual; // override manual = já líquido
+  if(!rf._grupoIdxs && rf.valorAtual && rf.valorAtual>0) return rf.valorAtual; // override manual = já líquido
 
   // Múltiplos aportes agrupados pelo mesmo código
   var aportes = [];
@@ -3337,19 +3348,18 @@ function calcRFLiquido(rf, allRF_opcional){
     aportes = [rf];
   }
 
-  // Soma os saldos líquidos individuais de cada aporte
+  /* Soma os saldos líquidos de cada aporte. O registro do resgate
+     (confirmarResgate) JÁ reduz o valor investido de cada aporte; reduzir de
+     novo aqui pela lista de resgates contava o resgate duas vezes. */
   var totalLiq = 0;
   aportes.forEach(function(a){
-    // Considera resgates parciais: reduz proporcionalmente o principal por aporte
-    var inv = a.valorInv || 0;
-    var brutoOriginal = _calcBruto(inv, a.dataInicio, a.indexador || rf.indexador, a.taxa !== undefined ? a.taxa : rf.taxa);
-    var resgates = a.resgates || [];
-    var totalResgatado = resgates.reduce(function(s,r){ return s+(r.valor||0); }, 0);
-    // Principal residual proporcional ao que já foi resgatado
-    var fracaoResidual = brutoOriginal > 0 ? Math.max(0, 1 - totalResgatado / brutoOriginal) : 1;
-    var invResidual = inv * fracaoResidual;
-    if(invResidual <= 0){ totalLiq += 0; return; }
-    totalLiq += _calcLiquidoAporte(invResidual, a.dataInicio, a.indexador || rf.indexador, a.taxa !== undefined ? a.taxa : rf.taxa, a.tipo || rf.tipo);
+    if(a.encerrado || !(a.valorInv>0 || a.valorAtual>0)) return;
+    totalLiq += _rfLiqDe({
+      valorInv: a.valorInv, valorAtual: a.valorAtual, dataInicio: a.dataInicio,
+      indexador: a.indexador || rf.indexador,
+      taxa: a.taxa !== undefined ? a.taxa : rf.taxa,
+      tipo: a.tipo || rf.tipo
+    });
   });
 
   return totalLiq;
@@ -3359,12 +3369,12 @@ function calcRFLiquido(rf, allRF_opcional){
 function descTaxaRF(rf){
   var t = parseFloat(rf.taxa);
   if(isNaN(t)) return '—';
-  if(rf.indexador === 'CDI')       return t.toFixed(2) + '% do CDI';
-  if(rf.indexador === 'Selic')     return t === 0 ? '100% Selic' : 'Selic + ' + t.toFixed(2) + '% a.a.';
-  if(rf.indexador === 'IPCA')      return 'IPCA + ' + t.toFixed(2) + '% a.a.';
-  if(rf.indexador === 'IGPM')      return 'IGP-M + ' + t.toFixed(2) + '% a.a.';
-  if(rf.indexador === 'Prefixado') return t.toFixed(2) + '% a.a. (pré)';
-  return t.toFixed(2) + '% ' + rf.indexador;
+  if(rf.indexador === 'CDI')       return _rfNum(t) + '% do CDI';
+  if(rf.indexador === 'Selic')     return t === 0 ? '100% Selic' : 'Selic + ' + _rfNum(t) + '% a.a.';
+  if(rf.indexador === 'IPCA')      return 'IPCA + ' + _rfNum(t) + '% a.a.';
+  if(rf.indexador === 'IGPM')      return 'IGP-M + ' + _rfNum(t) + '% a.a.';
+  if(rf.indexador === 'Prefixado') return _rfNum(t) + '% a.a. (pré)';
+  return _rfNum(t) + '% ' + rf.indexador;
 }
 
 function diasVenc(v){ if(!v) return null; var d=Math.floor((new Date(v+'T12:00:00')-new Date())/86400000); return d; }
@@ -3451,7 +3461,13 @@ function onRFIndexadorChange(){
   }
 }
 
+function _rfPrepCampos(){
+  ['rf_valorInv','rf_valorAtual'].forEach(bindValorInput);
+  var tx=document.getElementById('rf_taxa');
+  if(tx && tx.type!=='text'){ tx.setAttribute('type','text'); tx.setAttribute('inputmode','decimal'); }
+}
 function abrirModalRF(idx){
+  _rfPrepCampos();
   var today = new Date().toISOString().split('T')[0];
   document.getElementById('rf_editId').value = idx!==undefined?idx:'';
   document.getElementById('modalRFTitulo').textContent = idx!==undefined?'Editar Título':'Novo Título de Renda Fixa';
@@ -3465,7 +3481,7 @@ function abrirModalRF(idx){
       // NÃO usa formatarValorInput aqui porque aquele trata a entrada como centavos
       var fmtBRL_edit = function(n){ return (typeof n==='number' && !isNaN(n)) ? n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}) : ''; };
       document.getElementById('rf_valorInv').value  = fmtBRL_edit(rf.valorInv);
-      document.getElementById('rf_taxa').value      = rf.taxa||'';
+      document.getElementById('rf_taxa').value      = (rf.taxa!==undefined && rf.taxa!==null && rf.taxa!=='') ? String(rf.taxa).replace('.',',') : '';
       document.getElementById('rf_valorAtual').value= fmtBRL_edit(rf.valorAtual);
       document.getElementById('rf_codigo').value = rf.codigo||'';
       if(rf.tdSubtipo) document.getElementById('rf_tdSubtipo').value=rf.tdSubtipo;
@@ -3490,7 +3506,7 @@ function salvarRF(){
   var valorInv=parseBRLInput(document.getElementById('rf_valorInv'));
   var dataInicio=document.getElementById('rf_dataInicio').value;
   var indexador=document.getElementById('rf_indexador').value;
-  var taxa=parseFloat(document.getElementById('rf_taxa').value.replace(',','.'));
+  var taxa=parseFloat(String(document.getElementById('rf_taxa').value).replace(/\s/g,'').replace(',','.'));
   var vencimento=document.getElementById('rf_vencimento').value;
   var liquidez=document.getElementById('rf_liquidez').value;
   var valorAtual=parseBRLInput(document.getElementById('rf_valorAtual'));
@@ -3500,7 +3516,19 @@ function salvarRF(){
   var editIdx=document.getElementById('rf_editId').value;
   var codigo = document.getElementById('rf_codigo').value.trim();
   var obj={tipo,nome,emissor,valorInv,dataInicio,indexador,taxa,vencimento,liquidez,valorAtual,tdSubtipo,codigo};
-  if(editIdx!=='') lista[parseInt(editIdx)]=obj; else lista.push(obj);
+  var _hojeISO = new Date().toISOString().slice(0,10);
+  if(editIdx!==''){
+    /* Edição: parte do título existente e troca só os campos do formulário.
+       Antes o objeto era recriado do zero e perdia resgates, _invOriginal etc. */
+    var _ant = lista[parseInt(editIdx)] || {};
+    obj = Object.assign({}, _ant, obj);
+    if(valorAtual>0){ if(_ant.valorAtual!==valorAtual || !_ant.valorAtualEm) obj.valorAtualEm=_hojeISO; }
+    else { delete obj.valorAtualEm; }
+    lista[parseInt(editIdx)]=obj;
+  } else {
+    if(valorAtual>0) obj.valorAtualEm=_hojeISO;
+    lista.push(obj);
+  }
   // Save imediato no Firestore
   _db_cache['rendaFixa'] = lista;
   try{ localStorage.setItem('g20_rendaFixa', JSON.stringify(lista)); }catch(e){}
@@ -3587,17 +3615,20 @@ function renderRF(){
       liquido = groupIdxs.reduce(function(s, idx){
         var a = allRF[idx];
         if(!a) return s;
-        return s + _calcLiquidoAporte(
-          a.valorInv||0, a.dataInicio,
-          a.indexador||rf.indexador,
-          a.taxa!==undefined?a.taxa:rf.taxa,
-          a.tipo||rf.tipo
-        );
+        return s + _rfLiqDe({valorInv:a.valorInv, valorAtual:a.valorAtual, dataInicio:a.dataInicio,
+          indexador:a.indexador||rf.indexador, taxa:a.taxa!==undefined?a.taxa:rf.taxa, tipo:a.tipo||rf.tipo});
       }, 0);
     } else {
-      liquido = _calcLiquidoAporte(rf.valorInv||0, rf.dataInicio, rf.indexador, rf.taxa, rf.tipo);
+      liquido = _rfLiqDe(rf);
     }
-    var rent=rf.valorInv>0?((atual-rf.valorInv)/rf.valorInv*100):0;
+    var rent=rf.valorInv>0?((atual-rf.valorInv)/rf.valorInv*100):0;            // bruta
+    var rentLiq=rf.valorInv>0?((liquido-rf.valorInv)/rf.valorInv*100):0;      // líquida
+    var _manualItens = isGroup ? groupIdxs.filter(function(i){ return allRF[i] && allRF[i].valorAtual>0; }) : (rf.valorAtual>0 ? [realIdx] : []);
+    var _temManual = _manualItens.length>0;
+    var _manualEm = (!isGroup && allRF[realIdx] && allRF[realIdx].valorAtualEm) ? new Date(allRF[realIdx].valorAtualEm+'T12:00:00').toLocaleDateString('pt-BR') : '';
+    var _linhaBase = _temManual
+      ? '<div class="rf-base-info">Saldo líquido informado manualmente'+(_manualEm?' em '+_manualEm:'')+(isGroup?' (em parte dos aportes)':'')+'</div>'
+      : '<div class="rf-base-info">Bruto '+fmtBRL(atual)+' ('+(rent>=0?'+':'')+_rfNum(rent)+'%) · IR/IOF '+fmtBRL(Math.max(0,atual-liquido))+'</div>';
     var dias=diasVenc(rf.vencimento);
     var prog=0;
     if(rf.dataInicio&&rf.vencimento){
@@ -3631,10 +3662,10 @@ function renderRF(){
       '<div class="rf-vals">'+
         '<div class="rf-val-box"><div class="rf-val-label">Investido</div><div class="rf-val-num">'+fmtBRL(rf.valorInv)+'</div></div>'+
         '<div class="rf-val-box"><div class="rf-val-label">Saldo Líquido</div><div class="rf-val-num" style="color:'+cor+'">'+fmtBRL(liquido)+'</div></div>'+
-        '<div class="rf-val-box"><div class="rf-val-label">Rentabilidade</div><div class="rf-val-num" style="color:'+(rent>=0?'var(--green)':'var(--red)')+'">'+
-          (rent>=0?'+':'')+rent.toFixed(2)+'%</div></div>'+
+        '<div class="rf-val-box"><div class="rf-val-label">Rentab. líquida</div><div class="rf-val-num" style="color:'+(rentLiq>=0?'var(--green)':'var(--red)')+'">'+
+          (rentLiq>=0?'+':'')+_rfNum(rentLiq)+'%</div></div>'+
         '<div class="rf-val-box"><div class="rf-val-label">Taxa</div><div class="rf-val-num" style="font-size:11px">'+descTaxaRF(rf)+'</div></div>'+
-      '</div>'+
+      '</div>'+_linhaBase+
       (rf.dataInicio&&rf.vencimento?
         '<div class="rf-prog-wrap">'+
           '<div class="rf-prog-labels">'+
@@ -4417,7 +4448,7 @@ function _mhMetaTopo(total, meta, pct){
 function renderMcHome(){
   var root = document.getElementById('mhHome'); if(!root) return;
   var rfA = loadRF().filter(function(r){ return !r.encerrado; });
-  var rfLiq = rfA.reduce(function(s, r){ return s + _calcLiquidoAporte(r.valorInv || 0, r.dataInicio, r.indexador, r.taxa, r.tipo); }, 0);
+  var rfLiq = rfA.reduce(function(s, r){ return s + _rfLiqDe(r); }, 0);
   var rfInv = rfA.reduce(function(s, r){ return s + (r.valorInv || 0); }, 0), rfBruto = rfA.reduce(function(s, r){ return s + calcRFAtual(r); }, 0);
   var bens = loadPat(), bensVal = bens.reduce(function(s, b){ return s + calcBemValorAtual(b); }, 0), divida = bens.reduce(function(s, b){ return s + (b.divida || 0); }, 0);
   var pos = _mhPosicoes(), rv = pos.reduce(function(s, p){ return s + p.valor; }, 0), rvInv = pos.reduce(function(s, p){ return s + p.inv; }, 0);
@@ -4648,7 +4679,7 @@ function renderKPIs(){
   var rfEncerrados= rfLista.filter(function(r){ return  r.encerrado; });
   var rfInv  = rfAtivos.reduce(function(s,r){return s+(r.valorInv||0);},0);
   var rfAtual= rfAtivos.reduce(function(s,r){return s+calcRFAtual(r);},0);  // bruto (para rentabilidade %)
-  var rfLiq  = rfAtivos.reduce(function(s,r){return s+_calcLiquidoAporte(r.valorInv||0,r.dataInicio,r.indexador,r.taxa,r.tipo);},0); // líquido
+  var rfLiq  = rfAtivos.reduce(function(s,r){return s+_rfLiqDe(r);},0); // líquido
   var rfRend = rfLiq - rfInv;
   // Lucro realizado (encerrados)
   var lucroRealizado = rfEncerrados.reduce(function(s,rf){
@@ -5375,7 +5406,7 @@ function renderCharts(){
   var rfLista=loadRF();
   var bensList=loadPat();
   var rfAtivos=rfLista.filter(function(r){return !r.encerrado;});
-  var rfAtual=rfAtivos.reduce(function(s,r){return s+_calcLiquidoAporte(r.valorInv||0,r.dataInicio,r.indexador,r.taxa,r.tipo);},0);
+  var rfAtual=rfAtivos.reduce(function(s,r){return s+_rfLiqDe(r);},0);
   var bensLiq=bensList.reduce(function(s,b){return s+calcBemValorAtual(b)-(b.divida||0);},0);
   var rvAtual=calcRVTotal();
   var posRV=calcRVPosicoes();
@@ -6590,7 +6621,13 @@ var _resgateIdx = null;
 var _resgateIdxGrupo = null;
 var _resgateTipo = 'parcial';
 
+function _rfPrepResgate(){
+  bindValorInput('resgate_valor');
+  var el=document.getElementById('resgate_valor');
+  if(el && !el.dataset.previaPosMascara){ el.dataset.previaPosMascara='1'; el.addEventListener('input', function(){ try{ calcResgatePrev(); }catch(e){} }); }
+}
 function abrirModalResgate(idx){
+  _rfPrepResgate();
   var lista = loadRF();
   var rf = lista[idx];
   if(!rf) return;
@@ -6763,6 +6800,7 @@ function confirmarResgate(){
 
 
 function abrirModalResgateGrupo(idxs){
+  _rfPrepResgate();
   // Para grupos, usa o mesmo modal mas opera em todos os aportes proporcionalmente
   // Armazena os índices do grupo para usar no confirmarResgate
   _resgateIdx = idxs[0];
@@ -6790,6 +6828,7 @@ function abrirModalResgateGrupo(idxs){
 
 
 function novoAporteExistente(idx){
+  _rfPrepCampos();
   var lista = loadRF();
   var rf = lista[idx];
   if(!rf) return;
@@ -9746,7 +9785,7 @@ function _getRebalValores(){
   var bensList = loadPat();
   var rfAtivos = rfLista.filter(function(r){ return !r.encerrado; });
   var rfLiq    = rfAtivos.reduce(function(s,r){
-    return s + _calcLiquidoAporte(r.valorInv||0, r.dataInicio, r.indexador, r.taxa, r.tipo);
+    return s + _rfLiqDe(r);
   }, 0);
   var bensVal  = bensList.reduce(function(s,b){ return s + calcBemValorAtual(b) - (b.divida||0); }, 0);
   var rvAtual  = calcRVTotal();
@@ -9970,7 +10009,7 @@ function _rbValores(){
   RB_SUBS.RV.forEach(function(s){ v[s.k] = pos.filter(function(p){ return s.t.indexOf(p.tipo) >= 0 || (s.k === 'RV_Stock' && !RB_SUBS.RV.some(function(x){ return x.t.indexOf(p.tipo) >= 0; })); }).reduce(function(a, p){ return a + p.valor; }, 0); });
   var rf = loadRF().filter(function(r){ return !r.encerrado; });
   RB_SUBS.RF.forEach(function(s){ v[s.k] = rf.filter(function(r){ return s.t.indexOf(r.tipo) >= 0 || (s.k === 'RF_LIG' && !RB_SUBS.RF.some(function(x){ return x.t.indexOf(r.tipo) >= 0; })); })
-    .reduce(function(a, r){ return a + _calcLiquidoAporte(r.valorInv || 0, r.dataInicio, r.indexador, r.taxa, r.tipo); }, 0); });
+    .reduce(function(a, r){ return a + _rfLiqDe(r); }, 0); });
   var bens = loadPat();
   RB_SUBS.Bens.forEach(function(s){ v[s.k] = bens.filter(function(b){ return s.t.indexOf(b.tipo || 'outro') >= 0; }).reduce(function(a, b){ return a + calcBemValorAtual(b) - (b.divida || 0); }, 0); });
   RB_CL.forEach(function(c){ v[c.k] = RB_SUBS[c.k].reduce(function(a, s){ return a + Math.max(0, v[s.k]); }, 0); });
