@@ -16354,7 +16354,7 @@ window.G20DiagRF = function(dias){
         var total = parseFloat(d.total||0);
         var temAlgumValor = valor > 0 || total > 0;
         return isAutoFonte && temAlgumValor;
-      });      var hoje = new Date().toISOString().substring(0,10);
+      });      var hoje = new Date(Date.now() - 3*3600e3).toISOString().substring(0,10); /* data de Brasília (antes: Greenwich, virava o dia às 21h) */
       var hoje7 = new Date();
       hoje7.setDate(hoje7.getDate()+7);
       var hoje7Str = hoje7.toISOString().substring(0,10);
@@ -16486,6 +16486,12 @@ window.G20DiagRF = function(dias){
         '</div>';
       }).join('');
 
+      /* Celular: mesmo conjunto de proventos, desenho próprio (g20-agenda-mobile) */
+      if (window.innerWidth <= 600 && typeof window.v21AgendaMobile === 'function') {
+        list.classList.remove('has-scroll');
+        window.v21AgendaMobile(list, proximos);
+        return;
+      }
       list.innerHTML = html;
       // Scroll só quando passa de 4 proventos
       if (proximos.length > 4) {
@@ -21874,6 +21880,203 @@ html body .topbar {
     [2500, 6000].forEach(function(t){ setTimeout(function(){ inst.forEach(function(i){ if (i) i.restaurar(); }); }, t); });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
+})();
+</script>
+
+<style id="g20-agenda-mobile">
+/* AGENDA DE PROVENTOS · CELULAR (set/2026) */
+@media (max-width: 600px) {
+  #v21-agenda-list { max-height: none !important; overflow: visible !important; }
+  #v21CardAgenda { height: auto !important; max-height: none !important; min-height: 0 !important; overflow: visible !important; }
+  #v21CardAgenda .v21-agenda-header { flex-wrap: nowrap; gap: 8px; }
+  #v21CardAgenda .v21-src-filter { min-height: 40px; min-width: 40px; padding: 0 12px; font-size: 13px; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+}
+.agm-resumo { padding: 12px 14px; border-radius: 12px; background: rgba(201,169,97,.08); border: 1px solid rgba(201,169,97,.2); margin-bottom: 12px; }
+.agm-res-lbl { font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--v21-text-muted, #9a958e); }
+.agm-res-val { font: 800 22px 'JetBrains Mono', monospace; color: var(--gold, #c9a961); margin-top: 4px; }
+.agm-res-sub { font-size: 12px; color: var(--v21-text-muted, #9a958e); margin-top: 2px; }
+.agm-grupo { font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--v21-text-muted, #9a958e); margin: 12px 2px 6px; }
+.agm-item { display: grid; grid-template-columns: 46px 36px minmax(0,1fr) auto; grid-template-rows: auto auto; column-gap: 10px; row-gap: 3px;
+  align-items: center; padding: 10px 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,.06); background: rgba(255,255,255,.02);
+  margin-bottom: 7px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.agm-item:active { background: rgba(201,169,97,.08); }
+.agm-item.hoje { border-color: rgba(74,222,128,.35); background: rgba(74,222,128,.05); }
+.agm-data { grid-row: 1 / 3; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 44px; border-radius: 10px;
+  background: rgba(201,169,97,.1); border: 1px solid rgba(201,169,97,.25); }
+.agm-dia { font: 800 16px 'JetBrains Mono', monospace; color: var(--gold, #c9a961); line-height: 1; }
+.agm-mes { font-size: 9.5px; font-weight: 800; letter-spacing: .08em; color: var(--v21-text-muted, #9a958e); margin-top: 2px; }
+.agm-logo { grid-row: 1 / 3; width: 36px; height: 36px; border-radius: 10px; overflow: hidden; background: #fff; display: flex; align-items: center; justify-content: center; }
+.agm-logo img { width: 100%; height: 100%; object-fit: contain; }
+.agm-logo span { font: 800 11px 'DM Sans', sans-serif; color: #1a191e; }
+.agm-l1 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.agm-tk { font: 800 15px 'DM Sans', sans-serif; color: var(--v21-text, #e8e6e3); white-space: nowrap; }
+.agm-badge { font-size: 9.5px; font-weight: 800; letter-spacing: .05em; padding: 2px 6px; border-radius: 6px; background: rgba(107,143,209,.15); color: #8fb0ea; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agm-badge.jcp { background: rgba(245,158,11,.14); color: #f5b041; }
+.agm-badge.rend { background: rgba(74,222,128,.12); color: #4ade80; }
+.agm-l2 { grid-column: 3 / 5; display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; color: var(--v21-text-muted, #9a958e); }
+.agm-hoje { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 6px; background: rgba(74,222,128,.15); color: #4ade80; }
+.agm-val { grid-column: 4; grid-row: 1; text-align: right; font: 800 14px 'JetBrains Mono', monospace; color: #4ade80; white-space: nowrap; }
+.agm-cota { font-size: 11px; color: var(--v21-text-muted, #9a958e); white-space: nowrap; }
+.agm-mais { width: 100%; min-height: 44px; margin-top: 4px; border-radius: 12px; border: 1px solid rgba(201,169,97,.3); background: transparent;
+  color: var(--gold, #c9a961); font: 700 14px 'DM Sans', sans-serif; cursor: pointer; }
+/* painel de baixo para cima (detalhe e lista completa) */
+#agmSheet { position: fixed; inset: 0; z-index: 100030; display: none; }
+#agmSheet.show { display: block; }
+#agmSheet .agm-fundo { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
+#agmSheet .agm-painel { position: absolute; left: 0; right: 0; bottom: 0; max-height: 86vh; overflow: auto; background: #1f1e22;
+  border-radius: 18px 18px 0 0; border-top: 1px solid rgba(201,169,97,.3); padding: 10px 16px calc(18px + env(safe-area-inset-bottom,0px));
+  animation: agmSobe .2s ease; }
+@keyframes agmSobe { from { transform: translateY(100%); } to { transform: translateY(0); } }
+#agmSheet .agm-alca { width: 40px; height: 4px; border-radius: 4px; background: rgba(255,255,255,.2); margin: 0 auto 12px; }
+#agmSheet .agm-tit { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+#agmSheet .agm-tit b { font: 800 17px 'DM Sans', sans-serif; color: #e8e6e3; flex: 1; }
+#agmSheet .agm-fechar { min-height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,.2); background: transparent; color: #e8e6e3; font: 600 13px 'DM Sans', sans-serif; }
+.agm-linha { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 14px; }
+.agm-linha span:first-child { color: #9a958e; }
+.agm-linha span:last-child { color: #e8e6e3; font-weight: 700; text-align: right; }
+.agm-linha.destaque span:last-child { color: #4ade80; font-size: 16px; }
+.agm-nota { font-size: 12px; color: #9a958e; line-height: 1.5; margin-top: 10px; }
+.light .agm-item { border-color: rgba(0,0,0,.08); background: rgba(0,0,0,.015); }
+.light #agmSheet .agm-painel { background: #fff; }
+.light #agmSheet .agm-tit b, .light .agm-linha span:last-child { color: #1a191e; }
+body.pat-hidden .agm-res-val, body.pat-hidden .agm-val, body.pat-hidden .agm-cota, body.pat-hidden .agm-sens { filter: blur(7px); }
+</style>
+<div id="agmSheet" aria-hidden="true">
+  <div class="agm-fundo" onclick="v21AgendaFechar()"></div>
+  <div class="agm-painel" role="dialog" aria-modal="true"><div class="agm-alca"></div><div id="agmConteudo"></div></div>
+</div>
+<script id="g20-agenda-mobile-js">
+/* ════════════════════════════════════════════════════════════════════
+   AGENDA DE PROVENTOS NO CELULAR (set/2026)
+   Mesmos dados do card (v21LoadAgenda entrega a lista pronta); aqui só muda
+   o desenho no celular: item em 2 linhas, grupos por período, total a
+   receber no topo, sem rolagem interna, "Ver todos" e detalhe ao tocar.
+   Valores brutos; o detalhe mostra o líquido ESTIMADO:
+     JCP: 15% de IR retido na fonte;
+     ativos em dólar: 30% retidos nos EUA (regra geral para não residentes);
+     dividendos de ações brasileiras e rendimentos de FIIs: isentos para PF.
+   ════════════════════════════════════════════════════════════════════ */
+(function(){
+  var MESES = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
+  var MOSTRAR = 5;
+  var _itens = [];
+
+  function hojeBR(){ return new Date(Date.now() - 3*3600e3).toISOString().slice(0,10); }
+  function somaDias(iso, n){ var d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0,10); }
+  function dm(iso){ return iso ? iso.slice(8,10) + '/' + iso.slice(5,7) : '—'; }
+  function dmy(iso){ return iso ? iso.slice(8,10) + '/' + iso.slice(5,7) + '/' + iso.slice(0,4) : '—'; }
+  function usdBRL(){ try { return (typeof g20UsdBRL === 'function') ? g20UsdBRL(JSON.parse(localStorage.getItem('g20_precos') || '{}')) : 0; } catch(e){ return 0; } }
+  function moeda(v, m, casas){ try { if (typeof fmtMoeda === 'function') return fmtMoeda(v, m, casas == null ? 2 : casas); } catch(e){}
+    return (m === 'USD' ? 'US$ ' : 'R$ ') + (Number(v)||0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function brl(v){ return 'R$ ' + (Number(v)||0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function tipoDe(p){
+    var t = String(p.tipo || '').toUpperCase();
+    if (t.indexOf('JCP') !== -1 || t.indexOf('JUROS') !== -1) return { lbl: 'JCP', curto: 'JCP', cls: 'jcp' };
+    if (t.indexOf('REND') !== -1 || p.isFII) return { lbl: 'RENDIMENTO', curto: 'REND', cls: 'rend' };
+    if (t.indexOf('COMPL') !== -1) return { lbl: 'DIV. COMPL.', curto: 'COMPL', cls: '' };
+    return { lbl: 'DIVIDENDO', curto: 'DIV', cls: '' };
+  }
+  function rotuloData(p){ return p.moeda === 'USD' ? 'Data ex' : 'Data com'; }
+  function unidade(p){ return p.isFII ? '/cota' : (p.moeda === 'USD' ? '/share' : '/ação'); }
+  function logo(p){
+    var u1 = (typeof _provLogoUrl === 'function') ? _provLogoUrl(p.ticker) : '';
+    var fb = String(p.ticker || '').slice(0,3);
+    return '<div class="agm-logo">' + (u1 ? '<img src="' + u1 + '" alt="" onerror="this.outerHTML=\'<span>' + fb + '</span>\'">' : '<span>' + fb + '</span>') + '</div>';
+  }
+  function impostoPct(p){
+    var t = tipoDe(p).lbl;
+    if (t === 'JCP') return 15;
+    if (p.moeda === 'USD') return 30;
+    return 0;
+  }
+
+  function item(p, i){
+    var d = new Date(p.data + 'T12:00:00'), t = tipoDe(p), hoje = (p.data === hojeBR());
+    return '<div class="agm-item' + (hoje ? ' hoje' : '') + '" role="button" tabindex="0" onclick="v21AgendaDetalhe(' + i + ')" ' +
+        'onkeydown="if(event.key===\'Enter\')v21AgendaDetalhe(' + i + ')" aria-label="' + p.ticker + ', ' + t.lbl + ', pagamento ' + dm(p.data) + '">' +
+      '<div class="agm-data"><div class="agm-dia">' + d.getDate() + '</div><div class="agm-mes">' + MESES[d.getMonth()] + '</div></div>' +
+      logo(p) +
+      '<div class="agm-l1"><span class="agm-tk">' + p.ticker + '</span>' + (hoje ? '<span class="agm-hoje">HOJE</span>' : '<span class="agm-badge ' + t.cls + '" title="' + t.lbl + '">' + t.curto + '</span>') + '</div>' +
+      '<div class="agm-val">' + (p.total > 0 ? moeda(p.total, p.moeda, 2) : '—') + '</div>' +
+      '<div class="agm-l2"><span>' + rotuloData(p) + ' ' + dm(p.datex) + ' · Pgto ' + dm(p.data) + '</span>' +
+        '<span class="agm-cota">' + (p.moeda === 'USD' ? 'US$ ' : 'R$ ') + (Number(p.valorCota)||0).toFixed(4).replace('.', ',') + unidade(p) + '</span></div>' +
+    '</div>';
+  }
+  function agrupar(lista, limite){
+    var h = hojeBR(), s7 = somaDias(h, 7), s30 = somaDias(h, 30);
+    var G = [['Hoje', function(p){ return p.data === h; }], ['Esta semana', function(p){ return p.data > h && p.data <= s7; }],
+             ['Próximos 30 dias', function(p){ return p.data > s7 && p.data <= s30; }], ['Mais adiante', function(p){ return p.data > s30; }]];
+    var html = '', n = 0;
+    G.forEach(function(g){
+      var its = []; lista.forEach(function(p, i){ if (g[1](p)) its.push([p, i]); });
+      if (!its.length || (limite && n >= limite)) return;
+      if (limite) its = its.slice(0, limite - n);
+      n += its.length;
+      html += '<div class="agm-grupo">' + g[0] + '</div>' + its.map(function(x){ return item(x[0], x[1]); }).join('');
+    });
+    return html;
+  }
+
+  window.v21AgendaMobile = function(list, proximos){
+    _itens = (proximos || []).slice();
+    var h = hojeBR(), s30 = somaDias(h, 30), fx = usdBRL(), soma = 0, n30 = 0;
+    _itens.forEach(function(p){ if (p.data <= s30) { soma += (p.moeda === 'USD' ? p.total * (fx || 0) : p.total); n30++; } });
+    var fonte = (window.V21 && V21.provSource === 'cg20') ? 'Carteira G20' : 'Minha Carteira';
+    var html = '<div class="agm-resumo"><div class="agm-res-lbl">A receber nos próximos 30 dias</div>' +
+      '<div class="agm-res-val">' + brl(soma) + '</div>' +
+      '<div class="agm-res-sub">' + n30 + ' provento' + (n30 === 1 ? '' : 's') + ' · ' + fonte + ' · valores brutos</div></div>';
+    html += agrupar(_itens, MOSTRAR);
+    if (_itens.length > MOSTRAR) html += '<button type="button" class="agm-mais" onclick="v21AgendaTodos()">Ver todos (' + _itens.length + ')</button>';
+    list.innerHTML = html;
+  };
+
+  function abrirSheet(conteudo){
+    var sh = document.getElementById('agmSheet'); if (!sh) return;
+    document.getElementById('agmConteudo').innerHTML = conteudo;
+    sh.classList.add('show'); sh.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    var b = sh.querySelector('.agm-fechar'); if (b) b.focus({ preventScroll: true });
+  }
+  window.v21AgendaFechar = function(){
+    var sh = document.getElementById('agmSheet'); if (!sh) return;
+    sh.classList.remove('show'); sh.setAttribute('aria-hidden', 'true'); document.body.style.overflow = '';
+  };
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') v21AgendaFechar(); });
+
+  window.v21AgendaTodos = function(){
+    abrirSheet('<div class="agm-tit"><b>Agenda de proventos</b><button type="button" class="agm-fechar" onclick="v21AgendaFechar()">Fechar</button></div>' + agrupar(_itens, 0));
+  };
+  window.v21AgendaDetalhe = function(i){
+    var p = _itens[i]; if (!p) return;
+    var t = tipoDe(p), pct = impostoPct(p), liq = p.total * (1 - pct / 100), fx = usdBRL();
+    var linhas = [
+      ['Tipo', t.lbl === 'JCP' ? 'JCP (juros sobre capital próprio)' : (t.lbl.charAt(0) + t.lbl.slice(1).toLowerCase())],
+      [rotuloData(p), dmy(p.datex)],
+      ['Pagamento', dmy(p.data)],
+      ['Valor por ' + unidade(p).slice(1), '<span class="agm-sens">' + (p.moeda === 'USD' ? 'US$ ' : 'R$ ') + (Number(p.valorCota)||0).toFixed(4).replace('.', ',') + '</span>'],
+      ['Quantidade considerada', (Number(p.qtd)||0).toLocaleString('pt-BR', { maximumFractionDigits: 6 })],
+      ['Total bruto', '<span class="agm-sens">' + moeda(p.total, p.moeda, 2) + '</span>']
+    ];
+    if (pct > 0) linhas.push(['Imposto estimado (' + pct + '%)', '<span class="agm-sens">− ' + moeda(p.total * pct / 100, p.moeda, 2) + '</span>']);
+    var destaque = ['Líquido estimado', '<span class="agm-sens">' + moeda(liq, p.moeda, 2) + (p.moeda === 'USD' && fx > 0 ? ' ≈ ' + brl(liq * fx) : '') + '</span>'];
+    var nota = pct === 15 ? 'JCP tem 15% de imposto de renda retido na fonte.'
+      : pct === 30 ? 'Dividendos de empresas americanas têm, em regra, 30% retidos nos EUA para não residentes. O valor em reais usa o câmbio atual do dashboard.'
+      : 'Dividendos de ações brasileiras e rendimentos de FIIs são isentos de IR para pessoa física.';
+    var fonte = (window.V21 && V21.provSource === 'cg20') ? 'Carteira G20' : 'Minha Carteira';
+    abrirSheet('<div class="agm-tit">' + logo(p) + '<b>' + p.ticker + '</b><button type="button" class="agm-fechar" onclick="v21AgendaFechar()">Fechar</button></div>' +
+      linhas.map(function(l){ return '<div class="agm-linha"><span>' + l[0] + '</span><span>' + l[1] + '</span></div>'; }).join('') +
+      '<div class="agm-linha destaque"><span>' + destaque[0] + '</span><span>' + destaque[1] + '</span></div>' +
+      '<div class="agm-nota">' + nota + ' Fonte: ' + fonte + '.</div>');
+  };
+
+  // Redesenha ao cruzar a largura do celular (girar o aparelho, redimensionar)
+  var eraCel = window.innerWidth <= 600, tm = null;
+  window.addEventListener('resize', function(){
+    clearTimeout(tm); tm = setTimeout(function(){
+      var cel = window.innerWidth <= 600;
+      if (cel !== eraCel) { eraCel = cel; try { if (typeof window.v21LoadAgenda === 'function') window.v21LoadAgenda(); } catch(e){} }
+    }, 250);
+  });
 })();
 </script>
 </body>
