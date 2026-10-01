@@ -2652,7 +2652,7 @@ canvas{touch-action:pan-y}
       </div>
       <div class="form-group">
         <label class="form-label">Valor por Cota (R$)</label>
-        <input class="form-control" id="prov_valorCota" type="number" min="0" step="0.0001" placeholder="Ex: 0.12">
+        <input class="form-control" id="prov_valorCota" type="text" inputmode="decimal" placeholder="Ex: 0,12">
       </div>
     </div>
     <div class="form-group">
@@ -7947,6 +7947,7 @@ function excluirRVAtivo(ticker){
   if(!confirm('Excluir todos os aportes de '+ticker+'?')) return;
   var aportes = loadRVAportes().filter(function(a){ return a.ticker!==ticker; });
   saveRVAportes(aportes);
+  _provAposMudarAportes([ticker]);   // sem posição: proventos automáticos do ativo saem
   delete rvCotacoes[ticker];
   renderRVPosicoes();
   renderKPIs(); renderCharts();
@@ -8210,6 +8211,7 @@ function excluirTransacaoRV(idx){
   var ticker = aportes[idx] && aportes[idx].ticker;
   aportes.splice(idx,1);
   saveRVAportes(aportes);
+  _provAposMudarAportes([ticker]);
   renderRVPosicoes();
   renderKPIs(); renderCharts();
   // Se ainda há transações do ticker, reabre o drawer atualizado
@@ -9629,8 +9631,10 @@ function aplSalvar(){
 
   // Trigger proventos: recalcula qtdEx e importa proventos dos tickers afetados
   // (necessário quando aporte antigo é lançado — pode haver dividendos históricos)
+  var _tkAntigo = (_editando && _idxEdit >= 0 && typeof _ant !== 'undefined' && _ant) ? _ant.ticker : null;
   setTimeout(function(){
     novos.forEach(function(n){ if(typeof _rvRecalcularQtdEx==='function') _rvRecalcularQtdEx(n.ticker); });
+    if(_tkAntigo && novos.every(function(n){ return n.ticker !== _tkAntigo; })) _provAposMudarAportes([_tkAntigo]);
     if(typeof buscarProventosAuto === 'function') buscarProventosAuto(true, true);
   }, 800);
 }
@@ -10601,21 +10605,37 @@ function salvarProvento(){
   var ticker    = (document.getElementById('prov_ticker').value||'').trim().toUpperCase();
   var tipo      = document.getElementById('prov_tipo').value;
   var data      = document.getElementById('prov_data').value;
-  var valorCota = parseFloat(document.getElementById('prov_valorCota').value)||0;
-  var qtdInput  = parseFloat(document.getElementById('prov_qtd').value)||0;
+  // Aceita vírgula ou ponto (no iPhone o teclado decimal digita vírgula)
+  function _num(v){ v = String(v == null ? '' : v).trim().replace(/\s/g,''); if(v.indexOf(',') >= 0) v = v.replace(/\./g,'').replace(',', '.'); return parseFloat(v) || 0; }
+  var valorCota = _num(document.getElementById('prov_valorCota').value);
+  var qtdInput  = _num(document.getElementById('prov_qtd').value);
   var obs       = (document.getElementById('prov_obs').value||'').trim();
 
   if(!ticker || !data || valorCota <= 0){ alert('Preencha ticker, data e valor por cota.'); return; }
 
   // Se qtd = 0, usa posição na data
   var qtd = qtdInput > 0 ? qtdInput : _getQtdNaData(ticker, data);
+  if(!(qtd > 0)){
+    alert('Em ' + data.split('-').reverse().join('/') + ' você não tinha ' + ticker + ' na carteira. ' +
+          'Confira a data ou informe a quantidade de cotas.');
+    return;
+  }
 
   var lista = loadProventos();
   var editId = document.getElementById('prov_editId').value;
-  var obj = { ticker, tipo, data, valorCota, qtd, total: valorCota * qtd, obs, fonte: 'manual' };
+  // Moeda pelo tipo do ativo na carteira (stocks, REITs e ETFs americanos pagam em dólar)
+  var _tp = ''; try { var _ap = loadRVAportes().filter(function(a){ return a.ticker === ticker; })[0]; _tp = _ap ? (_ap.tipo || '') : ''; } catch(e){}
+  var _usd = (typeof RV_US_TYPES !== 'undefined' && RV_US_TYPES.indexOf(_tp) >= 0) || _tp === 'Cripto';
+  var obj = { ticker, tipo, data, datex: data, valorCota, valor: valorCota, qtd, qtdEx: qtd, total: valorCota * qtd, obs, fonte: 'manual',
+              moeda: _usd ? 'USD' : 'BRL' };
 
-  if(editId !== '') lista[parseInt(editId)] = obj;
-  else lista.push(obj);
+  if(editId !== '' && lista[parseInt(editId)]){
+    obj.id = lista[parseInt(editId)].id || (Date.now().toString() + Math.random());
+    lista[parseInt(editId)] = obj;
+  } else {
+    obj.id = Date.now().toString() + Math.random();
+    lista.push(obj);
+  }
 
   saveProventos(lista);
   fecharModal('modalProvento');
@@ -10700,26 +10720,56 @@ function _rvCalcDataInicio(ticker, dataCompra){
 }
 
 // ── recalcularQtdEx ao lançar aporte antigo ──
+/* Data de referência da posição para um provento (lançamento 01/10).
+   Brasil: a data-com JÁ dá direito (quem tem a ação no fim do dia recebe).
+   EUA: a data guardada é a ex-date, que NÃO dá direito; vale a posição do
+   dia anterior. Antes uma compra feita na própria ex-date ganhava o dividendo. */
+function _provDataRef(d){
+  var ref = (d && (d.datex || d.data)) || '';
+  var usd = d && (d.moeda === 'USD');
+  if(usd && d.datex && d.datex !== d.data){
+    var t = new Date(d.datex + 'T12:00:00'); t.setDate(t.getDate() - 1);
+    ref = t.toISOString().slice(0, 10);
+  }
+  return ref;
+}
 function _rvRecalcularQtdEx(ticker){
   var divs = loadProventos();
-  var alterados = 0;
-  divs.forEach(function(d){
-    if(d.ticker !== ticker) return;
-    var dataRef = d.datex || d.data || '';
-    var qtdCorreta = _getQtdNaData(ticker, dataRef);
+  var alterados = 0, removidos = 0;
+  divs = divs.filter(function(d){
+    if(!d || d.ticker !== ticker) return true;
+    var qtdCorreta = _getQtdNaData(ticker, _provDataRef(d));
     // Suporta schema antigo (qtd) e novo (qtdEx)
     var qtdAtual = d.qtdEx != null ? d.qtdEx : (d.qtd != null ? d.qtd : 0);
-    if(qtdCorreta > 0 && Math.abs(qtdAtual - qtdCorreta) > 0.001){
+    if(!(qtdCorreta > 0)){
+      /* Sem posição na data (compra excluída, venda anterior, data errada):
+         o provento AUTOMÁTICO deixa de existir. Antes ele ficava com a
+         quantidade antiga e seguia somando renda que o aluno não recebeu.
+         O lançado à mão é decisão do aluno: fica como está. */
+      if(d.fonte !== 'manual'){ removidos++; return false; }
+      return true;
+    }
+    if(Math.abs(qtdAtual - qtdCorreta) > 0.001){
       d.qtdEx = qtdCorreta;
       d.qtd   = qtdCorreta; // mantém compatibilidade schema antigo
       d.total = (d.valor != null ? d.valor : (d.valorCota||0)) * qtdCorreta;
       alterados++;
     }
+    return true;
   });
-  if(alterados > 0){
+  if(alterados > 0 || removidos > 0){
     saveProventos(divs);
-    console.log('[Proventos GP] Recalculado qtdEx para '+alterados+' registro(s) de '+ticker);
+    console.log('[Proventos GP] ' + ticker + ': ' + alterados + ' recalculado(s), ' + removidos + ' removido(s) sem posição na data.');
   }
+}
+/* Depois de excluir ou editar transações: refaz a quantidade dos proventos
+   dos ativos afetados e redesenha a aba Proventos. */
+function _provAposMudarAportes(tickers){
+  try {
+    (tickers || []).filter(function(t, i, a){ return t && a.indexOf(t) === i; }).forEach(function(t){ _rvRecalcularQtdEx(t); });
+    if(typeof renderProvAll === 'function') renderProvAll();
+    else { try { renderProventos(); renderProventosChart(); renderProvKpis(); } catch(e){} }
+  } catch(e){ console.warn('[Proventos GP] recálculo após mudança:', e && e.message); }
 }
 
 // ── dedup genérico (mês-ano + valor + tipo) ──
@@ -10794,7 +10844,8 @@ function _rvSalvarProventosUS(ticker, divList, fonte){
     var dataEx  = (dv.ex_date||dv.date||dataPag).substring(0,10);
     var amount  = parseFloat(dv.amount||dv.value||0);
     if(!dataPag || !amount) return;
-    var qtd = _getQtdNaData(ticker, dataEx||dataPag);
+    // EUA: a ex-date não dá direito; vale a posição do dia anterior
+    var qtd = _getQtdNaData(ticker, _provDataRef({ moeda:'USD', datex: dataEx, data: dataPag }));
     if(qtd <= 0) return;
     var mesAno = dataPag.substring(0,7);
     var existe = stored.find(function(x){
@@ -12071,6 +12122,7 @@ function txExcluir(kind, idx){
     var ap = loadRVAportes(), a = ap[idx]; if(!a) return;
     if(!confirm('Excluir a ' + (a.op === 'V' ? 'venda' : 'compra') + ' de ' + a.ticker + ' de ' + a.data.split('-').reverse().join('/') + '?')) return;
     ap.splice(idx, 1); saveRVAportes(ap);
+    _provAposMudarAportes([a.ticker]);
     try { renderRVPosicoes(); renderKPIs(); renderCharts(); } catch(e){}
     renderTransacoes(); showToast('Transação excluída');
   } else if(kind === 'rf'){

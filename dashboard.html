@@ -591,8 +591,18 @@ function _importarTodosProventosBackground(onDone){
              Assim existe UMA base pessoal, alimentada por dois lugares que
              concordam, e o dashboard continua atualizando a cada boot.
              ═══════════════════════════════════════════════════════════════ */
-          var qtd=_getQtdNaDataGestao(r.ticker,dataEx||dataPag);
-          if(qtd<=0){ var dp2=new Date(dataEx||dataPag); dp2.setDate(dp2.getDate()+7); qtd=_getQtdNaDataGestao(r.ticker,dp2.toISOString().split('T')[0]); }
+          /* Lançamento 01/10 — mesmas regras da Minha Carteira:
+             · Brasil: a data-com dá direito (posição no fim do dia);
+             · EUA: a ex-date NÃO dá direito, vale a posição do dia anterior;
+             · sem a "folga de 7 dias" que existia aqui: ela dava o provento a
+               quem comprou DEPOIS da data-com (comprou no dia 1º, ganhava o
+               dividendo com data-com em 28/09). */
+          var _refQ = dataEx||dataPag;
+          if (US_TIPOS.includes(r.tipo) && dataEx && dataEx !== dataPag) {
+            var _dq = new Date(dataEx + 'T12:00:00'); _dq.setDate(_dq.getDate() - 1);
+            _refQ = _dq.toISOString().slice(0,10);
+          }
+          var qtd=_getQtdNaDataGestao(r.ticker,_refQ);
           if(qtd<=0) return;    // sem posição na data, o provento não é dele
           var mesAno = dataPag.substring(0,7);
           var jaTem = _pess.some(function(p){
@@ -16499,7 +16509,7 @@ window.G20DiagRF = function(dias){
         if (!d.fonte) return false;
         if (d.isExDate) return false; // ignorar duplicatas de data-ex
         var f = String(d.fonte).toLowerCase();
-        var isAutoFonte = (f === 'auto' || f.indexOf('auto-') === 0 || f.indexOf('auto_') === 0);
+        var isAutoFonte = (f === 'auto' || f.indexOf('auto-') === 0 || f.indexOf('auto_') === 0 || f === 'manual' /* lançamento 01/10: provento lançado à mão também é renda (a Minha Carteira já contava) */);
         // Aceita se tem QUALQUER valor (valorCota, valor, value, amount, rate, ou total)
         var valor = getValorProvento(d);
         var total = parseFloat(d.total||0);
@@ -17242,7 +17252,7 @@ window.G20DiagRF = function(dias){
            dinheiro recebido — somá-lo contava todo provento duas vezes. */
         if (d.isExDate) return false;
         var f = String(d.fonte).toLowerCase();
-        var isAuto = (f === 'auto' || f.indexOf('auto-') === 0 || f.indexOf('auto_') === 0);
+        var isAuto = (f === 'auto' || f.indexOf('auto-') === 0 || f.indexOf('auto_') === 0 || f === 'manual' /* lançamento 01/10: provento lançado à mão também é renda (a Minha Carteira já contava) */);
         var valor = getValorProvento(d);
         var total = parseFloat(d.total||0);
         return isAuto && (valor > 0 || total > 0);
@@ -17591,7 +17601,7 @@ window.G20DiagRF = function(dias){
           if (!d.fonte) return;
           if (d.isExDate) return;   // SESSÃO 53: data-com não é dinheiro recebido
           var f = String(d.fonte).toLowerCase();
-          var isAuto = (f === 'auto' || f.indexOf('auto-') === 0 || f.indexOf('auto_') === 0);
+          var isAuto = (f === 'auto' || f.indexOf('auto-') === 0 || f.indexOf('auto_') === 0 || f === 'manual' /* lançamento 01/10: provento lançado à mão também é renda (a Minha Carteira já contava) */);
           if (!isAuto) return;
           var dataPag = (d.data||'').substring(0,10);
           if (!dataPag || dataPag < d12Str) return;
@@ -18928,7 +18938,7 @@ window.G20DiagRF = function(dias){
         if (!d.fonte) return;
         if (d.isExDate) return;   // SESSÃO 53: data-com não é dinheiro recebido
         var f = String(d.fonte).toLowerCase();
-        var isAuto = (f === 'auto' || f.indexOf('auto-') === 0 || f.indexOf('auto_') === 0);
+        var isAuto = (f === 'auto' || f.indexOf('auto-') === 0 || f.indexOf('auto_') === 0 || f === 'manual' /* lançamento 01/10: provento lançado à mão também é renda (a Minha Carteira já contava) */);
         if (!isAuto) return;
         var dataPag = (d.data||'').substring(0,10);
         if (!dataPag) return;
