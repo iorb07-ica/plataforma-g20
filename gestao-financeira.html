@@ -3801,6 +3801,15 @@ body.didactic-on .didactic-note{ display:block; }
   #dashboard-view .header-right { margin-left: auto !important; }
 }
 </style>
+<style id="g20-ios-zoom-fix">
+/* Lançamento 01/10: campo abaixo de 16px dá zoom ao tocar no iPhone. Só em telas de toque. */
+@media (pointer: coarse) {
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select, textarea { font-size: 16px !important; }
+  html body #dashboard-view #filter-year, html body #dashboard-view #filter-tag, html body #filter-year, html body #filter-tag,
+  html body #rec-mode, html body #rec-current, html body #rec-total { font-size: 16px !important; }
+  html body #rec-mode, html body #rec-current, html body #rec-total { height: 38px !important; }
+}
+</style>
 </head>
 <body>
 
@@ -4021,11 +4030,25 @@ body.didactic-on .didactic-note{ display:block; }
         <div id="delete-modal" class="modal-overlay">
             <div class="modal-content" style="width: 400px;">
                 <h3 style="font-weight:800; color:var(--primary); font-size:16px; margin-bottom:20px;">Deletar Transação</h3>
-                <p style="margin-bottom:20px; color:var(--text2);">Esta transação é recorrente. O que deseja fazer?</p>
+                <p style="margin-bottom:20px; color:var(--text2);">Este lançamento faz parte de uma série. O que deseja excluir? Os meses anteriores ficam sempre guardados.</p>
                 <div style="display:flex; flex-direction:column; gap:10px;">
-                    <button class="btn btn-danger" style="width:100%" onclick="executeDelete('one')">Deletar apenas esta</button>
-                    <button class="btn btn-warning" style="width:100%" onclick="executeDelete('all')">Deletar todas recorrentes</button>
+                    <button class="btn btn-danger" style="width:100%" onclick="executeDelete('one')">Só este mês</button>
+                    <button class="btn btn-warning" style="width:100%" onclick="executeDelete('all')">Este e os próximos (encerrar a série)</button>
                     <button class="btn btn-outline" style="width:100%" onclick="closeModal('delete-modal')">Cancelar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: EDITAR LANÇAMENTO DE UMA SÉRIE (lançamento 01/10: a janela era chamada
+             pelo código, mas não existia na página, e editar série dava erro) -->
+        <div id="edit-recurrence-modal" class="modal-overlay">
+            <div class="modal-content" style="width: 420px;">
+                <h3 style="font-weight:800; color:var(--primary); font-size:16px; margin-bottom:12px;">Alterar lançamento da série</h3>
+                <p style="margin-bottom:18px; color:var(--text2); line-height:1.5;">Este lançamento faz parte de uma série (recorrente ou parcelada). Onde aplicar a alteração?</p>
+                <div style="display:flex; flex-direction:column; gap:10px;">
+                    <button class="btn btn-primary" style="width:100%; min-height:44px" onclick="executeRecurrenceEdit('one')">Só neste mês<br><span style="font-size:11.5px; font-weight:500; opacity:.85">exceção, como um desconto pontual</span></button>
+                    <button class="btn btn-warning" style="width:100%; min-height:44px" onclick="executeRecurrenceEdit('all')">Neste e nos próximos<br><span style="font-size:11.5px; font-weight:500; opacity:.85">reajuste: os meses anteriores ficam como estão</span></button>
+                    <button class="btn btn-outline" style="width:100%; min-height:44px" onclick="cancelEditSeries()">Cancelar</button>
                 </div>
             </div>
         </div>
@@ -4326,7 +4349,7 @@ body.didactic-on .didactic-note{ display:block; }
                         <div class="input-row">
                             <div class="form-group fg-date"><label>Data <span style="color: var(--red, #e63946); font-weight: 700;">*</span></label><div class="g20-date-wrap" style="position:relative;"><input type="text" id="date" class="g20-date-input" placeholder="dd/mm/aaaa" autocomplete="off" required readonly style="cursor:pointer;"></div></div>
                             <div class="form-group fg-desc"><label>Descrição <span style="color: var(--red, #e63946); font-weight: 700;">*</span></label><input type="text" id="desc" placeholder="Supermercado..." required=""></div>
-                            <div class="form-group fg-val"><label>Valor (R$) <span style="color: var(--red, #e63946); font-weight: 700;">*</span></label><input type="text" id="amount" placeholder="0,00" required="" oninput="formatCurrencyInput(this)" onblur="handleCurrencyBlur(this)"></div>
+                            <div class="form-group fg-val"><label>Valor (R$) <span style="color: var(--red, #e63946); font-weight: 700;">*</span></label><input type="text" id="amount" inputmode="numeric" autocomplete="off" placeholder="0,00" required="" oninput="formatCurrencyInput(this)" onblur="handleCurrencyBlur(this)"></div>
                             <div class="form-group fg-type"><label>Tipo <span style="color: var(--red, #e63946); font-weight: 700;">*</span></label><select id="type" onchange="updateTypeColor()">
                                     <option value="expense">Saída (-)</option>
                                     <option value="income">Entrada (+)</option>
@@ -5039,7 +5062,14 @@ body.didactic-on .didactic-note{ display:block; }
             if (window._fbDb && currentUserUid) {
                 const safeProfile = (activeProfileName || 'Pessoal').replace(/[^a-zA-Z0-9_-]/g, '_');
                 const docId = 'financeiro_' + safeProfile;
-                const _finish = () => { ensureDataStructure(); renderAll(); init(); };
+                const _finish = () => {
+                    ensureDataStructure();
+                    try { if (window._gfEstenderRecorrencias) window._gfEstenderRecorrencias(); } catch(e){ console.warn('[GF] recorrências:', e); }
+                    /* Erro de DESENHO não pode cair no .catch da carga (que trocava os
+                       dados do aluno pela cópia local ou por uma carteira vazia). */
+                    try { renderAll(); init(); } catch(e){ console.error('[GF] erro ao desenhar a tela:', e); }
+                    setTimeout(function(){ try { if (window._gfRascRestaurar) window._gfRascRestaurar(); } catch(e){} }, 500);
+                };
                 // 1) tenta o path NOVO (uid) — única fonte da verdade
                 window._fbLoad(['users', currentUserUid, 'dados', docId]).then(docSnap => {
                     /* ═══════════════════════════════════════════════════════
@@ -5061,8 +5091,23 @@ body.didactic-on .didactic-note{ display:block; }
                         _finish();
                         return;
                     }
+                    /* Havia alteração deste aparelho que não chegou à nuvem? Se a nuvem
+                       não foi gravada DEPOIS dela (outro aparelho), vale a do aparelho. */
+                    const _pend = _pendLer();
+                    if (_pend && rawData) {
+                        let _nuvemEm = 0;
+                        try { _nuvemEm = docSnap.exists ? (Date.parse((docSnap.data() || {}).atualizado || '') || 0) : 0; } catch(e){}
+                        if (_nuvemEm < _pend) {
+                            console.warn('[GF] enviando a versão deste aparelho, que não tinha chegado à nuvem.');
+                            data = JSON.parse(rawData);
+                            saveData();
+                            _finish();
+                            return;
+                        }
+                    }
                     if (docSnap.exists && docSnap.data() && docSnap.data().data) {
                         data = JSON.parse(docSnap.data().data);
+                        _pendMarcar(false);
                         if (key) localStorage.setItem(key, JSON.stringify(data));
                         _finish();
                         return;
@@ -5076,6 +5121,11 @@ body.didactic-on .didactic-note{ display:block; }
                     _finish();
                 }).catch(err => {
                     console.warn('Firestore load failed, usando cache local:', err);
+                    /* Sem a nuvem, NADA é enviado até ela responder: num aparelho novo
+                       e sem internet, a tela começa vazia, e gravar isso por cima da
+                       nuvem apagaria tudo o que o aluno já lançou. Quando a conexão
+                       volta, os lançamentos feitos aqui são SOMADOS aos da nuvem. */
+                    _nuvemNaoCarregou = true;
                     data = rawData ? JSON.parse(rawData) : seedData;
                     _finish();
                 });
@@ -5112,6 +5162,9 @@ body.didactic-on .didactic-note{ display:block; }
             if (!data.categories)     data.categories = ['Geral'];
             if (!data.transactions)   data.transactions = [];
             if (!data.budgets)        data.budgets = {};
+            if (!data.tagBudgets)     data.tagBudgets = {};
+            if (!data.budgetOrder)    data.budgetOrder = Object.keys(data.budgets);
+            if (!data.defaultPayment) data.defaultPayment = data.paymentMethods[0] || '';
         }
 
         /* ═══════════════════════════════════════════════════════════════
@@ -5130,6 +5183,7 @@ body.didactic-on .didactic-note{ display:block; }
            `_syncPendente` guarda que existe algo por subir; `tentarSincronizar()`
            reenvia quando a conexão volta. */
         let _syncPendente = false;
+        let _nuvemNaoCarregou = false;   // a nuvem não respondeu na abertura (ver loadProfileData)
         /* Vira true no primeiro saveData() após o boot — ver loadProfileData(). */
         let _edicaoLocal = false;
 
@@ -5146,11 +5200,21 @@ body.didactic-on .didactic-note{ display:block; }
             el.title = erro ? String(erro.message || erro) : '';
         }
 
+        /* Pendência de envio guardada NO APARELHO (lançamento 01/10).
+           Antes ela vivia só na memória: lançou sem internet, fechou o app e, na
+           próxima abertura, a versão antiga da nuvem substituía a do aparelho e o
+           lançamento sumia. Agora a marca sobrevive ao fechamento. */
+        function _pendKey(){ const k = getStorageKey(); return k ? k.replace('g20_fin_', 'g20_fin_pend_') : null; }
+        function _pendMarcar(on){ const k = _pendKey(); if (!k) return; try { if (on) localStorage.setItem(k, String(Date.now())); else localStorage.removeItem(k); } catch(e){} }
+        function _pendLer(){ const k = _pendKey(); if (!k) return 0; try { return parseInt(localStorage.getItem(k) || '0', 10) || 0; } catch(e){ return 0; } }
+
         function saveData() {
             _edicaoLocal = true;
             const key = getStorageKey();
             // Cache local imediato — nunca perde o lançamento, mesmo offline.
             if (key) localStorage.setItem(key, JSON.stringify(data));
+            _pendMarcar(true);   // só sai quando a nuvem confirmar
+            if (_nuvemNaoCarregou) { _marcarSync(false, 'aguardando conexão com a nuvem'); return Promise.resolve(false); }
 
             // Persistência na nuvem — PADRÃO PLATAFORMA: users/{uid}/dados/financeiro_{perfil}
             if (!window._fbSave || !currentUserUid) { _marcarSync(false, 'sem sessão'); return Promise.resolve(false); }
@@ -5171,13 +5235,32 @@ body.didactic-on .didactic-note{ display:block; }
                 ['users', currentUserUid, 'dados', docId],
                 { data: payload, email: currentUserEmail || '',
                   perfil: activeProfileName, atualizado: new Date().toISOString() }
-            ).then(() => { _marcarSync(true); return true; })
+            ).then(() => { _marcarSync(true); _pendMarcar(false); return true; })
              .catch(e => { console.warn('Firestore save error:', e); _marcarSync(false, e); return false; });
         }
 
         /* Reenvia o que ficou pendente quando a conexão volta. */
         function tentarSincronizar() {
             if (!_syncPendente) return;
+            if (_nuvemNaoCarregou) {
+                if (!window._fbLoad || !currentUserUid) return;
+                const docId = 'financeiro_' + (activeProfileName || 'Pessoal').replace(/[^a-zA-Z0-9_-]/g, '_');
+                window._fbLoad(['users', currentUserUid, 'dados', docId]).then(doc => {
+                    const nuvem = (doc.exists && doc.data() && doc.data().data) ? JSON.parse(doc.data().data) : null;
+                    if (nuvem && Array.isArray(nuvem.transactions)) {
+                        // SOMA: o que foi lançado aqui sem internet entra junto do que já estava na nuvem
+                        const ids = new Set(nuvem.transactions.map(t => t.id));
+                        (data.transactions || []).forEach(t => { if (!ids.has(t.id)) nuvem.transactions.unshift(t); });
+                        (data.categories || []).forEach(c => { if ((nuvem.categories || []).indexOf(c) < 0) (nuvem.categories = nuvem.categories || []).push(c); });
+                        data = nuvem;
+                        ensureDataStructure();
+                    }
+                    _nuvemNaoCarregou = false;
+                    saveData();
+                    try { renderAll(); } catch(e){}
+                }).catch(() => {});
+                return;
+            }
             saveData();
         }
         window.addEventListener('online', tentarSincronizar);
@@ -6663,6 +6746,12 @@ body.didactic-on .didactic-note{ display:block; }
         // usar setMonth (que "transborda" quando o dia não existe no mês, ex.:
         // 31/10 -> 01/12) e sem passar por Date/UTC (que trocava o dia por causa
         // do fuso -03). Se o dia não existe no mês destino, usa o último dia dele.
+        /* Data de HOJE pelo relógio do aparelho (fuso de onde o aluno está).
+           Lançamento 01/10: antes era new Date().toISOString(), que é o horário de
+           Greenwich: das 21h à meia-noite o módulo já achava que era o dia seguinte. */
+        window._isoLocal = function(d){ d = d || new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+        window._hojeLocal = function(){ return window._isoLocal(new Date()); };
+
         function addMesesISO(iso, meses) {
             const [y, m, d] = iso.split('-').map(Number);
             let ano = y, mes = (m - 1) + meses;          // m-1 = mês base 0
@@ -6755,7 +6844,8 @@ body.didactic-on .didactic-note{ display:block; }
                         recurrenceId: recurrenceId,
                         verified: initialVerifiedStatus,
                         recMode: mode,
-                        recTotal: total
+                        recTotal: total,
+                        recSemFim: mode === 'subscription' ? true : undefined
                     });
                 }
                 qtdLancada = limit;
@@ -6765,6 +6855,7 @@ body.didactic-on .didactic-note{ display:block; }
             saveDescriptionToHistory(desc);
             
             saveData();
+            try { if (window._gfRascLimpar) window._gfRascLimpar(); } catch(e){}
             
             // Feedback visual de sucesso
             showFeedback(`✓ ${qtdLancada} lançamento(s) adicionado(s) com sucesso!`, false);
@@ -6780,6 +6871,140 @@ body.didactic-on .didactic-note{ display:block; }
             init();
         });
 
+        /* ═══════════════════════════════════════════════════════════════════
+           RECORRÊNCIA CONTÍNUA (lançamento 01/10)
+           "Recorrente" gerava 12 meses e parava sem avisar (o aluguel sumia do
+           planejamento no 13º mês). Agora cada série recorrente mantém sempre
+           12 meses à frente: a cada abertura, os meses que faltam são criados
+           com os dados do lançamento mais recente da série (já com reajustes).
+           Não estende: série encerrada ("este e os próximos" ao excluir), meses
+           excluídos um a um, parcelamentos e séries antigas que já terminaram.
+           ═══════════════════════════════════════════════════════════════════ */
+        window._gfEstenderRecorrencias = function(){
+            if (!data || !Array.isArray(data.transactions)) return 0;
+            const hoje = _hojeLocal(), mesAtual = hoje.slice(0, 7);
+            const horizonte = addMesesISO(mesAtual + '-01', 11).slice(0, 7);   // mês atual + 11
+            const enc = data.recEncerradas || {}, ign = data.recIgnorar || {};
+            const series = {};
+            data.transactions.forEach(t => {
+                if (!t || !t.recurrenceId || !t.date) return;
+                const modo = t.recMode || (/\(Recorrente\)/.test(t.desc || '') ? 'subscription' : '');
+                if (modo !== 'subscription') return;
+                const sr = series[t.recurrenceId] = series[t.recurrenceId] || { ult: null, modelo: null, primeira: null, semFim: false };
+                if (!sr.ult || t.date > sr.ult.date) sr.ult = t;
+                if (!t.recExcecao && (!sr.modelo || t.date > sr.modelo.date)) sr.modelo = t;
+                if (!sr.primeira || t.date < sr.primeira) sr.primeira = t.date;
+                if (t.recSemFim) sr.semFim = true;
+            });
+            const ids = new Set(data.transactions.map(t => t.id));
+            let base = Date.now(), seq = 0, criados = 0, marcou = false;
+            Object.keys(series).forEach(rid => {
+                if (enc[rid]) return;
+                const sr = series[rid], u = sr.ult, m = sr.modelo || sr.ult;
+                if (!u || !m) return;
+                // série antiga que já terminou continua terminada; a que está viva vira contínua
+                if (!sr.semFim && u.date.slice(0, 7) < mesAtual) return;
+                const pulos = ign[rid] || [];
+                let ultMes = u.date.slice(0, 7);
+                pulos.forEach(p => { if (p > ultMes) ultMes = p; });
+                const dia = parseInt(sr.primeira.slice(8, 10), 10) || 1;   // dia original da série
+                for (let k = 1; k <= 24; k++) {
+                    const mes = addMesesISO(ultMes + '-01', k).slice(0, 7);
+                    if (mes > horizonte) break;
+                    if (pulos.indexOf(mes) >= 0) continue;
+                    const [yy, mm] = mes.split('-').map(Number);
+                    const ultimoDia = new Date(yy, mm, 0).getDate();
+                    const dataISO = mes + '-' + String(Math.min(dia, ultimoDia)).padStart(2, '0');
+                    let id; do { id = base + (seq++); } while (ids.has(id)); ids.add(id);
+                    const desc = String(m.desc || '').replace(/\s\(Recorrente\)$/, '') + ' (Recorrente)';
+                    data.transactions.unshift({
+                        id: id, date: dataISO, desc: desc, amount: m.amount, type: m.type,
+                        payment: m.payment, category: m.category, tags: (m.tags || []).slice(),
+                        recurrenceId: rid, verified: (m.type === 'expense'),
+                        recMode: 'subscription', recTotal: 0, recSemFim: true
+                    });
+                    criados++;
+                }
+                data.transactions.forEach(t => { if (t.recurrenceId === rid && !t.recSemFim) { t.recSemFim = true; marcou = true; } });
+            });
+            if (criados || marcou) {
+                if (criados) console.log('[GF] recorrência contínua: ' + criados + ' mês(es) futuro(s) completado(s).');
+                saveData();
+            }
+            return criados;
+        };
+
+        /* ═══════════════════════════════════════════════════════════════════
+           RASCUNHO AUTOMÁTICO DO NOVO LANÇAMENTO (lançamento 01/10)
+           O que o aluno começou a preencher fica guardado NO APARELHO (por aluno
+           e por perfil) e volta preenchido na próxima abertura. Não vai para a
+           nuvem. Some ao lançar ou ao tocar em Descartar.
+           ═══════════════════════════════════════════════════════════════════ */
+        (function(){
+            const CAMPOS = ['desc', 'amount', 'date', 'type', 'payment', 'category', 'tags', 'rec-mode', 'rec-current', 'rec-total'];
+            function chave(){
+                if (!currentUserUid) return null;
+                return 'g20_fin_rasc_' + currentUserUid + '_' + String(activeProfileName || 'Pessoal').replace(/[^a-zA-Z0-9_-]/g, '_');
+            }
+            let restaurando = false, pronto = false;
+            function ler(){ const k = chave(); if (!k) return null; try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch(e){ return null; } }
+            function aviso(on){
+                let el = document.getElementById('gf-rasc-aviso');
+                const form = document.getElementById('form-transaction');
+                if (on && !el && form) {
+                    el = document.createElement('div');
+                    el.id = 'gf-rasc-aviso';
+                    el.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:0 0 10px;padding:9px 12px;border-radius:10px;font-size:13px;background:rgba(201,169,97,.12);border:1px solid rgba(201,169,97,.35);color:#e8c766';
+                    el.innerHTML = '<span>📝 Recuperamos um lançamento que você não terminou.</span>' +
+                        '<button type="button" style="background:transparent;border:1px solid rgba(201,169,97,.45);color:#e8c766;border-radius:8px;padding:6px 12px;font-size:12.5px;font-weight:700;cursor:pointer;min-height:34px" onclick="_gfRascDescartar()">Descartar</button>';
+                    form.parentNode.insertBefore(el, form);
+                }
+                if (el) el.style.display = on ? 'flex' : 'none';
+            }
+            function salvar(){
+                if (!pronto || restaurando) return;
+                const k = chave(); if (!k) return;
+                const v = {}; let temAlgo = false;
+                CAMPOS.forEach(id => { const el = document.getElementById(id); if (el) v[id] = el.value; });
+                const rc = document.getElementById('is-recurring'); v['is-recurring'] = !!(rc && rc.checked);
+                if ((v.desc || '').trim() || ((v.amount || '').trim() && v.amount !== '0,00') || (v.tags || '').trim()) temAlgo = true;
+                try { if (temAlgo) localStorage.setItem(k, JSON.stringify({ em: Date.now(), v: v })); else localStorage.removeItem(k); } catch(e){}
+            }
+            window._gfRascLimpar = function(){ const k = chave(); try { if (k) localStorage.removeItem(k); } catch(e){} aviso(false); };
+            window._gfRascDescartar = function(){
+                window._gfRascLimpar();
+                ['desc', 'amount', 'tags'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+                const rc = document.getElementById('is-recurring'); if (rc && rc.checked) { rc.checked = false; try { toggleRecurrence(); } catch(e){} }
+            };
+            window._gfRascRestaurar = function(){
+                pronto = true;
+                const r = ler();
+                const descEl = document.getElementById('desc'), valEl = document.getElementById('amount');
+                if (!r || !r.v) { aviso(false); return; }
+                // já tem algo digitado agora: não atropela
+                if ((descEl && descEl.value.trim()) || (valEl && valEl.value.trim())) return;
+                restaurando = true;
+                try {
+                    const v = r.v;
+                    ['type', 'payment', 'category', 'rec-mode'].forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el && v[id] != null && Array.prototype.some.call(el.options || [], o => o.value === v[id])) el.value = v[id];
+                    });
+                    try { if (typeof updateTypeColor === 'function') updateTypeColor(); } catch(e){}
+                    ['desc', 'amount', 'tags', 'rec-current', 'rec-total'].forEach(id => { const el = document.getElementById(id); if (el && v[id] != null) el.value = v[id]; });
+                    if (v.date && /^\d{4}-\d{2}-\d{2}$/.test(v.date)) { const d = document.getElementById('date'); if (d) d.value = v.date; }
+                    const rc = document.getElementById('is-recurring');
+                    if (rc) { rc.checked = !!v['is-recurring']; try { toggleRecurrence(); toggleRecMode(); } catch(e){} }
+                    aviso(true);
+                } finally { restaurando = false; }
+            };
+            document.addEventListener('input', e => { if (e.target && e.target.closest && e.target.closest('#form-transaction')) setTimeout(salvar, 50); }, true);
+            document.addEventListener('change', e => { if (e.target && e.target.closest && e.target.closest('#form-transaction')) setTimeout(salvar, 50); }, true);
+            document.addEventListener('click', e => { if (e.target && e.target.closest && (e.target.closest('#form-transaction') || e.target.closest('#g20-dp-popup'))) setTimeout(salvar, 120); }, true);
+            window.addEventListener('pagehide', salvar);
+            document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') salvar(); });
+        })();
+
         window.toggleVerify = (id) => { const t = data.transactions.find(x => x.id === id); if (t) { t.verified = !t.verified; if (t.verified) { t.confirmadoManual = true; } else { delete t.confirmadoManual; } saveData(); renderAll(); } };
 
         window.editTrans = (id) => {
@@ -6789,6 +7014,8 @@ body.didactic-on .didactic-note{ display:block; }
                 // Ao editar um recorrente, preenche o pendingEditRecurrence
                 pendingEditRecurrence = {
                     id: t.id,
+                    dataOriginal: t.date,
+                    verifiedOriginal: !!t.verified,
                     recurrenceId: t.recurrenceId,
                     type: t.type,
                     amount: Math.abs(t.amount).toFixed(2).replace('.', ','),
@@ -6879,15 +7106,23 @@ body.didactic-on .didactic-note{ display:block; }
             const temp = pendingEditRecurrence;
             if (!temp) return;
 
-            const today = new Date().toISOString().split('T')[0];
+            const today = _hojeLocal();
 
             if (mode === 'all') {
-                const currentMonthPrefix = temp.date.substring(0, 7);
+                /* "Neste e nos próximos" (lançamento 01/10): parte do MÊS DO LANÇAMENTO
+                   EDITADO (ou da nova data, se for anterior). Antes partia só da nova
+                   data: mudar o vencimento para um mês adiante deixava duplicados. */
+                const _ini = [temp.date, temp.dataOriginal || temp.date].sort()[0];
+                const currentMonthPrefix = _ini.substring(0, 7);
 
-                // 1. Remove todas as recorrências futuras (a partir da data atual)
+                // 1. Remove a série a partir desse mês (o passado fica intacto)
                 data.transactions = data.transactions.filter(t =>
                     t.recurrenceId !== temp.recurrenceId || (t.date < currentMonthPrefix)
                 );
+                if (data.recIgnorar && data.recIgnorar[temp.recurrenceId]) {
+                    data.recIgnorar[temp.recurrenceId] = data.recIgnorar[temp.recurrenceId].filter(m => m < currentMonthPrefix);
+                }
+                if (data.recEncerradas) delete data.recEncerradas[temp.recurrenceId];
 
                 // 2. Re-cria a nova série com os novos dados
                 const recurrenceId = temp.recurrenceId;
@@ -6932,9 +7167,10 @@ body.didactic-on .didactic-note{ display:block; }
                         category: temp.category,
                         tags: temp.tags,
                         recurrenceId: recurrenceId,
-                        verified: (type === 'expense'),
+                        verified: (type === 'expense') || (i === 0 && !!temp.verifiedOriginal),
                         recMode: recMode,
-                        recTotal: totalForSeries
+                        recTotal: totalForSeries,
+                        recSemFim: recMode === 'subscription' ? true : undefined
                     });
                 }
 
@@ -6949,9 +7185,11 @@ body.didactic-on .didactic-note{ display:block; }
                     t.category = temp.category;
                     t.payment = temp.payment;
                     t.tags = temp.tags;
-                    t.recurrenceId = null; // Quebra a recorrência
-                    delete t.recMode;
-                    delete t.recTotal;
+                    /* Exceção (lançamento 01/10): fica na série, marcada, para a
+                       recorrência contínua não recriar este mês. */
+                    t.recExcecao = true;
+                    if (t.recMode === 'installment') t.desc = `${String(temp.desc).trim()} (${temp.recCurrent}/${t.recTotal})`;
+                    else t.desc = `${String(temp.desc).trim()} (Recorrente)`;
                 }
             }
 
@@ -6998,7 +7236,29 @@ body.didactic-on .didactic-note{ display:block; }
             pendingDeleteId = null;
         };
 
-        window.executeDelete = (mode) => { if (!pendingDeleteId) return; const t = data.transactions.find(x => x.id === pendingDeleteId); if (!t) { closeModal('delete-modal'); pendingDeleteId = null; return; } const alvo = pendingDeleteId; const recId = t.recurrenceId; closeModal('delete-modal'); pendingDeleteId = null; if (mode === 'all' && recId) { data.transactions = data.transactions.filter(x => x.recurrenceId !== recId); } else { data.transactions = data.transactions.filter(x => x.id !== alvo); } saveData(); renderAll(); };
+        window.executeDelete = (mode) => {
+            if (!pendingDeleteId) return;
+            const t = data.transactions.find(x => x.id === pendingDeleteId);
+            if (!t) { closeModal('delete-modal'); pendingDeleteId = null; return; }
+            const alvo = pendingDeleteId; const recId = t.recurrenceId; const dIni = t.date;
+            closeModal('delete-modal'); pendingDeleteId = null;
+            if (mode === 'all' && recId) {
+                /* "Este e os próximos": encerra a série a partir daqui e mantém o
+                   histórico (antes apagava a série inteira, inclusive o passado). */
+                data.transactions = data.transactions.filter(x => x.recurrenceId !== recId || x.date < dIni);
+                data.recEncerradas = data.recEncerradas || {};
+                data.recEncerradas[recId] = dIni;
+            } else {
+                data.transactions = data.transactions.filter(x => x.id !== alvo);
+                /* Mês excluído de uma série contínua: a recorrência não o recria */
+                if (recId) {
+                    data.recIgnorar = data.recIgnorar || {};
+                    const arr = data.recIgnorar[recId] = data.recIgnorar[recId] || [];
+                    if (arr.indexOf(dIni.slice(0, 7)) < 0) arr.push(dIni.slice(0, 7));
+                }
+            }
+            saveData(); renderAll();
+        };
 
         /* ═══════════════════════════════════════════════════════════════
            RECEBIMENTOS A CONFIRMAR
@@ -7012,7 +7272,7 @@ body.didactic-on .didactic-note{ display:block; }
            A janela só reaparece uma vez por abertura da página. */
 
         function _recebPendentes() {
-            const hoje = new Date().toISOString().split('T')[0];
+            const hoje = _hojeLocal();
             return (data.transactions || []).filter(t =>
                 t && t.type === 'income' && !t.verified && t.date && t.date <= hoje
                 && (!t.snoozeUntil || t.snoozeUntil <= hoje)
@@ -7040,7 +7300,7 @@ body.didactic-on .didactic-note{ display:block; }
             const sub = document.getElementById('rc-sub');
             const box = document.getElementById('receb-modal');
             if (!lista) return;
-            const hoje = new Date().toISOString().split('T')[0];
+            const hoje = _hojeLocal();
             const pend = _recebPendentes();
             if (!pend.length) { closeModal('receb-modal'); return; }
 
@@ -7094,7 +7354,7 @@ body.didactic-on .didactic-note{ display:block; }
                 const d = new Date();
                 d.setHours(12, 0, 0, 0);
                 d.setDate(d.getDate() + dias);
-                t.snoozeUntil = d.toISOString().split('T')[0];
+                t.snoozeUntil = _isoLocal(d);
                 saveData();
             }
             renderRecebModal();
@@ -7234,7 +7494,7 @@ body.didactic-on .didactic-note{ display:block; }
 
             const fTag = els.filterTag?.value || 'all';
             const fStatus = els.filterStatus?.value || 'all';
-            const today = new Date().toISOString().split('T')[0];
+            const today = _hojeLocal();
             const searchTerm = document.getElementById('table-search')?.value.toLowerCase() || '';
 
             let filtered = data.transactions.filter(t => {
@@ -7303,7 +7563,7 @@ body.didactic-on .didactic-note{ display:block; }
 
             // TABLE RENDERING (V117.11)
             const displayList = filtered;
-            const today = new Date().toISOString().split('T')[0];
+            const today = _hojeLocal();
 
             if (els.table) {
                 els.table.innerHTML = displayList.map(t => {
@@ -8369,7 +8629,7 @@ body.didactic-on .didactic-note{ display:block; }
 
         // ===== Score de Saúde Financeira (from v117) =====
         function calculateFinancialHealth(list) {
-            const today = new Date().toISOString().split('T')[0];
+            const today = _hojeLocal();
             const pastTransactions = list.filter(t => t.date <= today && t.verified);
             if (pastTransactions.length === 0) return { hasData: false, scores: [0,0,0,0,0], details: {} };
             const totalIncome = pastTransactions.filter(t => t.amount > 0).reduce((a,b) => a + b.amount, 0);
