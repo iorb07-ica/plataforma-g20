@@ -21,7 +21,7 @@
 <link rel="stylesheet" href="assets/g20-scrollbar.css?v=10">
 <link rel="stylesheet" href="assets/g20-search.css?v=10">
 <link rel="stylesheet" href="assets/g20-topbar-v21.css?v=13">
-<script src="assets/g20-sidebar.js?v=10"></script>
+<script src="assets/g20-sidebar.js?v=14"></script>
 <script src="assets/g20-search.js?v=10"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
@@ -1107,6 +1107,12 @@ a{text-decoration:none;color:inherit}
 .user-online{width:6px;height:6px;border-radius:50%;background:var(--green);flex-shrink:0}
 </style>
 <script src="auth-guard.js"></script>
+<style id="g20-ios-zoom-fix">
+/* Lançamento 01/10: campo abaixo de 16px dá zoom ao tocar no iPhone. Só em telas de toque. */
+@media (pointer: coarse) {
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select, textarea { font-size: 16px !important; }
+}
+</style>
 </head>
 <body>
 
@@ -2210,9 +2216,28 @@ function tipoToCategoria(tipo){
   return TIPO_TO_CATEGORIA[tipo] || tipo.toUpperCase();
 }
 
+/* De onde vêm os aportes de cada universo (lançamento 01/10).
+   Carteira G20: o admin tem em g20_aportes; o ALUNO recebe a CG20 em
+   g20_cg20Aportes (o dashboard grava ali, lendo do admin). Antes só se lia
+   g20_aportes e, para o aluno, a CG20 aparecia vazia ("0").
+   Minha Carteira: a cópia local só vale se for do aluno logado. */
+function _ccLerAportes(storageKey){
+  function ler(k){ try { var v = JSON.parse(localStorage.getItem(k) || '[]'); return Array.isArray(v) ? v : []; } catch(e){ return []; } }
+  if (storageKey === 'g20_aportes') {
+    var a = ler('g20_aportes');
+    return a.length ? a : ler('g20_cg20Aportes');
+  }
+  if (storageKey === 'g20_rvAportes') {
+    var uid = null; try { uid = firebase.auth().currentUser ? firebase.auth().currentUser.uid : localStorage.getItem('g20_uid'); } catch(e){}
+    var dono = null; try { dono = localStorage.getItem('g20_dados_owner'); } catch(e){}
+    if (uid && dono && dono !== uid) return [];
+    return ler('g20_rvAportes');
+  }
+  return ler(storageKey);
+}
 function calcPosicoesFromStorage(storageKey){
   try {
-    var aportes = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    var aportes = _ccLerAportes(storageKey);
     if(!Array.isArray(aportes) || aportes.length === 0) return [];
 
     var totalsByTicker = {};
@@ -4661,6 +4686,31 @@ if (typeof window.toggleSidebarCollapse !== 'function') {
       return;
     }
     localStorage.setItem('g20_uid', user.uid);
+    /* Sem cópia local (abriu o Command Center antes do dashboard, ou noutro
+       aparelho): busca na nuvem a Carteira G20 (leitura liberada para alunos)
+       e a carteira do próprio aluno, e redesenha. */
+    (function(){
+      var CG20_UID = '8xrwHHEKAmd0Us5MCyBJhtkJVBM2';
+      var tarefas = [];
+      if (!_ccLerAportes('g20_aportes').length) {
+        tarefas.push(db.collection('users').doc(CG20_UID).collection('dados').doc('aportes').get().then(function(d){
+          var v = d.exists && d.data() ? d.data().value : null;
+          if (Array.isArray(v) && v.length) { try { localStorage.setItem('g20_cg20Aportes', JSON.stringify(v)); } catch(e){} return true; }
+        }).catch(function(){}));
+      }
+      if (!_ccLerAportes('g20_rvAportes').length) {
+        tarefas.push(db.collection('users').doc(user.uid).collection('dados').doc('rvAportes').get().then(function(d){
+          var v = d.exists && d.data() ? d.data().value : null;
+          if (typeof v === 'string') { try { v = JSON.parse(v); } catch(e){ v = null; } }
+          if (Array.isArray(v) && v.length) { try { localStorage.setItem('g20_rvAportes', JSON.stringify(v)); localStorage.setItem('g20_dados_owner', user.uid); } catch(e){} return true; }
+        }).catch(function(){}));
+      }
+      if (tarefas.length) Promise.all(tarefas).then(function(r){
+        if (!r.some(Boolean)) return;
+        try { atualizarContagens(); } catch(e){}
+        try { if (currentUniverse === 'carteira-g20' || currentUniverse === 'gestao') loadUniverse(currentUniverse); } catch(e){}
+      });
+    })();
     db.collection('users').doc(user.uid).get().then(function(doc) {
       var data = doc.exists ? doc.data() : {};
       if (!doc.exists || (data.aprovado !== true && data.role !== 'admin')) {
