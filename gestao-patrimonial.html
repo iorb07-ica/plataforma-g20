@@ -1851,6 +1851,10 @@ canvas{touch-action:pan-y}
   input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select, textarea { font-size: 16px !important; }
 }
 </style>
+<style id="g20-prov-liq-css">
+.pv-liq{color:#4ade80;font-weight:600}
+.tx2-valor .pv-liq{display:block;font-size:12px;margin-top:2px}
+</style>
 <style id="g20-recursos-css">
 /* Recursos liberados por aluno (lançamento 01/10) */
 .gp-tab .g20-tab-cad{font-size:11px;margin-left:6px;opacity:.85}
@@ -4747,8 +4751,9 @@ function renderMcHome(){
   // proventos
   var hoje = new Date().toISOString().slice(0, 10), d12 = new Date(); d12.setFullYear(d12.getFullYear() - 1); var lim12 = d12.toISOString().slice(0, 10);
   var d30 = new Date(); d30.setDate(d30.getDate() + 30); var lim30 = d30.toISOString().slice(0, 10);
-  var prov = loadProventos(), p12 = 0, p30 = 0, n30 = 0;
-  prov.forEach(function(p){ var fut = p.data > hoje || p.status === 'futuro', v = _provTotalBRL(p); if(!fut && p.data >= lim12) p12 += v; if(fut && p.data <= lim30){ p30 += v; n30++; } });
+  var prov = loadProventos(), p12 = 0, p30 = 0, n30 = 0, p12liq = 0;
+  prov.forEach(function(p){ var fut = p.data > hoje || p.status === 'futuro', v = _provTotalBRL(p); if(!fut && p.data >= lim12){ p12 += v; p12liq += v * _provFatorLiq(p); } if(fut && p.data <= lim30){ p30 += v; n30++; } });
+  var _p12LiqTxt = (p12 - p12liq) > 0.005 ? ' · <span class="pv-liq">líquido <span class="kpi-money">' + fmtBRL(p12liq) + '</span></span>' : '';
   // últimos 12 meses, mês a mês (inclui o mês atual)
   var mesesP = [], agoraD = new Date();
   for(var mi = 11; mi >= 0; mi--){ var dm = new Date(agoraD.getFullYear(), agoraD.getMonth() - mi, 1); mesesP.push({ k: dm.getFullYear() + '-' + String(dm.getMonth() + 1).padStart(2, '0'), v: 0, f: 0 }); }
@@ -4777,7 +4782,7 @@ function renderMcHome(){
       '<div class="mh-num"><div class="mh-lbl"><i style="background:#8b5cf6"></i>Renda variável</div><b>' + _mhFmt(rv) + '</b><span class="' + (rv >= rvInv ? 'pos' : 'neg') + '">' + _mhPct(rvInv > 0 ? (rv / rvInv - 1) * 100 : 0) + ' sobre o investido · ' + pos.length + ' ativos</span></div>' +
       '<div class="mh-num"><div class="mh-lbl"><i style="background:#10b981"></i>Renda fixa</div><b>' + _mhFmt(rfLiq) + '</b><span>' + (rfInv > 0 ? _mhPct((rfBruto / rfInv - 1) * 100) + ' bruto · ' : '') + rfA.length + (rfA.length === 1 ? ' título' : ' títulos') + '</span></div>' +
       '<div class="mh-num"><div class="mh-lbl"><i style="background:#3b82f6"></i>Bens</div><b>' + _mhFmt(bensVal) + '</b><span>' + (divida > 0 ? 'dívidas <span class="kpi-money">' + fmtBRL(divida) + '</span>' : bens.length + (bens.length === 1 ? ' bem' : ' bens')) + '</span></div>' +
-      '<div class="mh-num"><div class="mh-lbl"><i style="background:#e8c766"></i>Renda passiva (12 meses)</div><b>' + _mhFmt(p12) + '</b><span>média de <span class="kpi-money">' + fmtBRL(p12 / 12) + '</span> por mês</span></div>' +
+      '<div class="mh-num"><div class="mh-lbl"><i style="background:#e8c766"></i>Renda passiva (12 meses)</div><b>' + _mhFmt(p12) + '</b><span>média de <span class="kpi-money">' + fmtBRL(p12 / 12) + '</span> por mês' + _p12LiqTxt + '</span></div>' +
     '</div>' + _mhMetaTopo(total, meta, pctMeta);
 
   // onde está o dinheiro: classes da RV + maiores posições
@@ -4796,7 +4801,7 @@ function renderMcHome(){
   var MESI = ['J','F','M','A','M','J','J','A','S','O','N','D'], MESN = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   document.getElementById('mhRenda').innerHTML = '<div class="mh-tit">Renda passiva</div>' +
     '<div class="mh-renda"><div><span>Próximos 30 dias</span><b class="gold">' + _mhFmt(p30) + '</b><em>' + n30 + (n30 === 1 ? ' pagamento aprovado' : ' pagamentos aprovados') + '</em></div>' +
-      '<div><span>Últimos 12 meses</span><b>' + _mhFmt(p12) + '</b><em>média de <span class="kpi-money">' + fmtBRL(p12 / 12) + '</span>/mês</em></div></div>' +
+      '<div><span>Últimos 12 meses</span><b>' + _mhFmt(p12) + '</b><em>média de <span class="kpi-money">' + fmtBRL(p12 / 12) + '</span>/mês' + _p12LiqTxt + '</em></div></div>' +
     '<div class="mh-sub" style="margin-top:14px">Proventos mês a mês</div>' +
     '<div class="mh-pbars">' + mesesP.map(function(m){ var n = parseInt(m.k.slice(5), 10) - 1, tot = m.v + m.f;
       return '<div class="mh-pbar" data-tip-t="' + MESN[n] + '/' + m.k.slice(2, 4) + '" data-tip="' + (m.v ? '#e8c766::Recebido: $[' + m.v.toFixed(2) + ']' : '') + (m.f ? (m.v ? '||' : '') + 'hachura::A receber: $[' + m.f.toFixed(2) + ']' : '') + (!tot ? 'Sem proventos' : '') + (m.v && m.f ? '||Total: $[' + tot.toFixed(2) + ']' : '') + '">' +
@@ -10712,6 +10717,30 @@ function _provTotalBRL(p){
 }
 function saveProventos(d){ saveData('rvDividendos', d); }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   LÍQUIDO DOS PROVENTOS (lançamento 01/10) · mesma regra da Carteira G20
+     dividendos de ativos em dólar: 30% retidos nos EUA (não residentes)
+     JCP: 15% de imposto de renda retido na fonte
+     demais (dividendos BR, rendimentos de FII etc.): isentos
+   O bruto continua sendo o valor principal; o líquido aparece ao lado.
+   ═══════════════════════════════════════════════════════════════════════ */
+function _provFatorLiq(p){
+  if(_provEmDolar(p)) return 0.70;
+  if(typeof _pvTipo === 'function' && _pvTipo(p) === 'JCP') return 0.85;
+  return 1;
+}
+function _provLiqBRL(p){ return _provTotalBRL(p) * _provFatorLiq(p); }
+/* Soma bruto e líquido de uma lista; temDesconto diz se vale mostrar o líquido. */
+function _provSomas(arr){
+  var b = 0, l = 0;
+  (arr || []).forEach(function(p){ var v = _provTotalBRL(p); b += v; l += v * _provFatorLiq(p); });
+  return { bruto: b, liq: l, temDesconto: (b - l) > 0.005 };
+}
+function _provLiqTxt(sm, prefixo){
+  if(!sm || !sm.temDesconto) return '';
+  return (prefixo == null ? ' · ' : prefixo) + '<span class="pv-liq">líquido <span class="kpi-money">' + fmtBRL(sm.liq) + '</span></span>';
+}
+
 
 
 function abrirModalProvento(editId){
@@ -11375,10 +11404,13 @@ function renderProvKpis(){
   var recebidos = lista.filter(function(p){ return !_pvFuturo(p); });
   var futuros   = lista.filter(_pvFuturo);
   var soma = function(arr){ return arr.reduce(function(s, p){ return s + _provTotalBRL(p); }, 0); };
+  var _recAno = recebidos.filter(function(p){ return (p.data || '').slice(0, 4) === ano; });
+  var _rec12  = recebidos.filter(function(p){ return p.data >= lim12; });
   var totalGeral = soma(recebidos);
-  var totalAno   = soma(recebidos.filter(function(p){ return (p.data || '').slice(0, 4) === ano; }));
-  var total12    = soma(recebidos.filter(function(p){ return p.data >= lim12; }));
+  var totalAno   = soma(_recAno);
+  var total12    = soma(_rec12);
   var totalFut   = soma(futuros);
+  var smGeral = _provSomas(recebidos), smAno = _provSomas(_recAno), sm12 = _provSomas(_rec12), smFut = _provSomas(futuros);
 
   // Yield on cost dos últimos 12 meses: recebido em 12 meses / custo das posições atuais
   var posMap = {};
@@ -11393,11 +11425,11 @@ function renderProvKpis(){
   var yoc = investido > 0 ? total12 / investido * 100 : 0;
 
   var cards = [
-    { l: 'Total recebido', v: _txCurto(totalGeral), s: recebidos.length + ' pagamentos desde o início', c: 'ouro' },
-    { l: 'Recebido em ' + ano, v: _txCurto(totalAno), s: _txBRL(totalAno), c: 'in' },
-    { l: 'Média mensal', v: _txCurto(total12 / 12), s: 'últimos 12 meses', c: '' },
+    { l: 'Total recebido', v: _txCurto(totalGeral), s: recebidos.length + ' pagamentos desde o início' + _provLiqTxt(smGeral, '<br>'), c: 'ouro' },
+    { l: 'Recebido em ' + ano, v: _txCurto(totalAno), s: _txBRL(totalAno) + _provLiqTxt(smAno, '<br>'), c: 'in' },
+    { l: 'Média mensal', v: _txCurto(total12 / 12), s: 'últimos 12 meses' + (sm12.temDesconto ? '<br><span class="pv-liq">líquida <span class="kpi-money">' + fmtBRL(sm12.liq / 12) + '</span></span>' : ''), c: '' },
     { l: 'Yield on cost', v: yoc.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%', s: 'últimos 12 meses sobre o investido', c: '' },
-    { l: 'A receber', v: _txCurto(totalFut), s: futuros.length + (futuros.length === 1 ? ' pagamento aprovado' : ' pagamentos aprovados'), c: 'ouro' }
+    { l: 'A receber', v: _txCurto(totalFut), s: futuros.length + (futuros.length === 1 ? ' pagamento aprovado' : ' pagamentos aprovados') + _provLiqTxt(smFut, '<br>'), c: 'ouro' }
   ];
   grid.innerHTML = cards.map(function(k){
     return '<div class="tx2-card ' + k.c + '"><div class="tx2-card-l">' + k.l + '</div><div class="tx2-card-v">' + k.v + '</div><div class="tx2-card-s">' + k.s + '</div></div>';
@@ -11456,7 +11488,9 @@ function _pvLinha(x){
   var tag = fut ? '<span class="tag fut">a receber</span>' : '';
   var det = (dataCom ? 'data com ' + dataCom : '') + (dataCom ? ' · ' : '') + (auto ? 'automático' : 'lançado por você');
   var meta = (fut ? 'paga em ' : 'pago em ') + _txDataCurta(p.data) + (dataCom ? ' · data com ' + dataCom.slice(0, 5) : '');
-  var colBrl = _txBRL(brl) + (usd ? '<div class="tx2-sutil" style="font-size:12.5px">' + _txUSD(nativo) + '</div>' : '');
+  var _fl = _provFatorLiq(p);
+  var _liqLinha = _fl < 1 ? '<div class="tx2-sutil pv-liq" style="font-size:12.5px;white-space:nowrap" title="' + (usd ? 'Líquido após 30% retidos nos EUA' : 'Líquido após 15% de IR retido na fonte') + '">líq. ' + _txBRL(brl * _fl) + '</div>' : '';
+  var colBrl = _txBRL(brl) + (usd ? '<div class="tx2-sutil" style="font-size:12.5px">' + _txUSD(nativo) + '</div>' : '') + _liqLinha;
   var t = { kind: 'rv', ticker: p.ticker };
   return '<div class="tx2-linha">' +
     _txLogo(t) +
@@ -11465,7 +11499,7 @@ function _pvLinha(x){
     '<div class="tx2-c tx2-c-data">' + p.data.split('-').reverse().join('/') + '</div>' +
     '<div class="tx2-c tx2-c-det">' + det + tag + '</div>' +
     '<span class="tx2-op ' + _PV_TIPOS[tipo].cls + '">' + _txEsc(_pvRotuloTipo(p)) + '</span>' +
-    '<div class="tx2-valor"><b>' + _txBRL(brl) + '</b><span>' + principal + '</span></div>' +
+    '<div class="tx2-valor"><b>' + _txBRL(brl) + '</b><span>' + principal + '</span>' + (_fl < 1 ? '<span class="pv-liq">líq. ' + _txBRL(brl * _fl) + '</span>' : '') + '</div>' +
     '<div class="tx2-c tx2-c-qtd">' + principal + '</div>' +
     '<div class="tx2-c tx2-c-brl">' + colBrl + '</div>' +
     '<div class="tx2-acoes">' +
@@ -11504,8 +11538,9 @@ function renderProventos(){
   });
   box.innerHTML = html;
   var soma = lista.reduce(function(s, x){ return s + _provTotalBRL(x.p); }, 0);
+  var _smL = _provSomas(lista.map(function(x){ return x.p; }));
   var restante = lista.length - visiveis.length;
-  if(rod) rod.innerHTML = '<span>' + lista.length + ' pagamento' + (lista.length !== 1 ? 's' : '') + ' · total ' + _txBRL(soma) + (restante > 0 ? ' · mostrando ' + visiveis.length : '') + '</span>' +
+  if(rod) rod.innerHTML = '<span>' + lista.length + ' pagamento' + (lista.length !== 1 ? 's' : '') + ' · total bruto ' + _txBRL(soma) + (_smL.temDesconto ? ' · <b class="pv-liq">total líquido ' + _txBRL(_smL.liq) + '</b>' : '') + (restante > 0 ? ' · mostrando ' + visiveis.length : '') + '</span>' +
     (restante > 0 ? '<button onclick="provMostrarMais()">Mostrar mais ' + Math.min(150, restante) + '</button>' : '');
 }
 
