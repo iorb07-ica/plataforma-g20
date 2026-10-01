@@ -9804,6 +9804,15 @@ window._g20RVExibida = { valor: 0, fonte: null };
    Use:  G20DiagRV()          -> carteira pessoal (g20_rvAportes)
          G20DiagRV('cg20')    -> Carteira G20    (g20_aportes)
    ═══════════════════════════════════════════════════════════════════════════ */
+/* A série de hoje deixou algum ativo de fora (sem histórico de preço)?
+   Nesse caso o valor ao vivo, que avalia TODOS os ativos, é o certo. */
+function _g20SerieIncompletaHoje(){
+  try {
+    var s = (window.G20Rent && G20Rent.cache) ? G20Rent.cache() : null;
+    var u = s && s[s.length - 1];
+    return !!(u && u.cobertura != null && u.cobertura < 0.999);
+  } catch(e){ return false; }
+}
 window.G20DiagRV = function(fonte){
   var chave = (fonte === 'cg20') ? 'g20_aportes' : 'g20_rvAportes';
   var aportes = [];
@@ -10825,7 +10834,7 @@ window.loadPatStrip = loadPatStrip;
     try {
       var rv = Array.isArray(rvArr) ? rvArr : (JSON.parse(localStorage.getItem('g20_rvAportes') || '[]') || []);
       var rf = Array.isArray(rfArr) ? rfArr : (JSON.parse(localStorage.getItem('g20_rendaFixa') || '[]') || []);
-      var txt = rv.map(function(a){
+      var txt = 'v2|' + rv.map(function(a){
         return a ? [a.ticker, a.op, a.data, +a.qtd || 0, +a.preco || 0, a.moeda || '', +a.fxRate || 0, a.tipo || ''].join('~') : '';
       }).sort().join('|') + '#' + _canon(rf);
       var h = 5381;
@@ -10855,7 +10864,7 @@ window.loadPatStrip = loadPatStrip;
     if (!t) return null;
     var tp = String(tipo || '').toUpperCase();
     if (tp === 'CRIPTO' || tp === 'RF') return null;
-    t = t.split('-')[0];
+    t = t.replace(/-(USD|USDT|USDC|BRL)$/, '');
     if (/\d$/.test(t)) return t.toLowerCase() + '.sa';
     return t.toLowerCase() + '.us';
   }
@@ -10868,7 +10877,7 @@ window.loadPatStrip = loadPatStrip;
     NEAR: 'near', OP: 'optimism', ARB: 'arbitrum', USDT: 'tether', USDC: 'usd-coin'
   };
   function coinId(ticker) {
-    var t = String(ticker || '').toUpperCase().trim().split('-')[0];
+    var t = String(ticker || '').toUpperCase().trim().replace(/-(USD|USDT|USDC|BRL)$/, '');
     return COIN_IDS[t] || null;
   }
 
@@ -10978,7 +10987,7 @@ window.loadPatStrip = loadPatStrip;
 
   /* Símbolo do Yahoo Finance: BR → PETR4.SA | US → AAPL | cripto → BTC-USD */
   function yahooSymbol(ticker, tipo) {
-    var t = String(ticker || '').toUpperCase().trim().split('-')[0];
+    var t = String(ticker || '').toUpperCase().trim().replace(/-(USD|USDT|USDC|BRL)$/, '');
     if (!t) return null;
     var tp = String(tipo || '').toUpperCase();
     if (tp === 'CRIPTO') return t + '-USD';
@@ -11318,7 +11327,12 @@ window.loadPatStrip = loadPatStrip;
         var moeda = String(a.moeda || ((tp === 'CRIPTO' || tp === 'STOCK' || tp === 'REIT') ? 'USD' : 'BRL')).toUpperCase();
         return {
           d: String(a.data).substring(0, 10),
-          ticker: String(a.ticker).toUpperCase().trim().split('-')[0],
+          /* Lançamento 01/10: antes era .split('-')[0], para tirar o "-USD" de
+             cripto. Só que cortava também BRK-B (virava "BRK", que não existe no
+             Yahoo): o histórico falhava, a Berkshire ficava fora da série e o
+             dashboard mostrava ~R$ 26 mil a menos que a Minha Carteira. Agora
+             só sai o sufixo de moeda. */
+          ticker: String(a.ticker).toUpperCase().trim().replace(/-(USD|USDT|USDC|BRL)$/, ''),
           tipo: a.tipo || '',
           moeda: moeda,
           qtd: sinal * (+a.qtd),
@@ -11530,7 +11544,10 @@ window.loadPatStrip = loadPatStrip;
         // de MB) em vez do localStorage (~5MB). A memória cobre o uso síncrono
         // desta sessão; o IndexedDB persiste para as próximas sem estourar.
         try {
-          var _payload = { at: Date.now(), uid: (API._uidDono || null), sig: API._serieSig, serie: serie };
+          var _ultP = serie[serie.length - 1] || {};
+          var _payload = { at: Date.now(), uid: (API._uidDono || null), sig: API._serieSig, serie: serie,
+                           /* algum ativo sem histórico hoje: guarda só por 30 min e tenta de novo */
+                           incompleta: (_ultP.cobertura != null && _ultP.cobertura < 0.999) };
           if (window.G20Store) G20Store.set(SERIE_KEY, _payload);
           else localStorage.setItem(SERIE_KEY, JSON.stringify(_payload));
         } catch (e) { console.warn('[G20Rent] série: falha ao persistir — usando memória'); }
@@ -11617,6 +11634,10 @@ window.loadPatStrip = loadPatStrip;
             return null;
           }
           var _sigLS = _sigCarteira();
+          if (c.incompleta && (Date.now() - c.at) > 30 * 60 * 1000) {
+            try { localStorage.removeItem(SERIE_KEY); } catch(e){}
+            return null;
+          }
           if (_sigLS && c.sig !== _sigLS) {
             console.log('[G20Rent] série guardada é de outra versão dos lançamentos — reconstruindo.');
             try { localStorage.removeItem(SERIE_KEY); } catch(e){}
@@ -11761,6 +11782,7 @@ window.loadPatStrip = loadPatStrip;
   try {
     if (window.G20Store) {
       G20Store.get(SERIE_KEY).then(function (c) {
+        if (c && c.incompleta && (Date.now() - c.at) > 30 * 60 * 1000) { try { G20Store.del(SERIE_KEY); } catch(e){} return; }
         if (c && c.at && (Date.now() - c.at) < SERIE_TTL && c.serie && c.serie.length >= 2) {
           if (API._uidDono) {
             // Auth já resolveu antes do IndexedDB responder: decide na hora.
@@ -12191,7 +12213,9 @@ function _patSnapUpsert(total,rf,rv){
             var _base = _pt.rv || 0;
             var _ok = !(_base > 0) || (Math.abs(rv - _base) / _base * 100) <= 15 ||
                   /* série do aparelho atrasada: a base é velha, o valor ao vivo é o certo */
-                  (typeof g20SerieInfo === 'function' && g20SerieInfo(arr).atrasada);
+                  (typeof g20SerieInfo === 'function' && g20SerieInfo(arr).atrasada) ||
+                  /* série com ativo sem histórico hoje: ela é que está curta */
+                  _g20SerieIncompletaHoje();
             if (_ok && _pt.rvVivo !== rv) { _pt.rvVivo = rv; mudou = true; }
             else if (!_ok) {
               console.warn('[G20Rent] cotação ao vivo descartada: R$ ' +
@@ -12272,7 +12296,7 @@ function _patSnapUpsert(total,rf,rv){
       var _rvSerie = _uNovo.rv || 0;
       if (rv > 0 && _rvSerie > 0) {
         var _desvio = Math.abs(rv - _rvSerie) / _rvSerie * 100;
-        if (_desvio > 15) {
+        if (_desvio > 15 && !_g20SerieIncompletaHoje()) {
           console.warn('%c[G20Rent] ⚠ cotação ao vivo DESCARTADA: RV ao vivo R$ ' +
             Math.round(rv).toLocaleString('pt-BR') + ' vs série R$ ' +
             Math.round(_rvSerie).toLocaleString('pt-BR') + ' (' + _desvio.toFixed(1) + '% de desvio). ' +
@@ -14535,7 +14559,7 @@ window.G20DiagRF = function(dias){
     var plano = [];
     ap.forEach(function(a, idx){
       if (a._precoAuditado) return;                    // já conferido antes
-      var tk = String(a.ticker||'').toUpperCase().trim().split('-')[0];
+      var tk = String(a.ticker||'').toUpperCase().trim().replace(/-(USD|USDT|USDC|BRL)$/, '');
       var d  = String(a.data||'').substring(0,10);
       var pStored = (+a.preco) || 0;
       var serie = precos[tk];
@@ -14609,7 +14633,7 @@ window.G20DiagRF = function(dias){
 
     var linhas = [], suspeitos = 0;
     ap.forEach(function(a){
-      var tk = String(a.ticker||'').toUpperCase().trim().split('-')[0];
+      var tk = String(a.ticker||'').toUpperCase().trim().replace(/-(USD|USDT|USDC|BRL)$/, '');
       var d  = String(a.data||'').substring(0,10);
       var pStored = (+a.preco) || 0;
       var serie = precos[tk];
@@ -15670,7 +15694,7 @@ window.G20DiagRF = function(dias){
       aportes.slice().sort(function(a,b){ return String(a.data||'').localeCompare(String(b.data||'')); })
         .forEach(function(a){
           if (!a.ticker || String(a.data||'').substring(0,10) > dataStr) return;
-          var t = String(a.ticker).toUpperCase().split('-')[0];
+          var t = String(a.ticker).toUpperCase().replace(/-(USD|USDT|USDC|BRL)$/, '');
           var q = parseFloat(a.qtd) || 0;
           var venda = String(a.op||'C').toUpperCase() === 'V' ||
                       String(a.tipo||'').toLowerCase() === 'venda';
@@ -15683,7 +15707,7 @@ window.G20DiagRF = function(dias){
     var moedaDe = {};
     aportes.forEach(function(a){
       if (!a.ticker) return;
-      var t = String(a.ticker).toUpperCase().split('-')[0];
+      var t = String(a.ticker).toUpperCase().replace(/-(USD|USDT|USDC|BRL)$/, '');
       var tp = String(a.tipo||'').toUpperCase();
       var inf = (tp==='CRIPTO'||tp==='STOCK'||tp==='REIT'||tp==='ETF'||tp==='ETF US'||tp==='UCITS') ? 'USD':'BRL';
       moedaDe[t] = String(a.moeda || inf).toUpperCase();
