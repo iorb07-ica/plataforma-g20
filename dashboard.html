@@ -7497,6 +7497,19 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
               Object.keys(D.precos||{}).length + ' preços. Nada será gravado.',
               'color:#e8b84b;font-weight:bold');
 
+  /* Proventos do pacote: o cálculo de proventos recebidos (sessão 53) só
+     conta registro com `qtd`, e o pacote traz a quantidade em `qtdEx`. Sem
+     isto, durante o tour os cards de proventos mostravam R$ 0. Só a cópia
+     em memória da demonstração é ajustada; nada é gravado. */
+  try {
+    D.dividendos = (D.dividendos || []).map(function(x){
+      if (!x || parseFloat(x.qtd) > 0 || !(parseFloat(x.qtdEx) > 0)) return x;
+      var y = {}; for (var k in x) y[k] = x[k];
+      y.qtd = x.qtdEx;
+      return y;
+    });
+  } catch(e){}
+
   // ── 2. Leituras: as chaves patrimoniais passam a devolver a CG20 ───────
   var LEITURAS = {
     'g20_rvAportes':      function(){ return JSON.stringify(D.aportes    || []); },
@@ -7550,7 +7563,35 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
   }
 
   // ── 4. Módulos que só existem mais adiante na página ──────────────────
-  var pendentes = { rent: false, salvar: false, store: false };
+  var pendentes = { rent: false, salvar: false, store: false, gf: false };
+
+  /* Gestão Financeira de exemplo (só no tour, só em memória).
+     Um orçamento doméstico comum: 7 meses de lançamentos, com o mês atual
+     completo, para o card mostrar o anel, a sobra e as categorias. */
+  function _demoGF(){
+    var hoje = new Date(Date.now() - 3 * 3600 * 1000);          // Brasília
+    var y = hoje.getUTCFullYear(), m = hoje.getUTCMonth();
+    var tx = [], n = 0;
+    function add(ano, mes, dia, desc, valor, cat){
+      var d = new Date(Date.UTC(ano, mes, dia));
+      tx.push({ id: 'demo' + (n++), date: d.toISOString().slice(0,10), description: desc,
+                amount: valor, category: cat, status: 'confirmed' });
+    }
+    for (var i = 6; i >= 0; i--) {
+      var dm = new Date(Date.UTC(y, m - i, 1)), a = dm.getUTCFullYear(), mm = dm.getUTCMonth();
+      var v = [1, 0.96, 1.05, 0.98, 1.08, 0.94, 1.02][i];             // variação entre meses
+      add(a, mm, 5,  'Salário', 9500, 'Salário');
+      if (i % 3 === 1) add(a, mm, 18, 'Projeto extra', 1800, 'Renda extra');
+      add(a, mm, 6,  'Aluguel e condomínio', -2600, 'Moradia');
+      add(a, mm, 8,  'Mercado', Math.round(-1380 * v), 'Alimentação');
+      add(a, mm, 12, 'Combustível e app', Math.round(-620 * v), 'Transporte');
+      add(a, mm, 15, 'Plano de saúde', -460, 'Saúde');
+      add(a, mm, 20, 'Restaurantes e passeios', Math.round(-740 * v), 'Lazer');
+      add(a, mm, 10, 'Curso de inglês', -390, 'Educação');
+      add(a, mm, 22, 'Assinaturas', -129, 'Assinaturas');
+    }
+    return tx;
+  }
 
   function aplicarPatches(){
     // G20Rent: devolve a série do pacote e nunca recalcula nem invalida.
@@ -7576,13 +7617,27 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
       G20Store.set = function(){ return Promise.resolve(true); };
       pendentes.store = true;
     }
-    return pendentes.rent && pendentes.salvar;
+    // Gestão Financeira: injeta o exemplo sempre que o card for recalculado.
+    if (!pendentes.gf && window.G20GF && typeof G20GF.calcular === 'function') {
+      var _calcOrig = G20GF.calcular;
+      var _txDemo = _demoGF();
+      G20GF.calcular = function(){
+        try {
+          G20GF.ingerir('financeiro_perfis',  { data: '["Pessoal"]' });
+          G20GF.ingerir('financeiro_Pessoal', { data: JSON.stringify({ transactions: _txDemo }) });
+        } catch(e){}
+        return _calcOrig.apply(this, arguments);
+      };
+      try { G20GF.calcular(); if (typeof window.v21LoadGF === 'function') v21LoadGF(); } catch(e){}
+      pendentes.gf = true;
+    }
+    return pendentes.rent && pendentes.salvar && pendentes.gf;
   }
 
   aplicarPatches();
   var t0 = Date.now();
   var timer = setInterval(function(){
-    if (aplicarPatches() || Date.now() - t0 > 15000) clearInterval(timer);
+    if (aplicarPatches() || Date.now() - t0 > 30000) clearInterval(timer);
   }, 20);
 
   // ── 5. Tarja de aviso ─────────────────────────────────────────────────
@@ -22333,12 +22388,52 @@ function _g20GameChaveAlvo(tipo){
   return String(y + 1);
 }
 
+/* Ciclo alvo calculado AQUI, com a mesma regra do getTargetCiclo() do
+   game-g20.html (rótulo, chave e prazo). Usado quando o documento publicado
+   está velho: o ranking só é republicado quando alguém abre o Game, então no
+   dia 1 de cada mês o card dizia "O prazo de Outubro encerrou. O próximo
+   ciclo abre em breve" com o ciclo de Novembro já aberto. */
+function _g20GameAlvoLocal(tipo){
+  var now = new Date(), y = now.getFullYear(), m = now.getMonth() + 1;
+  var MES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho',
+             'Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  if (tipo === 'mensal') {
+    var nm = m === 12 ? 1 : m + 1, ny = m === 12 ? y + 1 : y;
+    return { key: ny + '-' + String(nm).padStart(2,'0'), label: MES[nm-1] + ' ' + ny,
+             prazo: new Date(y, m, 0, 23, 59, 59).getTime(),
+             ciclo: MES[m-1] + ' de ' + y };
+  }
+  if (tipo === 'trimestral') {
+    var q = Math.ceil(m / 3), nq = q === 4 ? 1 : q + 1, qy = q === 4 ? y + 1 : y;
+    var QN = ['','Jan-Mar','Abr-Jun','Jul-Set','Out-Dez'];
+    return { key: qy + '-T' + nq, label: 'T' + nq + ' (' + QN[nq] + ') ' + qy,
+             prazo: new Date(y, q * 3, 0, 23, 59, 59).getTime(),
+             ciclo: 'T' + q + ' (' + QN[q] + ') ' + y };
+  }
+  return { key: String(y + 1), label: 'Anual ' + (y + 1),
+           prazo: new Date(y, 11, 31, 23, 59, 59).getTime(), ciclo: 'Anual ' + y };
+}
+function _g20GamePrazoMs(p){
+  if (p == null) return null;
+  if (typeof p === 'number') return p;
+  if (p.toMillis) return p.toMillis();
+  if (p.seconds != null) return p.seconds * 1000;
+  var t = new Date(p).getTime(); return isFinite(t) ? t : null;
+}
+/* Alvo publicado se ainda valer; senão, o calculado localmente. */
+function _g20GameAlvoValido(tipo, janela){
+  var a = janela && janela.alvo;
+  var pz = a ? _g20GamePrazoMs(a.prazo) : null;
+  if (a && a.label && pz && pz > Date.now()) return { key: a.key, label: a.label, prazo: pz, publicado: true };
+  return _g20GameAlvoLocal(tipo);
+}
+
 function _g20GameChecarAlvo(tipo){
   var d = window._g20GameDados;
   if (!d || !d.uid) return;
   var janela = d[tipo];
   /* Prefere a chave publicada; se não houver, calcula. */
-  var chave = (janela && janela.alvo && janela.alvo.key) || _g20GameChaveAlvo(tipo);
+  var chave = _g20GameAlvoValido(tipo, janela).key || _g20GameChaveAlvo(tipo);
   if (!chave || window._g20GameAlvo[chave] !== undefined) return;
 
   window._g20GameAlvo[chave] = null;   // marca "consultando" e evita repetir
@@ -22485,9 +22580,11 @@ window.v21LoadGame = function(){
   var janela = d ? d[tipo] : null;
   var minha  = janela ? _g20GameMinha(janela) : null;
 
+  var _alvoOk = _g20GameAlvoValido(tipo, janela);
   if (hint) {
-    hint.textContent = (janela && janela.ciclo) ? janela.ciclo
-                     : (MESES[hoje.getMonth()] + ' de ' + hoje.getFullYear());
+    /* Documento velho (alvo vencido): o ciclo publicado já passou. */
+    hint.textContent = (janela && janela.ciclo && _alvoOk.publicado) ? janela.ciclo
+                     : (_alvoOk.ciclo || (MESES[hoje.getMonth()] + ' de ' + hoje.getFullYear()));
   }
 
   _g20GameVerso(tipo, janela);
@@ -22497,7 +22594,7 @@ window.v21LoadGame = function(){
     vazio.style.display = '';
     if (bV) bV.style.display = 'none';
     _g20GameChecarAlvo(tipo);
-    var chaveAlvo = (janela && janela.alvo && janela.alvo.key) || _g20GameChaveAlvo(tipo);
+    var chaveAlvo = _alvoOk.key || _g20GameChaveAlvo(tipo);
     var jaMontou  = window._g20GameAlvo[chaveAlvo] === true;
 
     var txt = document.getElementById('v21GameEmptyTxt');
@@ -22505,7 +22602,7 @@ window.v21LoadGame = function(){
       /* O convite precisa apontar para o ciclo que AINDA dá para montar.
          Usar o mês corrente estava errado: em 27 de julho o ciclo em
          competição é julho, mas o prazo dele fechou em 30 de junho. */
-      var alvo = janela && janela.alvo;
+      var alvo = _alvoOk;
       var nomeAlvo = (alvo && alvo.label) ? alvo.label : MESES[hoje.getMonth()];
 
       var html = jaMontou
