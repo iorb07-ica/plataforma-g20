@@ -2766,8 +2766,12 @@ var _firstRenderDone = false;
 var _DB_LOCAL_ONLY = ['indBCB_cache','indMkt_cache','cotacoesCache',
   'bonificacoes_cache','splits_cache'];
 
-var _DB_USER_KEYS = ['aportes','rvDividendos','rendaFixa','carteiraMeta',
-  'splits','patrimonioBens','patrimonioSnaps','rvAportes',
+/* Lançamento 01/10: 'aportes' e 'splits' saíram da lista. São da Carteira G20
+   (a carteira.html guarda uma cópia no navegador do aluno) e a Minha Carteira não
+   usa nenhum dos dois. Com eles aqui, a cópia subia para users/{aluno}/dados como
+   se fosse dele: centenas de aportes do admin em cada conta. */
+var _DB_USER_KEYS = ['rvDividendos','rendaFixa','carteiraMeta',
+  'patrimonioBens','patrimonioSnaps','rvAportes',
   'tokenBrapi','tokenFmp','tokenLogoDev','tokenTwelve',
   'colsVisiveis','colOrdem','g20-theme'];
 
@@ -2800,8 +2804,23 @@ function _dbInit(uid, callback){
   _db_ref = firebase.firestore().collection('users').doc(uid).collection('dados');
   // Busca do servidor — Firestore sobrescreve localStorage com dados da nuvem
   _db_ref.get({ source: 'server' }).then(function(snap){
+    var _pend = _gpPendLer();
     snap.forEach(function(doc){
-      var val = doc.data().value;
+      var dd = doc.data() || {};
+      var val = dd.value;
+      if(_pend[doc.id]){
+        // Alteração deste aparelho que não chegou à nuvem. Só a nuvem vence se for
+        // MAIS NOVA que a pendência (gravada depois, em outro aparelho).
+        var nuvemEm = (dd.updatedAt && dd.updatedAt.toMillis) ? dd.updatedAt.toMillis() : 0;
+        var localRaw = null; try { localRaw = localStorage.getItem('g20_'+doc.id); } catch(e){}
+        if(localRaw !== null && nuvemEm < _pend[doc.id]){
+          try { _db_cache[doc.id] = JSON.parse(localRaw); } catch(e){ _db_cache[doc.id] = val; }
+          console.warn('[G20 sync] ' + doc.id + ': enviando a versão deste aparelho, que não tinha chegado à nuvem.');
+          _gpNuvemSet(doc.id, _db_cache[doc.id]);
+          return;
+        }
+        _gpPendMarcar(doc.id, false);
+      }
       _db_cache[doc.id] = val;
       try{ localStorage.setItem('g20_'+doc.id, JSON.stringify(val)); }catch(e){}
     });
@@ -2847,17 +2866,80 @@ function loadData(k, defaultVal){
 }
 
 // saveData — local imediato + Firestore com debounce
+/* ═══════════════════════════════════════════════════════════════════════
+   GRAVAÇÃO NA NUVEM SEM PERDA (lançamento 01/10)
+
+   1) Falha deixava de ser silenciosa: o aluno é avisado e a chave fica marcada
+      como PENDENTE neste aparelho (g20_sync_pendente_{uid}).
+   2) Na próxima abertura, chave pendente NÃO é sobrescrita pela nuvem antiga:
+      sobe o que está aqui. Exceção: se a nuvem foi gravada depois (outro
+      aparelho), a nuvem vence.
+   3) Ao esconder/fechar a página e ao sair, o que estava esperando os 0,8 s é
+      enviado na hora.
+   ═══════════════════════════════════════════════════════════════════════ */
+var _db_pending_vals = {};
+var _db_inflight = [];
+function _gpPendKey(){ return 'g20_sync_pendente_' + (_db_uid || 'x'); }
+function _gpPendLer(){ try { return JSON.parse(localStorage.getItem(_gpPendKey()) || '{}') || {}; } catch(e){ return {}; } }
+function _gpPendMarcar(k, on){
+  try {
+    var m = _gpPendLer();
+    if(on) m[k] = Date.now(); else delete m[k];
+    if(Object.keys(m).length) localStorage.setItem(_gpPendKey(), JSON.stringify(m));
+    else localStorage.removeItem(_gpPendKey());
+  } catch(e){}
+}
+var _gpAvisoFalhaEm = 0;
+function _gpAvisarFalha(){
+  if(Date.now() - _gpAvisoFalhaEm < 15000) return;   // um aviso por vez
+  _gpAvisoFalhaEm = Date.now();
+  try { showToast('⚠️ Sem conexão com a nuvem: a alteração ficou salva neste aparelho e será enviada assim que possível. Não saia da conta agora.', '#e63946'); } catch(e){}
+}
+function _gpNuvemSet(k, v){
+  if(!_db_ref) return Promise.resolve(false);
+  _gpPendMarcar(k, true);
+  var pr = _db_ref.doc(k).set({
+    value: v,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  }).then(function(){
+    _gpPendMarcar(k, false);
+    return true;
+  }).catch(function(e){
+    console.warn('G20 DB save ['+k+']:', e);
+    _gpAvisarFalha();
+    // nova tentativa em 20 s com o valor mais recente
+    setTimeout(function(){ if(_gpPendLer()[k]) _gpNuvemSet(k, loadData(k, v)); }, 20000);
+    return false;
+  });
+  _db_inflight.push(pr);
+  pr.then(function(){ _db_inflight = _db_inflight.filter(function(x){ return x !== pr; }); });
+  return pr;
+}
+/* Envia na hora tudo que estava esperando o debounce. Devolve Promise. */
+function _gpFlushNuvem(){
+  Object.keys(_db_pending_saves).forEach(function(k){
+    clearTimeout(_db_pending_saves[k]); delete _db_pending_saves[k];
+    if(_db_pending_vals.hasOwnProperty(k)){ _gpNuvemSet(k, _db_pending_vals[k]); delete _db_pending_vals[k]; }
+  });
+  return Promise.all(_db_inflight.slice());
+}
+window._gpFlushNuvem = _gpFlushNuvem;
+try {
+  document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'hidden') _gpFlushNuvem(); });
+  window.addEventListener('pagehide', function(){ _gpFlushNuvem(); });
+} catch(e){}
+
 function saveData(k, v){
   _db_cache[k] = v;
   try{ localStorage.setItem('g20_'+k, JSON.stringify(v)); }catch(e){}
   if(!_dbIsUserKey(k) || !_db_ref) return;
   if(_db_pending_saves[k]) clearTimeout(_db_pending_saves[k]);
+  _db_pending_vals[k] = v;
+  _gpPendMarcar(k, true);   // pendente desde já: se a aba fechar antes dos 0,8 s, não se perde
   _db_pending_saves[k] = setTimeout(function(){
-    _db_ref.doc(k).set({
-      value: v,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }).catch(function(e){ console.warn('G20 DB save ['+k+']:', e); });
     delete _db_pending_saves[k];
+    var val = _db_pending_vals[k]; delete _db_pending_vals[k];
+    _gpNuvemSet(k, val);
   }, 800);
 }
 // ═══════════════════════════════════════════════════════════
@@ -2868,10 +2950,7 @@ function _rvForcarSaveFirestore(){
   return new Promise(function(resolve, reject){
     if(!_db_ref){ resolve(); return; }
     var dados = loadProventos();
-    _db_ref.doc('rvDividendos').set({
-      value: dados,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }).then(resolve).catch(reject);
+    _gpNuvemSet('rvDividendos', dados).then(function(ok){ ok ? resolve() : reject(new Error('falha ao salvar')); });
   });
 }
 
@@ -5721,7 +5800,7 @@ function renderEvolucaoChart(meses){
 
   // Tickers únicos de RV — só busca histórico dos que têm aporte
   var posMap = {};
-  rvAportes.sort(function(a,b){ return a.data.localeCompare(b.data); }).forEach(function(a){
+  (rvAportes = rvAportes.slice().sort(function(a,b){ return a.data.localeCompare(b.data); })).forEach(function(a){
     if(!posMap[a.ticker]) posMap[a.ticker]={ticker:a.ticker,tipo:a.tipo||'Acao'};
   });
   var tickers       = Object.values(posMap);
@@ -6229,7 +6308,7 @@ function renderEvolucaoChart2(meses){
 
   // Tickers únicos
   var posMap={};
-  rvAportes.sort(function(a,b){return a.data.localeCompare(b.data);}).forEach(function(a){
+  (rvAportes = rvAportes.slice().sort(function(a,b){return a.data.localeCompare(b.data);})).forEach(function(a){
     if(!posMap[a.ticker]) posMap[a.ticker]={ticker:a.ticker,tipo:a.tipo||'Acao'};
   });
   var tickers=Object.values(posMap);
@@ -7013,9 +7092,12 @@ function rvPrecoUSD(a){
 //                 (BR: igual ao totalInv | US/Cripto: totalInvUSD x câmbio atual)
 //                 Dividido pelo câmbio atual, volta exatamente ao custo em US$.
 function calcRVPosicoes(){
-  var aportes = loadRVAportes();
+  /* Lançamento 01/10: ordena uma CÓPIA. O sort direto reordenava a lista guardada,
+     e os botões editar/excluir apontam para a posição na lista: depois de uma
+     reordenação, podiam agir sobre outra transação. */
+  var aportes = loadRVAportes().slice();
   var pos = {};
-  aportes.sort(function(a,b){ return a.data.localeCompare(b.data); }).forEach(function(a){
+  aportes.sort(function(a,b){ return String(a.data||'').localeCompare(String(b.data||'')); }).forEach(function(a){
     if(!pos[a.ticker]) pos[a.ticker]={ticker:a.ticker,tipo:a.tipo,qtd:0,totalInv:0,totalInvUSD:0};
     var p = pos[a.ticker];
     var preco = a.moeda==='USD' ? a.preco*(a.fxRate||rvUsdBRL) : a.preco;
@@ -8074,6 +8156,7 @@ function fecharDrawerRV(silent){
 }
 // Abre o modal em modo edição com a transação específica (equivalente ao editarAporte da Carteira G20)
 function editarTransacaoRV(idx){
+  try { if(typeof _mcPtaxCarregar === 'function') _mcPtaxCarregar(); } catch(e){}
   var aportes = loadRVAportes();
   var a = aportes[idx]; if(!a){ showToast('Transação não encontrada','#e63946'); return; }
   fecharDrawerRV();
@@ -9341,6 +9424,7 @@ function navegarAutocomplete(e){
 
 // ── ABRIR / SALVAR ────────────────────────────────────────────
 function abrirModalAporte(ticker){
+  try { if(typeof _mcPtaxCarregar === 'function') _mcPtaxCarregar(); } catch(e){}
   var modal = document.getElementById('modalAporte');
   if(!modal){ showToast('Modal não encontrado no HTML','#e63946'); return; }
   // BULLETPROOF: força display:flex inline + classe .show.
@@ -9394,6 +9478,19 @@ function abrirModalAporte(ticker){
   }
 }
 
+/* Câmbio da DATA da operação (lançamento 01/10). Antes toda compra em dólar
+   gravava o dólar de HOJE, em qualquer data: uma compra de 2021 ficava com o
+   custo em reais errado, e a rentabilidade em reais também. Hoje e ontem usam a
+   cotação ao vivo; datas anteriores, o fechamento do dia (com recuo para fim de
+   semana e feriado). Sem a série carregada, cai no dólar de hoje. */
+function _aplFxNaData(data, rateHoje){
+  try {
+    var ontem = new Date(Date.now() - 3*3600*1000 - 86400000).toISOString().slice(0,10);
+    if(!data || data >= ontem) return rateHoje;
+    var fx = (typeof _mcDolarNaData === 'function') ? _mcDolarNaData(data) : 0;
+    return fx > 0 ? fx : rateHoje;
+  } catch(e){ return rateHoje; }
+}
 function aplSalvar(){
   var aportes = loadData('rvAportes', []);
   var novos=[], erros=[];
@@ -9420,7 +9517,7 @@ function aplSalvar(){
       id:Date.now().toString()+Math.random().toString(36).substr(2,4),
       ticker:t0, tipo:tp0, op:op0, data:d0, qtd:q0, preco:p0,
       moeda: isUS0?m0:'BRL',
-      fxRate: isUS0 && m0==='USD' ? rate : 1,
+      fxRate: isUS0 && m0==='USD' ? _aplFxNaData(d0, rate) : 1,
       obs:''
     });
   }
@@ -9446,7 +9543,7 @@ function aplSalvar(){
       id:Date.now().toString()+Math.random().toString(36).substr(2,4),
       ticker:t, tipo:tp, op:op, data:d, qtd:q, preco:p,
       moeda: isUS?m:'BRL',
-      fxRate: isUS && m==='USD' ? rate : 1,
+      fxRate: isUS && m==='USD' ? _aplFxNaData(d, rate) : 1,
       obs:''
     });
   });
@@ -9456,22 +9553,66 @@ function aplSalvar(){
 
   // Edit mode: single row
   var editId=document.getElementById('aporte_editId').value;
-  if(editId&&novos.length===1){
+  var _editando = !!(editId && novos.length===1);
+  var _idxEdit = _editando ? aportes.findIndex(function(a){return a.id===editId;}) : -1;
+
+  /* EDIÇÃO PRESERVA O HISTÓRICO DO REGISTRO (lançamento 01/10)
+     Antes a edição trocava o registro inteiro por um novo e perdia as marcas
+     internas: _splits_ajustados/ajustadoAte (a quantidade mostrada JÁ está
+     ajustada; sem a marca, o próximo desdobramento era aplicado DE NOVO e a
+     quantidade multiplicava), bonificacao, idSI (sem ele, reimportar o Status
+     Invest duplicava) e corretora. Também mantém o câmbio original quando a
+     data e a moeda não mudaram. */
+  if(_editando && _idxEdit >= 0){
+    var _ant = aportes[_idxEdit], _nv = novos[0];
+    var _mesmoAtivo = String(_ant.ticker||'').toUpperCase() === String(_nv.ticker||'').toUpperCase();
+    Object.keys(_ant).forEach(function(k){
+      if(_nv.hasOwnProperty(k)) return;
+      if(!_mesmoAtivo && (k === '_splits_ajustados' || k === 'ajustadoAte')) return;
+      _nv[k] = _ant[k];
+    });
+    if(_mesmoAtivo && _ant.data === _nv.data && _ant.moeda === _nv.moeda && _ant.fxRate > 0) _nv.fxRate = _ant.fxRate;
+    if(_ant.obs && !_nv.obs) _nv.obs = _ant.obs;
+  }
+
+  /* VENDA ACIMA DA POSIÇÃO (lançamento 01/10)
+     Uma venda maior que a quantidade que o aluno tinha naquela data (ou lançada
+     com data anterior à compra) deixava a posição negativa e distorcia o preço
+     médio das compras seguintes. Agora é recusada com a explicação. */
+  var _simul = aportes.filter(function(a, i){ return !(_editando && i === _idxEdit); }).concat(novos);
+  var _tks = {};
+  novos.forEach(function(n){ if(n.op === 'V') _tks[n.ticker] = true; });
+  // Edição de compra também pode deixar uma venda posterior sem lastro
+  if(_editando){ _tks[novos[0].ticker] = true; if(_idxEdit >= 0 && aportes[_idxEdit]) _tks[aportes[_idxEdit].ticker] = true; }
+  var _errVenda = null;
+  Object.keys(_tks).forEach(function(tk){
+    if(_errVenda) return;
+    var q = 0;
+    _simul.filter(function(a){ return a.ticker === tk; })
+      .sort(function(a,b){ var c = String(a.data).localeCompare(String(b.data)); return c !== 0 ? c : ((a.op==='V') - (b.op==='V')); })
+      .forEach(function(a){
+        if(_errVenda) return;
+        q += (a.op === 'V' ? -1 : 1) * (parseFloat(a.qtd) || 0);
+        if(q < -1e-6){
+          var tinha = q + (parseFloat(a.qtd) || 0);
+          _errVenda = 'Venda de ' + (parseFloat(a.qtd)||0).toLocaleString('pt-BR') + ' ' + tk + ' em ' +
+                      String(a.data).split('-').reverse().join('/') + ': nessa data você tinha ' +
+                      Math.max(0, tinha).toLocaleString('pt-BR', {maximumFractionDigits:8}) + '. Confira a data e a quantidade.';
+        }
+      });
+  });
+  if(_errVenda){ showToast('⚠️ ' + _errVenda, '#e63946'); return; }
+
+  if(_editando){
     novos[0].id=editId;
-    var idx=aportes.findIndex(function(a){return a.id===editId;});
-    if(idx>=0) aportes[idx]=novos[0]; else aportes.push(novos[0]);
+    if(_idxEdit>=0) aportes[_idxEdit]=novos[0]; else aportes.push(novos[0]);
   } else {
     novos.forEach(function(n){ aportes.push(n); });
   }
 
   _db_cache['rvAportes']=aportes;
   try{localStorage.setItem('g20_rvAportes',JSON.stringify(aportes));}catch(e){}
-  if(typeof _db_ref!=='undefined' && _db_ref){
-    _db_ref.doc('rvAportes').set({
-      value:aportes,
-      updatedAt:firebase.firestore.FieldValue.serverTimestamp()
-    }).catch(function(e){console.warn(e);});
-  }
+  if(typeof _gpNuvemSet === 'function') _gpNuvemSet('rvAportes', aportes);
 
   fecharModal('modalAporte');
   if(typeof renderAll === 'function') renderAll();
@@ -10388,7 +10529,7 @@ function abrirModalProvento(editId){
 }
 
 function _getQtdNaData(ticker, data){
-  var aportes = loadRVAportes();
+  var aportes = loadRVAportes().slice();   // cópia: não reordena a lista guardada
   var pos = 0;
   aportes.sort(function(a,b){ return a.data.localeCompare(b.data); }).forEach(function(a){
     if(a.ticker.toUpperCase() !== ticker.toUpperCase()) return;
@@ -10467,7 +10608,7 @@ function limparProventosInvalidos(){
 function _rvDataPrimeiraCompra(ticker){
   var aportes = loadRVAportes().filter(function(a){ return a.ticker===ticker && a.op==='C'; });
   if(!aportes.length) return null;
-  return aportes.sort(function(a,b){ return a.data.localeCompare(b.data); })[0].data;
+  return aportes.slice().sort(function(a,b){ return a.data.localeCompare(b.data); })[0].data;
 }
 
 function _rvDataProventoMaisRecente(ticker){
@@ -12044,8 +12185,20 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
   window.g20Logout = function() {
     localStorage.removeItem('g20_uid');
     localStorage.removeItem('g20_user_profile');
-    auth.signOut().then(function(){ window.location.href = 'login.html'; })
-        .catch(function(){ window.location.href = 'login.html'; });
+    // Antes de sair, envia à nuvem o que ainda estava esperando (teto de 4 s).
+    var _esperar = Promise.race([
+      (typeof _gpFlushNuvem === 'function' ? _gpFlushNuvem() : Promise.resolve([])),
+      new Promise(function(r){ setTimeout(function(){ r(null); }, 4000); })
+    ]);
+    _esperar.then(function(res){
+      var falhou = Array.isArray(res) && res.some(function(x){ return x === false; });
+      if(res === null || falhou){
+        alert('Atenção: não foi possível confirmar o envio das últimas alterações para a nuvem. ' +
+              'Se você lançou algo agora, entre de novo com internet para conferir.');
+      }
+      auth.signOut().then(function(){ window.location.href = 'login.html'; })
+          .catch(function(){ window.location.href = 'login.html'; });
+    });
   };
 
   // Se não tem uid salvo, redireciona imediatamente
