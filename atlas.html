@@ -2270,6 +2270,9 @@ window._drawnMarkers = []; // [{a, sx, sy, r}]
 /* ══ RAYCASTING + 2D FALLBACK ══ */
 const raycaster=new THREE.Raycaster(),mouse2=new THREE.Vector2();
 container.addEventListener('mousemove',e=>{
+  /* movimento sobre o próprio painel do ativo (ex.: toque em "Ver tese") não é movimento no globo:
+     antes isso escondia o painel antes de o toque chegar ao botão */
+  if(e.target&&e.target.closest&&e.target.closest('#tooltip')) return;
   const rect=container.getBoundingClientRect();
   const mx=e.clientX-rect.left, my=e.clientY-rect.top;
 
@@ -2470,7 +2473,7 @@ function renderAssetListBody(){
         <span class="rg-pct" style="color:${RG_COLORS[rg]}">${_atlasNum(rgTot/total*100,1)}%</span>
         <span class="rg-chevron">▾</span>
       </div>
-      <div class="rg-body ${isCollapsed?'collapsed':''}" style="max-height:${isCollapsed?'0':grp.length*80+'px'}">
+      <div class="rg-body ${isCollapsed?'collapsed':''}" style="max-height:${isCollapsed?'0':'none'}">
         ${items}
       </div>`;
   });
@@ -3521,6 +3524,14 @@ body.atlas-empilhado #gc { flex: none !important; width: 100% !important; height
 body.atlas-empilhado .right-panel { width: 100% !important; border-left: 0 !important; border-top: 1px solid var(--border); overflow: visible !important; }
 body.atlas-empilhado .asset-list { overflow: visible !important; flex: none !important; }
 #atlasTopo { display: none; }
+/* espaço no fim da página para a barra de abas inferior (Início, Aulas, Flix...):
+   sem isso os últimos continentes ficavam por baixo dela e o toque caía na barra */
+@media (max-width: 768px) {
+  body.atlas-empilhado .main { padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)) !important; }
+  body.atlas-compacto:not(.atlas-empilhado) .asset-list { padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)) !important; }
+}
+/* cabeçalho do continente: área de toque confortável */
+body.atlas-compacto .rg-head { min-height: 48px; display: flex; align-items: center; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 /* SEM BALANÇO LATERAL NO CELULAR (set/2026): a página só rola na vertical.
    O iPhone deixava arrastar a página de lado porque a trava estava só no body.
    Faixas que rolam de lado (filtros) continuam funcionando: são áreas de rolagem
@@ -3648,7 +3659,9 @@ body.atlas-compacto #atlasBtnOpcoes { display: flex; position: absolute; top: 8p
 /* informações do ativo: painel de baixo para cima */
 .tt-acoes-mob { display: none; }
 body.atlas-compacto #tooltip { position: fixed !important; left: 8px !important; right: 8px !important; top: auto !important;
-  bottom: calc(8px + env(safe-area-inset-bottom,0px)) !important; width: auto !important; max-height: 72svh; overflow: auto; pointer-events: auto !important; z-index: 9400 !important; padding: 18px !important; }
+  bottom: calc(8px + env(safe-area-inset-bottom,0px)) !important; width: auto !important; max-height: 72svh; overflow: auto; pointer-events: none !important; visibility: hidden; z-index: 9400 !important; padding: 18px !important; }
+/* só recebe toques quando está aberto (fechado e transparente, ele engolia os toques da lista) */
+body.atlas-compacto #tooltip.show { pointer-events: auto !important; visibility: visible; }
 body.atlas-compacto #tooltip .tt-click-hint { display: none !important; }
 body.atlas-compacto .tt-acoes-mob { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 14px; }
 .tt-acoes-mob button { min-height: 44px; border-radius: 10px; font: 700 14px 'DM Sans', sans-serif; cursor: pointer; }
@@ -3792,7 +3805,14 @@ body.atlas-compacto .share-card { width: calc(100% - 24px) !important; }
     var acoes = document.createElement('div'); acoes.className = 'tt-acoes-mob';
     acoes.innerHTML = '<button type="button" class="tt-ver">Ver tese ›</button><button type="button" class="tt-fechar">Fechar</button>';
     tt.appendChild(acoes);
-    acoes.querySelector('.tt-ver').onclick = function(){ tt.classList.remove('show'); try { hoveredAsset = null; } catch(e){} try { if (window._ttAsset && typeof openTese === 'function') openTese(window._ttAsset); } catch(e){} };
+    /* o toque não pode continuar subindo pela página: o código que fecha a tese
+       ao tocar fora dela a fechava no mesmo instante */
+    acoes.querySelector('.tt-ver').onclick = function(e){
+      if (e) { e.stopPropagation(); e.preventDefault(); }
+      var alvo = window._ttAsset;
+      tt.classList.remove('show'); try { hoveredAsset = null; } catch(err){}
+      setTimeout(function(){ try { if (alvo && typeof openTese === 'function') openTese(alvo); } catch(err){} }, 0);
+    };
     acoes.querySelector('.tt-fechar').onclick = function(){ tt.classList.remove('show'); try { hoveredAsset = null; } catch(e){} };
   }
 
