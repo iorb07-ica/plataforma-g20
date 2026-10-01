@@ -241,6 +241,13 @@ body{
 }
 .login-footer strong{color:var(--gold)}
 </style>
+<style id="g20-ios-zoom-fix">
+/* Lançamento 01/10: no iPhone, campo com fonte menor que 16px dá zoom ao tocar
+   e a tela de login "pula". 16px só em telas de toque, desktop inalterado. */
+@media (max-width: 820px), (pointer: coarse) {
+  input:not([type=checkbox]):not([type=radio]), select, textarea { font-size: 16px !important; }
+}
+</style>
 </head>
 <body>
 
@@ -461,6 +468,51 @@ async function checkApprovalAndRedirect(user) {
        'rvDividendos','aportes','cotacoesCache','splits_cache','bonificacoes_cache']
         .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
       localStorage.setItem('g20_dados_owner', user.uid);
+    } catch(e){}
+
+    // TROCA DE CONTA NO MESMO APARELHO (lançamento 01/10)
+    // A lista acima não alcança backups, preços por ticker, cache de cotações da
+    // carteira anterior, histórico da Gestão Financeira nem o IndexedDB (onde moram
+    // a série e os snapshots). Como gravamos o dono novo logo acima, a barreira do
+    // dashboard não dispara mais. Então, se quem entra NÃO é quem entrou por último
+    // neste aparelho, a limpeza é total aqui mesmo.
+    try {
+      var _ultimo = localStorage.getItem('g20_ult_login_uid');
+      if (_ultimo !== user.uid) {
+        Object.keys(localStorage).forEach(function(k){
+          if (k.indexOf('g20_backup_') === 0 || k.indexOf('g20_histpx_') === 0) {
+            try { localStorage.removeItem(k); } catch(e){}
+          }
+        });
+        ['g20_precos','g20_dashRVCot_cache','g20_ultCot','g20_serieReal','g20_patrimonioSnaps',
+         'g20_cg20Aportes','g20_cg20Dividendos','g20_cg20Splits','g20_cg20Meta',
+         'g20_desc_history','g20_templates','g20_profiles_v2','g20_active_profile',
+         'g20_auth_state_v2','g20_gameSnap','g20_evc_semcot','g20_evc_dispensados',
+         'g20_metaIF_anual','g20_patSparkRange','g20_perfil_ok','g20_patHidden']
+          .forEach(function(k){ try { localStorage.removeItem(k); } catch(e){} });
+        try { sessionStorage.clear(); } catch(e){}
+        // IndexedDB do G20Store: apaga tudo (é reconstruído a partir do Firestore)
+        await new Promise(function(resolve){
+          try {
+            if (!window.indexedDB) return resolve();
+            var t = setTimeout(resolve, 1500);           // nunca trava o login
+            var req = indexedDB.open('g20-store', 1);
+            req.onupgradeneeded = function(){ try { req.result.createObjectStore('kv'); } catch(e){} };
+            req.onsuccess = function(){
+              try {
+                var db = req.result;
+                if (!db.objectStoreNames.contains('kv')) { db.close(); clearTimeout(t); return resolve(); }
+                var tx = db.transaction('kv', 'readwrite');
+                tx.objectStore('kv').clear();
+                tx.oncomplete = function(){ db.close(); clearTimeout(t); resolve(); };
+                tx.onerror = function(){ db.close(); clearTimeout(t); resolve(); };
+              } catch(e){ clearTimeout(t); resolve(); }
+            };
+            req.onerror = function(){ clearTimeout(t); resolve(); };
+          } catch(e){ resolve(); }
+        });
+      }
+      localStorage.setItem('g20_ult_login_uid', user.uid);
     } catch(e){}
 
     var isAdminEmail = ADMIN_EMAILS.indexOf(user.email) !== -1;
@@ -923,6 +975,20 @@ async function cadastrarEmail() {
 
   function dispensadoAgora(){ try{ var t=parseInt(localStorage.getItem(KEY)||'0',10); return t>Date.now(); }catch(e){ return false; } }
   function marcarDispensado(dias){ try{ localStorage.setItem(KEY, String(Date.now()+dias*864e5)); }catch(e){} }
+
+  /* Lançamento 01/10: em telas baixas (iPhone SE, 360x740) o convite cobria o
+     botão Entrar. Enquanto ele estiver aberto, a página ganha espaço embaixo
+     para o formulário rolar acima dele. Observa só a classe deste elemento. */
+  try {
+    var _padOrig = document.body.style.paddingBottom || '';
+    new MutationObserver(function(){
+      if (el.classList.contains('on')) {
+        document.body.style.paddingBottom = (el.offsetHeight + 40) + 'px';
+      } else {
+        document.body.style.paddingBottom = _padOrig;
+      }
+    }).observe(el, { attributes: true, attributeFilter: ['class'] });
+  } catch(e){}
 
   window.pwaFechar=function(){ el.classList.remove('on'); marcarDispensado(14); };
 

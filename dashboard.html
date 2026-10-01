@@ -21,7 +21,7 @@
 <link rel="stylesheet" href="assets/g20-search.css?v=10">
 <link rel="stylesheet" href="assets/g20-topbar-v21.css?v=15">
 <script src="assets/g20-store.js?v=1"></script>
-<script src="assets/g20-notifications.js?v=10"></script>
+<script src="assets/g20-notifications.js?v=11"></script>
 <script>
 
 /* IMPORTACAO AUTOMATICA PROVENTOS GESTAO PATRIMONIAL */
@@ -2058,7 +2058,7 @@ body.pat-hidden .v21-change-extra::after{
   <script src="assets/tradingview-logos.js"></script>
 
 <!-- G20 Dashboard v21 — recursos injetados (Etapa 1A) Lucide icons, Chart.js e Insights Engine disponíveis Nenhum efeito visual ainda — apenas recursos carregados -->
-<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script src="https://unpkg.com/lucide@1.49.0/dist/umd/lucide.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="assets/insights-engine.js?v=1"></script>
 <script src="assets/frases-diarias.js?v=1"></script>
@@ -12862,35 +12862,50 @@ window.g20Logout = function() {
      'perfil_ok','user_tipo','admin']
       .forEach(function(k){ try { localStorage.removeItem('g20_'+k); } catch(e){} });
     Object.keys(localStorage).forEach(function(k){
-      if (k.indexOf('g20_histpx_') === 0 || k.indexOf('g20_backup_') === 0 ||
-          k.indexOf('g20_fin_')    === 0) {
+      /* g20_fin_* NÃO entra: é a Gestão Financeira, já separada por uid, e pode
+         conter lançamento que ainda não subiu para a nuvem. Apagar = perder dado. */
+      if (k.indexOf('g20_histpx_') === 0 || k.indexOf('g20_backup_') === 0) {
         localStorage.removeItem(k);
       }
     });
+    ['g20_desc_history','g20_templates','g20_profiles_v2','g20_active_profile',
+     'g20_auth_state_v2','g20_gameSnap','g20_evc_semcot','g20_evc_dispensados',
+     'g20_metaIF_anual','g20_patSparkRange'].forEach(function(k){
+      try { localStorage.removeItem(k); } catch(e){}
+    });
   } catch(e){}
   try { sessionStorage.removeItem('g20_tourDemo'); } catch(e){}
-  try {
-    if (window.G20Store) {
-      G20Store.del('g20_serieReal');
-      G20Store.del('g20_patSnapshots');
-      if (G20Store.list) {
-        G20Store.list('g20_histpx_').then(function(r){
-          ((r && r.keys) || []).forEach(function(k){ G20Store.del(k); });
-        }).catch(function(){});
-        G20Store.list('g20_backup_').then(function(r){
-          ((r && r.keys) || []).forEach(function(k){ G20Store.del(k); });
-        }).catch(function(){});
-      }
-    }
-  } catch(e){}
+  /* IndexedDB (lançamento 01/10): o G20Store publicado NÃO tem list(), então
+     backups e preços por ticker nunca eram apagados ao sair. Agora o banco
+     g20-store é esvaziado inteiro (tudo nele é reconstruído do Firestore) e a
+     navegação espera a limpeza terminar, com teto de 1,5 s. */
+  var _limpezaIDB = new Promise(function(resolve){
+    try {
+      if (!window.indexedDB) return resolve();
+      var t = setTimeout(resolve, 1500);
+      var req = indexedDB.open('g20-store', 1);
+      req.onupgradeneeded = function(){ try { req.result.createObjectStore('kv'); } catch(e){} };
+      req.onsuccess = function(){
+        try {
+          var db = req.result;
+          if (!db.objectStoreNames.contains('kv')) { db.close(); clearTimeout(t); return resolve(); }
+          var tx = db.transaction('kv', 'readwrite');
+          tx.objectStore('kv').clear();
+          tx.oncomplete = function(){ db.close(); clearTimeout(t); resolve(); };
+          tx.onerror = function(){ db.close(); clearTimeout(t); resolve(); };
+        } catch(e){ clearTimeout(t); resolve(); }
+      };
+      req.onerror = function(){ clearTimeout(t); resolve(); };
+    } catch(e){ resolve(); }
+  });
+  try { window._g20SnapMem = null; window._g20DivsMem = null; } catch(e){}
+  try { if (window.G20GF && G20GF.limpar) G20GF.limpar(); } catch(e){}
 
+  function _irLogin(){ _limpezaIDB.then(function(){ window.location.href = 'login.html'; }); }
   if (_fbAuth) {
-    // Pequena folga para o IndexedDB concluir antes da navegação.
-    _fbAuth.signOut().then(function(){
-      setTimeout(function(){ window.location.href = 'login.html'; }, 150);
-    }).catch(function(){ window.location.href = 'login.html'; });
+    _fbAuth.signOut().then(_irLogin).catch(_irLogin);
   } else {
-    setTimeout(function(){ window.location.href = 'login.html'; }, 150);
+    _irLogin();
   }
 };
 
@@ -12932,12 +12947,17 @@ window.g20Logout = function() {
 
   _fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function(){});
 
-  window.g20Logout = function() {
-    localStorage.removeItem('g20_uid');
-    localStorage.removeItem('g20_user_profile');
-    _fbAuth.signOut().then(function(){ window.location.href = 'login.html'; })
-        .catch(function(){ window.location.href = 'login.html'; });
-  };
+  /* Lançamento 01/10: esta versão simples SOBRESCREVIA o logout completo (R51,
+     definido acima), e sair pelo dashboard deixava o patrimônio no IndexedDB.
+     Agora só é usada se o completo não existir. */
+  if (typeof window.g20Logout !== 'function') {
+    window.g20Logout = function() {
+      localStorage.removeItem('g20_uid');
+      localStorage.removeItem('g20_user_profile');
+      _fbAuth.signOut().then(function(){ window.location.href = 'login.html'; })
+          .catch(function(){ window.location.href = 'login.html'; });
+    };
+  }
 
   // Redireciona imediatamente se n o tem sess o salva
   var savedUid = localStorage.getItem('g20_uid');
@@ -13154,7 +13174,7 @@ window.g20Logout = function() {
       // PERFIL OBRIGATÓRIO: aluno (não-admin) sem perfil completo é levado a completá-lo
       // antes de acessar o dashboard. O overlay fica ativo durante o redirect (sem flash).
       var _dg = doc.data();
-      var _isAdminDash = (_dg.role === 'admin') || (_dg.profile && _dg.profile.role === 'admin');
+      var _isAdminDash = (_dg.role === 'admin');
       if (!_isAdminDash && _dg.perfilCompleto !== true) {
         window.location.href = 'perfil.html';
         return;
@@ -13178,7 +13198,9 @@ window.g20Logout = function() {
          cache só serve de reserva, e só se disser alguma coisa.
          ═══════════════════════════════════════════════════════════════════ */
       var turma = data.turma || (data.perfil && data.perfil.turma) || profile.turma || '';
-      var role     = profile.role  || data.role   || 'Membro';
+      /* Papel SEMPRE do campo raiz do Firestore (o mesmo que as regras e o proxy usam).
+         profile.role podia vir de um campo que o próprio aluno grava. */
+      var role     = (data.role === 'admin') ? 'admin' : (data.role || 'Membro');
       var photo    = (data.perfil && data.perfil.foto) || profile.photo || user.photoURL || '';
       var initials = name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase() || '';
       var turmaLabel = (role === 'admin') ? 'Admin' : (turma || 'Membro');
@@ -13197,10 +13219,8 @@ window.g20Logout = function() {
       });
       // Painel de admin: mostra JÁ no primeiro acesso, assim que o perfil chega do
       // Firestore — não depende mais do cache (vazio no 1º login) nem de F5.
-      if (role === 'admin') {
-        var _apWrap = document.getElementById('adminPainelWrap');
-        if (_apWrap) _apWrap.style.display = 'block';
-      }
+      var _apWrap = document.getElementById('adminPainelWrap');
+      if (_apWrap) _apWrap.style.display = (role === 'admin') ? 'block' : 'none';
       var avatarEl = document.getElementById('sidebarAvatar');
       if(avatarEl && photo){
         avatarEl.innerHTML = '<img src="'+photo+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display=&quot;none&quot;">';
@@ -13312,6 +13332,7 @@ window.g20Logout = function() {
           try { localStorage.setItem('g20_dados_owner', user.uid); } catch(e){}
           // Dados do usuário confirmado já estão no localStorage: libera os painéis.
           window._g20DadosProntos = true;
+          window._g20FirestoreOk = true;   // veio do servidor (não do atalho de 8 s)
 
           /* R51: redesenha TUDO agora. Os cards que foram bloqueados no boot
              pela trava de identidade ficariam vazios para sempre se ninguém
@@ -14723,7 +14744,25 @@ window.G20DiagRF = function(dias){
     try {
       var snap = [];
       try { snap = (window._patSnapLoad ? _patSnapLoad() : JSON.parse(localStorage.getItem('g20_patSnapshots') || '[]')); } catch(e){}
-      if (snap.length === 0) return;
+      if (snap.length === 0) {
+        /* Conta nova (lançamento 01/10): sem aporte, renda fixa ou bem, o card
+           ficava em "aguardando dados..." para sempre. Só mostramos o estado
+           vazio depois que o FIRESTORE respondeu, para nunca exibir R$ 0 a quem
+           tem carteira e só está com a rede lenta. */
+        if (window._g20FirestoreOk === true) {
+          var _temAlgo = false;
+          ['g20_rvAportes','g20_rendaFixa','g20_patrimonioBens'].forEach(function(k){
+            try { var a = JSON.parse(localStorage.getItem(k) || '[]'); if (Array.isArray(a) && a.length) _temAlgo = true; } catch(e){}
+          });
+          if (!_temAlgo) {
+            var _gv = getEl('v21-gp-value'); if (_gv) _gv.textContent = 'R$ 0,00';
+            var _gc = getEl('v21-gp-change');
+            if (_gc) _gc.innerHTML = '<a href="gestao-patrimonial.html" class="v21-change-extra" ' +
+              'style="color:#c9a961;text-decoration:none;font-weight:700">Lance seu primeiro investimento →</a>';
+          }
+        }
+        return;
+      }
 
       var modo = v21GpMode();
       var bens = _gpBensLiquidos();   // offset constante, só usado no modo 'total'
@@ -22702,7 +22741,10 @@ window.G20GF = (function(){
   function calcular(){
     _dados = null;
     var esc = _perfilEscolhido();
-    if (!esc) return null;
+    /* Aluno que nunca abriu a Gestão Financeira não tem nenhum documento
+       financeiro_*: antes devolvia null e o card ficava em "Carregando…" para
+       sempre. Agora cai no estado vazio, com o botão "Começar agora". */
+    if (!esc) { _dados = { vazio: true, perfil: 'Pessoal', totalPerfis: (_perfis||[]).length }; return _dados; }
 
     var conteudo = _brutos[esc.doc];
     var txs = (conteudo && Array.isArray(conteudo.transactions)) ? conteudo.transactions : [];

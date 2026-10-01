@@ -15,16 +15,16 @@
 <title>Minha Carteira — G20 Masterclass</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/g20-topbar.css?v=10">
-<script src="assets/g20-notifications.js?v=10"></script>
+<script src="assets/g20-notifications.js?v=11"></script>
 <link rel="stylesheet" href="assets/g20-sidebar.css?v=10">
 <link rel="stylesheet" href="assets/g20-scrollbar.css?v=10">
 <link rel="stylesheet" href="assets/g20-search.css?v=10">
 <link rel="stylesheet" href="assets/g20-topbar-v21.css?v=15">
-<script src="assets/g20-sidebar.js?v=11"></script>
+<script src="assets/g20-sidebar.js?v=13"></script>
 <script src="assets/g20-rf.js?v=1"></script>
 <script src="assets/g20-search.js?v=10"></script>
 <script src="assets/b3-classificacao.js?v=1"></script>
-<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<script src="https://unpkg.com/lucide@1.49.0/dist/umd/lucide.js"></script>
 <style>
 :root{
   --bg:#1a191e;--bg2:#1f1e22;--bg3:#15141a;--bg-deep:#15141a;
@@ -7029,7 +7029,16 @@ function calcRVPosicoes(){
 // ── COTAÇÕES ─────────────────────────────────────────────────
 // ── Botão de cotações: exclusivo do admin + cooldown de 1 min no clique manual ──
 // Aluno usa o auto-refresh (no load + a cada 15 min). Só o clique manual tem cooldown.
-function _gpIsAdmin(){ try{ return JSON.parse(localStorage.getItem('g20_user_profile')||'{}').role === 'admin'; }catch(e){ return false; } }
+function _g20AdminConfirmado(){
+  /* Admin confirmado no Firestore: o auth-guard lê users/{uid}.role e grava
+     g20_guard_{uid} = 'admin' nesta sessão. Amarrado ao uid logado agora. */
+  try {
+    var u = (window.firebase && firebase.auth) ? firebase.auth().currentUser : null;
+    if (!u) return false;
+    return sessionStorage.getItem('g20_guard_' + u.uid) === 'admin';
+  } catch(e) { return false; }
+}
+function _gpIsAdmin(){ return _g20AdminConfirmado(); }
 var _rvCotCooldownUntil = 0;
 function atualizarCotacoesRVManual(){
   if(Date.now() < _rvCotCooldownUntil) return;   // ainda dentro do 1 min
@@ -8310,8 +8319,15 @@ function bindValorInput(id){
     // Botão manual de atualizar é EXCLUSIVO do admin. Pro aluno, é removido do DOM
     // (não fica escondido — some de vez), então nenhum CSS ou código futuro pode revelá-lo.
     try{
-      var _rvB = document.getElementById('rvBtnAtualizar');
-      if(_rvB){ if(_gpIsAdmin()) _rvB.style.display=''; else _rvB.remove(); }
+      // Espera a confirmação de admin (auth-guard/Firestore) antes de decidir.
+      (function _gpBtnAdmin(t){
+        var _rvB = document.getElementById('rvBtnAtualizar');
+        if(!_rvB) return;
+        if(_gpIsAdmin()){ _rvB.style.display=''; return; }
+        _rvB.style.display='none';
+        if((t||0) < 20) setTimeout(function(){ _gpBtnAdmin((t||0)+1); }, 500);
+        else _rvB.remove();
+      })(0);
     }catch(e){}
   });
 })();
@@ -13248,9 +13264,7 @@ function rvAplicarOrdemColunas(){
   </div>
 </div>
 <script>
-function g20EhAdmin(){
-  try { var u = JSON.parse(localStorage.getItem('g20_user_profile') || '{}'); return u.role === 'admin'; } catch(e) { return false; }
-}
+function g20EhAdmin(){ return _g20AdminConfirmado(); }
 function g20EmBreve(qual){
   var t = {
     ia: ['Importar com IA: em breve',
