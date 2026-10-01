@@ -10463,6 +10463,56 @@ function _mcPtaxCarregar(){
     })
     .catch(function(){ return _mcPtax; });
 }
+/* ═══════════════════════════════════════════════════════════════════════
+   CORREÇÃO ÚNICA DO CÂMBIO DAS COMPRAS EM DÓLAR (lançamento 01/10)
+
+   Até hoje o lançamento manual gravava o dólar do dia em que o aluno
+   DIGITAVA, não o da data da compra. Ex.: AAPL comprada em mar/2021 (dólar
+   5,61) lançada em set/2026 (dólar 5,30) ficava com custo menor em reais.
+
+   Como identificamos: o id de cada lançamento começa com o instante em que
+   ele foi criado. Se a data da compra é bem anterior a esse instante, e o
+   câmbio gravado bate com o dólar do dia da digitação (e não com o da
+   compra), o câmbio é trocado pelo dólar da data da compra.
+   Importações (Status Invest, plataforma antiga) já usavam o dólar certo e
+   não batem na regra. Roda uma vez por conta, em cada aparelho; num segundo
+   aparelho não acha mais nada para corrigir.
+   ═══════════════════════════════════════════════════════════════════════ */
+function _gpCorrigirCambioAntigo(){
+  var flag = 'g20_fxfix_v1_' + (typeof _db_uid !== 'undefined' && _db_uid ? _db_uid : 'x');
+  try { if(localStorage.getItem(flag)) return; } catch(e){}
+  _mcPtaxCarregar().then(function(){
+    if(!_mcPtax || Object.keys(_mcPtax).length < 200) return;   // série incompleta: tenta outro dia
+    var ap = loadRVAportes(), n = 0, agora = Date.now();
+    ap.forEach(function(a){
+      if(!a || a.moeda !== 'USD' || !a.data || !(a.fxRate > 0)) return;
+      var ts = parseInt(String(a.id || '').slice(0, 13), 10);
+      if(!(ts > 1577836800000 && ts <= agora)) return;               // id sem instante de criação
+      var dReg = new Date(ts - 3 * 3600 * 1000).toISOString().slice(0, 10);
+      if((new Date(dReg) - new Date(a.data)) / 86400000 <= 3) return;  // lançado na época: certo
+      var fxCompra = _mcDolarNaData(a.data);
+      var fxReg = _mcDolarNaData(dReg) || (typeof rvUsdBRL !== 'undefined' ? rvUsdBRL : 0);
+      if(!(fxCompra > 0) || !(fxReg > 0)) return;
+      var bateDigitacao = Math.abs(a.fxRate - fxReg) / fxReg < 0.015;
+      var difereCompra  = Math.abs(a.fxRate - fxCompra) / fxCompra > 0.015;
+      if(bateDigitacao && difereCompra){
+        a._fxAnterior = a.fxRate;
+        a.fxRate = parseFloat(fxCompra.toFixed(4));
+        a._fxCorrigidoEm = new Date().toISOString();
+        n++;
+      }
+    });
+    if(n){
+      saveRVAportes(ap);
+      try { renderAll(); } catch(e){}
+      try { showToast('Ajustamos o câmbio de ' + n + ' compra' + (n > 1 ? 's' : '') + ' em dólar para o dólar da data de cada compra. Custo e rentabilidade em reais agora estão exatos.'); } catch(e){}
+      console.log('[G20 câmbio] ' + n + ' lançamento(s) em dólar ajustado(s) para o câmbio da data da compra.');
+    }
+    try { localStorage.setItem(flag, String(agora)); } catch(e){}
+  }).catch(function(){});
+}
+try { _dbOnReady(function(){ setTimeout(_gpCorrigirCambioAntigo, 5000); }); } catch(e){}
+
 function _mcDolarNaData(data){
   if(!_mcPtax || !data) return 0;
   var d = new Date(String(data).slice(0, 10) + 'T12:00:00');
