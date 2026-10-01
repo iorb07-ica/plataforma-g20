@@ -10791,6 +10791,40 @@ window.loadPatStrip = loadPatStrip;
   var SERIE_KEY    = 'g20_serieReal';
   var SERIE_TTL    = 12 * 60 * 60 * 1000;
 
+  /* ═══════════════════════════════════════════════════════════════════════
+     ASSINATURA DA CARTEIRA (lançamento 01/10)
+
+     A série ficava guardada por 12 h e só era refeita quando um preço era
+     corrigido. Aporte NOVO, edição ou exclusão não refaziam nada: o aluno
+     lançava R$ 27 mil em MSFT na Minha Carteira, voltava ao dashboard e o
+     card mostrava R$ 91 mil contra R$ 118 mil da Minha Carteira, com um
+     "Desempenho" de -R$ 25.942 que nunca aconteceu. (A trava de 15% ainda
+     descartava o valor ao vivo, que estava certo, por discordar da série velha.)
+
+     Agora a série carrega a assinatura dos lançamentos que a geraram. Se os
+     lançamentos mudaram, em qualquer aparelho, ela é descartada e refeita.
+     Os campos são normalizados para a ordem das chaves não importar (o
+     Firestore devolve as chaves em ordem alfabética; a Minha Carteira grava
+     na ordem em que monta o objeto). */
+  function _canon(o){
+    if (o === null || typeof o !== 'object') return JSON.stringify(o);
+    if (Array.isArray(o)) return '[' + o.map(_canon).join(',') + ']';
+    return '{' + Object.keys(o).sort().map(function(k){ return JSON.stringify(k) + ':' + _canon(o[k]); }).join(',') + '}';
+  }
+  function _sigCarteira(rvArr, rfArr){
+    try {
+      var rv = Array.isArray(rvArr) ? rvArr : (JSON.parse(localStorage.getItem('g20_rvAportes') || '[]') || []);
+      var rf = Array.isArray(rfArr) ? rfArr : (JSON.parse(localStorage.getItem('g20_rendaFixa') || '[]') || []);
+      var txt = rv.map(function(a){
+        return a ? [a.ticker, a.op, a.data, +a.qtd || 0, +a.preco || 0, a.moeda || '', +a.fxRate || 0, a.tipo || ''].join('~') : '';
+      }).sort().join('|') + '#' + _canon(rf);
+      var h = 5381;
+      for (var i = 0; i < txt.length; i++) h = ((h << 5) + h + txt.charCodeAt(i)) | 0;
+      return txt.length + ':' + h;
+    } catch (e) { return null; }
+  }
+  try { window.G20RentAssinatura = _sigCarteira; } catch(e){}   // diagnóstico no console
+
   function iso(d) {
     return d.getFullYear() + '-' +
            String(d.getMonth() + 1).padStart(2, '0') + '-' +
@@ -11311,6 +11345,7 @@ window.loadPatStrip = loadPatStrip;
   var API = {
     calcular: function (opts) {
       opts = opts || {};
+      var _sigIni = _sigCarteira(opts.aportes || [], opts.rendaFixa || []);   // dos dados USADOS
       var eventos = construirEventos(opts.aportes);
       var rfLista = (opts.rendaFixa || []).filter(function (r) {
         return r && (parseFloat(r.valorInv || r.valor || 0) > 0) && (r.dataInicio || r.data);
@@ -11480,11 +11515,12 @@ window.loadPatStrip = loadPatStrip;
         // cálculo antigo (via snapshots), exibindo percentuais errados.
         API._serieMem = serie;
         API._serieUid = API._uidDono || null;   // carimbo de dono (isolamento)
+        API._serieSig = _sigIni;                // assinatura dos lançamentos usados
         // A série é o maior consumidor de cota — vai pro IndexedDB (centenas
         // de MB) em vez do localStorage (~5MB). A memória cobre o uso síncrono
         // desta sessão; o IndexedDB persiste para as próximas sem estourar.
         try {
-          var _payload = { at: Date.now(), uid: (API._uidDono || null), serie: serie };
+          var _payload = { at: Date.now(), uid: (API._uidDono || null), sig: API._serieSig, serie: serie };
           if (window.G20Store) G20Store.set(SERIE_KEY, _payload);
           else localStorage.setItem(SERIE_KEY, JSON.stringify(_payload));
         } catch (e) { console.warn('[G20Rent] série: falha ao persistir — usando memória'); }
@@ -11525,7 +11561,18 @@ window.loadPatStrip = loadPatStrip;
 
     cache: function () {
       // Memória tem prioridade — não depende de cota nem de serialização.
-      if (API._serieMem && API._serieMem.length >= 2) return API._serieMem;
+      if (API._serieMem && API._serieMem.length >= 2) {
+        var _sigAgora = _sigCarteira();
+        if (_sigAgora && API._serieSig !== _sigAgora) {
+          console.log('[G20Rent] os lançamentos mudaram desde que a série foi montada — reconstruindo.');
+          API._serieMem = null; API._serieSig = null;
+          try { window._g20HistPronto = false; } catch(e){}
+          try { localStorage.removeItem(SERIE_KEY); } catch(e){}
+          try { if (window.G20Store) G20Store.del(SERIE_KEY); } catch(e){}
+          return null;
+        }
+        return API._serieMem;
+      }
       try {
         var c = JSON.parse(localStorage.getItem(SERIE_KEY) || 'null');
         if (c && c.at && (Date.now() - c.at) < SERIE_TTL && c.serie && c.serie.length >= 2) {
@@ -11559,14 +11606,22 @@ window.loadPatStrip = loadPatStrip;
             try { localStorage.removeItem(SERIE_KEY); } catch(e){}
             return null;
           }
+          var _sigLS = _sigCarteira();
+          if (_sigLS && c.sig !== _sigLS) {
+            console.log('[G20Rent] série guardada é de outra versão dos lançamentos — reconstruindo.');
+            try { localStorage.removeItem(SERIE_KEY); } catch(e){}
+            return null;
+          }
           API._serieMem = c.serie;
           API._serieUid = c.uid;
+          API._serieSig = c.sig;
           return c.serie;
         }
       } catch (e) {}
       return null;
     },
     _serieMem: null,
+    _serieSig: null,       // assinatura dos lançamentos que geraram _serieMem
     _serieUid: null,       // uid do dono da série que está em _serieMem
     _uidDono: null,        // uid confirmado pelo Firebase Auth
     _serieQuarentena: null,// série lida do IndexedDB ANTES do auth resolver
@@ -11644,6 +11699,7 @@ window.loadPatStrip = loadPatStrip;
         if (q.uid && q.uid === API._uidDono && q.serie && q.serie.length >= 2) {
           API._serieMem = q.serie;
           API._serieUid = q.uid;
+          API._serieSig = q.sig || null;
           try { window._g20HistPronto = true; } catch (e) {}
           console.log('[G20Rent] série do próprio usuário liberada da quarentena.');
         } else {
@@ -11701,6 +11757,7 @@ window.loadPatStrip = loadPatStrip;
             if (c.uid && c.uid === API._uidDono) {
               if (!API._serieMem) {
                 API._serieMem = c.serie;
+                API._serieSig = c.sig || null;
                 API._serieUid = c.uid;
                 try { window._g20HistPronto = true; } catch(e){}
               }
@@ -11710,7 +11767,7 @@ window.loadPatStrip = loadPatStrip;
             }
           } else {
             // Auth ainda não resolveu: guarda sem usar.
-            API._serieQuarentena = { uid: (c.uid || null), serie: c.serie, at: c.at };
+            API._serieQuarentena = { uid: (c.uid || null), serie: c.serie, at: c.at, sig: c.sig || null };
           }
         }
       }).catch(function(){});
