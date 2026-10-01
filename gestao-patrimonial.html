@@ -1851,6 +1851,79 @@ canvas{touch-action:pan-y}
   input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select, textarea { font-size: 16px !important; }
 }
 </style>
+<style id="g20-recursos-css">
+/* Recursos liberados por aluno (lançamento 01/10) */
+.gp-tab .g20-tab-cad{font-size:11px;margin-left:6px;opacity:.85}
+.gp-panel.g20-bloqueado{position:relative;min-height:520px}
+.gp-panel.g20-bloqueado>.rb-card{filter:blur(7px) saturate(.7);opacity:.55;pointer-events:none;user-select:none}
+.g20-lock-veu{position:absolute;inset:0;z-index:20;display:flex;align-items:flex-start;justify-content:center;padding:70px 16px 16px;pointer-events:none}
+.g20-lock-card{pointer-events:auto;max-width:440px;width:100%;background:rgba(22,21,26,.96);border:1px solid rgba(201,169,97,.35);border-radius:18px;padding:26px 24px 22px;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.55)}
+.g20-lock-ico{width:58px;height:58px;margin:0 auto 14px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:26px;background:rgba(201,169,97,.12);border:1px solid rgba(201,169,97,.35)}
+.g20-lock-tag{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:#e8c766;background:rgba(201,169,97,.12);border:1px solid rgba(201,169,97,.3);padding:4px 10px;border-radius:20px;margin-bottom:10px}
+.g20-lock-card h3{margin:0 0 8px;font-size:19px;font-weight:800;color:#f0ece0}
+.g20-lock-card p{margin:0 0 18px;font-size:14px;line-height:1.6;color:#b6b0bd}
+.g20-lock-bts{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.g20-lock-bts a,.g20-lock-bts button{min-height:44px;padding:0 18px;border-radius:11px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;text-decoration:none}
+.g20-lock-bts a{background:linear-gradient(135deg,#c9a961,#e8c766);color:#0d0c10;border:0}
+.g20-lock-bts button{background:transparent;color:#d6d2cc;border:1px solid rgba(255,255,255,.15)}
+</style>
+<script>
+/* ═══════════════════════════════════════════════════════════════════════
+   RECURSOS LIBERADOS POR ALUNO (lançamento 01/10)
+
+   Algumas ferramentas ficam visíveis, porém travadas ("em breve"), e o admin
+   libera para quem quiser. A liberação mora no cadastro do aluno:
+       users/{uid}.recursos = { rebalancear: true, ... }
+   Só o admin consegue gravar esse campo (regras do Firestore). Admin vê tudo.
+   Enquanto o cadastro não confirma, tudo começa TRAVADO (sem piscar aberto).
+   Uso: G20Recursos.tem('rebalancear')
+   ═══════════════════════════════════════════════════════════════════════ */
+window.G20Recursos = {
+  _set: {}, admin: false, carregado: false,
+  definir: function(dadosUsuario){
+    var d = dadosUsuario || {};
+    this.admin = (d.role === 'admin');
+    this._set = (d.recursos && typeof d.recursos === 'object') ? d.recursos : {};
+    this.carregado = true;
+    try { if (typeof g20AplicarRecursos === 'function') g20AplicarRecursos(); } catch(e){}
+  },
+  tem: function(k){ return this.admin || this._set[k] === true; }
+};
+function g20AplicarRecursos(){
+  var ok = G20Recursos.tem('rebalancear');
+  var tab = document.getElementById('gpTab-rebalancear');
+  var panel = document.getElementById('gpPanel-rebalancear');
+  if (tab) {
+    var cad = tab.querySelector('.g20-tab-cad');
+    if (!ok && !cad) { cad = document.createElement('span'); cad.className = 'g20-tab-cad'; cad.textContent = '🔒'; tab.appendChild(cad); }
+    if (ok && cad) cad.remove();
+  }
+  if (!panel) return;
+  panel.classList.toggle('g20-bloqueado', !ok);
+  Array.prototype.forEach.call(panel.querySelectorAll(':scope > .rb-card'), function(c){
+    if (ok) c.removeAttribute('inert'); else c.setAttribute('inert', '');
+  });
+  var veu = panel.querySelector('.g20-lock-veu');
+  if (ok) { if (veu) veu.remove(); return; }
+  if (!veu) {
+    veu = document.createElement('div');
+    veu.className = 'g20-lock-veu';
+    veu.innerHTML =
+      '<div class="g20-lock-card" role="dialog" aria-label="Rebalanceamento em breve">' +
+        '<div class="g20-lock-ico">🔒</div>' +
+        '<div class="g20-lock-tag">Em breve</div>' +
+        '<h3>Rebalanceamento da sua carteira</h3>' +
+        '<p>Estamos finalizando uma ferramenta que mostra, a cada aporte, para onde deve ir o seu dinheiro ' +
+        'para a sua carteira chegar à alocação ideal, sem precisar vender nada. ' +
+        'Enquanto isso, veja como ela funciona na Carteira G20.</p>' +
+        '<div class="g20-lock-bts"><a href="carteira.html">Ver na Carteira G20</a>' +
+        '<button type="button" onclick="gpSwitchTab(\'visao-geral\', document.getElementById(\'gpTab-visao-geral\'))">Voltar</button></div>' +
+      '</div>';
+    panel.appendChild(veu);
+  }
+}
+document.addEventListener('DOMContentLoaded', function(){ try { g20AplicarRecursos(); } catch(e){} });
+</script>
 </head>
 <body>
 
@@ -2018,7 +2091,7 @@ canvas{touch-action:pan-y}
       <button class="gp-tab" onclick="gpSwitchTab('proventos',this)" id="gpTab-proventos">
         <span class="tab-ico">💰</span> Proventos
       </button>
-      <button class="gp-tab" onclick="gpSwitchTab('rebalancear',this)" id="gpTab-rebalancear">
+      <button class="gp-tab" onclick="gpSwitchTab('rebalancear',this)" id="gpTab-rebalancear" aria-label="Rebalancear">
         <span class="tab-ico">⚖️</span> Rebalancear
       </button>
       <button class="gp-tab gp-tab-importar" onclick="abrirImportar()" data-tip="Trazer operações de outra plataforma, planilha ou nota">
@@ -12346,6 +12419,7 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
         auth.signOut().then(function(){ window.location.href = 'login.html'; });
         return;
       }
+      try { G20Recursos.definir(data); } catch(e){}   // libera ou trava recursos deste aluno
       var profile  = data.profile || data;
       var name     = profile.name || profile.nome || user.displayName || 'Israel';
       var turma    = profile.turma || 'Turma 20';
