@@ -21,7 +21,7 @@
 <link rel="stylesheet" href="assets/g20-topbar-v21.css?v=15">
 <script src="assets/tradingview-logos.js"></script>
 <script src="assets/g20-notifications.js?v=10"></script>
-<script src="assets/g20-sidebar.js?v=11"></script>
+<script src="assets/g20-sidebar.js?v=14"></script>
 <script>
 function _g20PreloadSidebar(){
   try{
@@ -570,6 +570,11 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 })();
 </script>
 <script src="auth-guard.js"></script>
+<style id="g20-ios-zoom-fix">
+@media (pointer: coarse) {
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select, textarea { font-size: 16px !important; }
+}
+</style>
 </head>
 <body>
 <script>
@@ -1095,9 +1100,24 @@ auth.onAuthStateChanged(function(user){
   // Se não houver usuário, NÃO redirecionamos daqui (evita tela branca durante
   // a verificação inicial do Firebase). A página continua visível normalmente.
 });
+/* Admin CONFIRMADO no Firestore (lançamento 01/10): o auth-guard grava
+   g20_guard_{uid}='admin' depois de ler o cadastro. O cache g20_user_profile
+   pode ser editado por qualquer um no navegador. */
 function souAdmin(){
-  try{ var p=JSON.parse(localStorage.getItem('g20_user_profile')||'{}'); return p.role==='admin'; }
-  catch(e){ return false; }
+  try{
+    var u = (firebase.auth().currentUser || {}).uid || localStorage.getItem('g20_uid');
+    return !!u && sessionStorage.getItem('g20_guard_' + u) === 'admin';
+  }catch(e){ return false; }
+}
+/* TEXTO DE OUTROS ALUNOS NUNCA VIRA HTML (lançamento 01/10)
+   Nome e foto vêm do perfil público que cada aluno edita; ativos vêm da carteira
+   que cada aluno grava. Antes entravam crus no ranking, no pódio e no Hall da
+   Fama: um nome com código HTML rodaria na tela de todos os alunos. */
+function _gTxt(s, def){ s = String(s == null ? '' : s).replace(/[<>&"'`\\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60); return s || def || ''; }
+function _gUrl(u){ u = String(u || '').trim(); return /^https:\/\/[^\s"'<>()`\\]+$/i.test(u) ? u : ''; }
+function _gAtivos(arr){
+  return (Array.isArray(arr) ? arr : []).filter(function(a){ return a && /^[A-Z0-9.\-]{1,14}$/.test(String(a.ticker || '').toUpperCase()); })
+    .map(function(a){ return Object.assign({}, a, { ticker: String(a.ticker).toUpperCase(), nome: _gTxt(a.nome, String(a.ticker).toUpperCase()), classe: _gTxt(a.classe, '') }); });
 }
 
 var CG20=[
@@ -1611,7 +1631,8 @@ function getTargetCiclo(tipo){
     var mNomes=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
     var label=mNomes[nm-1]+' '+ny;
     // prazo: último segundo do mês atual (horário Brasília = UTC-3)
-    var prazo=new Date(y,m,0,23,59,59); // último dia do mês atual
+    // prazo: 23:59:59 de Brasília do último dia (o servidor confere o mesmo horário)
+    var prazo=new Date(Date.UTC(ny,nm-1,1,3,0,0)-1000);
     var fechado=now>prazo;
     return {key:key,label:label,prazo:prazo,fechado:fechado,liveKey:getLiveCiclo(tipo).key};
   }
@@ -1624,13 +1645,13 @@ function getTargetCiclo(tipo){
     var qNomes=['','Jan-Mar','Abr-Jun','Jul-Set','Out-Dez'];
     var label2='T'+nq+' ('+qNomes[nq]+') '+qy;
     var qmEnd=q*3;
-    var prazo2=new Date(y,qmEnd,0,23,59,59); // último dia do trimestre atual
+    var prazo2=new Date(Date.UTC(qy,(nq-1)*3,1,3,0,0)-1000); // 23:59:59 de Brasília do último dia do trimestre
     var fechado2=now>prazo2;
     return {key:key2,label:label2,prazo:prazo2,fechado:fechado2,liveKey:getLiveCiclo(tipo).key};
   }
   // anual — próximo ano
   var key3=String(y+1);
-  var prazo3=new Date(y,11,31,23,59,59); // 31/12 do ano atual
+  var prazo3=new Date(Date.UTC(y+1,0,1,3,0,0)-1000); // 31/12 23:59:59 de Brasília
   var fechado3=now>prazo3;
   return {key:key3,label:'Anual '+(y+1),prazo:prazo3,fechado:fechado3,liveKey:getLiveCiclo(tipo).key};
 }
@@ -1923,7 +1944,9 @@ function salvarCarteira(){
     if(window.lucide)lucide.createIcons();
     carregarRanking();
   }).catch(function(err){
-    showToast('Erro: '+err.message,'error');btn.disabled=false;btn.textContent='Salvar Carteira';
+    var negado = err && (err.code === 'permission-denied' || /permission/i.test(String(err.message || '')));
+    showToast(negado ? 'O prazo deste ciclo encerrou (horário de Brasília).' : 'Erro: '+err.message,'error');
+    btn.disabled=false;btn.textContent='Salvar Carteira';
   });
 }
 
@@ -2141,13 +2164,14 @@ function carregarRankingTipo(tipo){
     snap.forEach(function(doc){
       var d=doc.data();
       if(!d.uid||!Array.isArray(d.ativos))return;
+      d.ativos=_gAtivos(d.ativos);
       d.ativos.forEach(function(a){ if(a&&a.ticker) tickersSet[a.ticker]=true; });
       var p=db.collection('networking_public').doc(d.uid).get().then(function(uDoc){
         /* Fallback era o UID cru — por isso o Hall da Fama exibia
            "8xrwHHEKAmdOU…". Quem não tem doc em networking_public vira
            "Aluno G20", igual ao que o .catch() abaixo já fazia. */
         var nome='Aluno G20',foto='',infinite=false;
-        if(uDoc.exists){var ud=uDoc.data();nome=ud.nome||ud.name||'Aluno G20';foto=ud.foto||ud.photo||'';infinite=ud.infinite===true;}
+        if(uDoc.exists){var ud=uDoc.data();nome=_gTxt(ud.nome||ud.name,'Aluno G20');foto=_gUrl(ud.foto||ud.photo);infinite=ud.infinite===true;}
         jogadores.push({uid:d.uid,nome:nome,foto:foto,infinite:infinite,ativos:d.ativos});
       }).catch(function(){
         jogadores.push({uid:d.uid,nome:'Aluno G20',foto:'',infinite:false,ativos:d.ativos});
@@ -2282,7 +2306,7 @@ function openModal(uid,tipo,nome){
   document.getElementById('modalOverlay').classList.add('open');
   db.collection('game-g20').doc(uid).collection('carteiras').doc(c.key).get().then(function(doc){
     if(!doc.exists){tbody.innerHTML='<div style="grid-column:1/-1;padding:32px;text-align:center;color:#6b6862">Nenhuma carteira cadastrada para este ciclo</div>';return;}
-    var ativos=doc.data().ativos||[];
+    var ativos=_gAtivos(doc.data().ativos);
     _modalCtx.ativos=ativos;
     // Botão "Comparar com líder": só pra minha carteira, se eu não for o líder e houver líder com carteira
     var vsBtn=document.getElementById('modalVsBtn');
@@ -2447,7 +2471,7 @@ function toggleComparacao(){
   var c=getLiveCiclo(tipo);
   db.collection('game-g20').doc(lider.uid).collection('carteiras').doc(c.key).get().then(function(doc){
     if(!doc.exists){ tbody.innerHTML='<div style="grid-column:1/-1;padding:24px;text-align:center;color:#6b6862">Líder sem carteira neste ciclo</div>'; return; }
-    var ativosLider=doc.data().ativos||[];
+    var ativosLider=_gAtivos(doc.data().ativos);
     var tk=ativosLider.map(function(a){return a.ticker;});
     Promise.all([carregarPrecosBase(tipo, tk), carregarCotacoesAtuais(tk)]).then(function(){
       renderComparacao(tipo, ctx.ativos, ativosLider, lider.nome, 'lider');
@@ -2664,7 +2688,7 @@ function arquivarCamposesSeNecessario(){
         return Promise.all(top3.map(function(j){
           return db.collection('networking_public').doc(j.uid).get().then(function(u){
             var nome='Aluno G20', foto='';
-            if(u.exists){var ud=u.data();nome=ud.nome||ud.name||'Aluno G20';foto=ud.foto||ud.photo||'';}
+            if(u.exists){var ud=u.data();nome=_gTxt(ud.nome||ud.name,'Aluno G20');foto=_gUrl(ud.foto||ud.photo);}
             return {uid:j.uid, nome:nome, foto:foto, rentabilidade:j.rentabilidade, ativos:j.ativos};
           }).catch(function(){return {uid:j.uid,nome:'Aluno G20',foto:'',rentabilidade:j.rentabilidade,ativos:j.ativos};});
         })).then(function(podio){
@@ -2716,7 +2740,10 @@ function renderHallDaFama(registros){
   });
   var html='<div class="hall-campeoes">';
   registros.forEach(function(r){
-    var c=r.campeao||{};
+    var c=Object.assign({}, r.campeao||{});
+    c.nome=_gTxt(c.nome,'—'); c.foto=_gUrl(c.foto); c.ativos=_gAtivos(c.ativos);
+    c.rentabilidade=Number(c.rentabilidade)||0;
+    r=Object.assign({}, r, { label:_gTxt(r.label,''), podio:(r.podio||[]).map(function(p){ return Object.assign({}, p, { nome:_gTxt(p && p.nome,'—'), rentabilidade:Number(p && p.rentabilidade)||0 }); }) });
     var rCl=c.rentabilidade>=0?'pos':'neg';
     var rStr=(c.rentabilidade>=0?'+':'')+(c.rentabilidade||0).toFixed(2)+'%';
     var av=c.foto?'<img src="'+c.foto+'">':(c.nome||'?').charAt(0).toUpperCase();

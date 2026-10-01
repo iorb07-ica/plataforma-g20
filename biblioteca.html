@@ -21,7 +21,7 @@
 <link rel="stylesheet" href="assets/g20-search.css?v=10">
 <link rel="stylesheet" href="assets/g20-topbar-v21.css?v=15">
 <script src="assets/g20-notifications.js?v=10"></script>
-<script src="assets/g20-sidebar.js?v=11"></script>
+<script src="assets/g20-sidebar.js?v=14"></script>
 <script src="assets/g20-search.js?v=10"></script>
 
 <!-- Fonts -->
@@ -1094,6 +1094,23 @@ body .topbar .g20-tab:not(.active):not(.soon){color:#c9a961 !important}
 body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
 </style>
 <script src="auth-guard.js"></script>
+<style id="bib-topo-mobile">
+/* Lançamento 01/10: no celular o topo tinha 5 botões de 44px + o seletor de tema
+   (300px) e a página inteira ficava mais larga que a tela (a 390px virava 560px).
+   Mesmo padrão das outras páginas: botões de 38px, tema escondido no celular. */
+@media (max-width: 820px) {
+  html body .topbar .topbar-right { gap: 6px !important; flex-shrink: 0 !important; }
+  html body .topbar .topbar-right > .btn-gsearch, html body .topbar .topbar-right > #g20FeedbackBtn, html body .topbar .topbar-right > .btn-icon { width: 38px !important; height: 38px !important; min-width: 38px !important; }
+  html body .topbar .topbar-right > #g20ThemeSwitch { display: none !important; }
+  html body .topbar .topbar-left { min-width: 0 !important; overflow: hidden !important; flex: 1 1 0 !important; }
+  html, body { overflow-x: clip !important; }
+}
+</style>
+<style id="g20-ios-zoom-fix">
+@media (pointer: coarse) {
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select, textarea { font-size: 16px !important; }
+}
+</style>
 </head>
 
 <body>
@@ -2096,6 +2113,14 @@ var auth = firebase.auth();
 var db = firebase.firestore();
 var _user = null;
 var _isAdmin = false;
+/* Lançamento 01/10: as cópias locais da Biblioteca (sequência de dias, minutos,
+   páginas, tour) eram do NAVEGADOR, não do aluno: num computador compartilhado,
+   um aluno herdava a sequência do outro. Agora cada chave leva o uid. */
+function _bk(){ var u = null; try { u = (window.firebase && firebase.auth().currentUser) ? firebase.auth().currentUser.uid : localStorage.getItem('g20_uid'); } catch(e){} return u ? ('u_' + u + '|') : ''; }
+/* Dia pelo relógio do aparelho (antes era o de Greenwich: das 21h à meia-noite
+   a leitura contava para o dia seguinte e a sequência quebrava). */
+function _bNorm(k){ if(!k) return null; if(/^\d{4}-\d{2}-\d{2}$/.test(k)) return k; var t = Date.parse(k); return isNaN(t) ? null : _bDia(new Date(t)); }
+function _bDia(d){ d = d || new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 var _livros = [];
 var _filtroAtivo = 'all';
 var _tabAtual = 'g20';          // 'g20' | 'minha' | 'comunidade'
@@ -2330,7 +2355,7 @@ function renderHero(livroForcado){
   // ── #6 AMBIENT BACKGROUND — capa em blur como Apple Music ──────
   var bgEl = document.getElementById('heroCoverBg');
   if(bgEl && atual.capa){
-    bgEl.style.backgroundImage = 'url('+atual.capa+')';
+    bgEl.style.backgroundImage = 'url("'+String(atual.capa).replace(/["\\\n\r()]/g, '')+'")';
     bgEl.style.opacity = '1';
   } else if(bgEl){
     bgEl.style.opacity = '0';
@@ -2419,10 +2444,15 @@ function carregarStatsLeitura(){
     if(doc.exists){
       var d = doc.data();
       _statsCache.streak        = d.streak || 0;
-      _statsCache.ultimaLeitura = d.ultimaLeitura || null;
-      _statsCache.diasLeitura   = d.diasLeitura || {};
-      var hoje  = new Date().toDateString();
-      var ontem = new Date(Date.now()-86400000).toDateString();
+      /* Lançamento 01/10: a gravação usava "2026-10-01" e a leitura usava
+         "Thu Oct 01 2026". Ao abrir a página, a última leitura nunca era "hoje"
+         nem "ontem" e a sequência voltava a ZERO (e era gravada assim); os
+         minutos de hoje e as páginas da semana também apareciam zerados.
+         Agora tudo usa o mesmo formato, e as datas antigas são convertidas. */
+      _statsCache.ultimaLeitura = _bNorm(d.ultimaLeitura) || null;
+      _statsCache.diasLeitura   = (function(o){ var r = {}; Object.keys(o || {}).forEach(function(k){ var nk = _bNorm(k); if(!nk) return; var a = r[nk] || {min:0,pgs:0}, b = o[k] || {}; r[nk] = {min:(a.min||0)+(b.min||0), pgs:(a.pgs||0)+(b.pgs||0)}; }); return r; })(d.diasLeitura);
+      var hoje  = _bDia();
+      var ontem = _bDia(new Date(Date.now()-86400000));
       if(_statsCache.ultimaLeitura && _statsCache.ultimaLeitura!==hoje && _statsCache.ultimaLeitura!==ontem){
         _statsCache.streak = 0;
         _salvarStatsFirestore();
@@ -2494,7 +2524,7 @@ function _salvarStatsFirestoreComRetry(tentativaAtual){
         console.error('Stats save falhou após 3 tentativas:', err);
         // Ao menos salva em localStorage (fallback)
         try{
-          localStorage.setItem('biblioteca_stats_cache', JSON.stringify(_statsCache));
+          localStorage.setItem(_bk()+'biblioteca_stats_cache', JSON.stringify(_statsCache));
         }catch(e){}
         throw err;
       }
@@ -2502,13 +2532,13 @@ function _salvarStatsFirestoreComRetry(tentativaAtual){
 }
 
 function _migrarLocalStorageParaFirestore(){
-  var streak = parseInt(localStorage.getItem('biblioteca_streak')||'0',10);
-  var ultima  = localStorage.getItem('biblioteca_ultimaLeitura');
+  var streak = parseInt(localStorage.getItem(_bk()+'biblioteca_streak')||'0',10);
+  var ultima  = localStorage.getItem(_bk()+'biblioteca_ultimaLeitura');
   var dias = {};
   for(var i=0;i<30;i++){
-    var dia = new Date(Date.now()-i*86400000).toDateString();
-    var min = parseInt(localStorage.getItem('biblioteca_hoje_min_'+dia)||'0',10);
-    var pgs = parseInt(localStorage.getItem('biblioteca_pgs_'+dia)||'0',10);
+    var dia = _bDia(new Date(Date.now()-i*86400000));
+    var min = parseInt(localStorage.getItem(_bk()+'biblioteca_hoje_min_'+dia)||'0',10);
+    var pgs = parseInt(localStorage.getItem(_bk()+'biblioteca_pgs_'+dia)||'0',10);
     if(min>0||pgs>0) dias[dia]={min:min,pgs:pgs};
   }
   _statsCache = {streak:streak,ultimaLeitura:ultima,diasLeitura:dias};
@@ -2516,25 +2546,25 @@ function _migrarLocalStorageParaFirestore(){
 }
 
 function renderStats(){
-  var hoje  = new Date().toDateString();
-  var ontem = new Date(Date.now()-86400000).toDateString();
+  var hoje  = _bDia();
+  var ontem = _bDia(new Date(Date.now()-86400000));
 
-  var streak = _statsCache.streak || parseInt(localStorage.getItem('biblioteca_streak')||'0',10);
-  var ultima = _statsCache.ultimaLeitura || localStorage.getItem('biblioteca_ultimaLeitura');
+  var streak = _statsCache.streak || parseInt(localStorage.getItem(_bk()+'biblioteca_streak')||'0',10);
+  var ultima = _statsCache.ultimaLeitura || localStorage.getItem(_bk()+'biblioteca_ultimaLeitura');
   if(ultima && ultima!==hoje && ultima!==ontem) streak=0;
 
   var sb=document.getElementById('streakBadge');
   if(sb){document.getElementById('streakDays').textContent=streak;sb.classList.toggle('zero',streak===0);}
 
   var hojeEntry=(_statsCache.diasLeitura&&_statsCache.diasLeitura[hoje])||{};
-  var hojeMin=hojeEntry.min||parseInt(localStorage.getItem('biblioteca_hoje_min_'+hoje)||'0',10);
+  var hojeMin=hojeEntry.min||parseInt(localStorage.getItem(_bk()+'biblioteca_hoje_min_'+hoje)||'0',10);
   var el=document.getElementById('hojeMin'); if(el) el.textContent=hojeMin;
 
   var semanaPgs=0;
   for(var i=0;i<7;i++){
-    var dia=new Date(Date.now()-i*86400000).toDateString();
+    var dia=_bDia(new Date(Date.now()-i*86400000));
     var entry=(_statsCache.diasLeitura&&_statsCache.diasLeitura[dia])||{};
-    semanaPgs+=entry.pgs||parseInt(localStorage.getItem('biblioteca_pgs_'+dia)||'0',10);
+    semanaPgs+=entry.pgs||parseInt(localStorage.getItem(_bk()+'biblioteca_pgs_'+dia)||'0',10);
   }
   var elS=document.getElementById('semanaPaginas'); if(elS) elS.textContent=semanaPgs;
 
@@ -2847,7 +2877,7 @@ function salvarLeitura(){
   }
 
   // ── TIMEZONE AGNÓSTICO (ISO 8601) ────────────────────────
-  var hoje = new Date().toISOString().split('T')[0]; // "2026-09-17"
+  var hoje = _bDia(); // "2026-09-17", no horário do aluno
 
   // ── CALCULAR PÁGINAS LIDAS ───────────────────────────────
   var pagAnterior = l.paginaAtual || 0;
@@ -2868,10 +2898,10 @@ function salvarLeitura(){
   l.lendo = true;
 
   // ── LÓGICA DE STREAK (com timezone correto) ──────────────
-  var ultimaReg = _statsCache.ultimaLeitura || localStorage.getItem('biblioteca_ultimaLeitura');
+  var ultimaReg = _statsCache.ultimaLeitura || localStorage.getItem(_bk()+'biblioteca_ultimaLeitura');
   if(ultimaReg !== hoje){
-    var ontem = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-    var streak = _statsCache.streak || parseInt(localStorage.getItem('biblioteca_streak') || '0', 10);
+    var _o = new Date(); _o.setDate(_o.getDate() - 1); var ontem = _bDia(_o);
+    var streak = _statsCache.streak || parseInt(localStorage.getItem(_bk()+'biblioteca_streak') || '0', 10);
     
     if(ultimaReg === ontem){
       streak++; // Continuou a sequência
@@ -2881,8 +2911,8 @@ function salvarLeitura(){
     
     _statsCache.streak = streak;
     _statsCache.ultimaLeitura = hoje;
-    localStorage.setItem('biblioteca_streak', String(streak));
-    localStorage.setItem('biblioteca_ultimaLeitura', hoje);
+    localStorage.setItem(_bk()+'biblioteca_streak', String(streak));
+    localStorage.setItem(_bk()+'biblioteca_ultimaLeitura', hoje);
   }
 
   // ── MINUTOS E PÁGINAS (com cache local + Firestore) ──────
@@ -2893,8 +2923,8 @@ function salvarLeitura(){
   _statsCache.diasLeitura[hoje] = diaEntry;
 
   // Cache local (fallback)
-  localStorage.setItem('biblioteca_hoje_min_'+hoje, String(diaEntry.min));
-  localStorage.setItem('biblioteca_pgs_'+hoje, String(diaEntry.pgs));
+  localStorage.setItem(_bk()+'biblioteca_hoje_min_'+hoje, String(diaEntry.min));
+  localStorage.setItem(_bk()+'biblioteca_pgs_'+hoje, String(diaEntry.pgs));
 
   // Mensagem de sucesso
   var msg = pgsLidas > 0
@@ -3081,7 +3111,7 @@ function renderAdminList(){
     return;
   }
   list.innerHTML = _livros.map(function(l){
-    var capa = l.capa ? '<img class="admin-list-cover" src="'+l.capa+'" onerror="this.style.display=\'none\'">' : '<div class="admin-list-cover"></div>';
+    var capa = l.capa ? '<img class="admin-list-cover" src="'+escapeHtml(l.capa)+'" onerror="this.style.display=\'none\'">' : '<div class="admin-list-cover"></div>';
     return ''+
       '<div class="admin-list-item">'+
         capa+
@@ -5033,7 +5063,7 @@ function iniciarTourBiblioteca(){
 function fecharTour(){
   document.getElementById('tourOverlay').style.display = 'none';
   document.body.style.overflow = '';
-  localStorage.setItem('biblioteca_tour_done', '1');
+  localStorage.setItem(_bk()+'biblioteca_tour_done', '1');
 }
 
 function tourNext(){
@@ -5124,11 +5154,11 @@ function fecharStreakAlert(){
 }
 
 function verificarStreakAlerta(){
-  var streak = _statsCache.streak || parseInt(localStorage.getItem('biblioteca_streak') || '0', 10);
+  var streak = _statsCache.streak || parseInt(localStorage.getItem(_bk()+'biblioteca_streak') || '0', 10);
   if(streak === 0) return;
 
-  var hoje = new Date().toDateString();
-  var ultima = _statsCache.ultimaLeitura || localStorage.getItem('biblioteca_ultimaLeitura');
+  var hoje = _bDia();
+  var ultima = _statsCache.ultimaLeitura || localStorage.getItem(_bk()+'biblioteca_ultimaLeitura');
   if(ultima === hoje) return;
 
   var agora = new Date();
@@ -5147,7 +5177,7 @@ function verificarStreakAlerta(){
 
 // Auto-tour para novos usuários
 (function checkFirstVisit(){
-  if(!localStorage.getItem('biblioteca_tour_done')){
+  if(!localStorage.getItem(_bk()+'biblioteca_tour_done')){
     setTimeout(function(){
       if(typeof _livros !== 'undefined') iniciarTourBiblioteca();
     }, 2000);
