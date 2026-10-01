@@ -19,6 +19,68 @@
 <link rel="stylesheet" href="assets/g20-scrollbar.css?v=10">
 <link rel="stylesheet" href="assets/g20-search.css?v=10">
 <link rel="stylesheet" href="assets/g20-topbar-v21.css?v=13">
+<script id="g20-local">
+/* LEITURA SEGURA DAS CÓPIAS LOCAIS (lançamento 01/10)
+   · Carteira G20: o admin tem em g20_aportes / g20_dividendos; o ALUNO recebe a
+     CG20 em g20_cg20Aportes / g20_cg20Dividendos (gravadas pelo dashboard). Antes
+     esta página lia só as do admin e, para o aluno, a Carteira G20 vinha vazia.
+   · Carteira do aluno (g20_rvAportes / g20_rvDividendos): só vale se a cópia for
+     do aluno logado (computador compartilhado).
+   · Sem cópia no aparelho (abriu esta página antes do dashboard), busca na nuvem
+     e recarrega uma única vez. */
+window.G20Local = window.G20Local || (function(){
+  var CG20_UID = '8xrwHHEKAmd0Us5MCyBJhtkJVBM2';
+  function uid(){ try { var u = firebase.auth().currentUser; if (u) return u.uid; } catch(e){} try { return localStorage.getItem('g20_uid'); } catch(e){ return null; } }
+  function arr(k){ try { var v = JSON.parse(localStorage.getItem(k) || 'null'); return Array.isArray(v) && v.length ? v : null; } catch(e){ return null; } }
+  function doAluno(){ var u = uid(), d = null; try { d = localStorage.getItem('g20_dados_owner'); } catch(e){} return !u || !d || d === u; }
+  var API = {
+    raw: function(k){
+      try {
+        if (k === 'g20_aportes')    return arr('g20_aportes')    ? G20Local.raw('g20_aportes')    : localStorage.getItem('g20_cg20Aportes');
+        if (k === 'g20_dividendos') return arr('g20_dividendos') ? G20Local.raw('g20_dividendos') : localStorage.getItem('g20_cg20Dividendos');
+        if (k === 'g20_rvAportes' || k === 'g20_rvDividendos') return doAluno() ? localStorage.getItem(k) : null;
+        return localStorage.getItem(k);
+      } catch(e){ return null; }
+    },
+    garantir: function(){
+      var u = uid(); if (!u || !window.firebase || !firebase.firestore) return Promise.resolve(false);
+      var db = firebase.firestore(), tarefas = [];
+      function pega(dono, doc, chave, marcaDono){
+        tarefas.push(db.collection('users').doc(dono).collection('dados').doc(doc).get().then(function(d){
+          var v = d.exists && d.data() ? d.data().value : null;
+          if (typeof v === 'string') { try { v = JSON.parse(v); } catch(e){ v = null; } }
+          if (Array.isArray(v) && v.length) { try { localStorage.setItem(chave, JSON.stringify(v)); if (marcaDono) localStorage.setItem('g20_dados_owner', u); } catch(e){} return true; }
+          return false;
+        }).catch(function(){ return false; }));
+      }
+      if (!arr('g20_aportes') && !arr('g20_cg20Aportes') && u !== CG20_UID) pega(CG20_UID, 'aportes', 'g20_cg20Aportes', false);
+      if (!arr('g20_dividendos') && !arr('g20_cg20Dividendos') && u !== CG20_UID) pega(CG20_UID, 'dividendos', 'g20_cg20Dividendos', false);
+      if (!doAluno() || !arr('g20_rvAportes')) pega(u, 'rvAportes', 'g20_rvAportes', true);
+      if (!doAluno() || !arr('g20_rvDividendos')) pega(u, 'rvDividendos', 'g20_rvDividendos', true);
+      return Promise.all(tarefas).then(function(r){ return r.some(Boolean); });
+    }
+  };
+  /* depois do login: completa o que faltar e recarrega UMA vez */
+  (function esperar(n){
+    try {
+      if (window.firebase && firebase.apps && firebase.apps.length && firebase.auth) {
+        firebase.auth().onAuthStateChanged(function(user){
+          if (!user) return;
+          API.garantir().then(function(mudou){
+            if (!mudou) return;
+            var k = 'g20_local_rl_' + location.pathname;
+            try { if (sessionStorage.getItem(k)) return; sessionStorage.setItem(k, '1'); } catch(e){ return; }
+            location.reload();
+          });
+        });
+        return;
+      }
+    } catch(e){}
+    if (n > 0) setTimeout(function(){ esperar(n - 1); }, 300);
+  })(40);
+  return API;
+})();
+</script>
 <script src="assets/g20-notifications.js?v=10"></script>
 <script>
 
@@ -28,7 +90,7 @@ var _gestaoImportDone    = false;
 
 function _getQtdNaDataGestao(ticker, dataRef){
   try{
-    var aportes = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
+    var aportes = JSON.parse(G20Local.raw('g20_rvAportes')||'[]');
     var qtd=0;
     aportes
       .filter(function(a){ return a.ticker&&a.ticker.toUpperCase()===ticker.toUpperCase(); })
@@ -49,7 +111,7 @@ function _importarProventosGestaoBackground(onEmpty){
   var hoje  = new Date().toISOString().split('T')[0];
   var from  = new Date(); from.setFullYear(from.getFullYear()-2);
   var fromStr = from.toISOString().split('T')[0];
-  var aportes = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
+  var aportes = JSON.parse(G20Local.raw('g20_rvAportes')||'[]');
   if(!aportes.length){ _gestaoImportRunning=false; if(onEmpty) onEmpty(); return; }
   var posMap={};
   aportes.forEach(function(a){ posMap[a.ticker]={ticker:a.ticker,tipo:a.tipo||'Acao'}; });
@@ -66,7 +128,7 @@ function _importarProventosGestaoBackground(onEmpty){
       .catch(function(){ return {ticker:p.ticker,tipo:p.tipo,raw:{}}; });
   });
   Promise.all(fetches).then(function(results){
-    var lista = JSON.parse(localStorage.getItem('g20_dividendos')||'[]')
+    var lista = JSON.parse(G20Local.raw('g20_dividendos')||'[]')
       .filter(function(p){ return p.fonte!=='auto'||(p.valorCota>0&&p.qtd>0); });
     var novos=0;
     results.forEach(function(r){
@@ -112,8 +174,8 @@ function _importarTodosProventosBackground(onDone){
   var fromStr = from.toISOString().split('T')[0];
   var US_TIPOS = ['Stock','REIT','ETF','Cripto','UCITs','ETF US'];
 
-  var aportesG20  = JSON.parse(localStorage.getItem('g20_aportes')||'[]');
-  var aportesGest = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
+  var aportesG20  = JSON.parse(G20Local.raw('g20_aportes')||'[]');
+  var aportesGest = JSON.parse(G20Local.raw('g20_rvAportes')||'[]');
 
   var tarefas = [];
   var g20Map={};
@@ -140,7 +202,7 @@ function _importarTodosProventosBackground(onDone){
   });
 
   Promise.all(fetches).then(function(results){
-    var lista = JSON.parse(localStorage.getItem('g20_dividendos')||'[]')
+    var lista = JSON.parse(G20Local.raw('g20_dividendos')||'[]')
       .filter(function(d){ var f=d.fonte||''; return f!=='auto'&&f.indexOf('Auto-')!==0; });
 
     results.forEach(function(r){
@@ -175,7 +237,7 @@ function _importarTodosProventosBackground(onDone){
         } else {
           var qtdG20=0;
           try{
-            var ap=JSON.parse(localStorage.getItem('g20_aportes')||'[]')
+            var ap=JSON.parse(G20Local.raw('g20_aportes')||'[]')
               .filter(function(a){ return a.ticker===r.ticker&&a.data<=(dataEx||dataPag); })
               .sort(function(a,b){ return a.data.localeCompare(b.data); });
             ap.forEach(function(a){ if(a.op==='C') qtdG20+=parseFloat(a.qtd||0); else qtdG20-=parseFloat(a.qtd||0); });
@@ -206,7 +268,7 @@ function _provDeveReimportar(){
     var ver = localStorage.getItem('g20_prov_cache_ver');
     var ultimaStr = localStorage.getItem('g20_prov_last_import');
     if(ver !== _PROV_CACHE_VER){
-      var divs = JSON.parse(localStorage.getItem('g20_dividendos')||'[]')
+      var divs = JSON.parse(G20Local.raw('g20_dividendos')||'[]')
         .filter(function(d){ var f=d.fonte||''; return f!=='auto'&&f.indexOf('Auto-')!==0; });
       localStorage.setItem('g20_dividendos', JSON.stringify(divs));
       localStorage.setItem('g20_prov_cache_ver', _PROV_CACHE_VER);
@@ -336,7 +398,7 @@ function renderProvAgenda(){
     var list=document.getElementById('provAgendaList');
     if(!list) return;
 
-    var allDivs=JSON.parse(localStorage.getItem('g20_dividendos')||'[]');
+    var allDivs=JSON.parse(G20Local.raw('g20_dividendos')||'[]');
     var divs;
     if(_provSource==='gestao'){
       divs=allDivs.filter(function(d){
@@ -475,7 +537,7 @@ function renderProvAgenda(){
 
 
 </script>
-<script src="assets/g20-sidebar.js?v=11"></script>
+<script src="assets/g20-sidebar.js?v=14"></script>
 <script src="assets/g20-search.js?v=10"></script>
 <style>
 :root{--bg:#1a191e;--bg2:#1f1e22;--bg3:#15141a;--surface:#27252c;--sur2:#2d2a33;--border:rgba(255,255,255,0.06);--gold:#e8b84b;--goldd:#c8943a;--red:#e63946;--green:#2ecc71;--blue:#3b82f6;--purple:#8b5cf6;--text:#eef0f4;--text2:#9aa5b8;--text3:#7a8599;--r:12px;--ease:cubic-bezier(.4,0,.2,1);--sidebar:200px;--sidebar-collapsed:68px;--topbar:56px;--safe-bottom:env(safe-area-inset-bottom,0px)}
@@ -7068,6 +7130,12 @@ body .topbar .g20-tab:not(.active):not(.soon){color:#c9a961 !important}
 body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
 </style>
 <script src="auth-guard.js"></script>
+<style id="g20-ios-zoom-fix">
+/* Lançamento 01/10: campo abaixo de 16px dá zoom ao tocar no iPhone. Só em telas de toque. */
+@media (pointer: coarse) {
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select, textarea { font-size: 16px !important; }
+}
+</style>
 </head>
 
 <body>
@@ -7904,7 +7972,7 @@ function renderDailyBrief(){
   try{
     if(window._dashRVCot){
       var posRV = {};
-      var aportes = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
+      var aportes = JSON.parse(G20Local.raw('g20_rvAportes')||'[]');
       if(!Array.isArray(aportes)) aportes=[];
       aportes.sort(function(a,b){return (a.data||'').localeCompare(b.data||'');}).forEach(function(a){
         if(!a||!a.ticker) return;
@@ -8620,11 +8688,11 @@ setInterval(atualizarSaudacao, 60000);
     try{
       // 2) Import de proventos (popula g20_dividendos com dados do proxy Vercel)
       var divs = [];
-      try{ divs = JSON.parse(localStorage.getItem('g20_dividendos')||'[]'); }catch(e){}
+      try{ divs = JSON.parse(G20Local.raw('g20_dividendos')||'[]'); }catch(e){}
       var aportesRV = [];
-      try{ aportesRV = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]'); }catch(e){}
+      try{ aportesRV = JSON.parse(G20Local.raw('g20_rvAportes')||'[]'); }catch(e){}
       var aportesG20 = [];
-      try{ aportesG20 = JSON.parse(localStorage.getItem('g20_aportes')||'[]'); }catch(e){}
+      try{ aportesG20 = JSON.parse(G20Local.raw('g20_aportes')||'[]'); }catch(e){}
       // So dispara import se tem aportes mas nao tem dividendos (primeira vez)
       // OU se passou do TTL
       var temAportes = aportesRV.length>0 || aportesG20.length>0;
@@ -8780,7 +8848,7 @@ window.g20Logout = function() {
           if(typeof renderProvAgenda==='function') renderProvAgenda();
           // Reimporta se: 1) TTL venceu, OU 2) storage de dividendos vazio (primeira vez no dashboard)
           var divsAtuais = [];
-          try{ divsAtuais = JSON.parse(localStorage.getItem('g20_dividendos')||'[]'); }catch(e){}
+          try{ divsAtuais = JSON.parse(G20Local.raw('g20_dividendos')||'[]'); }catch(e){}
           var precisaImportar = (typeof _provDeveReimportar==='function' && _provDeveReimportar()) || divsAtuais.length === 0;
           if(precisaImportar && typeof _importarTodosProventosBackground==='function'){
             _importarTodosProventosBackground(function(){
@@ -8856,7 +8924,7 @@ function ncIsBR(t){
   return /\d$/.test(s)||s.length===5||s.length===6;
 }
 function ncHora(d){if(!d)return'';var dt=new Date(d);if(isNaN(dt))return'';var diff=Math.floor((Date.now()-dt.getTime())/1000);if(diff<60)return'agora';if(diff<3600)return'há '+Math.floor(diff/60)+' min';if(diff<86400)return'há '+Math.floor(diff/3600)+'h';var hj=new Date();var on=new Date(hj);on.setDate(on.getDate()-1);if(dt.toDateString()===on.toDateString())return'ontem';return dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'}).replace('.','');}
-function ncLoadPosicoes(){NC_POSICOES={};try{var r=localStorage.getItem('g20_rvAportes');if(!r)return;JSON.parse(r).forEach(function(x){if(!x.ticker||x.op==='V')return;var t=x.ticker.toUpperCase();if(!NC_POSICOES[t])NC_POSICOES[t]={qtd:0,isBR:ncIsBR(t)};NC_POSICOES[t].qtd+=Number(x.qtd)||0;});}catch(e){}}
+function ncLoadPosicoes(){NC_POSICOES={};try{var r=G20Local.raw('g20_rvAportes');if(!r)return;JSON.parse(r).forEach(function(x){if(!x.ticker||x.op==='V')return;var t=x.ticker.toUpperCase();if(!NC_POSICOES[t])NC_POSICOES[t]={qtd:0,isBR:ncIsBR(t)};NC_POSICOES[t].qtd+=Number(x.qtd)||0;});}catch(e){}}
 function ncImpacto(tickers){if(!tickers||!tickers.length)return null;var total=0,ok=false;tickers.forEach(function(t){var pos=NC_POSICOES[t.toUpperCase()],q=NC_QUOTES[t.toUpperCase()];if(!pos||!q||!q.varPct||!q.preco||pos.qtd<=0)return;var fx=pos.isBR?1:NC_FX;total+=pos.qtd*q.preco*fx-pos.qtd*(q.preco/(1+q.varPct/100))*fx;ok=true;});return ok?total:null;}
 function ncFmtImp(v){var a=Math.abs(v),s=a>=1000?'R$ '+Math.round(a/1000).toLocaleString('pt-BR')+' k':'R$ '+Math.round(a).toLocaleString('pt-BR');return(v>=0?'+':'-')+s;}
 function ncFetchQuotes(){try{var c=JSON.parse(localStorage.getItem('g20_mj_quotes_cache')||'null');if(c&&c.data&&Date.now()-c.ts<5*60*1000){NC_QUOTES=c.data;return;}}catch(e){}try{var p=JSON.parse(localStorage.getItem('g20_precos')||'null');if(p){Object.keys(p).forEach(function(t){if(t!=='_ts'&&p[t])NC_QUOTES[t]={preco:p[t].preco,varPct:p[t].varPct||0};});}}catch(e){}}
@@ -9365,7 +9433,7 @@ function calGetMinhaCarteira() {
   // Gestão Patrimonial — carteira individual do aluno (g20_rvAportes)
   var tks = {};
   try {
-    var rv = JSON.parse(localStorage.getItem('g20_rvAportes')||'[]');
+    var rv = JSON.parse(G20Local.raw('g20_rvAportes')||'[]');
     rv.forEach(function(x){ if(x.ticker && x.op !== 'V') tks[x.ticker.toUpperCase()] = true; });
   } catch(e){}
   return Object.keys(tks);
@@ -9375,7 +9443,7 @@ function calGetCG20() {
   // Carteira G20 — lê dinamicamente do g20_aportes (mesmo dado da carteira.html)
   var tks = {};
   try {
-    var ap = JSON.parse(localStorage.getItem('g20_aportes')||'[]');
+    var ap = JSON.parse(G20Local.raw('g20_aportes')||'[]');
     ap.forEach(function(x){ if(x.ticker) tks[x.ticker.toUpperCase()] = true; });
   } catch(e){}
   var list = Object.keys(tks);

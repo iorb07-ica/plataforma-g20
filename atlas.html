@@ -367,6 +367,68 @@ body.day .a-ticker{color:#111113}
 .sidebar .nav-item.active{color:var(--gold,#c9a961) !important}
 </style>
 <link rel="stylesheet" href="assets/g20-search.css?v=10">
+<script id="g20-local">
+/* LEITURA SEGURA DAS CÓPIAS LOCAIS (lançamento 01/10)
+   · Carteira G20: o admin tem em g20_aportes / g20_dividendos; o ALUNO recebe a
+     CG20 em g20_cg20Aportes / g20_cg20Dividendos (gravadas pelo dashboard). Antes
+     esta página lia só as do admin e, para o aluno, a Carteira G20 vinha vazia.
+   · Carteira do aluno (g20_rvAportes / g20_rvDividendos): só vale se a cópia for
+     do aluno logado (computador compartilhado).
+   · Sem cópia no aparelho (abriu esta página antes do dashboard), busca na nuvem
+     e recarrega uma única vez. */
+window.G20Local = window.G20Local || (function(){
+  var CG20_UID = '8xrwHHEKAmd0Us5MCyBJhtkJVBM2';
+  function uid(){ try { var u = firebase.auth().currentUser; if (u) return u.uid; } catch(e){} try { return localStorage.getItem('g20_uid'); } catch(e){ return null; } }
+  function arr(k){ try { var v = JSON.parse(localStorage.getItem(k) || 'null'); return Array.isArray(v) && v.length ? v : null; } catch(e){ return null; } }
+  function doAluno(){ var u = uid(), d = null; try { d = localStorage.getItem('g20_dados_owner'); } catch(e){} return !u || !d || d === u; }
+  var API = {
+    raw: function(k){
+      try {
+        if (k === 'g20_aportes')    return arr('g20_aportes')    ? G20Local.raw('g20_aportes')    : localStorage.getItem('g20_cg20Aportes');
+        if (k === 'g20_dividendos') return arr('g20_dividendos') ? localStorage.getItem('g20_dividendos') : localStorage.getItem('g20_cg20Dividendos');
+        if (k === 'g20_rvAportes' || k === 'g20_rvDividendos') return doAluno() ? localStorage.getItem(k) : null;
+        return localStorage.getItem(k);
+      } catch(e){ return null; }
+    },
+    garantir: function(){
+      var u = uid(); if (!u || !window.firebase || !firebase.firestore) return Promise.resolve(false);
+      var db = firebase.firestore(), tarefas = [];
+      function pega(dono, doc, chave, marcaDono){
+        tarefas.push(db.collection('users').doc(dono).collection('dados').doc(doc).get().then(function(d){
+          var v = d.exists && d.data() ? d.data().value : null;
+          if (typeof v === 'string') { try { v = JSON.parse(v); } catch(e){ v = null; } }
+          if (Array.isArray(v) && v.length) { try { localStorage.setItem(chave, JSON.stringify(v)); if (marcaDono) localStorage.setItem('g20_dados_owner', u); } catch(e){} return true; }
+          return false;
+        }).catch(function(){ return false; }));
+      }
+      if (!arr('g20_aportes') && !arr('g20_cg20Aportes') && u !== CG20_UID) pega(CG20_UID, 'aportes', 'g20_cg20Aportes', false);
+      if (!arr('g20_dividendos') && !arr('g20_cg20Dividendos') && u !== CG20_UID) pega(CG20_UID, 'dividendos', 'g20_cg20Dividendos', false);
+      if (!doAluno() || !arr('g20_rvAportes')) pega(u, 'rvAportes', 'g20_rvAportes', true);
+      if (!doAluno() || !arr('g20_rvDividendos')) pega(u, 'rvDividendos', 'g20_rvDividendos', true);
+      return Promise.all(tarefas).then(function(r){ return r.some(Boolean); });
+    }
+  };
+  /* depois do login: completa o que faltar e recarrega UMA vez */
+  (function esperar(n){
+    try {
+      if (window.firebase && firebase.apps && firebase.apps.length && firebase.auth) {
+        firebase.auth().onAuthStateChanged(function(user){
+          if (!user) return;
+          API.garantir().then(function(mudou){
+            if (!mudou) return;
+            var k = 'g20_local_rl_' + location.pathname;
+            try { if (sessionStorage.getItem(k)) return; sessionStorage.setItem(k, '1'); } catch(e){ return; }
+            location.reload();
+          });
+        });
+        return;
+      }
+    } catch(e){}
+    if (n > 0) setTimeout(function(){ esperar(n - 1); }, 300);
+  })(40);
+  return API;
+})();
+</script>
 <script id="g20-ind-ultimos">
 /* ÚLTIMOS VALORES REAIS de dólar e índices (lançamento 01/10).
    Quando a cotação ou o Banco Central não respondem, cada página usava um número
@@ -1110,7 +1172,7 @@ function assignAnchorCoord(idx, total, anchors){
 
 function carregarCG20(){
   try{
-    const raw=localStorage.getItem('g20_aportes');
+    const raw=G20Local.raw('g20_aportes');
     if(!raw) return;
     const aportes=JSON.parse(raw);
     if(!Array.isArray(aportes)||!aportes.length) return;
@@ -2700,7 +2762,7 @@ let _tlAutoInterval = null;
 // Constrói snapshots da timeline a partir dos aportes reais do localStorage
 function buildTimelineSnapshots(){
   try{
-    const raw = localStorage.getItem('g20_aportes');
+    const raw = G20Local.raw('g20_aportes');
     if(!raw) return; // mantém snapshots estáticos como fallback
     const aportes = JSON.parse(raw);
     if(!Array.isArray(aportes)||!aportes.length) return;
