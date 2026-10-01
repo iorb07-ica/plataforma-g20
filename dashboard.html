@@ -22679,6 +22679,16 @@ window.G20GF = (function(){
      Usamos o primeiro da lista — que é exatamente o fallback do próprio
      módulo quando o perfil ativo não existe mais. */
   function _perfilEscolhido(){
+    /* O mesmo perfil que o aluno escolheu por último no módulo (Gestão Financeira
+       guarda em g20_auth_state_v2.activeProfile). Antes era sempre o primeiro da
+       lista: quem trabalhava no perfil "Empresa" via o "Pessoal" no card. */
+    try {
+      var st = JSON.parse(localStorage.getItem('g20_auth_state_v2') || 'null');
+      if (st && st.activeProfile) {
+        var docAtivo = 'financeiro_' + _slug(st.activeProfile);
+        if (_brutos[docAtivo]) return { nome: st.activeProfile, doc: docAtivo };
+      }
+    } catch(e){}
     if (_perfis && _perfis.length) {
       var alvo = 'financeiro_' + _slug(_perfis[0]);
       if (_brutos[alvo]) return { nome: _perfis[0], doc: alvo };
@@ -22702,10 +22712,11 @@ window.G20GF = (function(){
       return _dados;
     }
 
-    /* Mês de referência = mês do lançamento mais recente. */
-    var meses = validas.map(function(t){ return String(t.date).slice(0,7); });
-    meses.sort();
-    var mesRef = meses[meses.length - 1];
+    /* Mês de referência = MÊS ATUAL no fuso de Brasília (o mesmo que o aluno vê
+       ao abrir o módulo). Antes era o mês do lançamento mais recente, e
+       lançamentos FUTUROS (parcelas, fixos já gerados) faziam o card pular para
+       meses distantes (ex.: AGO/27 em outubro de 2026). */
+    var mesRef = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 7);
 
     var doMes = validas.filter(function(t){ return String(t.date).slice(0,7) === mesRef; });
 
@@ -22743,7 +22754,11 @@ window.G20GF = (function(){
       if (!porMes[m]) porMes[m] = 0;
       porMes[m] += t.amount;
     });
-    var chavesMes = Object.keys(porMes).sort().slice(-6);
+    /* Só meses FECHADOS (anteriores ao atual): futuros não entram, e o mês
+       corrente, incompleto, distorceria a média que alimenta a projeção de
+       Independência Financeira. Sem nenhum mês fechado, usa o atual. */
+    var fechados = Object.keys(porMes).filter(function(m){ return m < mesRef; }).sort();
+    var chavesMes = (fechados.length ? fechados : Object.keys(porMes).filter(function(m){ return m <= mesRef; }).sort()).slice(-6);
     var somaSobra = 0;
     chavesMes.forEach(function(m){ somaSobra += porMes[m]; });
     var sobraMedia = chavesMes.length ? (somaSobra / chavesMes.length) : 0;
@@ -22765,7 +22780,8 @@ window.G20GF = (function(){
       taxa: taxa,
       sobraMedia: sobraMedia,
       mesesConsiderados: chavesMes.length,
-      lancamentos: doMes.length
+      lancamentos: doMes.length,
+      futurosIgnorados: validas.filter(function(t){ return String(t.date).slice(0,7) > mesRef; }).length
     };
     return _dados;
   }
@@ -22886,7 +22902,12 @@ window.v21LoadGF = function(){
   set('v21GFExp', 'R$ ' + kurt(d.despesas));
 
   var taxaEl = document.getElementById('v21GFTaxa');
-  if (taxaEl) {
+  if (taxaEl && !d.lancamentos) {
+    taxaEl.innerHTML = '<span style="color:var(--text2,#8b93a7)">Nenhum lançamento em ' + rotulo + ' ainda</span>';
+  } else if (taxaEl && !(d.receitas > 0)) {
+    /* sem receita no mês a taxa não existe: "0%" seria enganoso */
+    taxaEl.innerHTML = '<span style="color:var(--text2,#8b93a7)">Sem receita lançada em ' + rotulo + '</span>';
+  } else if (taxaEl) {
     if (neg) {
       taxaEl.innerHTML = '<b style="color:#f87171">' +
                          Math.round((d.despesas / (d.receitas || 1)) * 100) +
