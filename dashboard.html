@@ -20,6 +20,23 @@
 <link rel="stylesheet" href="assets/g20-scrollbar.css?v=10">
 <link rel="stylesheet" href="assets/g20-search.css?v=10">
 <link rel="stylesheet" href="assets/g20-topbar-v21.css?v=15">
+<script id="g20-ind-ultimos">
+/* ÚLTIMOS VALORES REAIS de dólar e índices (lançamento 01/10).
+   Quando a cotação ou o Banco Central não respondem, cada página usava um número
+   fixo diferente (dólar 5,00 / 5,05 / 5,20 / 5,85; CDI 14,15 / 14,65) e os totais
+   não batiam entre as páginas. Agora todas usam o último valor REAL visto neste
+   aparelho (guardado aqui), e só sem ele caem no número fixo. */
+window.G20Ind = window.G20Ind || (function(){
+  var K = 'g20_ind_ultimos';
+  function ler(){ try { return JSON.parse(localStorage.getItem(K) || '{}') || {}; } catch(e){ return {}; } }
+  function ok(k, v){ v = parseFloat(v); if (!isFinite(v)) return false; if (k === 'usd') return v > 3 && v < 10; if (k === 'ipca' || k === 'igpm') return v > -5 && v < 30; return v > 1 && v < 40; }
+  return {
+    get: function(k, def){ var d = ler(); return ok(k, d[k]) ? parseFloat(d[k]) : def; },
+    set: function(k, v){ if (!ok(k, v)) return; v = parseFloat(v); var d = ler(); if (d[k] != null && Math.abs(d[k] - v) < 1e-9) return; d[k] = v; d.em = Date.now(); try { localStorage.setItem(K, JSON.stringify(d)); } catch(e){} },
+    vigiar: function(fn){ function go(){ try { var o = fn() || {}; for (var k in o) { if (o[k] != null) window.G20Ind.set(k, o[k]); } } catch(e){} } setInterval(go, 5000); window.addEventListener('pagehide', go); setTimeout(go, 2500); }
+  };
+})();
+</script>
 <script src="assets/g20-store.js?v=1"></script>
 <script src="assets/g20-notifications.js?v=11"></script>
 <script>
@@ -7346,6 +7363,12 @@ body .topbar .g20-tab:not(.active):not(.soon){color:#c9a961 !important}
 body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
 </style>
 <script src="auth-guard.js"></script>
+<style id="g20-ios-zoom-fix">
+/* Lançamento 01/10: campo abaixo de 16px dá zoom ao tocar no iPhone. Só em telas de toque. */
+@media (pointer: coarse) {
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select, textarea { font-size: 16px !important; }
+}
+</style>
 </head>
 <body>
 <!-- ═══════════════════════════════════════════════════════════════════════
@@ -9967,7 +9990,7 @@ function _calcRFVarDia(rf){
 }
 
 // //  VARIAO DIRIA
-var _dashRVCot={}, _dashUsdBRL=5.85;
+var _dashRVCot={}, _dashUsdBRL=G20Ind.get('usd',5.85);
 /* 5.85 é apenas um valor inicial de segurança, NÃO uma cotação real.
    Esta flag marca se o câmbio foi de fato buscado. Sem ela, cálculos a
    mercado usariam 5,85 quando o dólar está 5,08 — inflando os ativos em
@@ -10286,7 +10309,7 @@ function buscarTape(){
 
   // Fallback: últimos valores conhecidos (jun/2026) — evita mostrar "–"
   // se a API do BCB falhar/timeout no mobile. Atualizados ao primeiro fetch OK.
-  var FALLBACK = { selic: 14.75, cdi: 14.65, ipca: 5.32, igpm: 4.39 };
+  var FALLBACK = { selic: G20Ind.get('selic',14.75), cdi: G20Ind.get('cdi',14.65), ipca: G20Ind.get('ipca',5.32), igpm: G20Ind.get('igpm',4.39) };
 
   // Aplica imediatamente: cache válido > cache antigo > fallback
   // Object.assign garante que campos faltando no cache caem no FALLBACK
@@ -11414,7 +11437,7 @@ window.loadPatStrip = loadPatStrip;
       var rfLista = (opts.rendaFixa || []).filter(function (r) {
         return r && (parseFloat(r.valorInv || r.valor || 0) > 0) && (r.dataInicio || r.data);
       });
-      var idx = opts.indices || { cdi: 14.15, selic: 14.25, ipca: 4.64, igpm: 3.18 };
+      var idx = opts.indices || { cdi: G20Ind.get('cdi',14.65), selic: G20Ind.get('selic',14.75), ipca: G20Ind.get('ipca',5.32), igpm: G20Ind.get('igpm',4.39) };
       if (!eventos.length && !rfLista.length) return Promise.resolve(null);
 
       var datas = [];
@@ -12269,10 +12292,10 @@ function _patSnapUpsert(total,rf,rv){
             if (window.G20Rent && typeof G20Rent._rfLiquido === 'function') {
               var _lst = JSON.parse(localStorage.getItem('g20_rendaFixa') || '[]');
               var _ix = {
-                cdi:   (typeof IND !== 'undefined' && IND.cdi)   ? IND.cdi   : 14.15,
-                selic: (typeof IND !== 'undefined' && IND.selic) ? IND.selic : 14.25,
-                ipca:  (typeof IND !== 'undefined' && IND.ipca)  ? IND.ipca  : 4.64,
-                igpm:  (typeof IND !== 'undefined' && IND.igpm)  ? IND.igpm  : 3.18
+                cdi:   (typeof IND !== 'undefined' && IND.cdi)   ? IND.cdi   : G20Ind.get('cdi',14.65),
+                selic: (typeof IND !== 'undefined' && IND.selic) ? IND.selic : G20Ind.get('selic',14.75),
+                ipca:  (typeof IND !== 'undefined' && IND.ipca)  ? IND.ipca  : G20Ind.get('ipca',5.32),
+                igpm:  (typeof IND !== 'undefined' && IND.igpm)  ? IND.igpm  : G20Ind.get('igpm',4.39)
               };
               var _s = 0;
               _lst.forEach(function(x){
@@ -12422,10 +12445,10 @@ function _patSnapUpsert(total,rf,rv){
           var _rfLista = [];
           try { _rfLista = JSON.parse(localStorage.getItem('g20_rendaFixa') || '[]'); } catch(e){}
           var _idxRF = {
-            cdi:   (typeof IND !== 'undefined' && IND.cdi)   ? IND.cdi   : 14.15,
-            selic: (typeof IND !== 'undefined' && IND.selic) ? IND.selic : 14.25,
-            ipca:  (typeof IND !== 'undefined' && IND.ipca)  ? IND.ipca  : 4.64,
-            igpm:  (typeof IND !== 'undefined' && IND.igpm)  ? IND.igpm  : 3.18
+            cdi:   (typeof IND !== 'undefined' && IND.cdi)   ? IND.cdi   : G20Ind.get('cdi',14.65),
+            selic: (typeof IND !== 'undefined' && IND.selic) ? IND.selic : G20Ind.get('selic',14.75),
+            ipca:  (typeof IND !== 'undefined' && IND.ipca)  ? IND.ipca  : G20Ind.get('ipca',5.32),
+            igpm:  (typeof IND !== 'undefined' && IND.igpm)  ? IND.igpm  : G20Ind.get('igpm',4.39)
           };
           var _hojeRF = new Date().toISOString().substring(0,10);
           var _soma = 0;
@@ -13614,10 +13637,10 @@ window.g20Logout = function() {
               try { _rfReal = JSON.parse(localStorage.getItem('g20_rendaFixa')||'[]'); } catch(e){}
               if (_apReal.length || _rfReal.length) {
                 var _idxReal = {
-                  cdi:   (typeof IND!=='undefined' && IND.cdi)   ? IND.cdi   : 14.15,
-                  selic: (typeof IND!=='undefined' && IND.selic) ? IND.selic : 14.25,
-                  ipca:  (typeof IND!=='undefined' && IND.ipca)  ? IND.ipca  : 4.64,
-                  igpm:  (typeof IND!=='undefined' && IND.igpm)  ? IND.igpm  : 3.18
+                  cdi:   (typeof IND!=='undefined' && IND.cdi)   ? IND.cdi   : G20Ind.get('cdi',14.65),
+                  selic: (typeof IND!=='undefined' && IND.selic) ? IND.selic : G20Ind.get('selic',14.75),
+                  ipca:  (typeof IND!=='undefined' && IND.ipca)  ? IND.ipca  : G20Ind.get('ipca',5.32),
+                  igpm:  (typeof IND!=='undefined' && IND.igpm)  ? IND.igpm  : G20Ind.get('igpm',4.39)
                 };
                 G20Rent.calcular({ aportes: _apReal, rendaFixa: _rfReal, indices: _idxReal }).then(function(serie){
                   if (!serie || serie.length < 2) {
@@ -22422,6 +22445,7 @@ body.pat-hidden .agm-res-val, body.pat-hidden .agm-val, body.pat-hidden .agm-cot
   #v21RentSummary .v21-chart-summary-item.alpha .v21-chart-summary-val.alpha-neg { color: #e63946 !important; }
 }
 </style>
+<script>try{ G20Ind.vigiar(function(){ return { usd: (typeof _dashUsdBRL!=='undefined'?_dashUsdBRL:null), cdi: (typeof IND!=='undefined'&&IND.cdi)||null, selic: (typeof IND!=='undefined'&&IND.selic)||null, ipca: (typeof IND!=='undefined'&&IND.ipca)||null, igpm: (typeof IND!=='undefined'&&IND.igpm)||null }; }); }catch(e){}</script>
 </body>
 </html>
 

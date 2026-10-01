@@ -16,6 +16,23 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/g20-topbar.css?v=10">
+<script id="g20-ind-ultimos">
+/* ÚLTIMOS VALORES REAIS de dólar e índices (lançamento 01/10).
+   Quando a cotação ou o Banco Central não respondem, cada página usava um número
+   fixo diferente (dólar 5,00 / 5,05 / 5,20 / 5,85; CDI 14,15 / 14,65) e os totais
+   não batiam entre as páginas. Agora todas usam o último valor REAL visto neste
+   aparelho (guardado aqui), e só sem ele caem no número fixo. */
+window.G20Ind = window.G20Ind || (function(){
+  var K = 'g20_ind_ultimos';
+  function ler(){ try { return JSON.parse(localStorage.getItem(K) || '{}') || {}; } catch(e){ return {}; } }
+  function ok(k, v){ v = parseFloat(v); if (!isFinite(v)) return false; if (k === 'usd') return v > 3 && v < 10; if (k === 'ipca' || k === 'igpm') return v > -5 && v < 30; return v > 1 && v < 40; }
+  return {
+    get: function(k, def){ var d = ler(); return ok(k, d[k]) ? parseFloat(d[k]) : def; },
+    set: function(k, v){ if (!ok(k, v)) return; v = parseFloat(v); var d = ler(); if (d[k] != null && Math.abs(d[k] - v) < 1e-9) return; d[k] = v; d.em = Date.now(); try { localStorage.setItem(K, JSON.stringify(d)); } catch(e){} },
+    vigiar: function(fn){ function go(){ try { var o = fn() || {}; for (var k in o) { if (o[k] != null) window.G20Ind.set(k, o[k]); } } catch(e){} } setInterval(go, 5000); window.addEventListener('pagehide', go); setTimeout(go, 2500); }
+  };
+})();
+</script>
 <script src="assets/g20-notifications.js?v=11"></script>
 <link rel="stylesheet" href="assets/g20-sidebar.css?v=10">
 <link rel="stylesheet" href="assets/g20-scrollbar.css?v=10">
@@ -2183,6 +2200,13 @@ body.pat-hidden .g-kpi-sub::after{justify-content:flex-start;padding-right:0;pad
   })();
 </script>
 <script src="auth-guard.js"></script>
+<style id="g20-ios-zoom-fix">
+/* Lançamento 01/10: campo abaixo de 16px dá zoom ao tocar no iPhone. Só em telas de toque. */
+@media (pointer: coarse) {
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select, textarea { font-size: 16px !important; }
+  html body #tab-dividendos select, html body #tab-dividendos input, html body #tab-aportes select, html body #tab-aportes input, html body .search-input { font-size: 16px !important; }
+}
+</style>
 </head>
 <body>
 <!-- G20 Loader - Carteira G20 -->
@@ -3281,7 +3305,7 @@ var tokenFmp    = '';
 var tokenTwelve = '';
 var TWELVE_URL  = 'https://api.twelvedata.com';
 var cotacoes    = {};
-var usdBRL      = 5.85;
+var usdBRL      = G20Ind.get('usd',5.85);
 var filtroAtivo = 'todos';
 var sortCol = 'posicao';
 var sortAsc = false;
@@ -13031,5 +13055,6 @@ body.cg20-cards .filter-bar .cg-chips .filter-btn { flex: 0 0 auto; min-height: 
   var tp; new MutationObserver(function(){ clearTimeout(tp); tp = setTimeout(prepararPilhas, 300); }).observe(document.body, { childList: true, subtree: true });
 })();
 </script>
+<script>try{ G20Ind.vigiar(function(){ return { usd: (typeof usdBRL!=='undefined'?usdBRL:null) }; }); }catch(e){}</script>
 </body>
 </html>

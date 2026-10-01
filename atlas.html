@@ -367,6 +367,23 @@ body.day .a-ticker{color:#111113}
 .sidebar .nav-item.active{color:var(--gold,#c9a961) !important}
 </style>
 <link rel="stylesheet" href="assets/g20-search.css?v=10">
+<script id="g20-ind-ultimos">
+/* ÚLTIMOS VALORES REAIS de dólar e índices (lançamento 01/10).
+   Quando a cotação ou o Banco Central não respondem, cada página usava um número
+   fixo diferente (dólar 5,00 / 5,05 / 5,20 / 5,85; CDI 14,15 / 14,65) e os totais
+   não batiam entre as páginas. Agora todas usam o último valor REAL visto neste
+   aparelho (guardado aqui), e só sem ele caem no número fixo. */
+window.G20Ind = window.G20Ind || (function(){
+  var K = 'g20_ind_ultimos';
+  function ler(){ try { return JSON.parse(localStorage.getItem(K) || '{}') || {}; } catch(e){ return {}; } }
+  function ok(k, v){ v = parseFloat(v); if (!isFinite(v)) return false; if (k === 'usd') return v > 3 && v < 10; if (k === 'ipca' || k === 'igpm') return v > -5 && v < 30; return v > 1 && v < 40; }
+  return {
+    get: function(k, def){ var d = ler(); return ok(k, d[k]) ? parseFloat(d[k]) : def; },
+    set: function(k, v){ if (!ok(k, v)) return; v = parseFloat(v); var d = ler(); if (d[k] != null && Math.abs(d[k] - v) < 1e-9) return; d[k] = v; d.em = Date.now(); try { localStorage.setItem(K, JSON.stringify(d)); } catch(e){} },
+    vigiar: function(fn){ function go(){ try { var o = fn() || {}; for (var k in o) { if (o[k] != null) window.G20Ind.set(k, o[k]); } } catch(e){} } setInterval(go, 5000); window.addEventListener('pagehide', go); setTimeout(go, 2500); }
+  };
+})();
+</script>
 <script src="assets/g20-notifications.js?v=10"></script>
 <script src="assets/g20-search.js?v=10"></script>
 <script src="assets/market-hours.js?v=1"></script>
@@ -384,6 +401,12 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
   .topbar-right { gap: 6px !important; flex-shrink: 0 !important; }
   .topbar-right > .btn-gsearch, .topbar-right > #g20FeedbackBtn, .topbar-right > .btn-icon { width: 38px !important; height: 38px !important; min-width: 38px !important; }
   html body .topbar .topbar-left { min-width: 0 !important; width: auto !important; max-width: none !important; overflow: hidden !important; flex: 1 1 0 !important; }
+}
+</style>
+<style id="g20-ios-zoom-fix">
+/* Lançamento 01/10: campo abaixo de 16px dá zoom ao tocar no iPhone. Só em telas de toque. */
+@media (pointer: coarse) {
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select, textarea { font-size: 16px !important; }
 }
 </style>
 </head>
@@ -2827,7 +2850,7 @@ function updateMarketStatus(){
 setInterval(updateMarketStatus,30000);updateMarketStatus();
 
 /* ══ CÂMBIO BRL/USD em tempo real ══ */
-let CAMBIO_BRL=5.05; // valor padrão, atualizado pelo fetchCambio
+let CAMBIO_BRL=G20Ind.get('usd',5.85); // último real visto neste aparelho; atualizado pelo fetchCambio
 
 function fetchCambio(){
   fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL')
@@ -4047,5 +4070,6 @@ body.atlas-compacto .share-card { width: calc(100% - 24px) !important; }
   } catch(e){}
 })();
 </script>
+<script>try{ G20Ind.vigiar(function(){ return { usd: (typeof CAMBIO_BRL!=='undefined'?CAMBIO_BRL:null) }; }); }catch(e){}</script>
 </body>
 </html>

@@ -15,6 +15,23 @@
 <title>Minha Carteira — G20 Masterclass</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/g20-topbar.css?v=10">
+<script id="g20-ind-ultimos">
+/* ÚLTIMOS VALORES REAIS de dólar e índices (lançamento 01/10).
+   Quando a cotação ou o Banco Central não respondem, cada página usava um número
+   fixo diferente (dólar 5,00 / 5,05 / 5,20 / 5,85; CDI 14,15 / 14,65) e os totais
+   não batiam entre as páginas. Agora todas usam o último valor REAL visto neste
+   aparelho (guardado aqui), e só sem ele caem no número fixo. */
+window.G20Ind = window.G20Ind || (function(){
+  var K = 'g20_ind_ultimos';
+  function ler(){ try { return JSON.parse(localStorage.getItem(K) || '{}') || {}; } catch(e){ return {}; } }
+  function ok(k, v){ v = parseFloat(v); if (!isFinite(v)) return false; if (k === 'usd') return v > 3 && v < 10; if (k === 'ipca' || k === 'igpm') return v > -5 && v < 30; return v > 1 && v < 40; }
+  return {
+    get: function(k, def){ var d = ler(); return ok(k, d[k]) ? parseFloat(d[k]) : def; },
+    set: function(k, v){ if (!ok(k, v)) return; v = parseFloat(v); var d = ler(); if (d[k] != null && Math.abs(d[k] - v) < 1e-9) return; d[k] = v; d.em = Date.now(); try { localStorage.setItem(K, JSON.stringify(d)); } catch(e){} },
+    vigiar: function(fn){ function go(){ try { var o = fn() || {}; for (var k in o) { if (o[k] != null) window.G20Ind.set(k, o[k]); } } catch(e){} } setInterval(go, 5000); window.addEventListener('pagehide', go); setTimeout(go, 2500); }
+  };
+})();
+</script>
 <script src="assets/g20-notifications.js?v=11"></script>
 <link rel="stylesheet" href="assets/g20-sidebar.css?v=10">
 <link rel="stylesheet" href="assets/g20-scrollbar.css?v=10">
@@ -3245,9 +3262,9 @@ function buscarIndicadores(){
   if(!cacheValido) renderTape(); // render imediato com '--' quando ainda sem cache
 }
 
-function getCDI(){ return (window.G20RF ? G20RF.taxaAnual('cdi') : 0) || IND.cdi || 14.65; }
-function getSelic(){ return IND.selic || (window.G20RF ? G20RF.taxaAnual('selic') : 0) || 14.75; }
-function getIPCA(){ return (window.G20RF ? G20RF.taxaAnual('ipca') : 0) || IND.ipca || 4.8; }
+function getCDI(){ return (window.G20RF ? G20RF.taxaAnual('cdi') : 0) || IND.cdi || G20Ind.get('cdi',14.65); }
+function getSelic(){ return IND.selic || (window.G20RF ? G20RF.taxaAnual('selic') : 0) || G20Ind.get('selic',14.75); }
+function getIPCA(){ return (window.G20RF ? G20RF.taxaAnual('ipca') : 0) || IND.ipca || G20Ind.get('ipca',5.32); }
 function getIGPM(){ return IND.igpm || 6.54; }
 
 function forcarAtualizacaoBCB(){
@@ -7169,7 +7186,7 @@ var PROXY_URL_RV  = 'https://g20-proxy.vercel.app';
 var RV_US_TYPES   = ['Stock','REIT','ETF','Cripto','UCITs'];
 var RV_TIPO_CORES = {Acao:'#3b82f6',FII:'#10b981',FIAGRO:'#f59e0b',FIInfra:'#14b8a6',Stock:'#8b5cf6',REIT:'#ef4444',ETF:'#f97316',Cripto:'#f7931a',UCITs:'#00bcd4'};
 var rvCotacoes    = {};
-var rvUsdBRL      = 5.85;
+var rvUsdBRL      = G20Ind.get('usd',5.85);
 var rvFiltroAtivo = 'todos';
 var rvModoMoeda   = 'BRL'; // 'BRL' ou 'USD'
 var _rvOpen       = false;
@@ -13781,5 +13798,6 @@ function g20ExportClick(qual){
   else setTimeout(iniciar, 1500);
 })();
 </script>
+<script>try{ G20Ind.vigiar(function(){ return { usd: (typeof rvUsdBRL!=='undefined'?rvUsdBRL:null), cdi: (typeof IND!=='undefined'&&IND.cdi)||null, selic: (typeof IND!=='undefined'&&IND.selic)||null, ipca: (typeof IND!=='undefined'&&IND.ipca)||null, igpm: (typeof IND!=='undefined'&&IND.igpm)||null }; }); }catch(e){}</script>
 </body>
 </html>
