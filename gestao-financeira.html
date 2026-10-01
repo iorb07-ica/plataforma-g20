@@ -8713,46 +8713,84 @@ body.didactic-on .didactic-note{ display:block; }
 
                 container.innerHTML = html;
 
-                // Hover: subtle scale + custom dark tooltip matching chart style
-                const heatTooltip = document.createElement('div');
-                heatTooltip.style.cssText = `
-                    position:fixed; pointer-events:none; z-index:9999;
-                    background:rgba(9,9,11,0.92); color:#fff;
-                    padding:6px 10px; border-radius:7px;
-                    font-family:'Montserrat','DM Sans',sans-serif;
-                    font-size:11px; font-weight:600; line-height:1.4;
-                    white-space:nowrap; display:none;
-                    box-shadow:0 4px 16px rgba(0,0,0,0.35);
-                    border:1px solid rgba(255,255,255,0.08);
-                `;
-                document.body.appendChild(heatTooltip);
+                /* BALÃO DO CALENDÁRIO (set/2026)
+                   - UM balão reaproveitado (antes um novo era criado a cada renderização);
+                   - mouse: aparece ao passar e segue o cursor (igual antes);
+                   - toque: aparece ANCORADO ao dia tocado e some ao rolar, tocar fora,
+                     girar o aparelho ou após 3 s (antes ficava preso e "voando"). */
+                let heatTooltip = document.getElementById('g20HeatTip');
+                if (!heatTooltip) {
+                    heatTooltip = document.createElement('div');
+                    heatTooltip.id = 'g20HeatTip';
+                    heatTooltip.setAttribute('role', 'tooltip');
+                    heatTooltip.style.cssText = `
+                        position:fixed; pointer-events:none; z-index:9999;
+                        background:rgba(9,9,11,0.92); color:#fff;
+                        padding:6px 10px; border-radius:7px;
+                        font-family:'Montserrat','DM Sans',sans-serif;
+                        font-size:11px; font-weight:600; line-height:1.4;
+                        white-space:nowrap; display:none;
+                        box-shadow:0 4px 16px rgba(0,0,0,0.35);
+                        border:1px solid rgba(255,255,255,0.08);
+                    `;
+                    document.body.appendChild(heatTooltip);
+                }
+                if (window.g20EsconderBaloes) window.g20EsconderBaloes();
+
+                const destacar = (cell, on) => {
+                    cell.style.transform = on ? 'scale(1.1)' : '';
+                    cell.style.zIndex = on ? '10' : '';
+                    cell.style.filter = on ? 'brightness(1.15)' : '';
+                    cell.style.boxShadow = on ? '0 2px 6px rgba(0,0,0,0.18)' : '';
+                };
+                const mostrar = (cell, html) => {
+                    const ant = window._g20HeatCell;
+                    if (ant && ant !== cell) destacar(ant, false);
+                    window._g20HeatCell = cell;
+                    destacar(cell, true);
+                    heatTooltip.innerHTML = html;
+                    heatTooltip.style.display = 'block';
+                };
+                const ancorar = (cell) => {
+                    const r = cell.getBoundingClientRect(), w = heatTooltip.offsetWidth, h = heatTooltip.offsetHeight;
+                    let top = r.top - h - 8; if (top < 70) top = r.bottom + 8;
+                    let left = r.left + r.width / 2 - w / 2;
+                    left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+                    top = Math.max(8, Math.min(top, window.innerHeight - h - 8));
+                    heatTooltip.style.left = left + 'px'; heatTooltip.style.top = top + 'px';
+                };
 
                 container.querySelectorAll('.heatmap-cell').forEach(cell => {
                     const val = parseFloat(cell.dataset.val) || 0;
                     const dayNum = cell.textContent.trim();
                     const tipVal = val > 0 ? val.toLocaleString('pt-br',{style:'currency',currency:'BRL'}) : 'Sem gasto';
+                    const html = `<span style="opacity:.65;">Dia ${dayNum}</span><br>${tipVal}`;
 
                     cell.removeAttribute('title');
+                    cell.setAttribute('tabindex', '0');
+                    cell.setAttribute('aria-label', `Dia ${dayNum}: ${tipVal}`);
 
-                    cell.addEventListener('mouseenter', (e) => {
-                        cell.style.transform = 'scale(1.1)';
-                        cell.style.zIndex = '10';
-                        cell.style.filter = 'brightness(1.15)';
-                        cell.style.boxShadow = '0 2px 6px rgba(0,0,0,0.18)';
-                        heatTooltip.innerHTML = `<span style="opacity:.65;">Dia ${dayNum}</span><br>${tipVal}`;
-                        heatTooltip.style.display = 'block';
-                    });
-                    cell.addEventListener('mousemove', (e) => {
+                    // mouse (desktop): igual ao comportamento anterior
+                    cell.addEventListener('pointerenter', (e) => { if (e.pointerType !== 'mouse') return; mostrar(cell, html); });
+                    cell.addEventListener('pointermove', (e) => {
+                        if (e.pointerType !== 'mouse') return;
                         heatTooltip.style.left = (e.clientX + 14) + 'px';
                         heatTooltip.style.top  = (e.clientY - 36) + 'px';
                     });
-                    cell.addEventListener('mouseleave', () => {
-                        cell.style.transform = '';
-                        cell.style.zIndex = '';
-                        cell.style.filter = '';
-                        cell.style.boxShadow = '';
-                        heatTooltip.style.display = 'none';
+                    cell.addEventListener('pointerleave', (e) => { if (e.pointerType !== 'mouse') return; window.g20EsconderBaloes && window.g20EsconderBaloes(); });
+
+                    // toque: ancorado ao dia; tocar de novo no mesmo dia esconde
+                    cell.addEventListener('pointerup', (e) => {
+                        if (e.pointerType === 'mouse') return;
+                        if (window._g20HeatCell === cell && heatTooltip.style.display === 'block') { window.g20EsconderBaloes(); return; }
+                        mostrar(cell, html); ancorar(cell);
+                        clearTimeout(window._g20HeatTimer);
+                        window._g20HeatTimer = setTimeout(() => window.g20EsconderBaloes && window.g20EsconderBaloes(), 3000);
                     });
+
+                    // teclado
+                    cell.addEventListener('focus', () => { mostrar(cell, html); ancorar(cell); });
+                    cell.addEventListener('blur', () => { window.g20EsconderBaloes && window.g20EsconderBaloes(); });
                 });
             })();
 
@@ -9854,4 +9892,53 @@ function g20NovoPerfilClick(){
   .budget-content-wrapper .budget-amount { margin-left: auto; }
 }
 </style>
+
+<script id="g20-baloes-js">
+/* ════════════════════════════════════════════════════════════════════
+   BALÕES SOLTOS NO CELULAR (set/2026)
+   Esconde balões e janelas flutuantes ao rolar (qualquer área), tocar fora,
+   girar/redimensionar e esconder a página. Antes, no toque, eles ficavam presos
+   e "voando" sobre o conteúdo enquanto a página rolava.
+   ════════════════════════════════════════════════════════════════════ */
+(function(){
+  function graficos(){ var m = window.myCharts || {}; return Object.keys(m).map(function(k){ return m[k]; }).filter(function(c){ return c && c.tooltip; }); }
+  window.g20EsconderBaloes = function(opc){
+    opc = opc || {};
+    // calendário de calor
+    var t = document.getElementById('g20HeatTip'); if (t) t.style.display = 'none';
+    var c = window._g20HeatCell;
+    if (c) { c.style.transform = ''; c.style.zIndex = ''; c.style.filter = ''; c.style.boxShadow = ''; window._g20HeatCell = null; }
+    clearTimeout(window._g20HeatTimer);
+    // balão do orçamento
+    var b = document.getElementById('budget-global-tooltip'); if (b) b.style.display = 'none';
+    // seletor de data (fecha ao rolar a página, não ao rolar dentro dele)
+    if (opc.rolagem) Array.prototype.forEach.call(document.body.children, function(el){ if (el._dp && el.style.display !== 'none' && !(opc.alvo && el.contains(opc.alvo))) el.style.display = 'none'; });
+    // balões dos gráficos (pizza, barras, radar...)
+    graficos().forEach(function(ch){
+      try { if (ch.getActiveElements && ch.getActiveElements().length) { ch.setActiveElements([]); ch.tooltip.setActiveElements([], { x: 0, y: 0 }); ch.update('none'); } } catch(e){}
+    });
+  };
+  var rolando = null;
+  document.addEventListener('scroll', function(e){
+    // só reage uma vez por gesto de rolagem
+    if (rolando) return;
+    rolando = setTimeout(function(){ rolando = null; }, 150);
+    window.g20EsconderBaloes({ rolagem: true, alvo: e.target });
+  }, { capture: true, passive: true });
+  document.addEventListener('pointerdown', function(e){
+    if (e.pointerType === 'mouse') return;
+    var t = e.target;
+    if (t.closest && (t.closest('.heatmap-cell') || t.closest('canvas'))) return;   // o próprio toque decide
+    window.g20EsconderBaloes();
+  }, { capture: true, passive: true });
+  window.addEventListener('resize', function(){ window.g20EsconderBaloes(); });
+  window.addEventListener('orientationchange', function(){ window.g20EsconderBaloes(); });
+  document.addEventListener('visibilitychange', function(){ if (document.hidden) window.g20EsconderBaloes({ rolagem: true }); });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') window.g20EsconderBaloes(); });
+  // remove balões antigos do calendário criados antes desta versão (sem id)
+  Array.prototype.forEach.call(document.querySelectorAll('body > div'), function(el){
+    if (!el.id && el.style.position === 'fixed' && el.style.pointerEvents === 'none' && /Dia \d/.test(el.textContent || '')) el.remove();
+  });
+})();
+</script>
 </body></html>
