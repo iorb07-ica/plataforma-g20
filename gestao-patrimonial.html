@@ -2589,7 +2589,7 @@ canvas{touch-action:pan-y}
       </div>
       <div style="margin-bottom:14px">
         <label style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;display:block" id="rf_taxaLabel">% do CDI</label>
-        <input style="width:100%;background:var(--bg3);border:1px solid rgba(255,255,255,0.15);color:var(--text);padding:9px 12px;border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box" id="rf_taxa" type="number" min="0" step="0.01" placeholder="Ex: 110 para 110% CDI">
+        <input style="width:100%;background:var(--bg3);border:1px solid rgba(255,255,255,0.15);color:var(--text);padding:9px 12px;border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box" id="rf_taxa" type="text" inputmode="decimal" autocomplete="off" placeholder="Ex: 110 para 110% CDI">
         <div id="rf_taxa_hint" style="font-size:10px;color:var(--text3);margin-top:4px;line-height:1.4"></div>
       </div>
     </div>
@@ -3649,6 +3649,14 @@ function salvarRF(){
   var valorAtual=parseBRLInput(document.getElementById('rf_valorAtual'));
   var tdSubtipo=(tipo==='TD') ? document.getElementById('rf_tdSubtipo').value : '';
   if(!nome||isNaN(valorInv)||valorInv<=0||isNaN(taxa)||!dataInicio){alert('Preencha nome, valor, taxa e data.');return;}
+  /* Conferências de digitação (lançamento 01/10) */
+  var _hj = new Date(Date.now() - 3*3600*1000).toISOString().slice(0,10);
+  if(dataInicio > _hj){ alert('A data de aplicação está no futuro. Confira a data.'); return; }
+  if(vencimento && vencimento <= dataInicio){ alert('O vencimento precisa ser depois da data de aplicação.'); return; }
+  if(indexador === 'CDI' && taxa > 0 && taxa < 30 &&
+     !confirm('Taxa de ' + String(taxa).replace('.', ',') + '% do CDI parece baixa. Para 110% do CDI, digite 110. Salvar assim mesmo?')) return;
+  if(indexador !== 'CDI' && taxa > 30 &&
+     !confirm('Taxa de ' + String(taxa).replace('.', ',') + '% ao ano parece alta para ' + indexador + '. Salvar assim mesmo?')) return;
   var lista=loadRF();
   var editIdx=document.getElementById('rf_editId').value;
   var codigo = document.getElementById('rf_codigo').value.trim();
@@ -3669,7 +3677,7 @@ function salvarRF(){
   // Save imediato no Firestore
   _db_cache['rendaFixa'] = lista;
   try{ localStorage.setItem('g20_rendaFixa', JSON.stringify(lista)); }catch(e){}
-  if(_db_ref){ _db_ref.doc('rendaFixa').set({value:lista,updatedAt:firebase.firestore.FieldValue.serverTimestamp()}).catch(function(e){console.warn(e);}); }
+  if(typeof _gpNuvemSet === 'function') _gpNuvemSet('rendaFixa', lista);   // com aviso se falhar
   fecharModal('modalRF'); renderAll(); showToast('✅ Título salvo com sucesso');
 }
 
