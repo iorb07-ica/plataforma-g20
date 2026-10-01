@@ -2278,130 +2278,166 @@
 })();
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   ARENA G20: "EM BREVE" (lançamento 01/10)
+   PÁGINAS "EM BREVE" (lançamento 01/10): Arena G20 e Consultoria
 
-   A Arena ainda não está pronta. Todo link para arena.html (menu lateral,
-   sino de notificações, busca) abre a janela "em breve" em vez de navegar.
-   Liberado: admin e alunos com users/{uid}.recursos.arena = true (chave no
-   painel de admin). A própria arena.html também se tranca, para quem chega
-   pelo endereço direto.
+   Ainda não estão prontas. Todo link para essas páginas (menu lateral, sino,
+   busca, cards do dashboard) abre a janela "em breve" em vez de navegar.
+   Liberado: admin e alunos com users/{uid}.recursos.{chave} = true (chave no
+   painel de admin). As próprias páginas também se trancam, para quem chega
+   pelo endereço direto. Para travar outra página: acrescente em TRAVAS.
    ═══════════════════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
-  if (window.__g20ArenaTrava) return;
-  window.__g20ArenaTrava = true;
+  if (window.__g20TravasOk) return;
+  window.__g20TravasOk = true;
 
+  var TRAVAS = {
+    'arena.html': {
+      chave: 'arena', menuId: 'tut-arena', ico: '💬', titulo: 'Arena G20',
+      texto: 'Estamos construindo um ambiente incrível para a comunidade G20: um lugar para trocar ideias, tirar dúvidas e aprender junto com quem está na mesma jornada.',
+      itens: ['🗂️ Fóruns específicos para cada tema', '📈 Ações, FIIs, renda fixa, exterior e cripto', '🤝 Debates com a turma e troca de experiências', '⭐ Conteúdos e discussões exclusivas da comunidade'],
+      fim: 'Assim que estiver pronto, ele abre aqui. Vale a espera.'
+    },
+    'consultoria.html': {
+      chave: 'consultoria', menuId: 'tut-consultoria', ico: '🧑‍💼', titulo: 'Consultoria individual',
+      texto: 'Estamos preparando um novo espaço para as suas consultorias individuais: tudo organizado, direto pela plataforma.',
+      itens: ['📅 Agendamento direto pela plataforma', '🕒 Horários disponíveis em tempo real', '🎥 Link da reunião gerado automaticamente', '🗂️ Histórico das suas sessões'],
+      fim: 'Assim que estiver pronto, ele abre aqui. Vale a espera.'
+    }
+  };
+
+  function paginaDe(href){
+    var m = String(href || '').match(/(^|\/)([a-z0-9-]+\.html)(\?|#|$)/i);
+    return m ? m[2].toLowerCase() : '';
+  }
   function uidAtual(){ try { return firebase.auth().currentUser ? firebase.auth().currentUser.uid : null; } catch(e){ return null; } }
-  function memo(uid){ try { return sessionStorage.getItem('g20_arena_ok_' + uid); } catch(e){ return null; } }
 
-  /* Permissão: admin (já confirmado pelo auth-guard) ou recurso liberado.
-     1 leitura do cadastro por sessão. */
-  function liberado(){
+  /* Permissão: admin (confirmado pelo auth-guard) ou recurso liberado. 1 leitura por sessão. */
+  function liberado(chave){
     var uid = uidAtual();
     if (!uid) return Promise.resolve(false);
     try { if (sessionStorage.getItem('g20_guard_' + uid) === 'admin') return Promise.resolve(true); } catch(e){}
-    var m = memo(uid);
+    var mk = 'g20_trava_ok_' + chave + '_' + uid, m = null;
+    try { m = sessionStorage.getItem(mk); } catch(e){}
     if (m === '1') return Promise.resolve(true);
     if (m === '0') return Promise.resolve(false);
     try {
       return firebase.firestore().collection('users').doc(uid).get().then(function(doc){
         var d = doc.exists ? doc.data() : {};
-        var ok = d.role === 'admin' || !!(d.recursos && d.recursos.arena === true);
-        try { sessionStorage.setItem('g20_arena_ok_' + uid, ok ? '1' : '0'); } catch(e){}
+        var ok = d.role === 'admin' || !!(d.recursos && d.recursos[chave] === true);
+        try { sessionStorage.setItem(mk, ok ? '1' : '0'); } catch(e){}
         return ok;
       }).catch(function(){ return false; });
     } catch(e){ return Promise.resolve(false); }
   }
-  window.G20ArenaLiberada = liberado;
 
   function css(){
-    if (document.getElementById('g20ArenaCss')) return;
-    var st = document.createElement('style'); st.id = 'g20ArenaCss';
+    if (document.getElementById('g20TravaCss')) return;
+    var st = document.createElement('style'); st.id = 'g20TravaCss';
     st.textContent =
-      '#g20ArenaEmBreve{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;padding:18px;' +
+      '#g20TravaEmBreve{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;padding:18px;' +
       'background:rgba(8,8,12,.72);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}' +
-      '#g20ArenaEmBreve .ab-box{max-width:460px;width:100%;background:#16151a;border:1px solid rgba(201,169,97,.45);border-radius:20px;' +
+      '#g20TravaEmBreve .ab-box{max-width:460px;width:100%;background:#16151a;border:1px solid rgba(201,169,97,.45);border-radius:20px;' +
       'padding:28px 24px 22px;text-align:center;box-shadow:0 24px 70px rgba(0,0,0,.6);font-family:"DM Sans",system-ui,sans-serif;color:#f0ece0;' +
       'max-height:calc(100vh - 36px);max-height:calc(100dvh - 36px);overflow-y:auto}' +
-      '#g20ArenaEmBreve .ab-ico{width:62px;height:62px;margin:0 auto 14px;border-radius:50%;display:flex;align-items:center;justify-content:center;' +
+      '#g20TravaEmBreve .ab-ico{width:62px;height:62px;margin:0 auto 14px;border-radius:50%;display:flex;align-items:center;justify-content:center;' +
       'font-size:28px;background:rgba(201,169,97,.12);border:1px solid rgba(201,169,97,.35)}' +
-      '#g20ArenaEmBreve .ab-tag{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:#e8c766;' +
+      '#g20TravaEmBreve .ab-tag{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:#e8c766;' +
       'background:rgba(201,169,97,.12);border:1px solid rgba(201,169,97,.3);padding:4px 10px;border-radius:20px;margin-bottom:10px}' +
-      '#g20ArenaEmBreve h3{margin:0 0 10px;font-size:20px;font-weight:800}' +
-      '#g20ArenaEmBreve p{margin:0 0 14px;font-size:14.5px;line-height:1.6;color:#c9c3cf}' +
-      '#g20ArenaEmBreve ul{list-style:none;margin:0 0 18px;padding:0;text-align:left;display:grid;gap:8px}' +
-      '#g20ArenaEmBreve li{font-size:14px;color:#e6e1d6;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:9px 12px}' +
-      '#g20ArenaEmBreve button{min-height:46px;width:100%;border:0;border-radius:12px;background:linear-gradient(135deg,#c9a961,#e8c766);' +
+      '#g20TravaEmBreve h3{margin:0 0 10px;font-size:20px;font-weight:800}' +
+      '#g20TravaEmBreve p{margin:0 0 14px;font-size:14.5px;line-height:1.6;color:#c9c3cf}' +
+      '#g20TravaEmBreve ul{list-style:none;margin:0 0 18px;padding:0;text-align:left;display:grid;gap:8px}' +
+      '#g20TravaEmBreve li{font-size:14px;color:#e6e1d6;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:9px 12px}' +
+      '#g20TravaEmBreve button{min-height:46px;width:100%;border:0;border-radius:12px;background:linear-gradient(135deg,#c9a961,#e8c766);' +
       'color:#0d0c10;font-family:inherit;font-size:15px;font-weight:800;cursor:pointer}';
     (document.head || document.documentElement).appendChild(st);
   }
 
-  /* fechar: chamado pelo botão. Na própria arena.html (sem permissão) volta ao dashboard. */
-  function abrirJanela(opts){
+  /* opts.naPagina: aberta dentro da própria página travada (o botão volta ao dashboard) */
+  function abrirJanela(pagina, opts){
+    var T = TRAVAS[pagina]; if (!T) return;
     opts = opts || {};
     css();
-    var ov = document.getElementById('g20ArenaEmBreve');
-    if (ov) ov.remove();
+    var ov = document.getElementById('g20TravaEmBreve'); if (ov) ov.remove();
     ov = document.createElement('div');
-    ov.id = 'g20ArenaEmBreve';
-    ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true'); ov.setAttribute('aria-label', 'Arena G20 em breve');
+    ov.id = 'g20TravaEmBreve';
+    ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true'); ov.setAttribute('aria-label', T.titulo + ' em breve');
     ov.innerHTML =
       '<div class="ab-box">' +
-        '<div class="ab-ico">💬</div>' +
+        '<div class="ab-ico">' + T.ico + '</div>' +
         '<div class="ab-tag">Em breve</div>' +
-        '<h3>Arena G20</h3>' +
-        '<p>Estamos construindo um ambiente incrível para a comunidade G20: um lugar para trocar ideias, ' +
-        'tirar dúvidas e aprender junto com quem está na mesma jornada.</p>' +
-        '<ul>' +
-          '<li>🗂️ Fóruns específicos para cada tema</li>' +
-          '<li>📈 Ações, FIIs, renda fixa, exterior e cripto</li>' +
-          '<li>🤝 Debates com a turma e troca de experiências</li>' +
-          '<li>⭐ Conteúdos e discussões exclusivas da comunidade</li>' +
-        '</ul>' +
-        '<p style="margin-bottom:18px">Assim que estiver pronto, ele abre aqui. Vale a espera.</p>' +
-        '<button type="button" id="g20ArenaOk">' + (opts.naArena ? 'Voltar ao Dashboard' : 'Entendi') + '</button>' +
+        '<h3>' + T.titulo + '</h3>' +
+        '<p>' + T.texto + '</p>' +
+        '<ul>' + T.itens.map(function(x){ return '<li>' + x + '</li>'; }).join('') + '</ul>' +
+        '<p style="margin-bottom:18px">' + T.fim + '</p>' +
+        '<button type="button" id="g20TravaOk">' + (opts.naPagina ? 'Voltar ao Dashboard' : 'Entendi') + '</button>' +
       '</div>';
     document.body.appendChild(ov);
     function fechar(){
-      if (opts.naArena) { location.href = 'dashboard.html'; return; }
+      if (opts.naPagina) { location.href = 'dashboard.html'; return; }
       ov.remove(); document.removeEventListener('keydown', esc);
     }
     function esc(e){ if (e.key === 'Escape') fechar(); }
-    document.getElementById('g20ArenaOk').addEventListener('click', fechar);
-    if (!opts.naArena) {
+    document.getElementById('g20TravaOk').addEventListener('click', fechar);
+    if (!opts.naPagina) {
       ov.addEventListener('click', function(e){ if (e.target === ov) fechar(); });
       document.addEventListener('keydown', esc);
     }
   }
-  window.G20ArenaEmBreve = abrirJanela;
 
-  function ehLinkArena(a){
-    if (!a || !a.getAttribute) return false;
-    var h = a.getAttribute('href') || '';
-    return /(^|\/)arena\.html(\?|#|$)/i.test(h);
-  }
+  /* API: G20Trava.liberado('consultoria'), G20Trava.janela('consultoria.html', {naPagina:true}),
+     G20Trava.travarPagina('consultoria.html') para usar dentro da própria página. */
+  window.G20Trava = {
+    liberado: liberado,
+    janela: abrirJanela,
+    travarPagina: function(pagina){
+      var T = TRAVAS[pagina]; if (!T) return;
+      var tent = 0;
+      (function decidir(){
+        if (!window.firebase || !firebase.apps || !firebase.apps.length || !firebase.auth) {
+          if (++tent < 60) return setTimeout(decidir, 200);
+          abrirJanela(pagina, { naPagina: true }); return;
+        }
+        firebase.auth().onAuthStateChanged(function(u){
+          if (!u) return;
+          liberado(T.chave).then(function(ok){
+            if (ok) { document.documentElement.classList.remove('g20-pagina-trava'); return; }
+            abrirJanela(pagina, { naPagina: true });
+          });
+        });
+      })();
+    }
+  };
+  /* compatibilidade com a arena.html já publicada */
+  window.G20ArenaLiberada = function(){ return liberado('arena'); };
+  window.G20ArenaEmBreve  = function(o){ abrirJanela('arena.html', o && o.naArena ? { naPagina: true } : {}); };
 
-  /* Intercepta QUALQUER link para a Arena (menu, sino, busca), em captura. */
+  /* Intercepta QUALQUER link para uma página travada, em captura. */
   document.addEventListener('click', function(e){
     var a = e.target && e.target.closest ? e.target.closest('a') : null;
-    if (!ehLinkArena(a)) return;
-    if (/arena\.html$/i.test(location.pathname)) return;      // já está na Arena
+    if (!a) return;
+    var pg = paginaDe(a.getAttribute('href'));
+    var T = TRAVAS[pg]; if (!T) return;
+    if (paginaDe(location.pathname) === pg) return;   // já está nela
     e.preventDefault(); e.stopPropagation();
     var destino = a.href;
-    liberado().then(function(ok){ if (ok) location.href = destino; else abrirJanela(); });
+    liberado(T.chave).then(function(ok){ if (ok) location.href = destino; else abrirJanela(pg); });
   }, true);
 
   /* Cadeado discreto no item do menu, para quem não tem acesso. */
   function marcarMenu(){
-    var a = document.getElementById('tut-arena') ||
-            Array.prototype.filter.call(document.querySelectorAll('.sidebar a'), ehLinkArena)[0];
-    if (!a || a.querySelector('.g20-arena-cad')) return;
-    liberado().then(function(ok){
-      if (ok || a.querySelector('.g20-arena-cad')) return;
-      var s = document.createElement('span');
-      s.className = 'g20-arena-cad'; s.textContent = '🔒';
-      s.style.cssText = 'margin-left:auto;font-size:11px;opacity:.75;padding-left:6px';
-      a.appendChild(s);
+    Object.keys(TRAVAS).forEach(function(pg){
+      var T = TRAVAS[pg];
+      var a = document.getElementById(T.menuId) ||
+              Array.prototype.filter.call(document.querySelectorAll('.sidebar a'), function(x){ return paginaDe(x.getAttribute('href')) === pg; })[0];
+      if (!a || a.querySelector('.g20-trava-cad')) return;
+      liberado(T.chave).then(function(ok){
+        if (ok || a.querySelector('.g20-trava-cad')) return;
+        var s = document.createElement('span');
+        s.className = 'g20-trava-cad g20-arena-cad'; s.textContent = '🔒';
+        s.style.cssText = 'margin-left:auto;font-size:11px;opacity:.75;padding-left:6px';
+        a.appendChild(s);
+      });
     });
   }
   (function esperar(n){
