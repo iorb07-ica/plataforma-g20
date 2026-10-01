@@ -375,6 +375,17 @@ body .topbar .g20-tab:not(.active):not(.soon){color:#c9a961 !important}
 body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
 </style>
 <script src="auth-guard.js"></script>
+<style id="atlas-lateral-fix">
+/* Lançamento 01/10: no celular a página rolava 23px para o lado (painel de tese
+   recolhido fora da tela). A página só rola na vertical. */
+@media (max-width: 820px) {
+  html, body { overflow-x: clip !important; }
+  /* topo igual ao das outras páginas: botões de 38px e espaço de 6px (o sino saía da tela) */
+  .topbar-right { gap: 6px !important; flex-shrink: 0 !important; }
+  .topbar-right > .btn-gsearch, .topbar-right > #g20FeedbackBtn, .topbar-right > .btn-icon { width: 38px !important; height: 38px !important; min-width: 38px !important; }
+  html body .topbar .topbar-left { min-width: 0 !important; width: auto !important; max-width: none !important; overflow: hidden !important; flex: 1 1 0 !important; }
+}
+</style>
 </head>
 <body>
 <script>
@@ -394,7 +405,20 @@ var _ATLAS_CRIPTO_ETF = {IBIT:1,FBTC:1,ARKB:1,BITB:1,GBTC:1,HODL:1,BRRR:1,EZBC:1
      em dólar; sem fxRate, usa o câmbio atual.
    Serve para a Carteira G20 e para a Minha Carteira (antes a Minha Carteira
    ignorava as vendas). */
+/* Tickers com ponto (BRK.B) também aparecem com traço (BRK-B), que é como a
+   Minha Carteira guarda: sem isso a Berkshire do aluno ia para um ponto genérico
+   dos EUA, sem logo nem nome. */
+function _atlasAliases(){
+  if(_atlasAliases.ok) return; _atlasAliases.ok=true;
+  try{
+    [COORDS_TABLE, TV_SLUGS, COMPANY_NAMES, (typeof TESES_G20_DEFAULT!=='undefined'?TESES_G20_DEFAULT:null)].forEach(function(T){
+      if(!T) return;
+      Object.keys(T).forEach(function(k){ if(k.indexOf('.')>0){ var a=k.replace('.','-'); if(!(a in T)) T[a]=T[k]; } });
+    });
+  }catch(e){ _atlasAliases.ok=false; }
+}
 function _atlasAgrupar(aportes){
+  _atlasAliases();
   var lista=(aportes||[]).slice().sort(function(a,b){ return String(a.data||'').localeCompare(String(b.data||'')); });
   var g={};
   lista.forEach(function(a){
@@ -718,7 +742,7 @@ function _atlasQtd(q,cripto){ q=Number(q)||0; var inteiro=Math.abs(q-Math.round(
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Sidebar G20 -->
 <script src="https://unpkg.com/lucide@0.383.0/dist/umd/lucide.min.js" defer></script>
-<script src="assets/g20-sidebar.js?v=11"></script>
+<script src="assets/g20-sidebar.js?v=14"></script>
 <script>
 // Inicializa ícones Lucide após carregar
 function _g20InitLucide(){if(window.lucide)lucide.createIcons();}
@@ -1342,10 +1366,31 @@ function detectTipo(ticker,tipoRaw){
   return 'stock';
 }
 
+/* Lançamento 01/10: a Minha Carteira vinha SÓ da cópia local (g20_rvAportes),
+   sem conferir de quem era, e ficava vazia ao abrir o Atlas direto depois do
+   login (o login limpa essa cópia e quem a refaz é o dashboard). Agora: cópia
+   local só se for deste aluno; senão, lê da nuvem dele (1 leitura). */
+function _atlasUid(){ try{ return firebase.auth().currentUser ? firebase.auth().currentUser.uid : null; }catch(e){ return null; } }
 function carregarMinhaCarteira(){
   try{
-    const raw=localStorage.getItem('g20_rvAportes');
-    if(!raw){mostrarMinhaCarteiraVazia();return;}
+    const uid=_atlasUid();
+    let raw=null;
+    try{ if(uid && localStorage.getItem('g20_dados_owner')===uid) raw=localStorage.getItem('g20_rvAportes'); }catch(e){}
+    let vazio=false; try{ const t=raw?JSON.parse(raw):null; vazio=!Array.isArray(t)||!t.length; }catch(e){ vazio=true; }
+    if(vazio){
+      if(!uid){ setTimeout(function(){ if(activePortfolio==='minha') carregarMinhaCarteira(); }, 800); return; }
+      if(carregarMinhaCarteira._nuvem===uid){ mostrarMinhaCarteiraVazia(); return; }
+      carregarMinhaCarteira._nuvem=uid;
+      firebase.firestore().collection('users').doc(uid).collection('dados').doc('rvAportes').get().then(function(d){
+        let v=d.exists&&d.data()?d.data().value:null;
+        if(typeof v==='string'){ try{ v=JSON.parse(v); }catch(e){ v=null; } }
+        if(Array.isArray(v)&&v.length){
+          try{ localStorage.setItem('g20_rvAportes', JSON.stringify(v)); localStorage.setItem('g20_dados_owner', uid); }catch(e){}
+        }
+        if(activePortfolio==='minha') carregarMinhaCarteira();
+      }).catch(function(){ mostrarMinhaCarteiraVazia(); });
+      return;
+    }
     const aportes=JSON.parse(raw);
     if(!Array.isArray(aportes)||!aportes.length){mostrarMinhaCarteiraVazia();return;}
     /* mesmo agrupamento da Carteira G20 (vendas e preço médio) e mesmas cotações;

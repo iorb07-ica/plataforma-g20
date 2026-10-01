@@ -10728,6 +10728,27 @@ function _provTotalBRL(p){
 }
 function saveProventos(d){ saveData('rvDividendos', d); }
 
+/* Mesmo provento? (lançamento 01/10) Antes bastava mesmo ativo + mesmo valor por
+   ação + mesmo mês. Quando a empresa paga JCP e dividendo no mesmo mês com o
+   mesmo valor (comum em bancos e na Itaúsa), um dos dois era descartado como
+   "repetido". Agora também precisam ser do mesmo TIPO (JCP x dividendo/rendimento)
+   e, quando as duas datas-com existem, estar a até 5 dias uma da outra. */
+function _g20ClasseProv(t){ return /jcp|juros/i.test(String(t || '')) ? 'JCP' : 'DIV'; }
+function _g20MesmoProvento(x, tk, valor, dataPag, tipo, dataEx, tol){
+  if (!x) return false;
+  if (String(x.ticker || '').toUpperCase() !== String(tk || '').toUpperCase()) return false;
+  var vx = x.valor != null ? x.valor : (x.valorCota || 0);
+  if (Math.abs(vx - valor) > (tol || 0.0001)) return false;
+  if (String(x.data || '').substring(0, 7) !== String(dataPag || '').substring(0, 7)) return false;
+  if (_g20ClasseProv(x.tipo) !== _g20ClasseProv(tipo)) return false;
+  if (x.datex && dataEx && x.datex !== x.data && dataEx !== dataPag) {
+    var d = Math.abs(new Date(x.datex + 'T12:00:00') - new Date(dataEx + 'T12:00:00')) / 86400000;
+    if (d > 5) return false;
+  }
+  return true;
+}
+
+
 /* ═══════════════════════════════════════════════════════════════════════
    LÍQUIDO DOS PROVENTOS (lançamento 01/10) · mesma regra da Carteira G20
      dividendos de ativos em dólar: 30% retidos nos EUA (não residentes)
@@ -10997,12 +11018,7 @@ function _rvSalvarProventosBR(ticker, divs, dataCompra, fonte, dataVenda){
     var qtd = _getQtdNaData(ticker, dataEx||dataPag);
     if(qtd <= 0) return;
     var mesAno = dataPag.substring(0,7);
-    var existe = stored.find(function(x){
-      if(x.ticker !== ticker) return false;
-      var vx = x.valor != null ? x.valor : (x.valorCota||0);
-      if(Math.abs(vx - valor) > 0.0001) return false;
-      return (x.data||'').substring(0,7) === mesAno;
-    });
+    var existe = stored.find(function(x){ return _g20MesmoProvento(x, ticker, valor, dataPag, tipo, dataEx, 0.0001); });
     if(existe){
       var qtdAtual = existe.qtdEx != null ? existe.qtdEx : (existe.qtd||0);
       if(Math.abs(qtdAtual - qtd) > 0.001){
@@ -11042,12 +11058,7 @@ function _rvSalvarProventosUS(ticker, divList, fonte){
     var qtd = _getQtdNaData(ticker, _provDataRef({ moeda:'USD', datex: dataEx, data: dataPag }));
     if(qtd <= 0) return;
     var mesAno = dataPag.substring(0,7);
-    var existe = stored.find(function(x){
-      if(x.ticker !== ticker) return false;
-      var vx = x.valor != null ? x.valor : (x.valorCota||0);
-      if(Math.abs(vx - amount) > 0.01) return false;
-      return (x.data||'').substring(0,7) === mesAno;
-    });
+    var existe = stored.find(function(x){ return _g20MesmoProvento(x, ticker, amount, dataPag, dv.type || 'Dividendo', dataEx, 0.01); });
     if(existe){
       var qtdAtual = existe.qtdEx != null ? existe.qtdEx : (existe.qtd||0);
       if(Math.abs(qtdAtual-qtd)>0.001){ existe.qtdEx=qtd; existe.qtd=qtd; existe.total=(existe.valor||0)*qtd; novos++; }
