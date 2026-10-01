@@ -23,7 +23,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="assets/g20-notifications.js?v=10"></script>
-<script src="assets/g20-sidebar.js?v=11"></script>
+<script src="assets/g20-sidebar.js?v=14"></script>
 <script src="assets/g20-search.js?v=10"></script>
 <style>
 a{text-decoration:none;color:inherit}
@@ -251,6 +251,22 @@ body.is-admin .btn-preview{display:inline-flex}
 .mp-hobby{font-size:12.5px;padding:6px 12px;border-radius:16px;background:rgba(232,184,75,.1);border:1px solid rgba(232,184,75,.22);color:#d6ddea}
 </style>
 <script src="auth-guard.js"></script>
+<style id="g20-ios-zoom-fix">
+@media (pointer: coarse) {
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select, textarea { font-size: 16px !important; }
+}
+</style>
+<style id="net-topo-mobile">
+/* Lançamento 01/10: no celular o topo ficava mais largo que a tela (a página
+   inteira deslizava para o lado). Mesmo padrão das outras páginas. */
+@media (max-width: 820px) {
+  html body .topbar .topbar-right { gap: 6px !important; flex-shrink: 0 !important; }
+  html body .topbar .topbar-right > .btn-gsearch, html body .topbar .topbar-right > #g20FeedbackBtn, html body .topbar .topbar-right > .btn-icon { width: 38px !important; height: 38px !important; min-width: 38px !important; }
+  html body .topbar .topbar-right > #g20ThemeSwitch { display: none !important; }
+  html body .topbar .topbar-left { min-width: 0 !important; overflow: hidden !important; flex: 1 1 0 !important; }
+  html, body { overflow-x: clip !important; }
+}
+</style>
 </head>
 <body>
 
@@ -433,8 +449,12 @@ function corDe(str){
   return AV_CORES[h%AV_CORES.length];
 }
 function iniciais(nome){
-  return (nome||'?').split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase()||'?';
+  /* só letras e números: as iniciais entram no HTML e dentro do onerror da foto */
+  return (nome||'?').split(' ').map(function(w){return (w.match(/[A-Za-z0-9\u00C0-\u024F]/)||[''])[0];}).slice(0,2).join('').toUpperCase()||'?';
 }
+/* Foto do cartão (lançamento 01/10): vem do perfil público que cada aluno grava e
+   entrava crua no src. Só aceita endereço https ou imagem do próprio perfil (base64). */
+function _netFoto(u){ u=String(u||'').trim(); return (/^https:\/\/[^\s"'<>()`\\]+$/i.test(u) || /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/=]+$/.test(u)) ? u : ''; }
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 /* ═══════════════════════════════════════════════════════════════════════
    LINKS DE REDE — o domínio é NOSSO, o aluno só fornece o usuário
@@ -578,7 +598,7 @@ function montarAluno(uid,d,p){
   if(!ok) cat='Outros';
   return {
     uid:uid, nome:nome,
-    foto:p.foto||d.photo||'',
+    foto:_netFoto(p.foto||d.photo||''),
     profissao:p.profissao||'',
     empresa:p.empresa||'',
     negocio:p.negocio||'',

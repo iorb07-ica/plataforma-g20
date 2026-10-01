@@ -432,6 +432,9 @@ auth.onAuthStateChanged(async function(user) {
   carregarUsuarios();
 });
 
+function _ae(s){ return String(s == null ? '' : s).replace(/[&<>"'`]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'}[c]; }); }
+function _aFoto(u){ u = String(u || '').trim(); return (/^https:\/\/[^\s"'<>()`\\]+$/i.test(u) || /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/=]+$/.test(u)) ? u : ''; }
+
 async function carregarUsuarios() {
   try {
     const snap = await db.collection('users').orderBy('createdAt', 'desc').get();
@@ -471,8 +474,13 @@ function renderTabela() {
   const tbody = document.getElementById('tbodyUsers');
   if (!lista.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">Nenhum usuário encontrado</td></tr>'; return; }
 
-  tbody.innerHTML = lista.map(u => {
-    const initials = (u.name||u.email||'?').split(' ').map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
+  /* Lançamento 01/10: nome, e-mail, turma e foto são escritos pelo próprio aluno
+     (cadastro e perfil) e entravam crus nesta tabela. Um nome com código HTML
+     rodaria na tela do ADMIN, com todos os poderes da sua conta. Agora tudo que
+     vem do aluno passa por _ae() (texto) ou _aFoto() (só https ou imagem base64). */
+  tbody.innerHTML = lista.map(u0 => {
+    const u = Object.assign({}, u0, { name: _ae(u0.name), email: _ae(u0.email), turma: _ae(u0.turma), role: _ae(u0.role), obs: _ae(u0.obs), photo: _aFoto(u0.photo), id: String(u0.id || '').replace(/[^A-Za-z0-9_-]/g, '') });
+    const initials = _ae((u0.name||u0.email||'?').split(' ').map(w=>w[0]||'').slice(0,2).join('').toUpperCase());
     const avatarHtml = u.photo ? `<div class="avatar"><img src="${u.photo}" alt=""></div>` : `<div class="avatar">${initials}</div>`;
     const statusMap = {
       true:'<span class="badge badge-approved">✓ Aprovado</span>',
@@ -564,10 +572,10 @@ function abrirEdicao(uid) {
   setText('modalAvatarInitials', initials);
 
   // Avatar foto
-  const foto = (p.foto || u.photo || '');
+  const foto = _aFoto(p.foto || u.photo || '');
   setHtml('modalAvatar', foto
     ? '<img src="'+foto+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%">'
-    : '<span>'+initials+'</span>');
+    : '<span>'+_ae(initials)+'</span>');
 
   // Badge turma e status
   setText('modalBadgeTurma', u.turma || 'Turma 20');
