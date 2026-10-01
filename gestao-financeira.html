@@ -4281,7 +4281,7 @@ body.didactic-on .didactic-note{ display:block; }
                             <span class="kpi-stat-value" id="kpi-trans-count">—</span>
                         </div>
                         <div class="kpi-stat">
-                            <span class="kpi-stat-label">Ticket Médio</span>
+                            <span class="kpi-stat-label" title="Valor médio de cada saída no período">Gasto médio</span>
                             <span class="kpi-stat-value" id="kpi-avg-ticket">—</span>
                         </div>
                     </div>
@@ -4542,7 +4542,7 @@ body.didactic-on .didactic-note{ display:block; }
                                         </div>
                                     </div>
                                 </div>
-                                <h4 class="chart-title">Pulso Diário de Gastos (Limite Diário B.5)</h4>
+                                <h4 class="chart-title">Pulso Diário de Gastos</h4>
                                 <div class="chart-canvas-wrapper"><canvas id="chart-daily-bars"></canvas></div>
                             </div>
                             <!-- Hidden: chart-net-worth canvas kept for JS compatibility but card removed -->
@@ -5847,10 +5847,6 @@ body.didactic-on .didactic-note{ display:block; }
             const budgetObj = storage[name] || { 'default': 0 };
             const defaultVal = budgetObj['default'] || 0;
 
-            if (currentYearFilter === 'all' && currentMonthFilter.length === 0) {
-                return defaultVal;
-            }
-
             let monthsToSum = [];
 
             if (currentYearFilter !== 'all') {
@@ -5861,8 +5857,18 @@ body.didactic-on .didactic-note{ display:block; }
                         monthsToSum.push(`${currentYearFilter}-${i.toString().padStart(2, '0')}`);
                     }
                 }
-            } else if (currentMonthFilter.length > 0) {
-                return defaultVal;
+            } else {
+                /* "Todo o período" (lançamento 01/10): antes o limite era o de UM mês,
+                   comparado com o gasto de todos os meses (aparecia 1.500% estourado).
+                   Agora soma o orçamento de cada mês que tem lançamentos, do primeiro
+                   ao último, respeitando os meses selecionados. */
+                const datas = (data.transactions || []).map(t => t && t.date ? t.date.slice(0, 7) : null).filter(Boolean).sort();
+                if (!datas.length) return defaultVal;
+                let m = datas[0]; const fim = datas[datas.length - 1]; let guard = 0;
+                while (m <= fim && guard++ < 600) {
+                    if (!currentMonthFilter.length || currentMonthFilter.indexOf(m.slice(5, 7)) >= 0) monthsToSum.push(m);
+                    m = addMesesISO(m + '-01', 1).slice(0, 7);
+                }
             }
 
             let totalBudget = 0;
@@ -7544,6 +7550,13 @@ body.didactic-on .didactic-note{ display:block; }
             return filtered;
         }
 
+        window._gfLimparFiltros = function(){
+            const b = document.getElementById('table-search'); if (b) b.value = '';
+            if (els.filterTag) els.filterTag.value = 'all';
+            if (els.filterStatus) els.filterStatus.value = 'all';
+            renderAll();
+        };
+
         function renderAll() {
             const filtered = getFilteredTransactions();
 
@@ -7685,33 +7698,58 @@ body.didactic-on .didactic-note{ display:block; }
             }
             // FIM DA REVISÃO DO EXTRATO
 
-            const tot = filtered.reduce((a, b) => a + b.amount, 0);
-            const inc = filtered.filter(t => t.amount > 0).reduce((a, b) => a + b.amount, 0);
-            const exp = filtered.filter(t => t.amount < 0).reduce((a, b) => a + b.amount, 0);
+            /* REAL x PREVISTO (lançamento 01/10): se o período escolhido inclui meses
+               DEPOIS do atual (parcelas e recorrências já lançadas), o valor principal
+               mostra só até o mês atual e o total com os previstos aparece abaixo.
+               Mês passado ou mês atual (padrão ao abrir): nada muda. */
+            const _mesAtualK = _hojeLocal().slice(0, 7);
+            const _temFuturo = filtered.some(t => t.date && t.date.slice(0, 7) > _mesAtualK);
+            const _fk = _temFuturo ? filtered.filter(t => t.date && t.date.slice(0, 7) <= _mesAtualK) : filtered;
+            const tot = _fk.reduce((a, b) => a + b.amount, 0);
+            const inc = _fk.filter(t => t.amount > 0).reduce((a, b) => a + b.amount, 0);
+            const exp = _fk.filter(t => t.amount < 0).reduce((a, b) => a + b.amount, 0);
             document.getElementById('kpi-balance').innerText = tot.toLocaleString('pt-br', { style: 'currency', currency: 'BRL' });
             document.getElementById('kpi-balance').style.color = tot >= 0 ? '#15803d' : '#b91c1c';
             document.getElementById('kpi-income').innerText = inc.toLocaleString('pt-br', { style: 'currency', currency: 'BRL' });
             document.getElementById('kpi-expense').innerText = Math.abs(exp).toLocaleString('pt-br', { style: 'currency', currency: 'BRL' });
+            (function(){
+                const ult = _temFuturo ? filtered.map(t => t.date.slice(0, 7)).sort().pop() : null;
+                const rotulo = ult ? (['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][parseInt(ult.slice(5), 10) - 1] + '/' + ult.slice(2, 4)) : '';
+                const brl = v => Math.abs(v).toLocaleString('pt-br', { style: 'currency', currency: 'BRL' });
+                const tF = filtered.reduce((a, b) => a + b.amount, 0);
+                const iF = filtered.filter(t => t.amount > 0).reduce((a, b) => a + b.amount, 0);
+                const eF = filtered.filter(t => t.amount < 0).reduce((a, b) => a + b.amount, 0);
+                [['kpi-balance', (tF < 0 ? '−' : '') + brl(tF)], ['kpi-income', brl(iF)], ['kpi-expense', brl(eF)]].forEach(([id, txt]) => {
+                    const v = document.getElementById(id); if (!v) return;
+                    let el = document.getElementById(id + '-prev');
+                    if (!el) { el = document.createElement('div'); el.id = id + '-prev'; el.className = 'kpi-sublabel'; el.style.cssText = 'opacity:.8;font-size:11.5px;margin-top:2px'; v.parentNode.appendChild(el); }
+                    el.style.display = _temFuturo ? '' : 'none';
+                    el.textContent = _temFuturo ? ('previsto até ' + rotulo + ': ' + txt) : '';
+                });
+            })();
 
             // ---- MÉTRICAS EXTRAS DOS CARDS ----
             const fmtCur = v => Math.abs(v).toLocaleString('pt-br', { style: 'currency', currency: 'BRL' });
-            const fmtPct = v => (v > 0 ? '+' : '') + v.toFixed(1) + '%';
-            const incTxs = filtered.filter(t => t.amount > 0);
-            const expTxs = filtered.filter(t => t.amount < 0);
+            const fmtPct = v => (v > 0 ? '+' : '') + v.toFixed(1).replace('.', ',') + '%';
+            const incTxs = _fk.filter(t => t.amount > 0);
+            const expTxs = _fk.filter(t => t.amount < 0);
 
             // Taxa de economia
             const savingsRate = inc > 0 ? ((inc + exp) / inc) * 100 : 0;
             const srEl = document.getElementById('kpi-savings-rate');
             if (srEl) {
-                srEl.innerText = savingsRate.toFixed(1) + '%';
+                srEl.innerText = savingsRate.toFixed(1).replace('.', ',') + '%';
                 srEl.className = 'kpi-stat-value ' + (savingsRate >= 20 ? 'green' : savingsRate >= 10 ? 'gold' : 'red');
             }
 
             // Contagem de transações e ticket médio
             const tcEl = document.getElementById('kpi-trans-count');
-            if (tcEl) tcEl.innerText = filtered.length + ' lançam.';
+            if (tcEl) tcEl.innerText = _fk.length + ' lançam.';
             const atEl = document.getElementById('kpi-avg-ticket');
-            if (atEl) atEl.innerText = filtered.length > 0 ? fmtCur(Math.abs(tot) / filtered.length) : '—';
+            /* Lançamento 01/10: antes era saldo ÷ total de lançamentos (misturava
+               entradas e saídas e não significava nada). Agora é o gasto médio
+               por saída do período. */
+            if (atEl) atEl.innerText = expTxs.length > 0 ? fmtCur(Math.abs(exp) / expTxs.length) : '—';
 
             // Maior entrada
             const topInc = incTxs.length > 0 ? Math.max(...incTxs.map(t => t.amount)) : 0;
@@ -7755,26 +7793,60 @@ body.didactic-on .didactic-note{ display:block; }
                 const prevExp = Math.abs(prevTxs.filter(t => t.amount < 0).reduce((a, b) => a + b.amount, 0));
                 const prevBal = prevTxs.reduce((a, b) => a + b.amount, 0);
 
+                const _filtroAtivo = !!(((document.getElementById('table-search') || {}).value || '').trim()) ||
+                    !!(els.filterTag && els.filterTag.value && els.filterTag.value !== 'all') ||
+                    !!(els.filterStatus && els.filterStatus.value && els.filterStatus.value !== 'all');
+                // com busca/tag/status ativos, comparar com o mês anterior INTEIRO enganaria
+                const _umMes = currentMonthFilter.length === 1 && currentYearFilter !== 'all' && !_filtroAtivo;
                 const setPill = (id, cur, prev) => {
                     const el = document.getElementById(id);
                     if (!el) return;
+                    /* "vs mês anterior" só faz sentido com UM mês selecionado (antes
+                       comparava o ano inteiro com o mês passado). */
+                    if (!_umMes) { el.className = 'kpi-change-pill neu'; el.innerHTML = '— vs mês ant.'; return; }
                     if (prev === 0) { el.className = 'kpi-change-pill neu'; el.innerHTML = '— vs mês ant.'; return; }
                     const pct = ((cur - prev) / Math.abs(prev)) * 100;
                     const isUp = pct >= 0;
                     el.className = 'kpi-change-pill ' + (isUp ? 'up' : 'down');
-                    el.innerHTML = '<i class="fa-solid fa-arrow-' + (isUp ? 'up' : 'down') + '"></i> ' + Math.abs(pct).toFixed(1) + '% vs mês ant.';
+                    el.innerHTML = '<i class="fa-solid fa-arrow-' + (isUp ? 'up' : 'down') + '"></i> ' + Math.abs(pct).toFixed(1).replace('.', ',') + '% vs mês ant.';
                 };
                 setPill('kpi-balance-change', tot, prevBal);
                 setPill('kpi-income-change', inc, prevInc);
                 // Para despesa: subir é ruim, descer é bom
                 const expPct = prevExp > 0 ? ((Math.abs(exp) - prevExp) / prevExp) * 100 : 0;
                 const expEl2 = document.getElementById('kpi-expense-change');
-                if (expEl2 && prevExp > 0) {
+                if (expEl2 && !_umMes) { expEl2.className = 'kpi-change-pill neu'; expEl2.innerHTML = '— vs mês ant.'; }
+                else if (expEl2 && prevExp > 0) {
                     const isUp = expPct >= 0;
                     expEl2.className = 'kpi-change-pill ' + (isUp ? 'down' : 'up');
-                    expEl2.innerHTML = '<i class="fa-solid fa-arrow-' + (isUp ? 'up' : 'down') + '"></i> ' + Math.abs(expPct).toFixed(1) + '% vs mês ant.';
+                    expEl2.innerHTML = '<i class="fa-solid fa-arrow-' + (isUp ? 'up' : 'down') + '"></i> ' + Math.abs(expPct).toFixed(1).replace('.', ',') + '% vs mês ant.';
                 }
             } catch(e) {}
+
+            /* FAIXA DE FILTRO ATIVO (lançamento 01/10): a busca, a tag e o status
+               também filtram indicadores e gráficos. Deixa isso visível e
+               reversível com um toque. */
+            (function(){
+                const busca = (document.getElementById('table-search') || {}).value || '';
+                const tag = (els.filterTag && els.filterTag.value) || 'all';
+                const st = (els.filterStatus && els.filterStatus.value) || 'all';
+                const partes = [];
+                if (busca.trim()) partes.push('com "' + busca.trim().replace(/[<>&"]/g, '') + '"');
+                if (tag !== 'all') partes.push('tag ' + String(tag).replace(/[<>&"]/g, ''));
+                if (st === 'confirmed') partes.push('só confirmados'); else if (st === 'pending') partes.push('só pendentes');
+                let fx = document.getElementById('gf-faixa-filtro');
+                const alvo = document.getElementById('kpi-balance-card');
+                if (!fx && alvo && alvo.parentNode) {
+                    fx = document.createElement('div'); fx.id = 'gf-faixa-filtro';
+                    fx.style.cssText = 'grid-column:1/-1;width:100%;display:none;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 14px;margin-bottom:10px;border-radius:12px;font-size:13.5px;background:rgba(59,130,246,.10);border:1px solid rgba(59,130,246,.35);color:inherit';
+                    alvo.parentNode.parentNode.insertBefore(fx, alvo.parentNode);
+                }
+                if (!fx) return;
+                if (!partes.length) { fx.style.display = 'none'; return; }
+                fx.style.display = 'flex';
+                fx.innerHTML = '<span>🔎 <b>Mostrando só os lançamentos ' + partes.join(' · ') + '.</b> Indicadores e gráficos estão filtrados.</span>' +
+                    '<button type="button" onclick="_gfLimparFiltros()" style="min-height:36px;padding:0 14px;border-radius:9px;border:1px solid rgba(59,130,246,.5);background:transparent;color:inherit;font-weight:700;cursor:pointer">Limpar filtro</button>';
+            })();
 
             // Atualizar badge de contagem do extrato
             const countBadge = document.getElementById('extrato-count-badge');
@@ -8581,7 +8653,7 @@ body.didactic-on .didactic-note{ display:block; }
             g.addColorStop(1.00, '#15803d'); // 100%— verde escuro
             return g;
         };
-        const universalBrlTooltip = { backgroundColor: 'rgba(9, 9, 11, 0.9)', titleColor: '#fff', bodyColor: '#fff', callbacks: { title: () => null, label: function (c) { let value = c.raw; let currency = value.toLocaleString('pt-br', { style: 'currency', currency: 'BRL' }); if (c.chart.id === 'chart-line' || (c.chart.config.type === 'bar' && c.chart.options.indexAxis === 'y')) { return currency; } else if (c.dataset.type === 'doughnut' || c.chart.id === 'chart-pie-expense' || c.chart.id === 'chart-pay-breakdown' || c.chart.id === 'chart-net-worth') { let sum = c.dataset.data.reduce((a, b) => a + b, 0); let percentage = ((value / sum) * 100).toFixed(1) + '%'; return ` ${c.label}: ${currency} (${percentage})`; } return `${c.label}: ${currency}`; } } };
+        const universalBrlTooltip = { backgroundColor: 'rgba(9, 9, 11, 0.9)', titleColor: '#fff', bodyColor: '#fff', callbacks: { title: () => null, label: function (c) { let value = c.raw; let currency = value.toLocaleString('pt-br', { style: 'currency', currency: 'BRL' }); if (c.chart.id === 'chart-line' || (c.chart.config.type === 'bar' && c.chart.options.indexAxis === 'y')) { return currency; } else if (c.dataset.type === 'doughnut' || c.chart.id === 'chart-pie-expense' || c.chart.id === 'chart-pay-breakdown' || c.chart.id === 'chart-net-worth') { let sum = c.dataset.data.reduce((a, b) => a + b, 0); let percentage = ((value / sum) * 100).toFixed(1).replace('.', ',') + '%'; return ` ${c.label}: ${currency} (${percentage})`; } return `${c.label}: ${currency}`; } } };
 
 
         // V117.28: Nova função para criar degradê de intensidade condicional no Chart.js
@@ -8661,11 +8733,11 @@ body.didactic-on .didactic-note{ display:block; }
                 hasData: true,
                 scores: [scoreSaving, scoreCoverage, scoreDebt, scoreLiquidity, scoreQuality],
                 details: {
-                    savingRate: (savingRate * 100).toFixed(1) + '%',
+                    savingRate: (savingRate * 100).toFixed(1).replace('.', ',') + '%',
                     coverageMonths: coverageRatio.toFixed(1),
-                    debtRatio: (debtRatio * 100).toFixed(1) + '%',
-                    liquidRatio: (liquidityRatio * 100).toFixed(1) + '%',
-                    qualityRatio: (qualityRatio * 100).toFixed(1) + '%'
+                    debtRatio: (debtRatio * 100).toFixed(1).replace('.', ',') + '%',
+                    liquidRatio: (liquidityRatio * 100).toFixed(1).replace('.', ',') + '%',
+                    qualityRatio: (qualityRatio * 100).toFixed(1).replace('.', ',') + '%'
                 }
             };
         }
@@ -8729,7 +8801,13 @@ body.didactic-on .didactic-note{ display:block; }
             if (chartMonthPrefix) {
                 let targetTransactions = validTransactions.filter(t => t.date.startsWith(chartMonthPrefix) && t.amount < 0);
                 if (chartMonthPrefix.length === 4 && targetTransactions.length > 0) {
-                    const latestMonth = targetTransactions.map(t => t.date.substring(0, 7)).sort().pop();
+                    /* Último mês COM gasto até o mês atual. Antes pegava o último de todos,
+                       e as parcelas e recorrências futuras faziam o gráfico mostrar um
+                       mês do ano que vem. */
+                    const _mesHoje = _hojeLocal().slice(0, 7);
+                    const _meses = targetTransactions.map(t => t.date.substring(0, 7)).sort();
+                    const _ateHoje = _meses.filter(m => m <= _mesHoje);
+                    const latestMonth = (_ateHoje.length ? _ateHoje : _meses).pop();
                     chartMonthPrefix = latestMonth;
                     targetTransactions = validTransactions.filter(t => t.date.startsWith(latestMonth) && t.amount < 0);
                 }
@@ -9091,7 +9169,7 @@ body.didactic-on .didactic-note{ display:block; }
                         },
                         formatter: (value, context) => {
                             const sum = context.dataset.data.reduce((a, b) => a + b, 0);
-                            return ((value / sum) * 100).toFixed(1) + '%';
+                            return ((value / sum) * 100).toFixed(1).replace('.', ',') + '%';
                         },
                         anchor: 'center',
                         align: 'center',
@@ -9150,7 +9228,7 @@ body.didactic-on .didactic-note{ display:block; }
                         },
                         formatter: (value, context) => {
                             const sum = context.dataset.data.reduce((a, b) => a + b, 0);
-                            return ((value / sum) * 100).toFixed(1) + '%';
+                            return ((value / sum) * 100).toFixed(1).replace('.', ',') + '%';
                         },
                         anchor: 'center',
                         align: 'center',
@@ -9343,7 +9421,7 @@ body.didactic-on .didactic-note{ display:block; }
                         display: true,
                         formatter: (value, context) => {
                             const percentage = (value / totalPayExpense) * 100;
-                            return percentage.toFixed(1) + '%';
+                            return percentage.toFixed(1).replace('.', ',') + '%';
                         },
                         font: {
                             weight: 'bold',
@@ -9410,7 +9488,21 @@ body.didactic-on .didactic-note{ display:block; }
 
             // Chart Daily Bars (Pulso Diário de Gastos) - V117.40 (RESTAURADO E CORRIGIDO)
             const ctxD = document.getElementById('chart-daily-bars').getContext('2d');
-            const dailyLimit = currentYearNum >= 2025 ? 100 : null;
+            /* Referência diária (lançamento 01/10): antes era um R$ 100 fixo para todo
+               mundo. Agora é o ritmo médio do PRÓPRIO aluno: gasto médio dos 3 meses
+               fechados anteriores ao mês do gráfico, dividido por 30. Sem histórico,
+               não há linha. */
+            const dailyLimit = (function(){
+                try {
+                    const ref = (chartMonthPrefix && chartMonthPrefix.length === 7) ? chartMonthPrefix : _hojeLocal().slice(0, 7);
+                    const meses = [1, 2, 3].map(k => addMesesISO(ref + '-01', -k).slice(0, 7));
+                    const porMes = {};
+                    (data.transactions || []).forEach(t => { if (t && t.amount < 0 && t.date) { const m = t.date.slice(0, 7); if (meses.indexOf(m) >= 0) porMes[m] = (porMes[m] || 0) + Math.abs(t.amount); } });
+                    const vals = Object.keys(porMes).map(k => porMes[k]);
+                    if (!vals.length) return null;
+                    return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length / 30);
+                } catch(e){ return null; }
+            })();
 
             const dailyDatasets = [
                 {
@@ -9428,7 +9520,7 @@ body.didactic-on .didactic-note{ display:block; }
                 const limitLineData = Array(daysInMonth).fill(dailyLimit);
                 dailyDatasets.push({
                     type: 'line',
-                    label: 'Limite Diário (R$ 100)',
+                    label: 'Seu ritmo médio (R$ ' + dailyLimit.toLocaleString('pt-BR') + '/dia)',
                     data: limitLineData,
                     borderColor: isDarkMode ? 'var(--accent)' : 'var(--blue-light)',
                     backgroundColor: 'transparent',
