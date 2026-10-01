@@ -21938,6 +21938,22 @@ html body .topbar {
 .agm-hoje { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 6px; background: rgba(74,222,128,.15); color: #4ade80; }
 .agm-val { grid-column: 4; grid-row: 1; text-align: right; font: 800 14px 'JetBrains Mono', monospace; color: #4ade80; white-space: nowrap; }
 .agm-cota { font-size: 11px; color: var(--v21-text-muted, #9a958e); white-space: nowrap; }
+.agm-lista-wrap { position: relative; }
+.agm-lista-rola { max-height: 340px; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y;
+  scrollbar-width: thin; margin: 0 -2px; padding: 0 2px 2px; }
+@media (min-width: 601px) { .agm-lista-rola { max-height: 440px; } }
+.agm-lista-rola .agm-grupo { position: sticky; top: 0; z-index: 2; margin: 0; padding: 10px 2px 6px; background: var(--v21-surface, #27252c); }
+.agm-lista-rola .agm-grupo:first-child { padding-top: 2px; }
+.light .agm-lista-rola .agm-grupo { background: #fff; }
+.agm-lista-wrap::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 10px; z-index: 3; pointer-events: none; opacity: 0;
+  background: linear-gradient(rgba(0,0,0,.45), transparent); transition: opacity .2s; }
+.agm-lista-wrap.rolado::before { opacity: 1; }
+.agm-lista-wrap.rola::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 48px; pointer-events: none; z-index: 2;
+  background: linear-gradient(transparent, var(--v21-surface, #27252c)); transition: opacity .2s; }
+.light .agm-lista-wrap.rola::after { background: linear-gradient(transparent, #fff); }
+.agm-lista-wrap .agm-dica { display: none; }
+.agm-lista-wrap.rola .agm-dica { display: block; }
+.agm-lista-wrap.rola.no-fim::after, .agm-lista-wrap.rola.no-fim .agm-dica { opacity: 0; }
 .agm-cont { margin-left: 6px; font-size: 10px; padding: 1px 7px; border-radius: 10px; background: rgba(201,169,97,.14); color: var(--gold,#c9a961); letter-spacing: 0; }
 .agm-adiante { position: relative; margin-bottom: 2px; }
 .agm-adiante:not(.rola) .agm-adiante-in > .agm-item:last-child { margin-bottom: 0; }
@@ -22058,32 +22074,28 @@ body.pat-hidden .agm-res-val, body.pat-hidden .agm-val, body.pat-hidden .agm-cot
     var html = '<div class="agm-resumo"><div class="agm-res-lbl">A receber nos próximos 30 dias</div>' +
       '<div class="agm-res-val">' + brl(soma) + '</div>' +
       '<div class="agm-res-sub">' + n30 + ' provento' + (n30 === 1 ? '' : 's') + ' · ' + fonte + ' · valores brutos</div></div>';
-    /* Hoje, Esta semana e Próximos 30 dias: sempre visíveis, sem limite.
-       Mais adiante: área com rolagem própria (altura de ~2,5 itens). */
+    /* Resumo fixo no topo; logo abaixo, UMA área com rolagem própria com todos
+       os grupos (Hoje, Esta semana, Próximos 30 dias, Mais adiante). Sem rolagem
+       dentro de rolagem. */
     var G = [['Hoje', function(p){ return p.data === h; }], ['Esta semana', function(p){ return p.data > h && p.data <= s7; }],
-             ['Próximos 30 dias', function(p){ return p.data > s7 && p.data <= s30; }]];
+             ['Próximos 30 dias', function(p){ return p.data > s7 && p.data <= s30; }], ['Mais adiante', function(p){ return p.data > s30; }]];
+    var corpo = '';
     G.forEach(function(g){
       var its = []; _itens.forEach(function(p, i){ if (g[1](p)) its.push(item(p, i)); });
-      if (its.length) html += '<div class="agm-grupo">' + g[0] + '</div>' + its.join('');
+      if (its.length) corpo += '<div class="agm-grupo">' + g[0] + (g[0] === 'Mais adiante' ? ' <span class="agm-cont">' + its.length + '</span>' : '') + '</div>' + its.join('');
     });
-    var depois = []; _itens.forEach(function(p, i){ if (p.data > s30) depois.push(item(p, i)); });
-    if (depois.length) {
-      var rola = depois.length > 2;
-      html += '<div class="agm-grupo">Mais adiante <span class="agm-cont">' + depois.length + '</span></div>' +
-        '<div class="agm-adiante' + (rola ? ' rola' : '') + '"' + (rola ? ' tabindex="0" role="region" aria-label="Proventos mais adiante"' : '') + '>' +
-          '<div class="agm-adiante-in">' + depois.join('') + '</div>' +
-          (rola ? '<div class="agm-dica">role para ver mais ↓</div>' : '') +
-        '</div>';
-    }
-    /* sem "Ver todos": com a rolagem em "Mais adiante", todos os proventos já ficam no card
-       (v21AgendaTodos continua existindo, sem botão que a chame) */
+    html += '<div class="agm-lista-wrap"><div class="agm-lista-rola" role="region" aria-label="Lista de proventos" tabindex="0">' + corpo + '</div>' +
+            '<div class="agm-dica">role para ver mais ↓</div></div>';
     list.innerHTML = html;
-    // dica "role para ver mais" some ao chegar ao fim
-    var area = list.querySelector('.agm-adiante.rola');
-    if (area) {
-      var dica = area.querySelector('.agm-dica'), inn = area.querySelector('.agm-adiante-in');
-      var atual = function(){ var fim = inn.scrollTop + inn.clientHeight >= inn.scrollHeight - 4; area.classList.toggle('no-fim', fim); };
-      inn.addEventListener('scroll', atual, { passive: true }); setTimeout(atual, 50);
+    var wrapL = list.querySelector('.agm-lista-wrap'), rolaL = list.querySelector('.agm-lista-rola');
+    if (wrapL && rolaL) {
+      var atual = function(){
+        wrapL.classList.toggle('rola', rolaL.scrollHeight > rolaL.clientHeight + 4);
+        wrapL.classList.toggle('no-fim', rolaL.scrollTop + rolaL.clientHeight >= rolaL.scrollHeight - 4);
+        wrapL.classList.toggle('rolado', rolaL.scrollTop > 2);
+      };
+      rolaL.addEventListener('scroll', atual, { passive: true });
+      setTimeout(atual, 50); atual();
     }
   };
 
