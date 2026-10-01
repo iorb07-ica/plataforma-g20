@@ -3801,6 +3801,23 @@ body.didactic-on .didactic-note{ display:block; }
   #dashboard-view .header-right { margin-left: auto !important; }
 }
 </style>
+<style id="gf-semfim-css">
+.gf-semfim{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9px;font-size:10px;font-weight:700;letter-spacing:.3px;white-space:nowrap;color:#c9a961;background:rgba(201,169,97,.12);border:1px solid rgba(201,169,97,.35);vertical-align:middle}
+</style>
+<style id="gf-toque-css">
+/* Alvos de toque de ~40px no celular (lançamento 01/10) */
+@media (pointer: coarse) {
+  #dashboard-view .month-button { min-height: 40px !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; }
+  #dashboard-view .btn, #dashboard-view .profile-action-btn, #btn-budget-cat, #btn-budget-tag { min-height: 40px !important; }
+  #filter-status, #filter-line-data, #budget-cat-select { min-height: 40px !important; height: 40px !important; }
+  #is-recurring { width: 22px !important; height: 22px !important; }
+  .modal-overlay .btn { min-height: 44px; }
+}
+</style>
+<style id="gf-meses-css">
+/* Atalhos de período: só em telas de toque/estreitas (no computador já há arrastar e Ctrl+clique) */
+@media (min-width: 821px) { #gf-atalhos-meses { display: none !important; } }
+</style>
 <style id="g20-ios-zoom-fix">
 /* Lançamento 01/10: campo abaixo de 16px dá zoom ao tocar no iPhone. Só em telas de toque. */
 @media (pointer: coarse) {
@@ -4847,6 +4864,12 @@ body.didactic-on .didactic-note{ display:block; }
                     currentUserUid = user.uid;      // <<< identidade primária
                     currentUserEmail = user.email;  // mantido só p/ exibição
                     activeProfileName = 'Pessoal';
+                    /* Abre no último perfil usado por ESTE aluno neste aparelho (o card do
+                       dashboard já seguia essa escolha; o módulo sempre voltava ao Pessoal). */
+                    try {
+                        const _st = JSON.parse(localStorage.getItem('g20_auth_state_v2') || 'null');
+                        if (_st && _st.activeProfile && _st.email && user.email && _st.email === user.email) activeProfileName = _st.activeProfile;
+                    } catch(e){}
                     // Atualiza a sidebar com o nome REAL do usuário logado (Firebase),
                     // caso o cache g20_user_profile ainda não tenha populado.
                     try {
@@ -5452,7 +5475,18 @@ body.didactic-on .didactic-note{ display:block; }
             } catch (e) {}
         };
 
+        /* CATEGORIA APRENDIDA (lançamento 01/10): antes de olhar as palavras-chave,
+           procura o lançamento MAIS RECENTE do aluno com a mesma descrição e
+           repete a categoria (e a forma de pagamento) que ele usou. */
+        function _gfNormDesc(d){ return String(d || '').replace(/\s\(Recorrente\)$/, '').replace(/\s\(\d+\/\d+\)$/, '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+        window._gfAprendido = function(desc){
+            const alvo = _gfNormDesc(desc); if (!alvo || !data || !Array.isArray(data.transactions)) return null;
+            let melhor = null;
+            data.transactions.forEach(t => { if (t && t.date && _gfNormDesc(t.desc) === alvo && (!melhor || t.date > melhor.date)) melhor = t; });
+            return melhor ? { category: melhor.category, payment: melhor.payment, type: melhor.type } : null;
+        };
         window.suggestCategoryFromDesc = (desc) => {
+            try { const a = window._gfAprendido(desc); if (a && a.category && (data.categories || []).indexOf(a.category) >= 0) return a.category; } catch(e){}
             const lowerDesc = desc.toLowerCase();
             for (const [cat, keywords] of Object.entries(categoryKeywords)) {
                 if (keywords.some(kw => lowerDesc.includes(kw))) {
@@ -5468,7 +5502,14 @@ body.didactic-on .didactic-note{ display:block; }
             const categorySelect = document.getElementById('category');
             if (!descInput || !categorySelect) return;
 
+            try { const _p = document.getElementById('payment'); if (_p) _p.addEventListener('change', () => { _p.dataset.mexeu = '1'; }); } catch(e){}
             descInput.addEventListener('blur', () => {
+                /* Forma de pagamento aprendida também, se o aluno ainda não mexeu nela */
+                try {
+                    const a = window._gfAprendido(descInput.value);
+                    const pay = document.getElementById('payment');
+                    if (a && a.payment && pay && !pay.dataset.mexeu && Array.prototype.some.call(pay.options, o => o.value === a.payment)) pay.value = a.payment;
+                } catch(e){}
                 const suggestedCat = suggestCategoryFromDesc(descInput.value);
                 if (suggestedCat && categorySelect.value === 'Geral') {
                     categorySelect.value = suggestedCat;
@@ -6462,7 +6503,97 @@ body.didactic-on .didactic-note{ display:block; }
 
         // --- Funções de filtro e renderização de lista ---
 
+        /* ═══════════════════════════════════════════════════════════════════
+           VÁRIOS MESES NO CELULAR (lançamento 01/10)
+           Computador: arrastar (intervalo) ou Ctrl+clique (meses soltos).
+           Celular: TOCAR E SEGURAR num mês entra no "modo vários meses" (como
+           selecionar fotos na galeria). Nele, cada toque liga/desliga um mês;
+           "Intervalo" marca tudo entre dois toques. Atalhos: últimos 3 e 6
+           meses e ano todo.
+           ═══════════════════════════════════════════════════════════════════ */
+        let _gfMulti = false, _gfModoInt = false, _gfIntIni = null, _gfIgnorarClique = 0;
+        function _gfAtualizarMeses(){ currentMonthFilter.sort(); renderMonthButtons(); renderAll(); _gfBarraMulti(); }
+        function _gfBarraMulti(){
+            const cont = document.getElementById('month-buttons-container'); if (!cont) return;
+            let b = document.getElementById('gf-multi-barra');
+            if (!b) {
+                b = document.createElement('div'); b.id = 'gf-multi-barra';
+                b.style.cssText = 'display:none;align-items:center;gap:8px;flex-wrap:wrap;width:100%;margin:8px 0 2px;padding:8px 10px;border-radius:10px;font-size:13px;background:rgba(201,169,97,.12);border:1px solid rgba(201,169,97,.35)';
+                cont.parentNode.insertBefore(b, cont.nextSibling);
+            }
+            if (!_gfMulti) { b.style.display = 'none'; return; }
+            const n = currentMonthFilter.length;
+            const btn = (txt, fn, ativo) => '<button type="button" onclick="' + fn + '" style="min-height:34px;padding:0 12px;border-radius:8px;font-weight:700;font-size:12.5px;cursor:pointer;' +
+                (ativo ? 'background:#c9a961;color:#111;border:1px solid #c9a961' : 'background:transparent;color:inherit;border:1px solid rgba(201,169,97,.5)') + '">' + txt + '</button>';
+            b.style.display = 'flex';
+            b.innerHTML = '<span style="flex:1 1 140px"><b>' + n + (n === 1 ? ' mês selecionado' : ' meses selecionados') + '</b>' +
+                (_gfModoInt ? (_gfIntIni ? ' · toque no último mês' : ' · toque no primeiro mês') : ' · toque para marcar') + '</span>' +
+                btn('Intervalo', '_gfToggleIntervalo()', _gfModoInt) + btn('Limpar', '_gfMultiLimpar()') + btn('Pronto', '_gfMultiSair()', true);
+        }
+        window._gfToggleIntervalo = function(){ _gfModoInt = !_gfModoInt; _gfIntIni = null; _gfBarraMulti(); };
+        window._gfMultiLimpar = function(){ currentMonthFilter = []; _gfIntIni = null; _gfAtualizarMeses(); };
+        window._gfMultiSair = function(){ _gfMulti = false; _gfModoInt = false; _gfIntIni = null; _gfBarraMulti(); };
+        function _gfMultiEntrar(mm){
+            _gfMulti = true; _gfModoInt = false; _gfIntIni = null;
+            currentMonthFilter = [mm];
+            try { if (navigator.vibrate) navigator.vibrate(18); } catch(e){}
+            _gfAtualizarMeses();
+        }
+        /* Atalhos de período (valem no celular e no computador). O filtro trabalha
+           dentro de um ano: perto da virada, os atalhos usam os meses deste ano. */
+        window._gfAtalhoPeriodo = function(tipo){
+            const n = new Date(), y = String(n.getFullYear()), m = n.getMonth() + 1;
+            if (els.filterYear && els.filterYear.querySelector('option[value="' + y + '"]')) { els.filterYear.value = y; currentYearFilter = y; }
+            else { currentYearFilter = y; }
+            if (tipo === 'ano') currentMonthFilter = [];
+            else {
+                const qtd = tipo === '6m' ? 6 : 3, lista = [];
+                for (let k = m - qtd + 1; k <= m; k++) if (k >= 1) lista.push(String(k).padStart(2, '0'));
+                currentMonthFilter = lista;
+                if (m - qtd + 1 < 1) { try { showFeedback('Mostrando os meses deste ano (o filtro trabalha dentro de um ano).'); } catch(e){} }
+            }
+            _gfMulti = false; _gfModoInt = false; _gfIntIni = null;
+            _gfAtualizarMeses();
+        };
+        function _gfAtalhos(){
+            const cont = document.getElementById('month-buttons-container'); if (!cont || document.getElementById('gf-atalhos-meses')) return;
+            const a = document.createElement('div'); a.id = 'gf-atalhos-meses';
+            a.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;width:100%;margin:0 0 6px';
+            const chip = (txt, t) => '<button type="button" onclick="_gfAtalhoPeriodo(\'' + t + '\')" style="min-height:32px;padding:0 12px;border-radius:16px;font-size:12px;font-weight:700;cursor:pointer;background:transparent;color:inherit;border:1px solid rgba(201,169,97,.45)">' + txt + '</button>';
+            a.innerHTML = chip('Últimos 3 meses', '3m') + chip('Últimos 6 meses', '6m') + chip('Ano todo', 'ano');
+            cont.parentNode.insertBefore(a, cont);
+        }
+        /* Tocar e segurar (celular) */
+        (function(){
+            let t = null, alvo = null, x0 = 0, y0 = 0;
+            document.addEventListener('touchstart', function(e){
+                const b = e.target && e.target.closest && e.target.closest('#month-buttons-container .month-button'); if (!b) return;
+                alvo = b; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+                clearTimeout(t);
+                t = setTimeout(function(){ if (!alvo) return; _gfIgnorarClique = Date.now(); _gfMultiEntrar(alvo.getAttribute('data-month')); alvo = null; }, 450);
+            }, { passive: true });
+            document.addEventListener('touchmove', function(e){ if (!alvo) return; const d = Math.abs(e.touches[0].clientX - x0) + Math.abs(e.touches[0].clientY - y0); if (d > 10) { clearTimeout(t); alvo = null; } }, { passive: true });
+            document.addEventListener('touchend', function(){ clearTimeout(t); alvo = null; }, { passive: true });
+            document.addEventListener('contextmenu', function(e){ if (e.target && e.target.closest && e.target.closest('#month-buttons-container .month-button')) e.preventDefault(); });
+        })();
+
         function handleMonthClick(monthMM, e) {
+            if (_gfIgnorarClique && Date.now() - _gfIgnorarClique < 700) { _gfIgnorarClique = 0; return; }   // clique que encerra o "segurar"
+            if (_gfMulti) {
+                if (_gfModoInt) {
+                    if (!_gfIntIni) { _gfIntIni = monthMM; currentMonthFilter = [monthMM]; }
+                    else {
+                        const a = Math.min(+_gfIntIni, +monthMM), z = Math.max(+_gfIntIni, +monthMM), lista = [];
+                        for (let k = a; k <= z; k++) lista.push(String(k).padStart(2, '0'));
+                        currentMonthFilter = lista; _gfIntIni = null; _gfModoInt = false;
+                    }
+                } else {
+                    const i = currentMonthFilter.indexOf(monthMM);
+                    if (i >= 0) currentMonthFilter.splice(i, 1); else currentMonthFilter.push(monthMM);
+                }
+                _gfAtualizarMeses();
+                return;
+            }
             const isCtrlPressed = e && (e.ctrlKey || e.metaKey);
             const index = currentMonthFilter.indexOf(monthMM);
             const isSelected = index > -1;
@@ -6590,6 +6721,7 @@ body.didactic-on .didactic-note{ display:block; }
             container.innerHTML = html;
 
             setupDragSelection();
+            try { _gfAtalhos(); _gfBarraMulti(); } catch(e){}
         }
 
         // V117.16: Lógica de sugestão e uso de Tags movida e ajustada
@@ -6871,6 +7003,7 @@ body.didactic-on .didactic-note{ display:block; }
             document.getElementById('amount').value = '';
             document.getElementById('tags').value = '';
             document.getElementById('is-recurring').checked = false;
+            try { delete document.getElementById('payment').dataset.mexeu; } catch(e){}
             toggleRecurrence();
             updateTagSuggestions();
             renderAll();
@@ -7550,6 +7683,42 @@ body.didactic-on .didactic-note{ display:block; }
             return filtered;
         }
 
+        /* JANELAS NO CELULAR (lançamento 01/10): fecham ao tocar fora e com o botão
+           "voltar" do celular (antes o voltar saía da página com a janela aberta). */
+        (function(){
+            if (window.__gfModaisOk) return;
+            window.__gfModaisOk = true;
+            let voltando = false;
+            const fecharEste = (id) => {
+                if (id === 'edit-recurrence-modal' && window.cancelEditSeries) { window.cancelEditSeries(); return; }
+                if (window.closeModal) { try { window.closeModal(id); return; } catch(e){} }
+                const el = document.getElementById(id); if (el) el.classList.remove('active');
+            };
+            /* Observa SÓ o atributo class de cada janela (sem subárvore): abriu = registra
+               no histórico do navegador; fechou por botão ou toque fora = desfaz o registro. */
+            const obs = new MutationObserver(muts => {
+                muts.forEach(m => {
+                    const el = m.target; if (el.id === 'feedback-modal') return;
+                    const ativo = el.classList.contains('active'), era = !!el.__gfAtivo;
+                    el.__gfAtivo = ativo;
+                    if (ativo && !era) { try { history.pushState({ gfModal: el.id }, ''); } catch(e){} }
+                    else if (!ativo && era) { try { if (!voltando && history.state && history.state.gfModal === el.id) { voltando = true; history.back(); } } catch(e){} }
+                });
+            });
+            document.querySelectorAll('.modal-overlay').forEach(el => { el.__gfAtivo = el.classList.contains('active'); obs.observe(el, { attributes: true, attributeFilter: ['class'] }); });
+            window.addEventListener('popstate', function(){
+                if (voltando) { voltando = false; return; }
+                const abertas = Array.prototype.slice.call(document.querySelectorAll('.modal-overlay.active')).filter(m => m.id !== 'feedback-modal');
+                const m = abertas.pop(); if (m) fecharEste(m.id);
+            });
+            document.addEventListener('click', function(e){
+                const ov = e.target;
+                if (!ov || !ov.classList || !ov.classList.contains('modal-overlay') || !ov.classList.contains('active')) return;
+                if (ov.id === 'feedback-modal') return;
+                fecharEste(ov.id);
+            });
+        })();
+
         window._gfLimparFiltros = function(){
             const b = document.getElementById('table-search'); if (b) b.value = '';
             if (els.filterTag) els.filterTag.value = 'all';
@@ -7650,7 +7819,7 @@ body.didactic-on .didactic-note{ display:block; }
                                     <div style="display: flex; align-items: center; margin-bottom: 3px;">
                                         <i class="fa-solid ${catIcon} cat-icon-display" title="Ícone da Categoria"></i>
                                         
-                                        <span>${baseDesc}</span>
+                                        <span>${baseDesc}</span>${(t.recSemFim && t.recMode === 'subscription' && !((data.recEncerradas || {})[t.recurrenceId])) ? '<span class="gf-semfim" title="Recorrente sem data de término: a plataforma mantém sempre 12 meses à frente">sem término</span>' : ''}
                                     </div>
                                     <div style="font-size: 10px; color: var(--text-light); margin-top: 3px;">
                                         ${t.tags.map(tag => `<span class="extrato-tag" title="Tag: ${tag}">${tag}</span>`).join('')}
@@ -10114,7 +10283,7 @@ function g20NovoPerfilClick(){
   #dashboard-view header {
     display: grid !important;
     grid-template-columns: auto 1fr auto auto auto !important;
-    grid-template-areas: "ano . priv did help" "meses meses meses meses meses" "tag . perfil perfil perfil" !important;
+    grid-template-areas: "ano . priv did help" "atalhos atalhos atalhos atalhos atalhos" "meses meses meses meses meses" "multi multi multi multi multi" "tag . perfil perfil perfil" !important;
     align-items: center !important; gap: 10px 8px !important;
     height: auto !important; min-height: 0 !important; padding: 12px !important; position: relative !important;
   }
@@ -10137,6 +10306,8 @@ function g20NovoPerfilClick(){
   #dashboard-view .help-button-container .help-tooltip { right: 0 !important; left: auto !important; top: 30px !important; }
 
   #dashboard-view #month-buttons-container { grid-area: meses !important; min-width: 0 !important; width: 100% !important; }
+  #dashboard-view #gf-atalhos-meses { grid-area: atalhos !important; margin: 0 !important; }
+  #dashboard-view #gf-multi-barra { grid-area: multi !important; margin: 0 !important; }
 
   #dashboard-view .tag-filter-group { grid-area: tag !important; margin: 0 !important; width: auto !important; display: block !important; }
   #dashboard-view #filter-tag { width: auto !important; min-width: 150px !important; max-width: 190px !important; height: 40px !important;
