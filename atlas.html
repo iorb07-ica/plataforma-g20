@@ -420,7 +420,8 @@ function _atlasAgrupar(aportes){
 /* Giro: sensibilidade proporcional ao tamanho do globo na tela e ao zoom
    (mesma sensação no celular e no desktop); inclinação limitada a ±70°. */
 var _ATLAS_TILT=1.22;
-function _atlasSens(){ try{ var w=container.clientWidth,h=container.clientHeight; return (1/(Math.max(240,Math.min(w,h))*0.38))*(currentZoom/3.2); }catch(e){ return .003; } }
+/* no toque, metade da sensibilidade do mouse (o dedo percorre mais distância e o giro ficava exagerado) */
+function _atlasSens(){ try{ var w=container.clientWidth,h=container.clientHeight; return (1/(Math.max(240,Math.min(w,h))*0.38))*(currentZoom/3.2)*(window._atlasToque?0.45:1); }catch(e){ return .003; } }
 function _atlasLogoFalhou(img,t){ try{ var s=document.createElement('span'); s.className='a-logo-ini'; s.textContent=String(t||'').slice(0,4); img.replaceWith(s); }catch(e){ img.style.display='none'; } }
 function _atlasEhCripto(t){ t=String(t||'').toUpperCase(); return !!(_ATLAS_CRIPTO_MOEDAS[t] || _ATLAS_CRIPTO_ETF[t] || /-USD$/.test(t)); }
 function _atlasQtd(q,cripto){ q=Number(q)||0; var inteiro=Math.abs(q-Math.round(q))<1e-9; var t=inteiro?_atlasNum(q,0):q.toLocaleString('pt-BR',{maximumFractionDigits:8}); return t+(cripto?' unid.':(inteiro&&q===1?' cota':' cotas')); }
@@ -2318,7 +2319,12 @@ container.addEventListener('mousemove',e=>{
 });
 container.addEventListener('mousedown',e=>{isDragging=true;window._atlasInercia=false;window._atlasVel={x:0,y:0};window._atlasUltMov=performance.now();prevMouse={x:e.clientX,y:e.clientY};canvas3.style.cursor='grabbing'});
 container.addEventListener('mouseup',()=>{ /* inércia se soltou ainda em movimento; a janela acompanha o ritmo do aparelho (celular lento entrega menos eventos) */
-  if(isDragging && window._atlasVel && (performance.now()-(window._atlasUltMov||0))<Math.max(100,2.5*(window._atlasDtMov||16))) window._atlasInercia=true; isDragging=false;canvas3.style.cursor='grab';_lastOffsetKey='';});
+  if(isDragging && window._atlasVel && (performance.now()-(window._atlasUltMov||0))<Math.max(100,2.5*(window._atlasDtMov||16))){
+    /* inércia com velocidade máxima limitada (mais contida no toque) */
+    const _lim=window._atlasToque?0.012:0.03, _v=window._atlasVel;
+    _v.y=Math.max(-_lim,Math.min(_lim,_v.y)); _v.x=Math.max(-_lim,Math.min(_lim,_v.x));
+    window._atlasInercia=true;
+  } isDragging=false;canvas3.style.cursor='grab';_lastOffsetKey='';});
 container.addEventListener('mouseleave',()=>{
   isDragging=false;hoveredAsset=null;_lastOffsetKey='';
   document.getElementById('tooltip').classList.remove('show');
@@ -2822,7 +2828,7 @@ function animate(){
   if(earthMesh){
     if(!earthMesh._init){earthMesh._init=true;buildMarkers();buildArcs();buildAssetList();}
     if(window._atlasInercia&&!isDragging){
-      const _v=window._atlasVel, _d=window._atlasAmort||0.94;
+      const _v=window._atlasVel, _d=window._atlasAmort||(window._atlasToque?0.88:0.94);
       earthMesh.rotation.y+=_v.y; earthMesh.rotation.x=Math.max(-_ATLAS_TILT,Math.min(_ATLAS_TILT,earthMesh.rotation.x+_v.x));
       _v.y*=_d; _v.x*=_d; if(Math.abs(_v.y)<0.00008&&Math.abs(_v.x)<0.00008) window._atlasInercia=false;
       syncGroups();
@@ -3515,6 +3521,19 @@ body.atlas-empilhado #gc { flex: none !important; width: 100% !important; height
 body.atlas-empilhado .right-panel { width: 100% !important; border-left: 0 !important; border-top: 1px solid var(--border); overflow: visible !important; }
 body.atlas-empilhado .asset-list { overflow: visible !important; flex: none !important; }
 #atlasTopo { display: none; }
+/* SEM BALANÇO LATERAL NO CELULAR (set/2026): a página só rola na vertical.
+   O iPhone deixava arrastar a página de lado porque a trava estava só no body.
+   Faixas que rolam de lado (filtros) continuam funcionando: são áreas de rolagem
+   próprias. O globo segue com os gestos dele (giro e pinça). */
+@media (max-width: 1279px) {
+  /* clip corta o excesso lateral SEM criar área de rolagem (hidden travava a rolagem vertical) */
+  html, body { overscroll-behavior-x: none; max-width: 100%; }
+  body { overflow-x: clip !important; }
+  html { touch-action: pan-y pinch-zoom; }
+  .main, .atlas-main, .right-panel, #atlasBlocos, .asset-list { max-width: 100vw; overflow-x: clip !important; }
+  body.atlas-empilhado .main { touch-action: pan-y pinch-zoom; }
+  .filters-bar { touch-action: pan-x; overscroll-behavior-x: contain; }
+}
 /* barra CRIPTO com detalhe */
 .cp-cripto-row { position: relative; cursor: pointer; border-radius: 8px; }
 .cp-cripto-row:focus-visible { outline: 2px solid #fb923c; outline-offset: 2px; }
