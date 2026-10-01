@@ -18253,6 +18253,23 @@ window.G20DiagRF = function(dias){
       var finCdi = ultimoValido(serieCdi);
       var finIbov = ultimoValido(serieIbov);
       var finSp500 = ultimoValido(serieSp500);
+    /* Cabeçalho com a MESMA janela do Desempenho e do VS Benchmarks (calcRentRange):
+       antes a Carteira vinha do último ponto da curva e o CDI da série amostrada do
+       gráfico, e os números diferiam um pouco (ex.: 28,93% x 28,87%). "Desde o
+       início" fica com a janela do gráfico (comum entre carteira e índices). */
+    if (period !== 'max') {
+      try {
+        if (typeof calcRentRange === 'function') {
+          var _snapB = (window._patSnapLoad ? _patSnapLoad() : []);
+          var _rr = calcRentRange(_snapB, period);
+          if (_rr) {
+            if (isFinite(_rr.you)) finVoce = _rr.you;
+            if (isFinite(_rr.cdi) && _rr.cdi !== 0) finCdi = _rr.cdi;
+            if (_rr.ibov !== null && isFinite(_rr.ibov)) finIbov = _rr.ibov;
+          }
+        }
+      } catch(e){}
+    }
 
       // Atualiza summary
       var elVoce = document.getElementById('v21RentSumVoce');
@@ -21917,6 +21934,17 @@ html body .topbar {
 .agm-hoje { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 6px; background: rgba(74,222,128,.15); color: #4ade80; }
 .agm-val { grid-column: 4; grid-row: 1; text-align: right; font: 800 14px 'JetBrains Mono', monospace; color: #4ade80; white-space: nowrap; }
 .agm-cota { font-size: 11px; color: var(--v21-text-muted, #9a958e); white-space: nowrap; }
+.agm-cont { margin-left: 6px; font-size: 10px; padding: 1px 7px; border-radius: 10px; background: rgba(201,169,97,.14); color: var(--gold,#c9a961); letter-spacing: 0; }
+.agm-adiante { position: relative; }
+.agm-adiante.rola .agm-adiante-in { max-height: 196px; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  touch-action: pan-y; padding-right: 2px; scrollbar-width: thin; }
+.agm-adiante.rola::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 44px; pointer-events: none;
+  background: linear-gradient(transparent, var(--v21-surface, #27252c)); border-radius: 0 0 12px 12px; transition: opacity .2s; }
+.agm-adiante.rola.no-fim::after { opacity: 0; }
+.agm-dica { position: absolute; left: 0; right: 0; bottom: 4px; z-index: 2; text-align: center; font-size: 11px; font-weight: 700;
+  color: var(--gold,#c9a961); pointer-events: none; transition: opacity .2s; }
+.agm-adiante.rola.no-fim .agm-dica { opacity: 0; }
+.light .agm-adiante.rola::after { background: linear-gradient(transparent, #fff); }
 .agm-mais { width: 100%; min-height: 44px; margin-top: 4px; border-radius: 12px; border: 1px solid rgba(201,169,97,.3); background: transparent;
   color: var(--gold, #c9a961); font: 700 14px 'DM Sans', sans-serif; cursor: pointer; }
 /* painel de baixo para cima (detalhe e lista completa) */
@@ -22019,15 +22047,38 @@ body.pat-hidden .agm-res-val, body.pat-hidden .agm-val, body.pat-hidden .agm-cot
 
   window.v21AgendaMobile = function(list, proximos){
     _itens = (proximos || []).slice();
-    var h = hojeBR(), s30 = somaDias(h, 30), fx = usdBRL(), soma = 0, n30 = 0;
+    var h = hojeBR(), s7 = somaDias(h, 7), s30 = somaDias(h, 30), fx = usdBRL(), soma = 0, n30 = 0;
     _itens.forEach(function(p){ if (p.data <= s30) { soma += (p.moeda === 'USD' ? p.total * (fx || 0) : p.total); n30++; } });
     var fonte = (window.V21 && V21.provSource === 'cg20') ? 'Carteira G20' : 'Minha Carteira';
     var html = '<div class="agm-resumo"><div class="agm-res-lbl">A receber nos próximos 30 dias</div>' +
       '<div class="agm-res-val">' + brl(soma) + '</div>' +
       '<div class="agm-res-sub">' + n30 + ' provento' + (n30 === 1 ? '' : 's') + ' · ' + fonte + ' · valores brutos</div></div>';
-    html += agrupar(_itens, MOSTRAR);
-    if (_itens.length > MOSTRAR) html += '<button type="button" class="agm-mais" onclick="v21AgendaTodos()">Ver todos (' + _itens.length + ')</button>';
+    /* Hoje, Esta semana e Próximos 30 dias: sempre visíveis, sem limite.
+       Mais adiante: área com rolagem própria (altura de ~2,5 itens). */
+    var G = [['Hoje', function(p){ return p.data === h; }], ['Esta semana', function(p){ return p.data > h && p.data <= s7; }],
+             ['Próximos 30 dias', function(p){ return p.data > s7 && p.data <= s30; }]];
+    G.forEach(function(g){
+      var its = []; _itens.forEach(function(p, i){ if (g[1](p)) its.push(item(p, i)); });
+      if (its.length) html += '<div class="agm-grupo">' + g[0] + '</div>' + its.join('');
+    });
+    var depois = []; _itens.forEach(function(p, i){ if (p.data > s30) depois.push(item(p, i)); });
+    if (depois.length) {
+      var rola = depois.length > 2;
+      html += '<div class="agm-grupo">Mais adiante <span class="agm-cont">' + depois.length + '</span></div>' +
+        '<div class="agm-adiante' + (rola ? ' rola' : '') + '"' + (rola ? ' tabindex="0" role="region" aria-label="Proventos mais adiante"' : '') + '>' +
+          '<div class="agm-adiante-in">' + depois.join('') + '</div>' +
+          (rola ? '<div class="agm-dica">role para ver mais ↓</div>' : '') +
+        '</div>';
+    }
+    if (_itens.length > 1) html += '<button type="button" class="agm-mais" onclick="v21AgendaTodos()">Ver todos (' + _itens.length + ')</button>';
     list.innerHTML = html;
+    // dica "role para ver mais" some ao chegar ao fim
+    var area = list.querySelector('.agm-adiante.rola');
+    if (area) {
+      var dica = area.querySelector('.agm-dica'), inn = area.querySelector('.agm-adiante-in');
+      var atual = function(){ var fim = inn.scrollTop + inn.clientHeight >= inn.scrollHeight - 4; area.classList.toggle('no-fim', fim); };
+      inn.addEventListener('scroll', atual, { passive: true }); setTimeout(atual, 50);
+    }
   };
 
   function abrirSheet(conteudo){
@@ -22077,6 +22128,38 @@ body.pat-hidden .agm-res-val, body.pat-hidden .agm-val, body.pat-hidden .agm-cot
       if (cel !== eraCel) { eraCel = cel; try { if (typeof window.v21LoadAgenda === 'function') window.v21LoadAgenda(); } catch(e){} }
     }, 250);
   });
+})();
+</script>
+
+<style id="g20-rent-card-fix">
+/* CARDS DA LINHA DE GRÁFICOS NO CELULAR/TABLET (set/2026)
+   Antes: altura travada em 380px; no celular o conteúdo da Rentabilidade passava
+   disso e o gráfico aparecia cortado. Independência mantém 380px (efeito de virar). */
+@media (max-width: 900px) {
+  #v21ChartCard1, #v21ChartCard2, #v21ChartCard3 { height: auto !important; max-height: none !important; min-height: 0 !important; }
+  #v21ChartCard1 .v21-chart-canvas-wrap { flex: none !important; height: 270px !important; min-height: 270px !important; }
+  #v21ChartCard3 .v21-chart-canvas-wrap { flex: none !important; height: 230px !important; min-height: 230px !important; }
+  #v21RentSummary .v21-chart-summary-item.alpha { border: 0 !important; border-left: 0 !important; border-radius: 10px !important;
+    background: rgba(201,169,97,.07) !important; padding: 10px 12px !important; margin-top: 2px; }
+  #v21RentToggles .v21-chart-toggle { min-height: 36px; }
+}
+</style>
+<script id="g20-graficos-baloes-js">
+/* Balões (tooltips) dos gráficos no toque: somem ao rolar, ao tocar fora,
+   ao esconder a página e 3 s depois do toque. */
+(function(){
+  function todos(){ try { return window.Chart && Chart.instances ? Object.keys(Chart.instances).map(function(k){ return Chart.instances[k]; }) : []; } catch(e){ return []; } }
+  function limpar(ch){ try { if (ch && ch.getActiveElements && ch.getActiveElements().length) { ch.setActiveElements([]); if (ch.tooltip) ch.tooltip.setActiveElements([], { x: 0, y: 0 }); ch.update('none'); } } catch(e){} }
+  function limparTodos(){ todos().forEach(limpar); }
+  var esp = null;
+  document.addEventListener('scroll', function(){ if (esp) return; esp = setTimeout(function(){ esp = null; }, 150); limparTodos(); }, { capture: true, passive: true });
+  document.addEventListener('pointerdown', function(e){ if (e.pointerType === 'mouse') return; if (e.target && e.target.tagName === 'CANVAS') return; limparTodos(); }, { capture: true, passive: true });
+  document.addEventListener('pointerup', function(e){
+    if (e.pointerType === 'mouse' || !e.target || e.target.tagName !== 'CANVAS') return;
+    var ch = null; try { ch = Chart.getChart(e.target); } catch(err){}
+    if (!ch) return; clearTimeout(ch.__g20t); ch.__g20t = setTimeout(function(){ limpar(ch); }, 3000);
+  }, { capture: true, passive: true });
+  document.addEventListener('visibilitychange', function(){ if (document.hidden) limparTodos(); });
 })();
 </script>
 </body>
