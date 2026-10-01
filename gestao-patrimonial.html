@@ -1844,6 +1844,13 @@ canvas{touch-action:pan-y}
   }
   </style>
 <script src="auth-guard.js"></script>
+<style id="g20-ios-zoom-fix">
+/* Lançamento 01/10: no iPhone, campo com fonte abaixo de 16px dá zoom ao tocar e
+   a tela "pula" (64 campos aqui estavam entre 12 e 15px). Só em telas de toque. */
+@media (pointer: coarse) {
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select, textarea { font-size: 16px !important; }
+}
+</style>
 </head>
 <body>
 
@@ -4136,11 +4143,13 @@ function salvarPat(){
   var lista=loadPat();
   var editIdx=document.getElementById('pat_editId').value;
   var obj={tipo,subtipo,nome,valor,custo,dataAq,divida,obs,prevIdx,prevTaxa};
-  if(editIdx!=='') lista[parseInt(editIdx)]=obj; else lista.push(obj);
-  // Save imediato no Firestore
+  // Edição parte do bem existente (não perde campos que o formulário não mostra)
+  if(editIdx!=='' && lista[parseInt(editIdx)]) lista[parseInt(editIdx)]=Object.assign({}, lista[parseInt(editIdx)], obj);
+  else lista.push(obj);
+  // Save imediato no Firestore, com aviso se falhar (lançamento 01/10)
   _db_cache['patrimonioBens'] = lista;
   try{ localStorage.setItem('g20_patrimonioBens', JSON.stringify(lista)); }catch(e){}
-  if(_db_ref){ _db_ref.doc('patrimonioBens').set({value:lista,updatedAt:firebase.firestore.FieldValue.serverTimestamp()}).catch(function(e){console.warn(e);}); }
+  if(typeof _gpNuvemSet === 'function') _gpNuvemSet('patrimonioBens', lista);
   fecharModal('modalPat'); renderAll(); showToast('✅ Bem salvo com sucesso');
 }
 
@@ -4777,7 +4786,7 @@ function _evcGravar(novos, msg){
   var ap = loadRVAportes().slice(); novos.forEach(function(n){ ap.push(n); });
   _db_cache['rvAportes'] = ap;
   try { localStorage.setItem('g20_rvAportes', JSON.stringify(ap)); } catch(e){}
-  if(typeof _db_ref !== 'undefined' && _db_ref){ _db_ref.doc('rvAportes').set({ value: ap, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }).catch(function(e){ console.warn(e); }); }
+  if(typeof _gpNuvemSet === 'function') _gpNuvemSet('rvAportes', ap);   // com aviso se falhar
   showToast(msg, '#10b981');
   renderEvcAviso();
   if(typeof renderAll === 'function') renderAll();
@@ -12558,7 +12567,7 @@ function mvConfirmar(){
   saveData('rvAportes', aportes);
   // grava já no Firestore (sem esperar o intervalo automático)
   try {
-    if(_db_ref) _db_ref.doc('rvAportes').set({ value: aportes, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    if(typeof _gpNuvemSet === 'function') _gpNuvemSet('rvAportes', aportes);   // com aviso se falhar
   } catch(e){}
   fecharMigrarV1();
   try { renderAll(); } catch(e){}
@@ -12793,7 +12802,7 @@ function siConfirmar(){
     aportes.push(ap);
   });
   saveData('rvAportes', aportes);
-  try { if(_db_ref) _db_ref.doc('rvAportes').set({ value: aportes, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }); } catch(e){}
+  try { if(typeof _gpNuvemSet === 'function') _gpNuvemSet('rvAportes', aportes); } catch(e){}   // com aviso se falhar
   fecharImportSI();
   try { renderAll(); } catch(e){}
   showToast('✅ ' + novos.length + ' lançamento(s) importado(s) do ' + (novos[0].origem === 'myprofit' ? 'MyProfit' : 'Status Invest') + '!', '#2ecc71');

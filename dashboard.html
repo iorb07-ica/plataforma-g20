@@ -160,6 +160,29 @@ window._divsCarregar = _divsCarregar;
    O caso do aluno que tem aportes mas nunca abriu Minha Carteira resolve
    sozinho: basta ele entrar lá uma vez e a importação preenche a base.
    ═══════════════════════════════════════════════════════════════════════ */
+/* Valor líquido de um bem, com a MESMA regra da Minha Carteira
+   (calcPrevAtual + calcBemValorAtual). Lançamento 01/10: previdência com
+   cálculo automático (valor em branco) entrava como R$ 0 no dashboard, e o
+   modo "Total" ficava abaixo do patrimônio da Minha Carteira. */
+function g20BemLiquido(b){
+  if (!b) return 0;
+  if (b.tipo !== 'prev') return (parseFloat(b.valor) || 0) - (parseFloat(b.divida) || 0);
+  var custo = parseFloat(b.custo) || 0, valor = parseFloat(b.valor) || 0;
+  if (!b.prevIdx || b.prevIdx === 'manual' || !custo || !b.dataAq) return valor || custo;
+  if (valor > 0) return valor;
+  var dc = Math.max(0, Math.floor((new Date() - new Date(b.dataAq)) / 86400000));
+  if (dc <= 0) return custo;
+  var IDX = (typeof IND !== 'undefined' && IND) ? IND : {};
+  var taxa = (parseFloat(b.prevTaxa) || 0) / 100;
+  if (b.prevIdx === 'CDI') {
+    var cdi = ((window.G20RF && G20RF.taxaAnual) ? G20RF.taxaAnual('cdi') : 0) || IDX.cdi || 14.65;
+    return custo * Math.pow(1 + (cdi / 100) * taxa, (dc * 252 / 365) / 252);
+  }
+  var anual = 0;
+  if (b.prevIdx === 'IPCA') anual = ((((window.G20RF && G20RF.taxaAnual) ? G20RF.taxaAnual('ipca') : 0) || IDX.ipca || 4.8) / 100) + taxa;
+  else if (b.prevIdx === 'Prefixado') anual = taxa;
+  return custo * Math.pow(1 + anual, dc / 365);
+}
 function _divsPessoais(){
   try {
     var v = JSON.parse(localStorage.getItem('g20_rvDividendos') || '[]');
@@ -10189,7 +10212,7 @@ function _buscarCotacoesEAtualizarRV(){
       return s+_calcBrutoRF(r.valorInv||0,r.dataInicio,r.indexador,r.taxa,r);
     },0);
     var bensData=loadData('patrimonioBens',[]);
-    var bensLiq=bensData.reduce(function(s,b){return s+(b.valor||0)-(b.divida||0);},0);
+    var bensLiq=bensData.reduce(function(s,b){return s+g20BemLiquido(b);},0);
     var totalReal=rfLiq+bensLiq+rvTotal;
     var fmtBRL=function(v){return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});};
     var totalEl=document.getElementById('dashPatTotal');
@@ -10686,7 +10709,7 @@ function loadPatStrip(){
 
     // Bens
     var bensData = loadData('patrimonioBens',[]);
-    var bensLiq = bensData.reduce(function(s,b){return s+(b.valor||0)-(b.divida||0);},0);
+    var bensLiq = bensData.reduce(function(s,b){return s+g20BemLiquido(b);},0);
 
     // RV local (aportes pr-prios da Gest-o Patrimonial)
     var rvAportes = loadData('rvAportes',[]);
@@ -14298,7 +14321,7 @@ console.log('%c[G20 v21] Etapa 1C carregada (topbar + tabs v21)', 'color:#c9a961
     try {
       var b = JSON.parse(localStorage.getItem('g20_patrimonioBens')||'[]');
       if (!Array.isArray(b)) return 0;
-      return b.reduce(function(s,x){ return s + (parseFloat(x.valor)||0) - (parseFloat(x.divida)||0); }, 0);
+      return b.reduce(function(s,x){ return s + g20BemLiquido(x); }, 0);
     } catch(e){ return 0; }
   }
 
@@ -23342,7 +23365,7 @@ window.G20DiagGF = function(){
     try {
       var b = JSON.parse(localStorage.getItem('g20_patrimonioBens')||'[]');
       if (!Array.isArray(b)) return 0;
-      return b.reduce(function(s,x){ return s + (parseFloat(x.valor)||0) - (parseFloat(x.divida)||0); }, 0);
+      return b.reduce(function(s,x){ return s + g20BemLiquido(x); }, 0);
     } catch(e){ return 0; }
   }
   // Mesma base do renderizador principal: parte sempre de rv/rf e soma
