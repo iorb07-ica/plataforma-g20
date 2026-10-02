@@ -2055,7 +2055,45 @@ function _rankResumo(tipo){
   };
 }
 
+/* JUIZ AUTOMÁTICO (out/2026): o placar do dashboard agora é calculado e
+   gravado pelo SERVIDOR, todo dia às 19h de Brasília (proxy, lib/game-ranking.js).
+   Antes era o navegador do primeiro aluno do dia, e quem soubesse programar
+   podia gravar um placar inventado. As Firestore Rules não deixam mais aluno
+   gravar esse documento. O admin pode forçar a atualização pelo botão
+   "Atualizar ranking agora" (g20RankingAgora). O código abaixo fica desligado. */
+var G20_RANK_PELO_SERVIDOR = true;
+function g20RankingAgora(btn){
+  var u = firebase.auth().currentUser; if (!u) return;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Calculando…'; }
+  u.getIdToken().then(function(tk){
+    return fetch(PROXY + '/api/backup?job=ranking', { method: 'POST', headers: { 'Authorization': 'Bearer ' + tk, 'Content-Type': 'application/json' }, body: '{}' });
+  }).then(function(r){ return r.json().then(function(j){ if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); })
+    .then(function(j){
+      var m = (j.resumo && j.resumo.mensal) || {};
+      showToast('✓ Ranking publicado: ' + (m.jogadores || 0) + ' jogador(es) no mensal' + (m.semPreco ? ' · ' + m.semPreco + ' ativo(s) sem preço' : ''), 'success');
+    })
+    .catch(function(e){ showToast('Não foi possível atualizar o ranking: ' + e.message, 'error'); })
+    .finally(function(){ if (btn) { btn.disabled = false; btn.textContent = '📡 Atualizar ranking agora'; } });
+}
+(function(){
+  /* botão só para o admin, no topo do Game */
+  var tent = 0;
+  (function por(){
+    var alvo = document.getElementById('lastUpdate');
+    var ok = false; try { ok = souAdmin(); } catch(e){}
+    if (!alvo || !ok) { if (++tent < 40) return setTimeout(por, 500); return; }
+    if (document.getElementById('btnRankAgora')) return;
+    var b = document.createElement('button');
+    b.id = 'btnRankAgora'; b.type = 'button'; b.textContent = '📡 Atualizar ranking agora';
+    b.title = 'Calcula e publica o placar do dashboard no servidor (ele já faz isso sozinho todo dia às 19h)';
+    b.style.cssText = 'margin-left:10px;min-height:32px;padding:0 12px;border-radius:8px;border:1px solid rgba(201,169,97,.5);background:transparent;color:#e8c766;font-weight:700;font-size:12px;cursor:pointer';
+    b.onclick = function(){ g20RankingAgora(b); };
+    alvo.parentNode.insertBefore(b, alvo.nextSibling);
+  })();
+})();
+
 function publicarRankingSePreciso(){
+  if (G20_RANK_PELO_SERVIDOR) return;   // o servidor publica (ver acima)
   if (_publicando) return;
 
   /* ═══════════════════════════════════════════════════════════════
