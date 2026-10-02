@@ -390,6 +390,7 @@ body.light .completion-label{color:#4a5468}
   .perfil-tab-panel{ display:block!important; }
   .perfil-tab-nav{ display:none; }
   .perfil-hero-sticky{ display:none; }
+  .nota-perfil-mob.on{ display:block !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -1171,6 +1172,15 @@ setTimeout(_g20PreloadSidebar, 200);
   input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select, textarea { font-size: 16px !important; }
 }
 </style>
+<style id="perfil-topo-mobile">
+/* Lançamento: no celular o sino do topo saía da tela. Mesmo padrão das outras páginas. */
+@media (max-width: 820px) {
+  html body .topbar .topbar-right { gap: 6px !important; flex-shrink: 0 !important; }
+  html body .topbar .topbar-right > .btn-gsearch, html body .topbar .topbar-right > #g20FeedbackBtn, html body .topbar .topbar-right > .btn-icon { width: 38px !important; height: 38px !important; min-width: 38px !important; }
+  html body .topbar .topbar-right > #g20ThemeSwitch { display: none !important; }
+  html body .topbar .topbar-left { min-width: 0 !important; overflow: hidden !important; flex: 1 1 0 !important; }
+}
+</style>
 </head>
 <body>
 <script>
@@ -1334,9 +1344,14 @@ if(localStorage.getItem('g20_uid')){
           </div>
           <div class="completion-bar"><div class="completion-fill" id="completionFill" style="width:0%"></div></div>
         </div>
+        <!-- NOTA DO PERFIL 0-100 (out/2026): qualidade, não só os obrigatórios -->
+        <div id="notaPerfil" style="margin-top:12px;display:none"></div>
       </div>
     </div><!-- /profile-hero -->
     </div><!-- /perfil-hero-sticky -->
+
+    <!-- Nota do perfil no CELULAR (lá o topo do perfil fica escondido) -->
+    <div id="notaPerfilMob" class="nota-perfil-mob" style="display:none;margin:12px 16px 0;padding:14px 16px;border-radius:14px;background:var(--bg2,#16151a);border:1px solid var(--border,rgba(255,255,255,.08))"></div>
 
     <!-- ABAS DESKTOP -->
     <div class="perfil-tabs" id="perfilTabs">
@@ -2512,6 +2527,83 @@ var ALL_FIELDS = REQUIRED_FIELDS.concat([
   'f-hobbies','f-favoritos'
 ]);
 
+/* ═══════════════════════════════════════════════════════════════════
+   NOTA DO PERFIL, DE 0 A 100 (out/2026)
+   "Perfil completo" mede só os campos obrigatórios. A nota mede a
+   QUALIDADE: foto, textos de verdade, campos opcionais, redes, Networking
+   e login com biometria. Cada item faltando vira uma dica que leva à aba.
+   A nota é gravada no cadastro (perfilNota) para o admin acompanhar.
+   ═══════════════════════════════════════════════════════════════════ */
+function _npVal(id){ var el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; }
+function _npProporcao(ids){ var ok = 0; ids.forEach(function(id){ if (_npVal(id)) ok++; }); return ids.length ? ok / ids.length : 0; }
+/* Texto "de verdade": várias palavras, a maioria com vogal (letras soltas
+   como "gdsfgsdfg" não contam). */
+function _npTextoReal(t, minPalavras){
+  var ps = String(t || '').toLowerCase().split(/\s+/).filter(function(w){ return w.replace(/[^a-zà-ú]/g, '').length >= 2; });
+  if (ps.length < minPalavras) return false;
+  var comVogal = ps.filter(function(w){ return /[aeiouáéíóúâêôãõà]/.test(w); }).length;
+  var distintas = {}; ps.forEach(function(w){ distintas[w] = 1; });
+  return comVogal / ps.length >= 0.8 && Object.keys(distintas).length >= Math.min(ps.length, minPalavras) * 0.7;
+}
+function notaPerfil(){
+  var itens = [];
+  function item(ok, pts, txt, aba, parcial){
+    var ganho = ok ? pts : Math.round(pts * (parcial || 0));
+    itens.push({ ganho: ganho, pts: pts, txt: txt, aba: aba });
+  }
+  var temFoto = !!(typeof _avatarBase64 !== 'undefined' && _avatarBase64) || !!(typeof _userData !== 'undefined' && _userData && ((_userData.perfil && _userData.perfil.foto) || _userData.photo));
+  item(temFoto, 10, 'Adicione uma foto de perfil', 'pessoal');
+  var whats = (typeof getWhatsappE164 === 'function') ? getWhatsappE164() : _npVal('f-whatsapp');
+  var pes = ['f-nome','f-nascimento','f-genero','f-cidade','f-filhos'], okP = _npProporcao(pes) * pes.length + (whats ? 1 : 0);
+  item(okP >= 6, 15, 'Complete seus dados pessoais', 'pessoal', okP / 6);
+  var fin = ['f-renda','f-patrimonio','f-aporte-mensal','f-experiencia','f-corretora','f-dividas','f-meta','f-disponibilidade','f-medo'];
+  var pf = _npProporcao(fin);
+  item(pf >= 1, 20, 'Preencha toda a Vida Financeira (inclusive "Onde investe hoje" e "Maior medo")', 'financeiro', pf);
+  item(_npTextoReal(_npVal('f-porqueg20'), 8), 10, 'Conte de verdade o que você espera do G20 (algumas frases)', 'financeiro');
+  var prof = ['f-profissao','f-escolaridade','f-area'], pp = _npProporcao(prof);
+  item(pp >= 1, 10, 'Complete sua profissão', 'profissao', pp);
+  item(_npTextoReal(_npVal('f-sobre'), 15), 10, 'Escreva um "Sobre mim" com pelo menos 2 frases', 'pessoal');
+  var redes = ['f-instagram','f-linkedin','f-twitter','f-youtube','f-site'].some(function(id){ return !!_npVal(id); });
+  item(redes, 10, 'Adicione pelo menos uma rede social', 'redes');
+  item(!!(_npVal('f-hobbies') || _npVal('f-favoritos')), 5, 'Conte seus hobbies e interesses', 'hobbies');
+  var pub = document.getElementById('f-perfil-publico');
+  item(!!(pub && pub.checked), 5, 'Ative seu cartão no Networking', 'redes');
+  item((window._pkQtd || 0) > 0, 5, 'Ative o login com Face ID ou digital', 'notificacoes');
+  var nota = itens.reduce(function(a, i){ return a + i.ganho; }, 0);
+  return { nota: Math.max(0, Math.min(100, nota)), faltas: itens.filter(function(i){ return i.ganho < i.pts; }).sort(function(a, b){ return (b.pts - b.ganho) - (a.pts - a.ganho); }) };
+}
+/* Dica clicada: no computador troca de aba; no celular (todas as seções na
+   mesma tela) rola até a seção. */
+function _npIr(aba){
+  try { switchTab(aba); } catch(e){}
+  if (window.innerWidth <= 767) {
+    var alvo = document.getElementById('panel-' + aba);
+    if (alvo) { try { alvo.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch(e){ alvo.scrollIntoView(); } }
+  }
+}
+function _renderNota(){
+  var box = document.getElementById('notaPerfil'); if (!box) return;
+  var r = notaPerfil(), n = r.nota;
+  var cor = n >= 90 ? '#2ecc71' : n >= 70 ? '#e8c766' : n >= 40 ? '#f59e0b' : '#ef5b61';
+  var estrelas = '★★★★★'.slice(0, Math.max(1, Math.round(n / 20))) + '<span style="opacity:.25">' + '★★★★★'.slice(Math.max(1, Math.round(n / 20))) + '</span>';
+  var dicas = r.faltas.slice(0, 3).map(function(f){
+    return '<button type="button" onclick="_npIr(\'' + f.aba + '\')" style="display:flex;justify-content:space-between;gap:10px;width:100%;text-align:left;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:9px;padding:8px 11px;color:inherit;font:inherit;font-size:13px;cursor:pointer;min-height:38px;align-items:center">' +
+      '<span>' + f.txt + '</span><b style="color:' + cor + ';white-space:nowrap">+' + (f.pts - f.ganho) + '</b></button>';
+  }).join('');
+  box.style.display = 'block';
+  var _mob = document.getElementById('notaPerfilMob');
+  box.innerHTML =
+    '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">' +
+      '<div style="font-size:13px;font-weight:700">Nota do seu perfil</div>' +
+      '<div style="font-size:22px;font-weight:900;color:' + cor + '">' + n + '<span style="font-size:13px;opacity:.6">/100</span></div>' +
+      '<div style="color:' + cor + ';letter-spacing:2px">' + estrelas + '</div>' +
+    '</div>' +
+    (r.faltas.length ? '<div style="font-size:12px;opacity:.7;margin:6px 0">' + (n >= 90 ? 'Quase perfeito! Falta pouco:' : 'Para chegar a 100:') + '</div><div style="display:grid;gap:6px">' + dicas + '</div>'
+                     : '<div style="font-size:12.5px;color:#2ecc71;margin-top:4px">Perfil nota 100. Exemplar! 🏆</div>');
+  if (_mob) { _mob.innerHTML = box.innerHTML; _mob.classList.add('on'); }
+  window._notaPerfilAtual = n;
+}
+
 function calcularCompletion() {
   // Mede o MESMO que o banner: progresso rumo à liberação (15 obrigatórios).
   // Antes contava todos os campos + avatar, o que divergia do "Faltam X de 15".
@@ -2527,6 +2619,7 @@ function calcularCompletion() {
     pct = Math.round((filled / total) * 100);
   }
   document.getElementById('completionPct').textContent = pct + '%';
+  try { _renderNota(); } catch(e){}
   var fill = document.getElementById('completionFill');
   fill.style.width = pct + '%';
 
@@ -2954,7 +3047,8 @@ async function salvarPerfil(opts) {
     var updateData = {
       perfil: perfil,
       perfilCompleto: perfilCompleto,
-      perfilPct: pct
+      perfilPct: pct,
+      perfilNota: (function(){ try { return notaPerfil().nota; } catch(e){ return null; } })()
     };
 
     /* ═══════════════════════════════════════════════════════════════
@@ -4189,6 +4283,7 @@ async function pkCarregar(){
 
   try {
     var lista = await G20Passkey.listar(user);
+    window._pkQtd = lista.length; try { _renderNota(); } catch(e){}
     var wrap = document.getElementById('pkListaWrap'), box = document.getElementById('pkLista');
     wrap.style.display = lista.length ? 'block' : 'none';
     if (!lista.length) G20Passkey.marcarAtivo(false);
