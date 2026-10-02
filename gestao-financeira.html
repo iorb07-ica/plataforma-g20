@@ -4524,13 +4524,13 @@ body.didactic-on .didactic-note{ display:block; }
                                     <i class="fa-regular fa-circle-question help-icon"></i>
                                     <div class="help-tooltip compact">
                                         <div class="help-tooltip-content">
-                                            <p><strong>O que é:</strong> indica sua <strong>capacidade de poupar</strong> no período.</p>
-                                            <p><strong>Leitura rápida:</strong> quanto maior o %, maior a folga entre Entradas e Saídas.</p>
-                                            <p style="margin:0;opacity:.9;"><em>Dica:</em> se cair, revise despesas fixas e recorrências.</p>
+                                            <p><strong>O que é:</strong> quanto % da <strong>receita do mês</strong> você investiu (compras na Minha Carteira e aplicações de renda fixa).</p>
+                                            <p><strong>Meta G20:</strong> pelo menos <strong>20%</strong>. Invista primeiro, depois pague as contas.</p>
+                                            <p style="margin:0;opacity:.9;"><em>Cores:</em> vermelho até 10% · laranja até 20% · verde na meta · dourado a partir de 30%.</p>
                                         </div>
                                     </div>
                                 </div>
-                                <h4 class="chart-title">Termômetro de Economia (Poupança)</h4>
+                                <h4 class="chart-title">Termômetro de Aporte</h4>
                                 <div id="gauge-wrapper" style="flex:1; min-height:0; position:relative; display:flex; flex-direction:column; align-items:center;">
                                     <div style="position:relative; flex:1; min-height:0; width:100%;">
                                         <canvas id="chart-gauge" style="position:absolute; top:0; left:0; width:100% !important; height:100% !important;"></canvas>
@@ -4678,8 +4678,10 @@ body.didactic-on .didactic-note{ display:block; }
     const needleColor = dark ? '#e2e8f0' : '#1e293b';
 
     // ── Labels externos — fonte maior ──
+    /* Termômetro de APORTE (out/2026): a escala vai de 0% a 40% da receita
+       (ponteiro 0-100 = 0-40%). Meta G20 no meio: 20%. */
     const ticks = [0, 25, 50, 75, 100];
-    const lbls  = ['0%', '25%', '50%', '75%', '100%'];
+    const lbls  = ['0%', '10%', '20%', '30%', '40%+'];
     ctx.font = 'bold 13px Montserrat, sans-serif';
 
     ticks.forEach((v, i) => {
@@ -7806,8 +7808,7 @@ body.didactic-on .didactic-note{ display:block; }
             const _ra = renderAll;
             renderAll = function(){
                 const r = _ra.apply(this, arguments);
-                try { ['gf-sobra-card', 'gf-contas-card'].forEach(id => { const e = document.getElementById(id); if (e) e.remove(); }); } catch(e){}
-                try { _gfRenderAporteMeta(); } catch(e){ console.warn('[GF] aporte×meta:', e); }
+                try { ['gf-sobra-card', 'gf-contas-card', 'gf-aporte-meta-box'].forEach(id => { const e = document.getElementById(id); if (e) e.remove(); }); } catch(e){}
                 return r;
             };
         })();
@@ -7835,7 +7836,7 @@ body.didactic-on .didactic-note{ display:block; }
             ]).then(([a, b]) => {
                 const val = d => { try { const v = d && d.exists && d.data() ? d.data().value : null; return Array.isArray(v) ? v : (typeof v === 'string' ? JSON.parse(v) : []); } catch(e){ return []; } };
                 window._gfInvest = { ok: true, rv: val(a), rf: val(b) };   // carregou (mesmo vazio: conta nova mostra R$ 0)
-                try { _gfAtualizarAporteKpi(); _gfRenderAporteMeta(); } catch(e){}
+                try { renderAll(); } catch(e){}
             }).finally(() => { window._gfInvest.carregando = false; });
         };
         function _gfInvestidoNoMes(mes){
@@ -9026,15 +9027,14 @@ body.didactic-on .didactic-note{ display:block; }
         // Gauge gradient: vermelho (0%) → laranja (5-10%) → amarelo (15-20%) → verde claro (25-30%) → verde forte (>30%)
         const createGaugeGradient = (ctx, width) => {
             const g = ctx.createLinearGradient(0, 0, width, 0);
-            g.addColorStop(0.00, '#dc2626'); // 0%  — vermelho forte
-            g.addColorStop(0.05, '#ea580c'); // 5%  — laranja escuro
-            g.addColorStop(0.10, '#f97316'); // 10% — laranja médio
-            g.addColorStop(0.15, '#eab308'); // 15% — amarelo
-            g.addColorStop(0.20, '#84cc16'); // 20% — amarelo-verde
-            g.addColorStop(0.25, '#4ade80'); // 25% — verde claro
-            g.addColorStop(0.30, '#22c55e'); // 30% — verde médio
-            g.addColorStop(0.50, '#16a34a'); // 50% — verde mais forte
-            g.addColorStop(1.00, '#15803d'); // 100%— verde escuro
+            // Escala do Termômetro de APORTE: 0% a 40% da receita (meta 20% no meio)
+            g.addColorStop(0.00, '#dc2626'); // 0%  — vermelho
+            g.addColorStop(0.22, '#ea580c'); // ~9% — laranja escuro
+            g.addColorStop(0.35, '#f59e0b'); // 14% — laranja
+            g.addColorStop(0.50, '#22c55e'); // 20% — meta: verde
+            g.addColorStop(0.70, '#15803d'); // 28% — verde forte
+            g.addColorStop(0.80, '#c9a961'); // 32% — dourado
+            g.addColorStop(1.00, '#a8862f'); // 40%+ — dourado escuro
             return g;
         };
         const universalBrlTooltip = { backgroundColor: 'rgba(9, 9, 11, 0.9)', titleColor: '#fff', bodyColor: '#fff', callbacks: { title: () => null, label: function (c) { let value = c.raw; let currency = value.toLocaleString('pt-br', { style: 'currency', currency: 'BRL' }); if (c.chart.id === 'chart-line' || (c.chart.config.type === 'bar' && c.chart.options.indexAxis === 'y')) { return currency; } else if (c.dataset.type === 'doughnut' || c.chart.id === 'chart-pie-expense' || c.chart.id === 'chart-pay-breakdown' || c.chart.id === 'chart-net-worth') { let sum = c.dataset.data.reduce((a, b) => a + b, 0); let percentage = ((value / sum) * 100).toFixed(1).replace('.', ',') + '%'; return ` ${c.label}: ${currency} (${percentage})`; } return `${c.label}: ${currency}`; } } };
@@ -9716,29 +9716,38 @@ body.didactic-on .didactic-note{ display:block; }
             };
             const ctxG = document.getElementById('chart-gauge').getContext('2d');
             const gradientGauge = createGaugeGradient(ctxG, ctxG.canvas.clientWidth || 300);
-            let feedbackMsg = "Sem Dados"; let feedbackColor = "#64748b";
-            if (totalIncome > 0) {
-                if (savingsRate <=  5) { feedbackMsg = "Crítico! (Risco Alto)";      feedbackColor = window.gaugeColorByValue(savingsRate); }
-                else if (savingsRate <= 10) { feedbackMsg = "Alerta (Atenção)";       feedbackColor = window.gaugeColorByValue(savingsRate); }
-                else if (savingsRate <= 20) { feedbackMsg = "Razoável (Melhorar)";    feedbackColor = window.gaugeColorByValue(savingsRate); }
-                else if (savingsRate <= 30) { feedbackMsg = "Muito Bom (Caminho Certo)"; feedbackColor = window.gaugeColorByValue(savingsRate); }
-                else if (savingsRate <= 50) { feedbackMsg = "Excelente (Sólido)";     feedbackColor = window.gaugeColorByValue(savingsRate); }
-                else                        { feedbackMsg = "Extraordinário!";         feedbackColor = window.gaugeColorByValue(savingsRate); }
+            /* TERMÔMETRO DE APORTE (out/2026): antes mostrava a taxa de economia
+               ((receita − despesa) ÷ receita), o mesmo número do "Tx. economia" do
+               card Saldo, e com a lógica de "sobra". O G20 ensina investir primeiro:
+               agora o ponteiro é quanto % da receita do mês foi investido. */
+            const _ap = (function(){
+                try {
+                    if (!window._gfInvest || !window._gfInvest.ok) return null;
+                    const mes = _gfMesRef(), rec = _gfReceitaDoMes(mes), ap = Math.max(0, _gfInvestidoNoMes(mes).total);
+                    return rec > 0 ? ap / rec * 100 : -1;
+                } catch(e){ return null; }
+            })();
+            const _apNeedle = (_ap == null || _ap < 0) ? 0 : Math.min(100, _ap / 40 * 100);
+            let feedbackMsg = "Carregando aportes…"; let feedbackColor = "#64748b";
+            if (_ap === -1) { feedbackMsg = "Sem receita no mês"; }
+            else if (_ap != null) {
+                feedbackColor = _gfCorAporte(_ap) || '#64748b';
+                feedbackMsg = _ap >= G20_META_APORTE * 1.5 ? 'Extraordinário! 🎯' : _ap >= G20_META_APORTE ? 'Meta batida!' : _ap >= G20_META_APORTE / 2 ? 'Abaixo da meta' : 'Bem abaixo da meta';
             }
-            if (document.getElementById('gauge-pct-display')) document.getElementById('gauge-pct-display').innerText = savingsRate + '%';
+            if (document.getElementById('gauge-pct-display')) document.getElementById('gauge-pct-display').innerText = (_ap == null || _ap < 0) ? '—' : Math.round(_ap) + '%';
             if (document.getElementById('gauge-feedback-display')) document.getElementById('gauge-feedback-display').innerText = feedbackMsg;
             if (document.getElementById('gauge-label')) document.getElementById('gauge-label').style.color = feedbackColor;
             if (window.myCharts.g) {
                 const oldVal = window.myCharts.g.data.datasets[0].needleValue || 0;
                 window.myCharts.g.data.datasets[0].backgroundColor = [createGaugeGradient(ctxG, ctxG.canvas.clientWidth)];
-                animateGauge(window.myCharts.g, oldVal, savingsRate, 1000);
+                animateGauge(window.myCharts.g, oldVal, _apNeedle, 1000);
             } else {
                 window.myCharts.g = new Chart(ctxG, {
                     type: 'doughnut',
-                    data: { labels: ['Taxa de Economia'], datasets: [{ data: [100], backgroundColor: [gradientGauge], borderWidth: 0, circumference: 180, rotation: -90, needleValue: savingsRate }] },
+                    data: { labels: ['Aporte do mês'], datasets: [{ data: [100], backgroundColor: [gradientGauge], borderWidth: 0, circumference: 180, rotation: -90, needleValue: _apNeedle }] },
                     options: {
                         ...commonOpts,
-                        plugins: { legend: { display: false }, tooltip: { enabled: true, callbacks: { label: function(context) { var val = context.chart.data.datasets[0].needleValue; return "Poupança: " + Math.round(val) + "%"; } } }, datalabels: { display: false } },
+                        plugins: { legend: { display: false }, tooltip: { enabled: true, callbacks: { label: function(context) { var val = context.chart.data.datasets[0].needleValue; return "Aporte: " + Math.round(val * 0.4) + "% da receita"; } } }, datalabels: { display: false } },
                         layout: { padding: { bottom: 4, top: 22, left: 44, right: 44 } },
                         scales: { x: { display: false }, y: { display: false } },
                         cutout: '52%',
