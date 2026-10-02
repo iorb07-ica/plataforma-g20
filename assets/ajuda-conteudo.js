@@ -15,7 +15,7 @@
   var P = 'assets/ajuda/';
 
   window.G20_AJUDA = {
-    versao: '2026-10-02',
+    versao: '2026-10-02b',
 
     secoes: [
 
@@ -277,7 +277,7 @@
       { p: 'A tela está um pouco diferente do print da ajuda.',
         r: 'A plataforma está sempre evoluindo, e os prints podem levar alguns dias para acompanhar uma mudança. O caminho costuma ser o mesmo.' },
       { p: 'Não achei a resposta aqui. Como peço ajuda?',
-        r: 'Fale com o Israel pelo WhatsApp e mande: um <b>print</b> da tela, em que <b>página</b> você estava, se é <b>celular ou computador</b> e o que você tentou fazer. Com isso a ajuda chega muito mais rápido.' }
+        r: 'Registre pelo <a href="#" onclick="ajFeedback(\'duvida\');return false">Feedback</a>, aqui mesmo na plataforma. Escolha se é uma dúvida, uma sugestão ou um problema, conte em que <b>página</b> você estava, se é <b>celular ou computador</b> e o que tentou fazer. Se puder, <b>anexe um print</b> da tela: isso acelera muito a resposta.' }
     ]
   };
 })();
