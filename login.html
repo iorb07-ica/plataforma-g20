@@ -45,8 +45,8 @@ html,body{height:100%}
 body{
   background:var(--bg);color:var(--text);
   font-family:'DM Sans',sans-serif;
-  display:flex;align-items:center;justify-content:center;
-  min-height:100svh;overflow:hidden;position:relative;
+  display:flex;justify-content:center;
+  min-height:100svh;overflow-x:hidden;overflow-y:auto;position:relative;
 }
 
 /* Fundo animado */
@@ -67,6 +67,9 @@ body{
   position:relative;z-index:1;
   width:100%;max-width:420px;
   padding:16px;
+  /* margin:auto centraliza quando cabe e deixa rolar quando a tela é baixa
+     (antes o overflow:hidden cortava o formulário de cadastro em notebook) */
+  margin:auto;padding-bottom:56px;
   animation:fadeUp .5s var(--ease) both;
 }
 @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
@@ -783,6 +786,7 @@ async function cadastrarEmail() {
     _pendingCadastroName = nome;
     var cred = await auth.createUserWithEmailAndPassword(email, senha);
     await cred.user.updateProfile({ displayName: nome });
+    try { sessionStorage.removeItem('g20_cadastro_rascunho'); } catch(_) {}
     // checkApprovalAndRedirect vai criar o doc e redirecionar para aguardando
   } catch (e) {
     setLoading(false);
@@ -794,6 +798,26 @@ async function cadastrarEmail() {
     showMsg(msgs[e.code] || 'Erro: ' + e.message, 'error');
   }
 }
+
+// ── Rascunho do cadastro ──────────────────────────────────────
+// Se a pessoa sair da página no meio do cadastro (ex.: abrir os termos),
+// nome e e-mail voltam preenchidos. A senha nunca é guardada.
+(function(){
+  try{
+    var K='g20_cadastro_rascunho';
+    var n=document.getElementById('inputNome'), e=document.getElementById('inputEmailCad');
+    if(!n||!e) return;
+    var r=JSON.parse(sessionStorage.getItem(K)||'null');
+    if(r && (r.nome||r.email)){
+      if(r.nome) n.value=r.nome;
+      if(r.email) e.value=r.email;
+      setTab('cadastro');
+    }
+    var salvar=function(){ try{ sessionStorage.setItem(K, JSON.stringify({nome:n.value, email:e.value})); }catch(_){} };
+    n.addEventListener('input', salvar);
+    e.addEventListener('input', salvar);
+  }catch(_){}
+})();
 
 // ── Aviso de logout automático por inatividade ───────────────
 (function(){
@@ -917,7 +941,7 @@ async function cadastrarEmail() {
     }
   </script>
 <div style="position:fixed;bottom:12px;left:0;right:0;text-align:center;font-size:11.5px;color:#8a8a8a;pointer-events:none;z-index:10">
-  <a href="termos-de-uso.html" style="color:#8a8a8a;text-decoration:none;pointer-events:auto;border-bottom:1px solid rgba(212,175,55,.3);padding-bottom:1px">
+  <a href="termos-de-uso.html" target="_blank" rel="noopener" style="color:#8a8a8a;text-decoration:none;pointer-events:auto;border-bottom:1px solid rgba(212,175,55,.3);padding-bottom:1px">
     Termos de Uso e Política de Privacidade
   </a>
 </div>
