@@ -3801,6 +3801,12 @@ body.didactic-on .didactic-note{ display:block; }
   #dashboard-view .header-right { margin-left: auto !important; }
 }
 </style>
+<style id="gf-extrato-css">
+.gf-ico-rec{display:inline-block;margin-left:5px;font-size:13px;font-weight:800;color:#c9a961;line-height:1;vertical-align:middle;cursor:help}
+.gf-ico-parc{font-size:12px;color:#7c3aed}
+.gf-ico-pg{margin-left:6px;font-size:12px;vertical-align:middle;opacity:.9;cursor:help}
+tr.gf-linha{cursor:pointer}
+</style>
 <style id="gf-semfim-css">
 .gf-semfim{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9px;font-size:10px;font-weight:700;letter-spacing:.3px;white-space:nowrap;color:#c9a961;background:rgba(201,169,97,.12);border:1px solid rgba(201,169,97,.35);vertical-align:middle}
 </style>
@@ -4064,6 +4070,17 @@ body.didactic-on .didactic-note{ display:block; }
                     <button class="btn btn-danger" style="width:100%" onclick="executeDelete('one')">Só este mês</button>
                     <button class="btn btn-warning" style="width:100%" onclick="executeDelete('all')">Este e os próximos (encerrar a série)</button>
                     <button class="btn btn-outline" style="width:100%" onclick="closeModal('delete-modal')">Cancelar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: DETALHE DO LANÇAMENTO (out/2026): tocar numa linha do extrato -->
+        <div id="gf-detalhe-modal" class="modal-overlay">
+            <div class="modal-content" style="width: 420px; max-height: 84vh; overflow-y: auto;">
+                <div id="gf-detalhe-corpo"></div>
+                <div style="display:flex; gap:8px; margin-top:14px;">
+                    <button class="btn btn-outline" style="flex:1; min-height:44px" onclick="closeModal('gf-detalhe-modal')">Fechar</button>
+                    <button class="btn btn-primary" style="flex:1; min-height:44px" id="gf-detalhe-editar">✏️ Editar</button>
                 </div>
             </div>
         </div>
@@ -4546,13 +4563,13 @@ body.didactic-on .didactic-note{ display:block; }
                                     <i class="fa-regular fa-circle-question help-icon"></i>
                                     <div class="help-tooltip compact">
                                         <div class="help-tooltip-content">
-                                            <p><strong>O que é:</strong> quanto % da <strong>receita do mês</strong> você investiu (compras na Minha Carteira e aplicações de renda fixa).</p>
-                                            <p><strong>Meta G20:</strong> pelo menos <strong>20%</strong>. Invista primeiro, depois pague as contas.</p>
-                                            <p style="margin:0;opacity:.9;"><em>Cores:</em> vermelho até 10% · laranja até 20% · verde na meta · dourado a partir de 30%.</p>
+                                            <p><strong>O que é:</strong> indica sua <strong>capacidade de poupar</strong> no período.</p>
+                                            <p><strong>Leitura rápida:</strong> quanto maior o %, maior a folga entre Entradas e Saídas.</p>
+                                            <p style="margin:0;opacity:.9;"><em>Dica:</em> se cair, revise despesas fixas e recorrências.</p>
                                         </div>
                                     </div>
                                 </div>
-                                <h4 class="chart-title">Termômetro de Aporte</h4>
+                                <h4 class="chart-title">Termômetro de Economia (Poupança)</h4>
                                 <div id="gauge-wrapper" style="flex:1; min-height:0; position:relative; display:flex; flex-direction:column; align-items:center;">
                                     <div style="position:relative; flex:1; min-height:0; width:100%;">
                                         <canvas id="chart-gauge" style="position:absolute; top:0; left:0; width:100% !important; height:100% !important;"></canvas>
@@ -4700,10 +4717,8 @@ body.didactic-on .didactic-note{ display:block; }
     const needleColor = dark ? '#e2e8f0' : '#1e293b';
 
     // ── Labels externos — fonte maior ──
-    /* Termômetro de APORTE (out/2026): a escala vai de 0% a 40% da receita
-       (ponteiro 0-100 = 0-40%). Meta G20 no meio: 20%. */
     const ticks = [0, 25, 50, 75, 100];
-    const lbls  = ['0%', '10%', '20%', '30%', '40%+'];
+    const lbls  = ['0%', '25%', '50%', '75%', '100%'];
     ctx.font = 'bold 13px Montserrat, sans-serif';
 
     ticks.forEach((v, i) => {
@@ -7785,6 +7800,44 @@ body.didactic-on .didactic-note{ display:block; }
             if (c && c.fechamento && c.vencimento) return _gfVencFatura(t.date, +c.fechamento, +c.vencimento);
             return t.date;
         };
+        /* Detalhe do lançamento: abre ao tocar na linha do extrato (os botões de
+           editar/excluir/confirmar continuam funcionando normalmente). */
+        window._gfDetalhe = function(ev, id){
+            if (ev && window.innerWidth <= 768) return;   // no celular o toque abre o painel de ações (que tem "Detalhes")
+            try { if (ev && ev.target && ev.target.closest && ev.target.closest('button, input, select, a, .action-btns, .extrato-tag')) return; } catch(e){}
+            const t = (data.transactions || []).find(x => x.id === id); if (!t) return;
+            const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            const fmt = iso => iso ? iso.split('-').reverse().join('/') : '—';
+            const brl = v => Math.abs(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+            const linha = (r, v) => '<div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid var(--border-color,rgba(148,163,184,.18));font-size:14px"><span style="opacity:.7">' + r + '</span><span style="text-align:right;font-weight:600">' + v + '</span></div>';
+            const c = (t.amount < 0 && data.cartoes) ? data.cartoes[t.payment] : null;
+            const dc = _gfDataCaixa(t);
+            let rec = '';
+            if (t.recurrenceId) {
+                const sub = t.recMode === 'subscription' || (t.recMode === 'installment' && t.recTotal === 0);
+                const m = String(t.desc || '').match(/\((\d+)\/(\d+)\)/);
+                rec = sub ? '∞ Recorrente, sem data de término' : ('◔ Parcela ' + (m ? m[1] + ' de ' + m[2] : ''));
+            }
+            let html = '<div style="font-size:12px;letter-spacing:1px;text-transform:uppercase;opacity:.65">' + (t.amount < 0 ? 'Despesa' : 'Receita') + '</div>' +
+                '<div style="font-size:19px;font-weight:800;margin:2px 0 2px">' + esc(String(t.desc || '').replace(/\s\((Recorrente|\d+\/\d+)\)$/, '')) + '</div>' +
+                '<div style="font-size:24px;font-weight:900;color:' + (t.amount < 0 ? '#dc2626' : '#15803d') + ';margin-bottom:10px">' + (t.amount < 0 ? '−' : '+') + brl(t.amount) + '</div>';
+            html += linha(t.amount < 0 ? 'Data da compra' : 'Data', fmt(t.date));
+            html += linha('Categoria', esc(t.category || '—'));
+            html += linha('Forma de pagamento', esc(t.payment || '—') + (c ? ' 💳' : ''));
+            if (c && !t.pagoEm) {
+                html += linha('Fatura do cartão', 'fecha dia ' + c.fechamento + ' · vence dia ' + c.vencimento);
+                html += linha('Sai da conta em', '<b>' + fmt(dc) + '</b>');
+            } else if (t.pagoEm) {
+                html += linha('Pago em', '<b>' + fmt(t.pagoEm) + '</b> 💸');
+            }
+            if (rec) html += linha('Recorrência', rec);
+            if (t.tags && t.tags.length) html += linha('Tags', t.tags.map(esc).join(' '));
+            html += linha('Status', t.verified ? '✅ Confirmado' : '⏳ Pendente');
+            document.getElementById('gf-detalhe-corpo').innerHTML = html;
+            document.getElementById('gf-detalhe-editar').onclick = function(){ closeModal('gf-detalhe-modal'); setTimeout(function(){ try { editTrans(id); } catch(e){} }, 60); };
+            openModal('gf-detalhe-modal');
+        };
+
         let _gfCartaoIdx = null;
         window._gfConfigCartao = function(i){
             _gfCartaoIdx = i; const nome = data.paymentMethods[i];
@@ -7846,6 +7899,14 @@ body.didactic-on .didactic-note{ display:block; }
         window._gfAtualizarAporteKpi = function(){
             const el = document.getElementById('kpi-trans-count'); if (!el) return;
             if (!window._gfInvest || !window._gfInvest.ok) { el.textContent = '…'; el.style.color = ''; return; }
+            const I = window._gfInvest;
+            if (!(I.rv || []).length && !(I.rf || []).length) {
+                // nunca registrou aporte na Minha Carteira: convite, não um zero vermelho
+                el.textContent = 'Registrar →'; el.style.color = ''; el.style.opacity = '.85';
+                el.title = 'Registre seus aportes na Minha Carteira para acompanhar quanto da receita você investe (meta G20: 20%).';
+                return;
+            }
+            el.style.opacity = '';
             const mes = _gfMesRef(), rec = _gfReceitaDoMes(mes), ap = Math.max(0, _gfInvestidoNoMes(mes).total);
             const pct = rec > 0 ? ap / rec * 100 : null;
             const curto = v => v >= 1000 ? 'R$ ' + (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + 'k' : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
@@ -8094,8 +8155,11 @@ body.didactic-on .didactic-note{ display:block; }
                     if (t.recurrenceId) {
                         const isSubscription = t.recMode === 'subscription' || (t.recMode === 'installment' && t.recTotal === 0);
                         const iconClass = isSubscription ? 'rec-icon-continuous' : 'rec-icon-installment';
-                        const iconTitle = isSubscription ? 'Recorrência Contínua (Fixo)' : `Parcelado: ${t.desc.match(/\((\d+)\/\d+\)/)?.[0] || 'Finito'}`;
-                        recIconHtml = `<i class="fa-solid fa-circle-dot rec-icon-display ${iconClass}" title="${iconTitle}"></i>`;
+                        const iconTitle = isSubscription ? 'Recorrente sem data de término' : `Parcelado: ${t.desc.match(/\((\d+)\/\d+\)/)?.[0] || 'Finito'}`;
+                        /* Extrato limpo (out/2026): ∞ = recorrente sem término; ◔ = parcelado (tem fim) */
+                        recIconHtml = isSubscription
+                            ? `<span class="gf-ico-rec" title="${iconTitle}">∞</span>`
+                            : `<span class="gf-ico-rec gf-ico-parc" title="${iconTitle}">◔</span>`;
                     }
 
 
@@ -8138,7 +8202,7 @@ body.didactic-on .didactic-note{ display:block; }
                         `;
                     } else {
                         return `
-                            <tr class="${rowClass}" data-id="${t.id}">
+                            <tr class="${rowClass} gf-linha" data-id="${t.id}" onclick="_gfDetalhe(event, ${t.id})">
                                 <td>
                                     ${t.date.split('-').reverse().slice(0, 2).join('/')}
                                     ${recIconHtml}
@@ -8147,7 +8211,7 @@ body.didactic-on .didactic-note{ display:block; }
                                     <div style="display: flex; align-items: center; margin-bottom: 3px;">
                                         <i class="fa-solid ${catIcon} cat-icon-display" title="Ícone da Categoria"></i>
                                         
-                                        <span>${baseDesc}</span>${(t.recSemFim && t.recMode === 'subscription' && !((data.recEncerradas || {})[t.recurrenceId])) ? '<span class="gf-semfim" title="Recorrente sem data de término: a plataforma mantém sempre 12 meses à frente">sem término</span>' : ''}${(function(){ try { const dc = _gfDataCaixa(t); if (!dc || dc === t.date) return ''; const f = dc.split('-').reverse().slice(0, 2).join('/'); return t.pagoEm ? '<span class="gf-semfim" style="color:#2563eb;border-color:rgba(37,99,235,.35);background:rgba(37,99,235,.08)" title="Data em que saiu da conta">💸 pago ' + f + '</span>' : '<span class="gf-semfim" style="color:#7c3aed;border-color:rgba(124,58,237,.35);background:rgba(124,58,237,.08)" title="Entra na fatura do cartão: sai da conta no vencimento">💳 fatura ' + f + '</span>'; } catch(e){ return ''; } })()}
+                                        <span>${baseDesc}</span>${(function(){ try { const dc = _gfDataCaixa(t); if (!dc || dc === t.date) return ''; const f = dc.split('-').reverse().slice(0, 2).join('/'); return t.pagoEm ? '<span class="gf-ico-pg" title="Pago em ' + f + '">💸</span>' : '<span class="gf-ico-pg" title="' + String(t.payment).replace(/[<>&"']/g, '') + ' · fatura vence ' + f + '">💳</span>'; } catch(e){ return ''; } })()}
                                     </div>
                                     <div style="font-size: 10px; color: var(--text-light); margin-top: 3px;">
                                         ${t.tags.map(tag => `<span class="extrato-tag" title="Tag: ${tag}">${tag}</span>`).join('')}
@@ -9140,14 +9204,15 @@ body.didactic-on .didactic-note{ display:block; }
         // Gauge gradient: vermelho (0%) → laranja (5-10%) → amarelo (15-20%) → verde claro (25-30%) → verde forte (>30%)
         const createGaugeGradient = (ctx, width) => {
             const g = ctx.createLinearGradient(0, 0, width, 0);
-            // Escala do Termômetro de APORTE: 0% a 40% da receita (meta 20% no meio)
-            g.addColorStop(0.00, '#dc2626'); // 0%  — vermelho
-            g.addColorStop(0.22, '#ea580c'); // ~9% — laranja escuro
-            g.addColorStop(0.35, '#f59e0b'); // 14% — laranja
-            g.addColorStop(0.50, '#22c55e'); // 20% — meta: verde
-            g.addColorStop(0.70, '#15803d'); // 28% — verde forte
-            g.addColorStop(0.80, '#c9a961'); // 32% — dourado
-            g.addColorStop(1.00, '#a8862f'); // 40%+ — dourado escuro
+            g.addColorStop(0.00, '#dc2626'); // 0%  — vermelho forte
+            g.addColorStop(0.05, '#ea580c'); // 5%  — laranja escuro
+            g.addColorStop(0.10, '#f97316'); // 10% — laranja médio
+            g.addColorStop(0.15, '#eab308'); // 15% — amarelo
+            g.addColorStop(0.20, '#84cc16'); // 20% — amarelo-verde
+            g.addColorStop(0.25, '#4ade80'); // 25% — verde claro
+            g.addColorStop(0.30, '#22c55e'); // 30% — verde médio
+            g.addColorStop(0.50, '#16a34a'); // 50% — verde mais forte
+            g.addColorStop(1.00, '#15803d'); // 100%— verde escuro
             return g;
         };
         const universalBrlTooltip = { backgroundColor: 'rgba(9, 9, 11, 0.9)', titleColor: '#fff', bodyColor: '#fff', callbacks: { title: () => null, label: function (c) { let value = c.raw; let currency = value.toLocaleString('pt-br', { style: 'currency', currency: 'BRL' }); if (c.chart.id === 'chart-line' || (c.chart.config.type === 'bar' && c.chart.options.indexAxis === 'y')) { return currency; } else if (c.dataset.type === 'doughnut' || c.chart.id === 'chart-pie-expense' || c.chart.id === 'chart-pay-breakdown' || c.chart.id === 'chart-net-worth') { let sum = c.dataset.data.reduce((a, b) => a + b, 0); let percentage = ((value / sum) * 100).toFixed(1).replace('.', ',') + '%'; return ` ${c.label}: ${currency} (${percentage})`; } return `${c.label}: ${currency}`; } } };
@@ -9835,38 +9900,29 @@ body.didactic-on .didactic-note{ display:block; }
             };
             const ctxG = document.getElementById('chart-gauge').getContext('2d');
             const gradientGauge = createGaugeGradient(ctxG, ctxG.canvas.clientWidth || 300);
-            /* TERMÔMETRO DE APORTE (out/2026): antes mostrava a taxa de economia
-               ((receita − despesa) ÷ receita), o mesmo número do "Tx. economia" do
-               card Saldo, e com a lógica de "sobra". O G20 ensina investir primeiro:
-               agora o ponteiro é quanto % da receita do mês foi investido. */
-            const _ap = (function(){
-                try {
-                    if (!window._gfInvest || !window._gfInvest.ok) return null;
-                    const mes = _gfMesRef(), rec = _gfReceitaDoMes(mes), ap = Math.max(0, _gfInvestidoNoMes(mes).total);
-                    return rec > 0 ? ap / rec * 100 : -1;
-                } catch(e){ return null; }
-            })();
-            const _apNeedle = (_ap == null || _ap < 0) ? 0 : Math.min(100, _ap / 40 * 100);
-            let feedbackMsg = "Carregando aportes…"; let feedbackColor = "#64748b";
-            if (_ap === -1) { feedbackMsg = "Sem receita no mês"; }
-            else if (_ap != null) {
-                feedbackColor = _gfCorAporte(_ap) || '#64748b';
-                feedbackMsg = _ap >= G20_META_APORTE * 1.5 ? 'Extraordinário! 🎯' : _ap >= G20_META_APORTE ? 'Meta batida!' : _ap >= G20_META_APORTE / 2 ? 'Abaixo da meta' : 'Bem abaixo da meta';
+            let feedbackMsg = "Sem Dados"; let feedbackColor = "#64748b";
+            if (totalIncome > 0) {
+                if (savingsRate <=  5) { feedbackMsg = "Crítico! (Risco Alto)";      feedbackColor = window.gaugeColorByValue(savingsRate); }
+                else if (savingsRate <= 10) { feedbackMsg = "Alerta (Atenção)";       feedbackColor = window.gaugeColorByValue(savingsRate); }
+                else if (savingsRate <= 20) { feedbackMsg = "Razoável (Melhorar)";    feedbackColor = window.gaugeColorByValue(savingsRate); }
+                else if (savingsRate <= 30) { feedbackMsg = "Muito Bom (Caminho Certo)"; feedbackColor = window.gaugeColorByValue(savingsRate); }
+                else if (savingsRate <= 50) { feedbackMsg = "Excelente (Sólido)";     feedbackColor = window.gaugeColorByValue(savingsRate); }
+                else                        { feedbackMsg = "Extraordinário!";         feedbackColor = window.gaugeColorByValue(savingsRate); }
             }
-            if (document.getElementById('gauge-pct-display')) document.getElementById('gauge-pct-display').innerText = (_ap == null || _ap < 0) ? '—' : Math.round(_ap) + '%';
+            if (document.getElementById('gauge-pct-display')) document.getElementById('gauge-pct-display').innerText = savingsRate + '%';
             if (document.getElementById('gauge-feedback-display')) document.getElementById('gauge-feedback-display').innerText = feedbackMsg;
             if (document.getElementById('gauge-label')) document.getElementById('gauge-label').style.color = feedbackColor;
             if (window.myCharts.g) {
                 const oldVal = window.myCharts.g.data.datasets[0].needleValue || 0;
                 window.myCharts.g.data.datasets[0].backgroundColor = [createGaugeGradient(ctxG, ctxG.canvas.clientWidth)];
-                animateGauge(window.myCharts.g, oldVal, _apNeedle, 1000);
+                animateGauge(window.myCharts.g, oldVal, savingsRate, 1000);
             } else {
                 window.myCharts.g = new Chart(ctxG, {
                     type: 'doughnut',
-                    data: { labels: ['Aporte do mês'], datasets: [{ data: [100], backgroundColor: [gradientGauge], borderWidth: 0, circumference: 180, rotation: -90, needleValue: _apNeedle }] },
+                    data: { labels: ['Taxa de Economia'], datasets: [{ data: [100], backgroundColor: [gradientGauge], borderWidth: 0, circumference: 180, rotation: -90, needleValue: savingsRate }] },
                     options: {
                         ...commonOpts,
-                        plugins: { legend: { display: false }, tooltip: { enabled: true, callbacks: { label: function(context) { var val = context.chart.data.datasets[0].needleValue; return "Aporte: " + Math.round(val * 0.4) + "% da receita"; } } }, datalabels: { display: false } },
+                        plugins: { legend: { display: false }, tooltip: { enabled: true, callbacks: { label: function(context) { var val = context.chart.data.datasets[0].needleValue; return "Poupança: " + Math.round(val) + "%"; } } }, datalabels: { display: false } },
                         layout: { padding: { bottom: 4, top: 22, left: 44, right: 44 } },
                         scales: { x: { display: false }, y: { display: false } },
                         cutout: '52%',
@@ -10689,6 +10745,7 @@ function g20NovoPerfilClick(){
   <div class="ac-painel" role="dialog" aria-label="Ações da transação">
     <div class="ac-alca"></div>
     <div class="ac-resumo"><div class="ac-desc" id="g20AcDesc"></div><div class="ac-meta"><span id="g20AcData"></span><span class="ac-valor" id="g20AcValor"></span></div></div>
+    <button id="g20AcDetalhes"><i class="fa-solid fa-circle-info"></i> Detalhes</button>
     <button id="g20AcEditar"><i class="fa-solid fa-pen"></i> Editar</button>
     <button id="g20AcConfirmar"><i class="fa-solid fa-circle-check"></i> <span id="g20AcConfTxt">Confirmar</span></button>
     <button id="g20AcExcluir" class="ac-excluir"><i class="fa-solid fa-trash"></i> Excluir</button>
@@ -10722,6 +10779,7 @@ function g20NovoPerfilClick(){
   };
   function acionar(sel){ var b = botao(sel); g20FecharAcoes(); if (b) b.click(); }
   document.getElementById('g20AcEditar').onclick = function(){ acionar('.btn-edit'); };
+  document.getElementById('g20AcDetalhes').onclick = function(){ var id = linhaAtual ? Number(linhaAtual.dataset.id) : null; g20FecharAcoes(); if (id != null && window._gfDetalhe) window._gfDetalhe(null, id); };
   document.getElementById('g20AcExcluir').onclick = function(){ acionar('.btn-del'); };
   document.getElementById('g20AcConfirmar').onclick = function(){ acionar('.btn-verify'); };
   // toque (click) na linha abre o painel; rolar a lista não dispara click
