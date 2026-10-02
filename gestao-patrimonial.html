@@ -12938,7 +12938,9 @@ function siConverter(linhas){
     else if(/^convers.*\(s\)/.test(o) || /saida/.test(o)) op = 'V';
     else if(/desdobr|grupam/.test(o)){ res.eventos++; return; }   // a Minha Carteira aplica sozinha
     else { res.ignoradas++; res.tiposIgnorados[r.ordem] = (res.tiposIgnorados[r.ordem] || 0) + 1; return; }
-    var tipo = _SI_TIPO[_siNorm(r.cat)] || (r.cat ? null : _siTipoTicker(r.ativo));
+    /* categoria desconhecida (ex.: a 1ª coluna traz o logo/iniciais do ativo, e não
+       "Ações"/"FIIs"): descobre o tipo pelo ticker em vez de descartar a linha */
+    var tipo = _SI_TIPO[_siNorm(r.cat)] || _siTipoTicker(r.ativo);
     if(!tipo){ res.ignoradas++; res.tiposIgnorados[r.cat + ' (categoria)'] = (res.tiposIgnorados[r.cat + ' (categoria)'] || 0) + 1; return; }
     var qtd = Math.abs(r.qtd), preco = Math.abs(r.preco);
     if(!(preco > 0) && isFinite(r.total) && qtd > 0) preco = Math.abs(r.total) / qtd;
@@ -12988,7 +12990,12 @@ function siRenderPrevia(){
   var novos = _siItens.filter(function(it){ return !it._dup; }).length;
   var r = _siResumo;
   document.getElementById('siEtapas').style.display = 'none';
-  siStatus(novos ? 'Transações encontradas! Confira abaixo e clique em Importar.' : 'Tudo o que foi colado já está na sua Minha Carteira.', 'ok');
+  /* "já está na carteira" só quando havia o que importar e tudo era repetido;
+     se nada pôde ser lido como compra/venda, a mensagem diz isso (antes dizia
+     "tudo já está" e o aluno achava que já tinha importado) */
+  if(novos) siStatus('Transações encontradas! Confira abaixo e clique em Importar.', 'ok');
+  else if(_siItens.length) siStatus('Tudo o que foi colado já está na sua Minha Carteira.', 'ok');
+  else siStatus('Li ' + (r.lidas || 0) + ' linha(s), mas não consegui reconhecer nenhuma compra ou venda. Me mande um print de perto de 2 ou 3 linhas da tabela do Status Invest pelo WhatsApp que eu ajusto.', 'erro');
   var fmt = function(v, m){ return (m === 'USD' ? 'US$ ' : 'R$ ') + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 6 }); };
   var ign = Object.keys(r.tiposIgnorados || {});
   var html = '<div class="mv-resumo">' +
