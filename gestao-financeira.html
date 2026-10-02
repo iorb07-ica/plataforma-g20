@@ -1197,6 +1197,8 @@ input:focus, select:focus {
     user-select: none;
 }
 
+/* iPhone: tocar e segurar num mês não abre a lupa/menu de texto do sistema */
+.month-button{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .month-button {
     padding: 7px 9px;
     border: 1.5px solid var(--border);
@@ -4893,7 +4895,8 @@ tr.gf-linha > td:first-child{white-space:nowrap}
         let currentSort = { col: 'date', asc: false };
 
         let currentYearFilter = new Date().getFullYear().toString();
-        let currentMonthFilter = [];
+        // Abre sempre no mês corrente (o aluno pode trocar para o ano todo ou outros meses nos botões)
+        let currentMonthFilter = [String(new Date().getMonth() + 1).padStart(2, '0')];
         let lastSubmissionMonth = null;
 
         // === ESTADOS DE LOGIN E PROFILE (V118.0) ===
@@ -6635,7 +6638,7 @@ tr.gf-linha > td:first-child{white-space:nowrap}
            "Intervalo" marca tudo entre dois toques. Atalhos: últimos 3 e 6
            meses e ano todo.
            ═══════════════════════════════════════════════════════════════════ */
-        let _gfMulti = false, _gfModoInt = false, _gfIntIni = null, _gfIgnorarClique = 0;
+        let _gfMulti = false, _gfModoInt = false, _gfIntIni = null, _gfIgnorarClique = 0, _gfUltimoToque = 0;
         function _gfAtualizarMeses(){ currentMonthFilter.sort(); renderMonthButtons(); renderAll(); _gfBarraMulti(); }
         function _gfBarraMulti(){
             const cont = document.getElementById('month-buttons-container'); if (!cont) return;
@@ -6692,6 +6695,7 @@ tr.gf-linha > td:first-child{white-space:nowrap}
             let t = null, alvo = null, x0 = 0, y0 = 0;
             document.addEventListener('touchstart', function(e){
                 const b = e.target && e.target.closest && e.target.closest('#month-buttons-container .month-button'); if (!b) return;
+                _gfUltimoToque = Date.now();
                 alvo = b; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
                 clearTimeout(t);
                 t = setTimeout(function(){ if (!alvo) return; _gfIgnorarClique = Date.now(); _gfMultiEntrar(alvo.getAttribute('data-month')); alvo = null; }, 450);
@@ -6756,6 +6760,9 @@ tr.gf-linha > td:first-child{white-space:nowrap}
             container.onmousedown = (e) => {
                 const target = e.target.closest('.month-button');
                 if (!target || e.ctrlKey || e.metaKey) return;
+                /* No celular, todo toque também gera um "mousedown" de compatibilidade, que
+                   zerava a seleção e desfazia o modo de vários meses (tocar e segurar). */
+                if (_gfMulti || Date.now() - _gfUltimoToque < 1200) return;
 
                 isDragging = true;
                 dragStartIndex = Array.from(buttons).indexOf(target);
