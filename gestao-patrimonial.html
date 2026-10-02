@@ -12853,7 +12853,13 @@ function _siLinha(cel){
   var k = -1;
   for(var j = iData - 1; j >= Math.max(1, iData - 3); j--){ if(_SI_ORDEM.test(_siNorm(cel[j]))){ k = j; break; } }
   if(k < 1) return null;
-  var mt = String(cel[k - 1] || '').toUpperCase().match(/([A-Z0-9][A-Z0-9.\-]{1,13})\s*$/);
+  // A célula do ativo pode vir com o nome da empresa junto ("LREN3 Lojas Renner",
+  // "Lojas Renner LREN3"): pega o token que tem cara de ticker, não o último.
+  var _cAt = String(cel[k - 1] || '').toUpperCase();
+  var mt = _cAt.match(/(?:^|[^A-Z0-9])([A-Z]{4}\d{1,2}[A-Z]?)(?![A-Z0-9])/) ||        // B3: LREN3, HGLG11, BPAC11, TAEE11F
+           _cAt.match(/(?:^|[^A-Z0-9])([A-Z]{2,6}-?USD[T]?)(?![A-Z0-9])/) ||         // cripto: BTC-USD
+           _cAt.match(/^\s*([A-Z0-9][A-Z0-9.\-]{0,13})(?:\s|$)/) ||                  // primeiro token (AAPL, BRK.B)
+           _cAt.match(/([A-Z0-9][A-Z0-9.\-]{1,13})\s*$/);
   if(!mt) return null;
   var venc = String(cel[iData + 1] || '').trim();
   var off = (venc === '' || venc === '-' || venc === '—' || /^\d{2}\/\d{2}\/\d{4}$/.test(venc) || !/\d/.test(venc)) ? 2 : 1;
@@ -12980,6 +12986,7 @@ function _siProcessar(html, texto){
     siStatus('Não encontrei transações no que foi colado. Confira se está na aba Transações do Status Invest, com "Todos" selecionado embaixo da tabela, e tente de novo: Ctrl+A e Ctrl+C lá, Ctrl+V aqui.', 'erro');
     return;
   }
+  window._siUltimasLinhas = linhas;   // para o detalhe técnico, se nada for reconhecido
   var conv = siConverter(linhas);
   _siItens = conv.itens; _siResumo = conv.resumo;
   document.getElementById('siCola').textContent = linhas.length + ' linhas lidas';
@@ -12998,7 +13005,10 @@ function siRenderPrevia(){
   if(novos && jaTinha) siStatus('Encontrei ' + novos + ' transação(ões) nova(s) para importar. As outras ' + jaTinha + ' você já tinha importado antes e não serão duplicadas. Confira abaixo e clique em Importar.', 'ok');
   else if(novos) siStatus('Transações encontradas! Confira abaixo e clique em Importar.', 'ok');
   else if(_siItens.length) siStatus('✅ Você já importou essas transações! As ' + _siItens.length + ' transações do ' + origem + ' já estão na sua Minha Carteira, e nada foi duplicado. Se fez compras ou vendas novas depois, é só colar de novo quando quiser: a plataforma traz só o que for novo.', 'ok');
-  else siStatus('Li ' + (r.lidas || 0) + ' linha(s), mas não consegui reconhecer nenhuma compra ou venda. Me mande um print de perto de 2 ou 3 linhas da tabela do Status Invest pelo WhatsApp que eu ajusto.', 'erro');
+  else {
+    var ex = (window._siUltimasLinhas || []).slice(0, 2).map(function(l){ return '[' + (l.cat || '') + ' | ' + (l.ativo || '') + ' | ' + (l.ordem || '') + ']'; }).join(' ');
+    siStatus('Li ' + (r.lidas || 0) + ' linha(s), mas não consegui reconhecer nenhuma compra ou venda. Me mande um print desta mensagem e de 2 ou 3 linhas da tabela do Status Invest pelo WhatsApp que eu ajusto.' + (ex ? ' Detalhe técnico: ' + ex : ''), 'erro');
+  }
   var fmt = function(v, m){ return (m === 'USD' ? 'US$ ' : 'R$ ') + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 6 }); };
   var ign = Object.keys(r.tiposIgnorados || {});
   var html = '<div class="mv-resumo">' +
