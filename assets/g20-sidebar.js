@@ -119,7 +119,7 @@
   // para perfil.html?obrigatorio=1 e só sai de lá quando terminar.
   // Admin nunca é travado — senão você se tranca fora da própria plataforma.
   (function(){
-    var LIVRES = ['perfil.html','login.html','termos-de-uso.html','index.html',''];
+    var LIVRES = ['perfil.html','login.html','termos-de-uso.html','index.html','ajuda.html',''];   // a ajuda fica aberta para quem ainda está completando o perfil
     var arquivo = (location.pathname.split('/').pop() || '').toLowerCase();
     if(LIVRES.indexOf(arquivo) >= 0) return;
 
@@ -732,6 +732,9 @@
       { href: 'consultoria.html',         ico: '👨\u200d💻', lucide: 'user-round',   label: 'Consultoria',    id: 'tut-consultoria' },
       { href: 'arena.html',               ico: '💬', lucide: 'message-circle',  label: 'Arena G20',      id: 'tut-arena' },
       { href: 'networking.html',          ico: '🤝', lucide: 'users',           label: 'Networking',     id: 'tut-networking' }
+    ]},
+    { section: 'Ajuda', cls: 'nav-section--ajuda', items: [
+      { href: 'ajuda.html',               ico: '🛟', lucide: 'life-buoy',       label: 'Central de Ajuda', id: '' }
     ]}
   ];
 
