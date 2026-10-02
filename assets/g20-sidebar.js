@@ -119,7 +119,7 @@
   // para perfil.html?obrigatorio=1 e só sai de lá quando terminar.
   // Admin nunca é travado — senão você se tranca fora da própria plataforma.
   (function(){
-    var LIVRES = ['perfil.html','login.html','termos-de-uso.html','index.html',''];
+    var LIVRES = ['perfil.html','login.html','termos-de-uso.html','index.html','ajuda.html',''];   // a ajuda fica aberta para quem ainda está completando o perfil
     var arquivo = (location.pathname.split('/').pop() || '').toLowerCase();
     if(LIVRES.indexOf(arquivo) >= 0) return;
 
@@ -732,6 +732,9 @@
       { href: 'consultoria.html',         ico: '👨\u200d💻', lucide: 'user-round',   label: 'Consultoria',    id: 'tut-consultoria' },
       { href: 'arena.html',               ico: '💬', lucide: 'message-circle',  label: 'Arena G20',      id: 'tut-arena' },
       { href: 'networking.html',          ico: '🤝', lucide: 'users',           label: 'Networking',     id: 'tut-networking' }
+    ]},
+    { section: 'Ajuda', cls: 'nav-section--ajuda', items: [
+      { href: 'ajuda.html',               ico: '🛟', lucide: 'life-buoy',       label: 'Central de Ajuda', id: '' }
     ]}
   ];
 
@@ -2461,4 +2464,127 @@
   var st = document.createElement('style'); st.id = 'g20-topo-zoom';
   st.textContent = "\n/* TOPO QUE CABE EM QUALQUER ZOOM (out/2026)\n   Com zoom no navegador (ou notebook de 1366px), a \u00e1rea \u00fatil encolhe e os bot\u00f5es\n   da direita (tour, ocultar valores, tema) sa\u00edam da tela. Agora, conforme a\n   largura diminui: os atalhos do meio viram s\u00f3 \u00edcones (o nome aparece ao passar\n   o mouse), a busca vira um bot\u00e3o de lupa e o t\u00edtulo encolhe. A direita nunca\n   \u00e9 cortada. S\u00f3 vale no computador (acima de 768px); o celular segue como estava. */\n@media (min-width: 769px) {\n  html body .topbar { min-width: 0 !important; }\n  html body .topbar .topbar-left { flex: 0 1 auto !important; min-width: 0 !important; width: auto !important; overflow: hidden !important; }\n  html body .topbar .topbar-left .page-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n  html body .topbar .g20-tabs { flex: 0 1 auto !important; min-width: 0 !important; overflow: hidden !important; }\n  html body .topbar .topbar-right { flex: 0 0 auto !important; margin-left: auto !important; }\n}\n@media (min-width: 769px) and (max-width: 1720px) {\n  html body .topbar .g20-tab { font-size: 0 !important; gap: 0 !important; padding-left: 11px !important; padding-right: 11px !important; }\n  html body .topbar .g20-tab svg, html body .topbar .g20-tab i { margin: 0 !important; }\n}\n@media (min-width: 769px) and (max-width: 1560px) {\n  html body .topbar .topbar-right .btn-gsearch { min-width: 40px !important; width: 40px !important; padding: 0 !important; justify-content: center !important; font-size: 0 !important; gap: 0 !important; }\n  html body .topbar .topbar-right .btn-gsearch > :not(svg):not(i) { display: none !important; }\n}\n/* os atalhos voltam (s\u00f3 \u00edcones) entre 900 e 1280px; antes sumiam abaixo de 1280px */\n@media (min-width: 900px) and (max-width: 1280px) {\n  html body .topbar .g20-tabs { display: flex !important; }\n}\n@media (min-width: 769px) and (max-width: 1100px) {\n  html body .topbar .topbar-right { gap: 6px !important; }\n  html body .topbar .topbar-right .v21-theme-switch, html body .topbar .topbar-right #g20ThemeSwitch { display: none !important; }\n  html body .topbar #themeBtn { display: flex !important; }\n}\n";
   (document.head || document.documentElement).appendChild(st);
+})();
+
+/* ═══════════════════════════════════════════════════════════════════
+   MOBILE (≤ 768px): A PÁGINA INTEIRA ROLA (toque no topo do iPhone)
+   No iPhone, tocar na barra de status (acima do notch) sobe a página
+   até o início, mas só quando é a PRÓPRIA página que rola. Em várias
+   páginas quem rolava era uma caixa interna (.main, .content, a aba do
+   Game), então o toque não fazia nada. Aqui, só no celular, essas
+   caixas deixam de ter rolagem própria e a página passa a rolar
+   inteira, como já acontecia na Minha Carteira.
+   - Desktop e tablet largo: nada muda.
+   - Modais que travam o fundo (body.style.overflow='hidden') continuam
+     funcionando: a regra do body não usa !important no overflow.
+   - Código da página que manda a caixa voltar ao topo (scrollTo) passa
+     a mover a página.
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+  'use strict';
+  if (window.__g20RolagemDoc) return;
+  window.__g20RolagemDoc = true;
+
+  var MOB = window.matchMedia('(max-width: 768px)');
+  var ATTR = 'data-g20doc';
+
+  function injetarCSS(){
+    if (document.getElementById('g20-rolagem-doc-css')) return;
+    var st = document.createElement('style');
+    st.id = 'g20-rolagem-doc-css';
+    st.textContent =
+      '@media (max-width:768px){' +
+        'html.g20-doc-scroll,html.g20-doc-scroll body{height:auto!important;max-height:none!important;min-height:100%}' +
+        /* a barra do topo fica por cima do conteúdo: ao centralizar um item (tour, links #),
+           conta só a área visível abaixo dela, como era na rolagem interna */
+        'html.g20-doc-scroll{scroll-padding-top:calc(var(--g20-safe-top, env(safe-area-inset-top, 0px)) + 57px)}' +
+        'html.g20-doc-scroll body{overflow-y:visible}' +
+        /* min-width:0: sem rolagem própria, um item flex passaria a esticar até o conteúdo mais largo */
+        'html.g20-doc-scroll [' + ATTR + ']{height:auto!important;max-height:none!important;min-width:0!important;overflow-y:visible!important;overflow-x:clip!important}' +
+      '}' +
+      '@supports not (overflow:clip){@media (max-width:768px){html.g20-doc-scroll [' + ATTR + ']{overflow-x:visible!important}}}';
+    (document.head || document.documentElement).appendChild(st);
+  }
+
+  function ehBloqueio(el){
+    return !!(el.closest && el.closest('.modal,.modal-overlay,[role="dialog"],.sidebar,.overlay,.drawer,.sheet,.notif-panel,.gsearch-overlay'));
+  }
+
+  function marcarCadeia(el){
+    var x = el;
+    while (x && x !== document.body && x !== document.documentElement) {
+      if (!x.hasAttribute(ATTR)) {
+        x.setAttribute(ATTR, '1');
+        if (!x.__g20ScrollTo) {
+          x.__g20ScrollTo = x.scrollTo;
+          /* o código da página pede "caixa, volte ao topo": agora quem rola é a página */
+          x.scrollTo = function(){ if (MOB.matches) return window.scrollTo.apply(window, arguments);
+                                   return this.__g20ScrollTo && this.__g20ScrollTo.apply(this, arguments); };
+        }
+      }
+      x = x.parentElement;
+    }
+  }
+
+  function aplicar(){
+    if (!MOB.matches) { desfazer(); return; }
+    var main = document.querySelector('.main') || document.querySelector('main');
+    if (!main) return;
+    var vh = window.innerHeight || 700, achou = false;
+    var cands = [main].concat(Array.prototype.slice.call(main.querySelectorAll(':scope > *, :scope > * > *, :scope > * > * > *')));
+    cands.forEach(function(el){
+      if (el.hasAttribute(ATTR) || ehBloqueio(el)) return;
+      var cs = getComputedStyle(el);
+      if (!/(auto|scroll)/.test(cs.overflowY)) return;
+      if (cs.position === 'fixed' || cs.position === 'absolute') return;
+      if (el.clientHeight < vh * 0.45) return;                 /* listas e trilhos internos ficam como estão */
+      var y = el.scrollTop;
+      marcarCadeia(el);
+      achou = true;
+      if (y > 0) window.scrollTo(0, y);                        /* mantém onde o aluno estava */
+    });
+    /* Vale também para páginas que já rolam inteiras mas têm "overflow:hidden" no body
+       (Biblioteca, G20Flix): no Safari isso pode desligar o toque no topo. */
+    document.documentElement.classList.add('g20-doc-scroll'); medirTopo();
+  }
+
+  /* Altura real do que fica preso no topo (barra + faixa de cotações, quando ela também
+     gruda). Ao centralizar um item, o navegador desconta essa faixa. */
+  function medirTopo(){
+    if (!document.documentElement.classList.contains('g20-doc-scroll')) return;
+    var fundo = 0;
+    Array.prototype.forEach.call(document.querySelectorAll('.topbar, .ticker-tape-wrap'), function(el){
+      var cs = getComputedStyle(el);
+      if (cs.position !== 'sticky' && cs.position !== 'fixed') return;
+      var r = el.getBoundingClientRect();
+      if (r.height > 0 && r.top < 160 && r.bottom > fundo) fundo = r.bottom;
+    });
+    if (fundo > 0 && (window.scrollY || 0) < 5) document.documentElement.style.setProperty('scroll-padding-top', Math.round(fundo) + 'px');
+  }
+
+  function desfazer(){
+    document.documentElement.classList.remove('g20-doc-scroll');
+    Array.prototype.forEach.call(document.querySelectorAll('[' + ATTR + ']'), function(x){
+      x.removeAttribute(ATTR);
+      if (x.__g20ScrollTo) { x.scrollTo = x.__g20ScrollTo; delete x.__g20ScrollTo; }
+    });
+  }
+
+  var t = null;
+  function agendar(){ clearTimeout(t); t = setTimeout(aplicar, 250); }
+
+  function iniciar(){
+    injetarCSS();
+    aplicar();
+    setTimeout(aplicar, 400);
+    setTimeout(aplicar, 1500);
+    setTimeout(aplicar, 4000);
+    /* abas que aparecem depois (ex.: abas do Game) */
+    document.addEventListener('click', agendar, true);
+    window.addEventListener('resize', agendar);
+    if (MOB.addEventListener) MOB.addEventListener('change', aplicar);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar);
+  else iniciar();
 })();
