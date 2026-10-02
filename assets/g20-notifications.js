@@ -143,7 +143,8 @@
       mercado:     prefs.mercado     !== false,
       conteudo:    prefs.conteudo    !== false,
       macro:       prefs.macro       !== false,
-      conquistas:  prefs.conquistas  !== false
+      conquistas:  prefs.conquistas  !== false,
+      financas:    prefs.financas    !== false
     };
     var arr = (typeof _patSnapLoad==='function') ? _patSnapLoad() : [];
     // Se _dashRVCot não existe (outras páginas), tenta o cache salvo pelo dashboard
@@ -377,8 +378,53 @@
       'dyn-quedas':'mercado','dyn-destaques':'mercado',
       'dyn-flix':'conteudo','dyn-live':'conteudo','admin-live':'conteudo',
       'dyn-macro':'macro',
-      'dyn-metaif':'conquistas'
+      'dyn-metaif':'conquistas',
+      'fin-':'financas'
     };
+    /* ═══ GESTÃO FINANCEIRA (out/2026) ═════════════════════════════════════
+       · Contas que vencem HOJE ou AMANHÃ (despesas lançadas com essa data)
+       · Orçamento: categoria que passou de 80% e de 100% no mês
+       Lê a cópia do módulo no aparelho (g20_fin_{uid}_{perfil}), só se for do
+       aluno logado. Cada aviso tem id fixo (por dia ou por mês), então
+       aparece uma vez só. Desliga pelo interruptor "Finanças" do perfil. */
+    try {
+      var _uidF = localStorage.getItem('g20_uid');
+      var _perfF = 'Pessoal';
+      try { var _stF = JSON.parse(localStorage.getItem('g20_auth_state_v2') || 'null'); if (_stF && _stF.activeProfile) _perfF = _stF.activeProfile; } catch(e){}
+      var _rawF = _uidF ? localStorage.getItem('g20_fin_' + _uidF + '_' + String(_perfF).replace(/[^a-zA-Z0-9_-]/g, '_')) : null;
+      var F = _rawF ? JSON.parse(_rawF) : null;
+      if (F && Array.isArray(F.transactions)) {
+        var _d0 = new Date(), _iso = function(d){ return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+        var _hojeF = _iso(_d0), _am = new Date(_d0); _am.setDate(_am.getDate() + 1); var _amanhaF = _iso(_am);
+        var _brlF = function(v){ return Math.abs(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); };
+        var _txtF = function(t){ return String(t || '').replace(/\s\(Recorrente\)$/, '').replace(/[<>&"']/g, '').slice(0, 40); };
+        // contas a vencer
+        F.transactions.filter(function(t){ return t && t.amount < 0 && (t.date === _hojeF || t.date === _amanhaF); })
+          .sort(function(a, b){ return a.amount - b.amount; }).slice(0, 3).forEach(function(t){
+            var ehHoje = t.date === _hojeF;
+            notifs.push({ id: 'fin-venc-' + t.date + '-' + t.id, ico: '🧾', bg: 'rgba(239,91,97,.14)',
+              titulo: (ehHoje ? 'Vence hoje: ' : 'Vence amanhã: ') + _txtF(t.desc),
+              desc: _brlF(t.amount) + (t.payment ? ' · ' + _txtF(t.payment) : '') + ' · Gestão Financeira',
+              ts: Date.now(), link: 'gestao-financeira.html' });
+          });
+        // orçamento do mês por categoria
+        var _mesF = _hojeF.slice(0, 7), _gasto = {};
+        F.transactions.forEach(function(t){ if (t && t.amount < 0 && t.date && t.date.slice(0, 7) === _mesF && t.category) _gasto[t.category] = (_gasto[t.category] || 0) + Math.abs(t.amount); });
+        Object.keys(F.budgets || {}).forEach(function(cat){
+          var b = F.budgets[cat], lim = 0;
+          if (typeof b === 'number') lim = b; else if (b && typeof b === 'object') lim = parseFloat(b[_mesF] != null ? b[_mesF] : b['default']) || 0;
+          if (!(lim > 0)) return;
+          var g = _gasto[cat] || 0, pct = g / lim;
+          if (pct < 0.8) return;
+          var estourou = pct >= 1;
+          notifs.push({ id: 'fin-orc' + (estourou ? '100' : '80') + '-' + _mesF + '-' + _txtF(cat), ico: estourou ? '🚨' : '⚠️', bg: estourou ? 'rgba(239,91,97,.16)' : 'rgba(245,158,11,.16)',
+            titulo: (estourou ? 'Orçamento estourado: ' : 'Orçamento em ' + Math.floor(pct * 100) + '%: ') + _txtF(cat),
+            desc: 'Gasto ' + _brlF(g) + ' de ' + _brlF(lim) + ' no mês' + (estourou ? '' : ' · restam ' + _brlF(lim - g)),
+            ts: Date.now(), link: 'gestao-financeira.html' });
+        });
+      }
+    } catch(e){}
+
     notifs = notifs.filter(function(n){
       var cat = null;
       Object.keys(prefMap).forEach(function(pfx){ if(n.id && n.id.indexOf(pfx)===0) cat=prefMap[pfx]; });
