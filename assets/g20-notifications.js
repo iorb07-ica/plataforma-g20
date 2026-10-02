@@ -398,8 +398,25 @@
         var _hojeF = _iso(_d0), _am = new Date(_d0); _am.setDate(_am.getDate() + 1); var _amanhaF = _iso(_am);
         var _brlF = function(v){ return Math.abs(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); };
         var _txtF = function(t){ return String(t || '').replace(/\s\(Recorrente\)$/, '').replace(/[<>&"']/g, '').slice(0, 40); };
-        // contas a vencer
-        F.transactions.filter(function(t){ return t && t.amount < 0 && (t.date === _hojeF || t.date === _amanhaF); })
+        // contas a vencer, pela data em que SAEM DA CONTA: compras no cartão
+        // viram a fatura (vencimento), e vale a data de pagamento informada
+        var _venc = function(iso, fech, venc){
+          var p = iso.split('-').map(Number), cy = p[0], cm = p[1];
+          var fm = Math.min(fech, new Date(p[0], p[1], 0).getDate());
+          if (p[2] >= fm) { cm++; if (cm > 12) { cm = 1; cy++; } }
+          var vy = cy, vm = cm; if (venc <= fech) { vm++; if (vm > 12) { vm = 1; vy++; } }
+          return vy + '-' + String(vm).padStart(2, '0') + '-' + String(Math.min(venc, new Date(vy, vm, 0).getDate())).padStart(2, '0');
+        };
+        var _cart = F.cartoes || {}, _itens = [], _fat = {};
+        F.transactions.forEach(function(t){
+          if (!t || !(t.amount < 0) || !t.date) return;
+          var c = (!t.pagoEm && _cart[t.payment] && _cart[t.payment].fechamento) ? _cart[t.payment] : null;
+          var dc = (t.pagoEm && /^\d{4}-\d{2}-\d{2}$/.test(t.pagoEm)) ? t.pagoEm : c ? _venc(t.date, +c.fechamento, +c.vencimento) : t.date;
+          if (dc !== _hojeF && dc !== _amanhaF) return;
+          if (c) { var k = t.payment + '|' + dc; (_fat[k] = _fat[k] || { id: 'fat-' + _txtF(t.payment), date: dc, desc: 'Fatura ' + t.payment, amount: 0, payment: '' }).amount += t.amount; }
+          else _itens.push({ id: t.id, date: dc, desc: t.desc, amount: t.amount, payment: t.payment });
+        });
+        _itens.concat(Object.keys(_fat).map(function(k){ return _fat[k]; }))
           .sort(function(a, b){ return a.amount - b.amount; }).slice(0, 3).forEach(function(t){
             var ehHoje = t.date === _hojeF;
             notifs.push({ id: 'fin-venc-' + t.date + '-' + t.id, ico: '🧾', bg: 'rgba(239,91,97,.14)',
