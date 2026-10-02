@@ -161,6 +161,7 @@ if(localStorage.getItem('g20_uid')){
     <button class="btn btn-gold" onclick="window.location.href='dashboard.html'" style="background:linear-gradient(135deg,var(--gold),#c9a961);box-shadow:0 6px 18px rgba(232,184,75,.3);font-weight:800;padding:9px 18px">← Voltar ao Dashboard</button>
     <button class="btn btn-gold" onclick="evcAbrir()">🔁 Eventos corporativos</button>
     <button class="btn btn-gold" onclick="exportarCSV()">📊 Exportar CSV</button>
+    <button class="btn btn-gold" id="btnSincSelo" onclick="sincronizarSelos()" title="Copia a aprovação de cada aluno para o login dele (necessário para as novas regras de segurança)">🔐 Sincronizar aprovações</button>
     <button class="btn btn-red" onclick="sair()">🚪 Sair</button>
   </div>
 </div>
@@ -509,10 +510,49 @@ function renderTabela() {
   }).join('');
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   SELO DE APROVAÇÃO NO LOGIN (out/2026)
+   As regras do Firestore vão exigir o selo "aprovado" dentro do login do aluno
+   (antes bastava estar logado, e conta não aprovada lia o conteúdo direto do
+   banco). O servidor copia para o login o que está no cadastro. Aprovar,
+   bloquear, revogar e tornar admin já atualizam o selo; "Sincronizar
+   aprovações" faz todos de uma vez (rodar uma vez agora e quando quiser conferir).
+   ═══════════════════════════════════════════════════════════════════════ */
+const _SELO_URL = 'https://g20-proxy.vercel.app/api/passkey';
+async function _seloChamar(corpo) {
+  const tk = await firebase.auth().currentUser.getIdToken();
+  const r = await fetch(_SELO_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tk }, body: JSON.stringify(corpo) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+  return j;
+}
+async function _seloAluno(uid) {
+  try { await _seloChamar({ acao: 'selo-aluno', uid: uid }); }
+  catch (e) { showToast('Atenção: o selo de acesso não foi atualizado (' + e.message + '). Use "Sincronizar aprovações".', 'err'); }
+}
+async function sincronizarSelos() {
+  const b = document.getElementById('btnSincSelo');
+  if (b) { b.disabled = true; b.textContent = '🔐 Sincronizando…'; }
+  let depois = null, lidos = 0, aprovados = 0, atualizados = 0, semLogin = 0, voltas = 0;
+  try {
+    do {
+      const j = await _seloChamar({ acao: 'selo-sincronizar', depois: depois });
+      lidos += j.lidos || 0; aprovados += j.aprovados || 0; atualizados += j.atualizados || 0; semLogin += j.semLogin || 0;
+      depois = j.proximo; voltas++;
+      if (b) b.textContent = '🔐 Sincronizando… ' + lidos;
+    } while (depois && voltas < 200);
+    showToast('✓ Aprovações sincronizadas: ' + lidos + ' cadastros, ' + aprovados + ' com acesso, ' + atualizados + ' atualizados' + (semLogin ? ', ' + semLogin + ' sem login' : '') + '.', 'ok');
+  } catch (e) {
+    showToast('Não foi possível sincronizar: ' + e.message, 'err');
+  }
+  if (b) { b.disabled = false; b.textContent = '🔐 Sincronizar aprovações'; }
+}
+
 async function aprovar(uid) {
   await db.collection('users').doc(uid).update({ aprovado: true });
   const u = _users.find(x => x.id === uid); if(u) u.aprovado = true;
   atualizarStats(); renderTabela(); showToast('✓ Usuário aprovado!', 'ok');
+  _seloAluno(uid);
 }
 
 async function bloquear(uid) {
@@ -520,6 +560,7 @@ async function bloquear(uid) {
   await db.collection('users').doc(uid).update({ aprovado: 'bloqueado', welcomeSeen: false, tutorialVisto: false });
   const u = _users.find(x => x.id === uid); if(u) u.aprovado = 'bloqueado';
   atualizarStats(); renderTabela(); showToast('Usuário bloqueado.', 'ok');
+  _seloAluno(uid);
 }
 
 async function revogar(uid) {
@@ -529,6 +570,7 @@ async function revogar(uid) {
   await db.collection('users').doc(uid).update({ aprovado: false, welcomeSeen: false, tutorialVisto: false });
   const u = _users.find(x => x.id === uid); if(u) u.aprovado = false;
   atualizarStats(); renderTabela(); showToast('Acesso revogado.', 'ok');
+  _seloAluno(uid);
 }
 
 async function tornarAdmin(uid) {
@@ -536,6 +578,7 @@ async function tornarAdmin(uid) {
   await db.collection('users').doc(uid).update({ role: 'admin', aprovado: true });
   const u = _users.find(x => x.id === uid); if(u){ u.role='admin'; u.aprovado=true; }
   atualizarStats(); renderTabela(); showToast('★ Usuário agora é Admin!', 'ok');
+  _seloAluno(uid);
 }
 
 function abrirEdicao(uid) {

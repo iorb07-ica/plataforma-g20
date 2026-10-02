@@ -76,6 +76,39 @@
     });
   }
 
+  // ── Selo de aprovação no login (out/2026) ──
+  // As Firestore Rules passam a conferir um selo "aprovado" dentro do próprio
+  // login (custom claim), em vez de só "está logado". Quem já foi aprovado mas
+  // ainda não tem o selo (todo aluno antigo, na primeira vez) pede ao servidor,
+  // que confere o cadastro e grava o selo; a página recarrega UMA vez para os
+  // dados virem com o login novo. Quem já tem o selo não faz nada (sem rede).
+  var SELO_URL = 'https://g20-proxy.vercel.app/api/passkey';
+  function garantirSelo(user) {
+    if (SEM_APROVACAO || !user.getIdTokenResult) return Promise.resolve(false);
+    return user.getIdTokenResult().then(function (r) {
+      if (r && r.claims && r.claims.aprovado === true) return false;      // já tem
+      var rk = 'g20_selo_rl_' + user.uid;
+      try { if (sessionStorage.getItem(rk)) return false; } catch (e) {}  // já tentou nesta sessão
+      return user.getIdToken().then(function (tk) {
+        var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        var t = setTimeout(function () { try { ctrl && ctrl.abort(); } catch (e) {} }, 6000);
+        return fetch(SELO_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tk },
+          body: JSON.stringify({ acao: 'selo-aprovacao' }),
+          signal: ctrl ? ctrl.signal : undefined
+        }).then(function (resp) { clearTimeout(t); return resp.ok ? resp.json() : null; });
+      }).then(function (j) {
+        try { sessionStorage.setItem(rk, '1'); } catch (e) {}
+        if (!j || j.aprovado !== true) return false;
+        return user.getIdToken(true).then(function () { return true; });   // login novo, já com o selo
+      });
+    }).catch(function (e) {
+      console.warn('[Auth Guard] selo de aprovação não atualizado agora:', e && e.message);
+      return false;
+    });
+  }
+
   // ── Espera o Firebase da página ficar pronto ──
   var tentativas = 0;
   function iniciar() {
@@ -91,7 +124,13 @@
       if (!user) { ir('login.html'); return; }
       if (resolvido) return;
       resolvido = true;
-      verificarAcesso(user).then(function (ok) { if (ok) liberar(); });
+      verificarAcesso(user).then(function (ok) {
+        if (!ok) return;
+        garantirSelo(user).then(function (novo) {
+          if (novo) { try { location.reload(); return; } catch (e) {} }
+          liberar();
+        });
+      });
     });
   }
 
