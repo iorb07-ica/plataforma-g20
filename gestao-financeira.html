@@ -4077,6 +4077,23 @@ tr.gf-linha > td:first-child{white-space:nowrap}
             </div>
         </div>
 
+        <!-- MODAL: SALDO INICIAL (out/2026) -->
+        <div id="gf-saldo-modal" class="modal-overlay">
+            <div class="modal-content" style="width: 420px;">
+                <h3 style="font-weight:800; color:var(--primary); font-size:16px; margin-bottom:6px;">🏦 Saldo inicial da conta</h3>
+                <p style="font-size:13px; opacity:.8; line-height:1.5; margin-bottom:14px">Quanto você tinha na conta no dia em que começou a registrar aqui. Não conta como receita: serve para o gráfico da evolução do saldo e para o "Na conta hoje" mostrarem o saldo real. Se estava no negativo, use o sinal de menos (ex.: -500,00).</p>
+                <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px">
+                    <div style="flex:1; min-width:140px"><label style="font-size:11px">Data</label><input type="date" id="gf-si-data" style="width:100%; height:40px"></div>
+                    <div style="flex:1; min-width:140px"><label style="font-size:11px">Saldo em conta (R$)</label><input type="text" id="gf-si-valor" inputmode="decimal" placeholder="Ex.: 8.000,00" style="width:100%; height:40px"></div>
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap">
+                    <button class="btn btn-primary" style="flex:1; min-height:44px" onclick="_gfSalvarSaldoInicial()">Salvar</button>
+                    <button class="btn btn-outline" style="flex:1; min-height:44px" onclick="closeModal('gf-saldo-modal')">Cancelar</button>
+                </div>
+                <button type="button" id="gf-si-remover" onclick="_gfRemoverSaldoInicial()" style="display:none; margin-top:10px; width:100%; background:none; border:none; color:#b91c1c; font-size:12.5px; text-decoration:underline; cursor:pointer">Remover saldo inicial</button>
+            </div>
+        </div>
+
         <!-- MODAL: DETALHE DO LANÇAMENTO (out/2026): tocar numa linha do extrato -->
         <div id="gf-detalhe-modal" class="modal-overlay">
             <div class="modal-content" style="width: 420px; max-height: 84vh; overflow-y: auto;">
@@ -4327,6 +4344,7 @@ tr.gf-linha > td:first-child{white-space:nowrap}
                         <div class="kpi-value-wrap">
                             <div class="value" id="kpi-balance">R$&nbsp;10.000,00</div>
                             <div class="kpi-sublabel">Receitas − Despesas</div>
+                            <div class="kpi-sublabel" id="kpi-conta-hoje" style="margin-top:3px;cursor:pointer" onclick="_gfAbrirSaldoInicial()" title="Saldo da conta: saldo inicial + o que entrou e saiu até hoje (cartão conta no vencimento)"></div>
                         </div>
                     </div>
                     <div class="kpi-footer">
@@ -7844,6 +7862,52 @@ tr.gf-linha > td:first-child{white-space:nowrap}
             openModal('gf-detalhe-modal');
         };
 
+        /* ═══════════════════════════════════════════════════════════════════
+           SALDO INICIAL (out/2026)
+           data.saldoInicial = { valor, data }: quanto havia na conta quando o
+           aluno começou a registrar. NÃO é receita: não entra em receitas,
+           despesas, taxa de economia, orçamento nem aporte. Entra só no
+           gráfico de evolução do saldo (fluxo de caixa) e no "Na conta hoje".
+           Lançamentos com data de caixa anterior ao saldo inicial ficam fora
+           dessas duas contas (já estão dentro do saldo informado).
+           ═══════════════════════════════════════════════════════════════════ */
+        function _gfSI(){ const si = data.saldoInicial; return (si && /^\d{4}-\d{2}-\d{2}$/.test(si.data) && isFinite(si.valor)) ? si : null; }
+        function _gfParseValor(txt){
+            let v = String(txt || '').trim(); const neg = /^-|^−/.test(v);
+            v = v.replace(/[^0-9,.]/g, ''); if (v.indexOf(',') >= 0) v = v.replace(/\./g, '').replace(',', '.');
+            const n = parseFloat(v); return isFinite(n) ? (neg ? -n : n) : NaN;
+        }
+        window._gfContaHoje = function(){
+            const si = _gfSI(); if (!si) return null;
+            const hoje = _hojeLocal(); let v = Number(si.valor);
+            (data.transactions || []).forEach(t => { if (!t || !t.date) return; const dc = _gfDataCaixa(t); if (dc >= si.data && dc <= hoje) v += t.amount; });
+            return v;
+        };
+        window._gfAtualizarContaHoje = function(){
+            const el = document.getElementById('kpi-conta-hoje'); if (!el) return;
+            const v = _gfContaHoje();
+            if (v == null) { el.innerHTML = '<span style="text-decoration:underline;opacity:.85">＋ Definir saldo inicial da conta</span>'; return; }
+            el.innerHTML = '🏦 Na conta hoje: <b style="color:' + (v >= 0 ? '#15803d' : '#b91c1c') + '">' + v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) + '</b> <span style="opacity:.6">✏️</span>';
+        };
+        window._gfAbrirSaldoInicial = function(){
+            const si = _gfSI();
+            document.getElementById('gf-si-data').value = si ? si.data : _hojeLocal();
+            document.getElementById('gf-si-valor').value = si ? Number(si.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+            document.getElementById('gf-si-remover').style.display = si ? 'block' : 'none';
+            openModal('gf-saldo-modal');
+        };
+        window._gfSalvarSaldoInicial = function(){
+            const d = document.getElementById('gf-si-data').value, v = _gfParseValor(document.getElementById('gf-si-valor').value);
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) { showFeedback('Informe a data.'); return; }
+            if (!isFinite(v)) { showFeedback('Informe o saldo (ex.: 8.000,00).'); return; }
+            data.saldoInicial = { valor: Math.round(v * 100) / 100, data: d };
+            closeModal('gf-saldo-modal'); saveData(); renderAll();
+            showFeedback('🏦 Saldo inicial salvo.');
+        };
+        window._gfRemoverSaldoInicial = function(){
+            delete data.saldoInicial; closeModal('gf-saldo-modal'); saveData(); renderAll();
+        };
+
         let _gfCartaoIdx = null;
         window._gfConfigCartao = function(i){
             _gfCartaoIdx = i; const nome = data.paymentMethods[i];
@@ -8312,6 +8376,7 @@ tr.gf-linha > td:first-child{white-space:nowrap}
 
             // Contagem de transações e ticket médio
             try { _gfAtualizarAporteKpi(); } catch(e){}   // "Aporte do mês" (antes: total de lançamentos)
+            try { _gfAtualizarContaHoje(); } catch(e){}  // "Na conta hoje" (saldo inicial)
             const atEl = document.getElementById('kpi-avg-ticket');
             /* Lançamento 01/10: antes era saldo ÷ total de lançamentos (misturava
                entradas e saídas e não significava nada). Agora é o gasto médio
@@ -9328,8 +9393,19 @@ tr.gf-linha > td:first-child{white-space:nowrap}
 
             const validTransactions = list.filter(t => t.date && !isNaN(new Date(t.date).getTime()));
             const _dl = t => _caixa ? _gfDataCaixa(t) : t.date;
-            const sorted = [...transactionsForLine].sort((a, b) => _dl(a).localeCompare(_dl(b)));
+            /* Saldo inicial (só no fluxo de caixa): o gráfico começa no saldo da
+               conta, somado ao que saiu/entrou entre a data do saldo inicial e o
+               começo do período escolhido. */
+            const _si = _caixa ? _gfSI() : null;
+            let _base = [...transactionsForLine];
             let bal = 0;
+            if (_si) {
+                _base = _base.filter(t => _dl(t) >= _si.data);
+                const inicioPeriodo = _base.length ? _base.map(_dl).sort()[0] : _si.data;
+                bal = Number(_si.valor);
+                (data.transactions || []).forEach(t => { if (!t || !t.date) return; const dc = _gfDataCaixa(t); if (dc >= _si.data && dc < inicioPeriodo) bal += t.amount; });
+            }
+            const sorted = _base.sort((a, b) => _dl(a).localeCompare(_dl(b)));
             const lineData = sorted.map(t => {
                 bal += t.amount;
                 return { x: _dl(t), y: bal };
