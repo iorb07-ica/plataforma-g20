@@ -1399,6 +1399,20 @@ th:hover .th-drag-handle{color:rgba(255,255,255,0.5)}
 .light .pgx-hm tfoot td,.light .pgx-hm tfoot td.tk{background:#dfdacc;box-shadow:none}
 .pgx-tk{display:inline-flex;align-items:center;gap:8px}
 .pgx-tk .asset-logo{width:26px;height:26px}
+/* Quem pagou: busca e ordem */
+.pgx-ferr{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px}
+.pgx-busca{position:relative;flex:1 1 240px;max-width:380px}
+.pgx-busca svg{position:absolute;left:13px;top:50%;width:17px;height:17px;transform:translateY(-50%);fill:none;stroke:var(--text3);stroke-width:2;stroke-linecap:round}
+.pgx-busca input{width:100%;box-sizing:border-box;height:42px;padding:0 12px 0 40px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:11px;color:var(--text);font:500 14.5px 'DM Sans',sans-serif;outline:none}
+.pgx-busca input:focus{border-color:var(--gold)}
+.pgx-ordem{display:flex;align-items:center;gap:4px;padding:3px;border-radius:11px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)}
+.pgx-ordem span{font:600 12.5px 'DM Sans',sans-serif;color:var(--text3);padding:0 6px 0 8px}
+.pgx-ordem button{border:0;background:transparent;color:var(--text2);font:700 13px 'DM Sans',sans-serif;padding:7px 12px;border-radius:8px;cursor:pointer;white-space:nowrap}
+.pgx-ordem button.ativo{background:var(--gold);color:#1a191e}
+.pgx-hm table.todos{min-width:0}
+.pgx-rod{font:500 12.5px 'DM Sans',sans-serif;color:var(--text3);margin-top:8px;text-align:right}
+.light .pgx-busca input{background:#fff;border-color:rgba(0,0,0,.1)}
+@media(max-width:700px){.pgx-busca{max-width:none;flex-basis:100%}.pgx-ordem{width:100%;overflow-x:auto}}
 .pgx-tk b{font:800 13.5px 'DM Sans',sans-serif}
 .light .pgx-hm thead th,.light .pgx-hm th.tk,.light .pgx-hm td.tk{background:#ebe7df}
 @media (max-width:760px){#provBarras,#provPatrimonio,#provHeatmapCard{padding:14px 12px}.pgx-tit{font-size:16px}}
@@ -4880,9 +4894,14 @@ function _provAnalisar(){
   var temPrincipal = {};
   divs.forEach(function(d){ if(d.fonte!=='Auto-B3') temPrincipal[d.ticker+'|'+(d.datex||d.data)+'|'+(d.tipo||'')] = true; });
   var out = [], inval = [];
+  // Cripto não paga provento. Se aparecer algum, é ticker confundido com uma ação americana
+  // de mesmo símbolo (ex.: ETH = antiga Ethan Allen, SAND = Sandstorm Gold): fica fora.
+  var ehCripto = {};
+  aportes.forEach(function(a){ if(a.tipo === 'Cripto') ehCripto[a.ticker] = true; });
   divs.forEach(function(d){
     var motivo = null, q = 0;
     if(!d.data || /^9999/.test(d.data)) motivo = 'data inválida';
+    else if(ehCripto[d.ticker]) motivo = 'cripto não paga provento';
     else if(!idx[d.ticker]) motivo = 'ativo sem transação na Carteira G20';
     else if(d.fonte==='Auto-B3' && temPrincipal[d.ticker+'|'+(d.datex||d.data)+'|'+(d.tipo||'')]) motivo = 'duplicado de outra fonte';
     else {
@@ -10217,37 +10236,81 @@ function renderProvGraficos(){
                   y: { stacked: true, grid: { color: corGrade }, border: { display: false }, ticks: { color: corTexto, font: { size: 12 }, callback: function(v){ return 'R$ ' + curto(v); } } } } } });
   }
 
-  // ── 3) Mapa ativo × mês, com valores ──
-  var hmEl = document.getElementById('provHeatmapCard');
-  if(hmEl){
-    var anosHm = [...new Set(allDivs.map(function(d){ return d.data.slice(0, 4); }))].sort();
-    var anoHm = window._provHmAno || hoje.slice(0, 4);
-    if(anosHm.indexOf(anoHm) < 0) anoHm = anosHm[anosHm.length - 1] || anoHm;
-    var grade = {}, futs = {}, totT = {}, max = 0;
-    allDivs.forEach(function(d){
-      if(d.data.slice(0, 4) !== anoHm) return;
-      var m = parseInt(d.data.slice(5, 7), 10), v = provBRL(d);
-      (grade[d.ticker] = grade[d.ticker] || {})[m] = (grade[d.ticker][m] || 0) + v;
-      if(futuro(d)) (futs[d.ticker] = futs[d.ticker] || {})[m] = true;
-      totT[d.ticker] = (totT[d.ticker] || 0) + v;
-    });
-    Object.keys(grade).forEach(function(t){ for(var m in grade[t]) if(grade[t][m] > max) max = grade[t][m]; });
-    var tks = Object.keys(grade).sort(function(a, b){ return totT[b] - totT[a]; });
-    var totMes = MES.map(function(_, i){ return tks.reduce(function(s, t){ return s + ((grade[t][i + 1]) || 0); }, 0); });
-    var fmtC = function(v){ return v >= 1000 ? (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' mil' : v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
-    hmEl.innerHTML = '<div class="pgx-topo"><div><div class="pgx-tit">Quem pagou em cada mês</div><div class="pgx-sub">Valores em reais por ativo e mês. Verde mais forte = pagamento maior; dourado = a receber. Ativos do que mais pagou para o que menos pagou.</div></div>' +
-      '<div class="pgx-anos">' + anosHm.map(function(a){ return '<button class="' + (a === anoHm ? 'ativo' : '') + '" onclick="window._provHmAno=\'' + a + '\';renderProvGraficos()">' + a + '</button>'; }).join('') + '</div></div>' +
-      (tks.length ? '<div class="pgx-hm"><table><thead><tr><th class="tk">Ativo</th>' + MES.map(function(m){ return '<th>' + m + '</th>'; }).join('') + '<th class="tt">Total ' + anoHm + '</th></tr></thead><tbody>' +
-        tks.map(function(t){
-          return '<tr><td class="tk"><span class="pgx-tk">' + getLogoHtml(t, '') + '<b>' + t + '</b></span></td>' +
-            MES.map(function(_, i){ var v = grade[t][i + 1] || 0; if(!(v > 0)) return '<td class="z">·</td>';
-              var fut = futs[t] && futs[t][i + 1];
-              return '<td class="' + (fut ? 'f' : 'v') + '" style="' + (fut ? '' : 'background:rgba(46,204,113,' + (0.1 + 0.55 * Math.min(1, v / (max || 1))).toFixed(3) + ')') + '" title="' + t + ' · ' + MES[i] + '/' + anoHm + ': ' + brl(v) + (fut ? ' (a receber)' : '') + '">' + fmtC(v) + '</td>'; }).join('') +
-            '<td class="tt">' + brl(totT[t]) + '</td></tr>';
-        }).join('') +
-        '</tbody><tfoot><tr><td class="tk"><b>Total do mês</b></td>' + totMes.map(function(v){ return '<td>' + (v > 0 ? fmtC(v) : '·') + '</td>'; }).join('') + '<td class="tt">' + brl(totMes.reduce(function(s, v){ return s + v; }, 0)) + '</td></tr></tfoot></table></div>'
-      : '<div style="padding:30px;text-align:center;color:var(--text2)">Nenhum provento em ' + anoHm + '.</div>');
-  }
+  // ── 3) Mapa ativo × mês (ou × ano, em "Todos"), com busca e ordem ──
+  renderProvHeatmap(allDivs, hoje, MES, brl, futuro);
+}
+
+// Estado da tabela "Quem pagou": ano escolhido (ou 'todos'), busca e ordem
+window._provHmAno   = window._provHmAno   || null;
+window._provHmBusca = window._provHmBusca || '';
+window._provHmOrdem = window._provHmOrdem || 'total';   // total | az | za
+
+function renderProvHeatmap(allDivs, hoje, MES, brl, futuro){
+  var hmEl = document.getElementById('provHeatmapCard'); if(!hmEl) return;
+  var anosHm = [...new Set(allDivs.map(function(d){ return d.data.slice(0, 4); }))].sort();
+  var anoHm = window._provHmAno || hoje.slice(0, 4);
+  if(anoHm !== 'todos' && anosHm.indexOf(anoHm) < 0) anoHm = anosHm[anosHm.length - 1] || anoHm;
+  var todos = anoHm === 'todos';
+  // colunas: 12 meses do ano escolhido, ou os anos (visão histórica)
+  var cols = todos ? anosHm.slice() : MES.map(function(_, i){ return i + 1; });
+  var rotCol = function(c){ return todos ? String(c) : MES[c - 1]; };
+  var grade = {}, futs = {}, recs = {}, totT = {}, max = 0;
+  allDivs.forEach(function(d){
+    var a = d.data.slice(0, 4);
+    if(!todos && a !== anoHm) return;
+    var c = todos ? a : parseInt(d.data.slice(5, 7), 10), v = provBRL(d);
+    (grade[d.ticker] = grade[d.ticker] || {})[c] = (grade[d.ticker][c] || 0) + v;
+    if(futuro(d)) (futs[d.ticker] = futs[d.ticker] || {})[c] = true;
+    else (recs[d.ticker] = recs[d.ticker] || {})[c] = true;
+    totT[d.ticker] = (totT[d.ticker] || 0) + v;
+  });
+  Object.keys(grade).forEach(function(t){ for(var c in grade[t]) if(grade[t][c] > max) max = grade[t][c]; });
+  window._provHmDados = { grade: grade, futs: futs, recs: recs, totT: totT, max: max, cols: cols, rotCol: rotCol, todos: todos, anoHm: anoHm, brl: brl, MES: MES };
+
+  var ordemBtn = function(v, txt){ return '<button class="' + (window._provHmOrdem === v ? 'ativo' : '') + '" onclick="window._provHmOrdem=\'' + v + '\';_provHmCorpo();_provHmMarcarOrdem()" data-ord="' + v + '">' + txt + '</button>'; };
+  hmEl.innerHTML = '<div class="pgx-topo"><div><div class="pgx-tit">Quem pagou em cada ' + (todos ? 'ano' : 'mês') + '</div>' +
+      '<div class="pgx-sub">' + (todos
+        ? 'Valores em reais por ativo e ano, desde o início da carteira. Verde mais forte = pagamento maior; dourado = a receber.'
+        : 'Valores em reais por ativo e mês. Verde mais forte = pagamento maior; dourado = a receber.') + '</div></div>' +
+      '<div class="pgx-anos">' + anosHm.map(function(a){ return '<button class="' + (a === anoHm ? 'ativo' : '') + '" onclick="window._provHmAno=\'' + a + '\';renderProvGraficos()">' + a + '</button>'; }).join('') +
+        '<button class="' + (todos ? 'ativo' : '') + '" onclick="window._provHmAno=\'todos\';renderProvGraficos()">Todos</button></div></div>' +
+    '<div class="pgx-ferr">' +
+      '<div class="pgx-busca"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>' +
+        '<input type="search" id="provHmBusca" placeholder="Buscar ativo…" autocomplete="off" value="' + String(window._provHmBusca).replace(/"/g, '&quot;') + '" oninput="window._provHmBusca=this.value;_provHmCorpo()"></div>' +
+      '<div class="pgx-ordem"><span>Ordenar:</span>' + ordemBtn('total', 'Maior total') + ordemBtn('az', 'A → Z') + ordemBtn('za', 'Z → A') + '</div>' +
+    '</div>' +
+    '<div id="provHmCorpo"></div>';
+  _provHmCorpo();
+}
+function _provHmMarcarOrdem(){
+  document.querySelectorAll('#provHeatmapCard .pgx-ordem button').forEach(function(b){ b.classList.toggle('ativo', b.getAttribute('data-ord') === window._provHmOrdem); });
+}
+// Redesenha só o corpo (a busca não perde o foco enquanto o usuário digita)
+function _provHmCorpo(){
+  var D = window._provHmDados, box = document.getElementById('provHmCorpo'); if(!D || !box) return;
+  var termo = String(window._provHmBusca || '').trim().toUpperCase();
+  var tks = Object.keys(D.grade).filter(function(t){ return !termo || t.toUpperCase().indexOf(termo) >= 0; });
+  if(window._provHmOrdem === 'az') tks.sort(function(a, b){ return a.localeCompare(b); });
+  else if(window._provHmOrdem === 'za') tks.sort(function(a, b){ return b.localeCompare(a); });
+  else tks.sort(function(a, b){ return D.totT[b] - D.totT[a]; });
+  var brl = D.brl;
+  var totCol = D.cols.map(function(c){ return tks.reduce(function(s, t){ return s + (D.grade[t][c] || 0); }, 0); });
+  var fmtC = function(v){ return v >= 1000 ? (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' mil' : v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  if(!Object.keys(D.grade).length){ box.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text2)">Nenhum provento' + (D.todos ? '' : ' em ' + D.anoHm) + '.</div>'; return; }
+  if(!tks.length){ box.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text2)">Nenhum ativo encontrado para “' + String(window._provHmBusca).replace(/</g, '&lt;') + '”.</div>'; return; }
+  var rotTotal = D.todos ? 'Total histórico' : 'Total ' + D.anoHm;
+  box.innerHTML = '<div class="pgx-hm"><table' + (D.todos ? ' class="todos"' : '') + '><thead><tr><th class="tk">Ativo</th>' + D.cols.map(function(c){ return '<th>' + D.rotCol(c) + '</th>'; }).join('') + '<th class="tt">' + rotTotal + '</th></tr></thead><tbody>' +
+    tks.map(function(t){
+      return '<tr><td class="tk"><span class="pgx-tk">' + getLogoHtml(t, '') + '<b>' + t + '</b></span></td>' +
+        D.cols.map(function(c){ var v = D.grade[t][c] || 0; if(!(v > 0)) return '<td class="z">·</td>';
+          // dourado só quando a célula é TODA a receber (no ano corrente, em "Todos", o que já caiu fica verde)
+          var temFut = D.futs[t] && D.futs[t][c], fut = temFut && !(D.recs[t] && D.recs[t][c]);
+          return '<td class="' + (fut ? 'f' : 'v') + '" style="' + (fut ? '' : 'background:rgba(46,204,113,' + (0.1 + 0.55 * Math.min(1, v / (D.max || 1))).toFixed(3) + ')') + '" title="' + t + ' · ' + D.rotCol(c) + (D.todos ? '' : '/' + D.anoHm) + ': ' + brl(v) + (fut ? ' (a receber)' : (temFut ? ' (inclui valores a receber)' : '')) + '">' + fmtC(v) + '</td>'; }).join('') +
+        '<td class="tt">' + brl(D.totT[t]) + '</td></tr>';
+    }).join('') +
+    '</tbody><tfoot><tr><td class="tk"><b>Total ' + (D.todos ? 'do ano' : 'do mês') + (tks.length < Object.keys(D.grade).length ? ' (filtrado)' : '') + '</b></td>' + totCol.map(function(v){ return '<td>' + (v > 0 ? fmtC(v) : '·') + '</td>'; }).join('') +
+    '<td class="tt">' + brl(totCol.reduce(function(s, v){ return s + v; }, 0)) + '</td></tr></tfoot></table></div>' +
+    '<div class="pgx-rod">' + tks.length + (tks.length === 1 ? ' ativo' + (termo ? ' encontrado' : '') : ' ativos' + (termo ? ' encontrados' : '')) + '</div>';
 }
 
 function limparFiltrosProv(){
