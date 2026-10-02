@@ -44,8 +44,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
 <div class="card">
   <div class="icon">⏳</div>
   <div class="status-badge"><span class="pulse"></span> AGUARDANDO APROVAÇÃO</div>
-  <div class="title">Conta criada!</div>
-  <div class="desc">Sua conta foi criada com sucesso. Agora é só aguardar a aprovação do Israel para ter acesso à plataforma.</div>
+  <div class="title" id="agTitulo">Conta criada!</div>
+  <div class="desc" id="agDesc">Sua conta foi criada com sucesso. Agora é só aguardar a aprovação do Israel para ter acesso à plataforma.</div>
   <div class="email-box" id="userEmail">—</div>
   <div class="steps">
     <div class="step">
@@ -122,6 +122,7 @@ async function verificarAprovacao() {
     var doc = await db.collection('users').doc(_user.uid).get({ source: 'server' });
     if (!doc.exists) return;
     var data = doc.data();
+    _agAjustarTexto(data);
     if (data.aprovado === true || data.role === 'admin') {
       _liberado = true;
       if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
@@ -133,6 +134,30 @@ async function verificarAprovacao() {
       }
     }
   } catch (e) { console.warn('poll aprovacao:', e); }
+}
+
+/* Quem VOLTA para esta tela (entrou de novo, inclusive pelo Google, e a conta
+   ainda espera aprovação) não deve ler "Conta criada!" como se fosse agora.
+   Contas com mais de 10 minutos veem um texto de retorno e desde quando esperam.
+   Sem botão de WhatsApp: a aprovação é feita quase na hora. (out/2026) */
+var _agTextoFeito = false;
+function _agAjustarTexto(data) {
+  if (_agTextoFeito || !data || data.aprovado === true || data.role === 'admin') return;
+  _agTextoFeito = true;
+  try {
+    var c = data.createdAt && data.createdAt.toDate ? data.createdAt.toDate() : null;
+    var bloqueado = data.aprovado === 'bloqueado';
+    var t = document.getElementById('agTitulo'), d = document.getElementById('agDesc');
+    if (bloqueado) {
+      if (t) t.textContent = 'Acesso não liberado';
+      if (d) d.textContent = 'O acesso desta conta não está liberado no momento.';
+      return;
+    }
+    if (!c || (Date.now() - c.getTime()) < 10 * 60 * 1000) return;   // acabou de criar: mantém "Conta criada!"
+    var dia = String(c.getDate()).padStart(2, '0') + '/' + String(c.getMonth() + 1).padStart(2, '0');
+    if (t) t.textContent = 'Você já tem uma conta 👋';
+    if (d) d.innerHTML = 'Sua conta foi criada em <strong style="color:var(--text)">' + dia + '</strong> e ainda está <strong style="color:var(--text)">aguardando a aprovação</strong> do Israel. Assim que ele aprovar, esta tela muda sozinha e você entra na plataforma.';
+  } catch (e) {}
 }
 
 // Tela de celebração — fica na tela com um botão pro aluno entrar empolgado
