@@ -4032,6 +4032,18 @@ body.didactic-on .didactic-note{ display:block; }
                     </div>
                 </div>
 
+                <!-- Configuração de cartão de crédito (out/2026) -->
+                <div id="gf-cartao-config" style="display:none; margin-bottom:16px; padding:12px; border-radius:10px; border:1px solid rgba(201,169,97,.45); background:rgba(201,169,97,.06)">
+                    <div style="font-weight:800; font-size:14px; margin-bottom:4px">💳 <span id="gf-cartao-nome"></span></div>
+                    <div style="font-size:12px; opacity:.8; margin-bottom:10px">Com estes dias, as compras neste cartão entram no fluxo de caixa na data de vencimento da fatura.</div>
+                    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end">
+                        <div><label style="font-size:11px">Dia do fechamento</label><input type="number" id="gf-cartao-fech" min="1" max="31" inputmode="numeric" style="width:110px; height:38px"></div>
+                        <div><label style="font-size:11px">Dia do vencimento</label><input type="number" id="gf-cartao-venc" min="1" max="31" inputmode="numeric" style="width:110px; height:38px"></div>
+                        <button type="button" class="btn btn-primary" style="height:38px" onclick="_gfSalvarCartao()">Salvar</button>
+                        <button type="button" class="btn btn-outline" style="height:38px" onclick="_gfRemoverCartao()">Não é cartão</button>
+                    </div>
+                </div>
+
                 <div style="margin-bottom:16px;">
                     <label style="font-size:12px; color:var(--text2); display:block; margin-bottom:6px;">Formas cadastradas</label>
                     <div id="pay-list-content" style="display:grid; gap:6px; max-height:260px; overflow:auto; border:1px solid var(--border-color); border-radius:8px; padding:8px;"></div>
@@ -4404,6 +4416,15 @@ body.didactic-on .didactic-note{ display:block; }
                                 <button type="submit" class="btn btn-primary" style="flex: 1; margin-top: auto;">Lançar</button>
                             </div>
                         </div>
+                        <!-- FLUXO DE CAIXA (out/2026): quando sai da conta -->
+                        <div id="gf-caixa-linha" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:6px 0 2px; font-size:12.5px;">
+                            <span id="gf-caixa-aviso" style="opacity:.85"></span>
+                            <button type="button" id="gf-pagoem-btn" onclick="_gfTogglePagoEm()" style="background:none;border:none;padding:4px 0;color:var(--accent,#c9a961);font-weight:700;font-size:12.5px;cursor:pointer;text-decoration:underline">Pago em outra data?</button>
+                            <span id="gf-pagoem-wrap" style="display:none;align-items:center;gap:6px">
+                                <label for="gf-pagoem" style="margin:0;font-size:12px">Sai da conta em:</label>
+                                <input type="date" id="gf-pagoem" style="height:32px;width:auto">
+                            </span>
+                        </div>
                         <div style="display:flex; gap:15px; align-items:center; padding-top:8px; border-top:1px dashed var(--border-color);">
                             <div style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="is-recurring" style="width:16px; height:16px; cursor:pointer;" onchange="toggleRecurrence()"><label for="is-recurring" style="margin:0; cursor:pointer; font-weight:600; color: var(--accent);">Repetir /
                                     Parcelar?</label></div>
@@ -4429,6 +4450,7 @@ body.didactic-on .didactic-note{ display:block; }
                                 <label for="filter-line-data" style="margin: 0; font-size: 10px;">Saldo
                                     Acumulado:</label>
                                 <select id="filter-line-data" style="height: 25px; font-size: 10px; width: 140px; padding: 0 5px; font-weight: 600; margin-top: 0;" onchange="renderCharts(getFilteredTransactions())">
+                                    <option value="caixa" selected>Fluxo de caixa (quando sai da conta)</option>
                                     <option value="all">Saldo (Confirmado + Pendente)</option>
                                     <option value="confirmed">Patrimônio (Confirmado)</option>
                                 </select>
@@ -6966,11 +6988,12 @@ body.didactic-on .didactic-note{ display:block; }
 
             const amount = type === 'expense' ? -Math.abs(val) : Math.abs(val);
             const isRecurring = document.getElementById('is-recurring').checked;
+            const _gfPagoEmVal = ((document.getElementById('gf-pagoem') || {}).value || '').trim();   // data em que saiu da conta (opcional)
 
             lastSubmissionMonth = baseDate.substring(0, 7);
 
             let qtdLancada = 1;
-            if (!isRecurring) { data.transactions.unshift({ id: Date.now(), date: baseDate, desc: desc, amount: amount, type: type, payment: pay, category: cat, tags: tagsArr, recurrenceId: null, verified: true }); }
+            if (!isRecurring) { data.transactions.unshift({ id: Date.now(), date: baseDate, desc: desc, amount: amount, type: type, payment: pay, category: cat, tags: tagsArr, recurrenceId: null, verified: true , pagoEm: /^\d{4}-\d{2}-\d{2}$/.test(_gfPagoEmVal) ? _gfPagoEmVal : undefined }); }
             else {
                 const recurrenceId = Date.now().toString(); const mode = document.getElementById('rec-mode').value; let current = parseInt(document.getElementById('rec-current').value) || 1; let total = 0; let limit = 0;
 
@@ -7016,6 +7039,7 @@ body.didactic-on .didactic-note{ display:block; }
             document.getElementById('tags').value = '';
             document.getElementById('is-recurring').checked = false;
             try { delete document.getElementById('payment').dataset.mexeu; } catch(e){}
+            try { _gfTogglePagoEm(false); } catch(e){}
             toggleRecurrence();
             updateTagSuggestions();
             renderAll();
@@ -7628,7 +7652,8 @@ body.didactic-on .didactic-note{ display:block; }
         });
 
 
-        function getFilteredTransactions() {
+        function getFilteredTransactions(dataDe) {
+            const _dt = (typeof dataDe === 'function') ? dataDe : (t => t.date);   // padrão: data da compra
             let fDatePrefixes = [];
 
             if (currentYearFilter !== 'all') {
@@ -7654,15 +7679,16 @@ body.didactic-on .didactic-note{ display:block; }
                 if (fDatePrefixes.includes('all')) {
                     matchDate = true;
                 } else {
+                    const _d = t.date ? _dt(t) : null;
                     for (const prefix of fDatePrefixes) {
-                        if (t.date) {
-                            if (prefix.length === 4 && t.date.startsWith(prefix)) {
+                        if (_d) {
+                            if (prefix.length === 4 && _d.startsWith(prefix)) {
                                 matchDate = true;
                                 break;
-                            } else if (prefix.length === 7 && t.date.startsWith(prefix)) {
+                            } else if (prefix.length === 7 && _d.startsWith(prefix)) {
                                 matchDate = true;
                                 break;
-                            } else if (prefix.length === 3 && prefix.startsWith('-') && t.date.endsWith(prefix)) {
+                            } else if (prefix.length === 3 && prefix.startsWith('-') && _d.slice(4, 7) === prefix) {   // mês em qualquer ano (antes comparava com o dia)
                                 matchDate = true;
                                 break;
                             }
@@ -7732,6 +7758,80 @@ body.didactic-on .didactic-note{ display:block; }
         })();
 
         /* ═══════════════════════════════════════════════════════════════════
+           FLUXO DE CAIXA COM CARTÃO DE CRÉDITO (out/2026)
+           A despesa conta no dia da COMPRA (cards, orçamento, categorias), mas
+           o dinheiro só sai da conta no vencimento da fatura. Cada forma de
+           pagamento pode ser marcada como cartão, com dia de fechamento e de
+           vencimento; e qualquer lançamento pode ter a data em que foi pago
+           (t.pagoEm). O gráfico de evolução do saldo usa essa data.
+           Regra da fatura: compra no dia do fechamento ou depois vai para a
+           fatura seguinte; vencimento no mesmo mês do fechamento se o dia de
+           vencimento for maior, senão no mês seguinte.
+           ═══════════════════════════════════════════════════════════════════ */
+        function _gfVencFatura(iso, fech, venc){
+            const [y, m, d] = iso.split('-').map(Number);
+            let cy = y, cm = m;
+            const fechMes = Math.min(fech, new Date(y, m, 0).getDate());
+            if (d >= fechMes) { cm++; if (cm > 12) { cm = 1; cy++; } }
+            let vy = cy, vm = cm;
+            if (venc <= fech) { vm++; if (vm > 12) { vm = 1; vy++; } }
+            const ult = new Date(vy, vm, 0).getDate();
+            return vy + '-' + String(vm).padStart(2, '0') + '-' + String(Math.min(venc, ult)).padStart(2, '0');
+        }
+        window._gfDataCaixa = function(t){
+            if (!t || !t.date) return t ? t.date : '';
+            if (t.pagoEm && /^\d{4}-\d{2}-\d{2}$/.test(t.pagoEm)) return t.pagoEm;
+            const c = (t.amount < 0 && data.cartoes) ? data.cartoes[t.payment] : null;
+            if (c && c.fechamento && c.vencimento) return _gfVencFatura(t.date, +c.fechamento, +c.vencimento);
+            return t.date;
+        };
+        let _gfCartaoIdx = null;
+        window._gfConfigCartao = function(i){
+            _gfCartaoIdx = i; const nome = data.paymentMethods[i];
+            const c = (data.cartoes || {})[nome] || {};
+            document.getElementById('gf-cartao-nome').textContent = nome;
+            document.getElementById('gf-cartao-fech').value = c.fechamento || '';
+            document.getElementById('gf-cartao-venc').value = c.vencimento || '';
+            const box = document.getElementById('gf-cartao-config'); box.style.display = 'block';
+            try { box.scrollIntoView({ block: 'nearest' }); document.getElementById('gf-cartao-fech').focus(); } catch(e){}
+        };
+        window._gfSalvarCartao = function(){
+            const nome = data.paymentMethods[_gfCartaoIdx]; if (!nome) return;
+            const f = parseInt(document.getElementById('gf-cartao-fech').value, 10), v = parseInt(document.getElementById('gf-cartao-venc').value, 10);
+            if (!(f >= 1 && f <= 31) || !(v >= 1 && v <= 31)) { showFeedback('Informe dias entre 1 e 31.'); return; }
+            data.cartoes = data.cartoes || {}; data.cartoes[nome] = { fechamento: f, vencimento: v };
+            document.getElementById('gf-cartao-config').style.display = 'none';
+            saveData(); renderList('pay'); renderAll(); _gfAvisoCaixa();
+            showFeedback('💳 ' + nome + ': fecha dia ' + f + ', vence dia ' + v + '.');
+        };
+        window._gfRemoverCartao = function(){
+            const nome = data.paymentMethods[_gfCartaoIdx];
+            if (nome && data.cartoes) delete data.cartoes[nome];
+            document.getElementById('gf-cartao-config').style.display = 'none';
+            saveData(); renderList('pay'); renderAll(); _gfAvisoCaixa();
+        };
+        window._gfTogglePagoEm = function(forcar){
+            const w = document.getElementById('gf-pagoem-wrap'), b = document.getElementById('gf-pagoem-btn');
+            const abrir = forcar != null ? forcar : (w.style.display === 'none');
+            w.style.display = abrir ? 'inline-flex' : 'none';
+            b.textContent = abrir ? 'Usar a data normal' : 'Pago em outra data?';
+            if (!abrir) document.getElementById('gf-pagoem').value = '';
+            _gfAvisoCaixa();
+        };
+        /* Aviso embaixo do formulário: quando esse lançamento sai da conta */
+        window._gfAvisoCaixa = function(){
+            const av = document.getElementById('gf-caixa-aviso'); if (!av) return;
+            const tipo = (document.getElementById('type') || {}).value, pay = (document.getElementById('payment') || {}).value;
+            const dt = (document.getElementById('date') || {}).value, pe = (document.getElementById('gf-pagoem') || {}).value;
+            const fmt = iso => iso ? iso.split('-').reverse().join('/') : '';
+            if (pe) { av.innerHTML = '💸 Sai da conta em <b>' + fmt(pe) + '</b>'; return; }
+            const c = (tipo === 'expense' && data.cartoes) ? data.cartoes[pay] : null;
+            av.innerHTML = (c && dt) ? '💳 Fatura do ' + String(pay).replace(/[<>&"']/g, '') + ': sai da conta em <b>' + fmt(_gfVencFatura(dt, +c.fechamento, +c.vencimento)) + '</b>' : '';
+        };
+        document.addEventListener('change', e => { if (e.target && e.target.closest && e.target.closest('#form-transaction')) setTimeout(_gfAvisoCaixa, 30); }, true);
+        document.addEventListener('click', e => { if (e.target && e.target.closest && e.target.closest('#g20-dp-popup')) setTimeout(_gfAvisoCaixa, 80); }, true);
+
+        /* ═══════════════════════════════════════════════════════════════════
            APORTE DO MÊS E CONTAS A VENCER NOS PRÓPRIOS CARDS (out/2026)
            O G20 ensina INVESTIR PRIMEIRO: a medida é quanto % da RECEITA do
            mês foi investido (meta mínima 20%), e não quanto "sobrou". Os cards
@@ -7753,9 +7853,19 @@ body.didactic-on .didactic-note{ display:block; }
             el.style.color = _gfCorAporte(pct);
             el.title = (pct == null ? 'Sem receita lançada no mês' : Math.round(pct) + '% da receita do mês investido · meta G20: pelo menos ' + G20_META_APORTE + '%') + '. Toque para registrar um aporte.';
         };
+        /* Contas que SAEM DA CONTA nos próximos 7 dias: compras no cartão viram
+           uma linha só por fatura ("Fatura Nubank"), na data do vencimento. */
         function _gfContasSemana(){
             const hoje = _hojeLocal(), lim = (function(){ const d = new Date(); d.setDate(d.getDate() + 7); return _isoLocal(d); })();
-            return (data.transactions || []).filter(t => t && t.amount < 0 && t.date >= hoje && t.date <= lim).sort((a, b) => a.date.localeCompare(b.date) || a.amount - b.amount);
+            const out = [], faturas = {};
+            (data.transactions || []).forEach(t => {
+                if (!t || !(t.amount < 0) || !t.date) return;
+                const dc = _gfDataCaixa(t); if (dc < hoje || dc > lim) return;
+                const ehCartao = !t.pagoEm && data.cartoes && data.cartoes[t.payment];
+                if (ehCartao) { const k = t.payment + '|' + dc; (faturas[k] = faturas[k] || { date: dc, desc: 'Fatura ' + t.payment, amount: 0, fatura: true }).amount += t.amount; }
+                else out.push({ date: dc, desc: t.desc, amount: t.amount });
+            });
+            return out.concat(Object.keys(faturas).map(k => faturas[k])).sort((a, b) => a.date.localeCompare(b.date) || a.amount - b.amount);
         }
         window._gfAtualizarContasKpi = function(){
             const el = document.getElementById('kpi-expense-count'); if (!el) return;
@@ -8037,7 +8147,7 @@ body.didactic-on .didactic-note{ display:block; }
                                     <div style="display: flex; align-items: center; margin-bottom: 3px;">
                                         <i class="fa-solid ${catIcon} cat-icon-display" title="Ícone da Categoria"></i>
                                         
-                                        <span>${baseDesc}</span>${(t.recSemFim && t.recMode === 'subscription' && !((data.recEncerradas || {})[t.recurrenceId])) ? '<span class="gf-semfim" title="Recorrente sem data de término: a plataforma mantém sempre 12 meses à frente">sem término</span>' : ''}
+                                        <span>${baseDesc}</span>${(t.recSemFim && t.recMode === 'subscription' && !((data.recEncerradas || {})[t.recurrenceId])) ? '<span class="gf-semfim" title="Recorrente sem data de término: a plataforma mantém sempre 12 meses à frente">sem término</span>' : ''}${(function(){ try { const dc = _gfDataCaixa(t); if (!dc || dc === t.date) return ''; const f = dc.split('-').reverse().slice(0, 2).join('/'); return t.pagoEm ? '<span class="gf-semfim" style="color:#2563eb;border-color:rgba(37,99,235,.35);background:rgba(37,99,235,.08)" title="Data em que saiu da conta">💸 pago ' + f + '</span>' : '<span class="gf-semfim" style="color:#7c3aed;border-color:rgba(124,58,237,.35);background:rgba(124,58,237,.08)" title="Entra na fatura do cartão: sai da conta no vencimento">💳 fatura ' + f + '</span>'; } catch(e){ return ''; } })()}
                                     </div>
                                     <div style="font-size: 10px; color: var(--text-light); margin-top: 3px;">
                                         ${t.tags.map(tag => `<span class="extrato-tag" title="Tag: ${tag}">${tag}</span>`).join('')}
@@ -8541,8 +8651,10 @@ body.didactic-on .didactic-note{ display:block; }
                                 <i class="fa-solid ${icon}" style="color: var(--text-light); margin-right: 15px;"></i>
                                 <span>${item}</span>
                                 ${isDefault ? '<span class="default-label">(Padrão)</span>' : ''}
+                                ${(data.cartoes && data.cartoes[item]) ? '<span class="default-label" style="color:#c9a961">💳 fecha dia ' + data.cartoes[item].fechamento + ' · vence dia ' + data.cartoes[item].vencimento + '</span>' : ''}
                             </div>
                             <div class="item-actions">
+                                <button type="button" class="budget-action-btn edit" onclick="_gfConfigCartao(${i})" title="Cartão de crédito: fechamento e vencimento" style="width:auto;padding:0 8px;font-size:12px">💳</button>
                                 <i class="fa-solid fa-star default-toggle ${isDefault ? 'active' : ''}" title="Definir como Padrão" onclick="toggleDefaultPayment('${item}')"></i>
                                 <button class="budget-action-btn del" onclick="delItem('${type}', ${i})" title="Excluir"><i class="fa-solid fa-trash"></i></button>
                             </div>
@@ -8665,6 +8777,7 @@ body.didactic-on .didactic-note{ display:block; }
                     const name = data.paymentMethods[i];
                     data.paymentMethods.splice(i, 1);
                     if (data.defaultPayment === name) data.defaultPayment = '';
+                    if (data.cartoes) delete data.cartoes[name];
                 }
                 saveData();
                 updateSelects();
@@ -9130,18 +9243,24 @@ body.didactic-on .didactic-note{ display:block; }
         function renderCharts(list) {
             const commonOpts = { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, animation: { duration: 1200, easing: 'easeOutQuart' }, plugins: { legend: { labels: { color: isDarkMode ? '#e2e8f0' : '#334155', font: { family: 'Montserrat', size: 10 }, padding: 15 } }, tooltip: universalBrlTooltip, datalabels: { display: false } }, scales: { x: { border: { display: false }, grid: { display: false }, ticks: { color: isDarkMode ? '#a1a1aa' : '#71717a', font: { size: 10 } } }, y: { border: { display: false }, grid: { display: false }, ticks: { color: isDarkMode ? '#a1a1aa' : '#71717a', font: { size: 10 } } } } };
 
-            const lineDataFilter = els.filterLineData?.value || 'all';
+            const lineDataFilter = els.filterLineData?.value || 'caixa';
 
-            const transactionsForLine = list.filter(t => {
-                return lineDataFilter === 'all' || t.verified;
-            });
+            /* FLUXO DE CAIXA (out/2026): na opção "caixa", cada lançamento entra
+               no dia em que o dinheiro SAI DA CONTA: compra no cartão no
+               vencimento da fatura, ou a data de pagamento informada. As despesas
+               continuam contadas no dia da compra nos cards e nos outros gráficos. */
+            const _caixa = lineDataFilter === 'caixa';
+            const transactionsForLine = _caixa
+                ? getFilteredTransactions(_gfDataCaixa)
+                : list.filter(t => lineDataFilter === 'all' || t.verified);
 
             const validTransactions = list.filter(t => t.date && !isNaN(new Date(t.date).getTime()));
-            const sorted = [...transactionsForLine].sort((a, b) => new Date(a.date) - new Date(b.date));
+            const _dl = t => _caixa ? _gfDataCaixa(t) : t.date;
+            const sorted = [...transactionsForLine].sort((a, b) => _dl(a).localeCompare(_dl(b)));
             let bal = 0;
             const lineData = sorted.map(t => {
                 bal += t.amount;
-                return { x: t.date, y: bal };
+                return { x: _dl(t), y: bal };
             });
 
             const expCats = {};
