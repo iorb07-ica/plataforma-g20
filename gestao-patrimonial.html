@@ -4835,8 +4835,8 @@ function renderMcHome(){
       return '<div class="mh-pbar" data-tip-t="' + MESN[n] + '/' + m.k.slice(2, 4) + '" data-tip="' + (m.v ? '#e8c766::Recebido: $[' + m.v.toFixed(2) + ']' : '') + (m.f ? (m.v ? '||' : '') + 'hachura::A receber: $[' + m.f.toFixed(2) + ']' : '') + (!tot ? 'Sem proventos' : '') + (m.v && m.f ? '||Total: $[' + tot.toFixed(2) + ']' : '') + '">' +
         '<div class="mh-pbar-a">' + (m.f ? '<i class="f" style="height:' + (m.f / maxP * 100).toFixed(1) + '%"></i>' : '') + (m.v ? '<i style="height:' + (m.v / maxP * 100).toFixed(1) + '%"></i>' : '') + '</div><span>' + MESI[n] + '</span></div>'; }).join('') + '</div>' +
     (agrP.length ? '<div class="mh-sub" style="margin-top:14px">Próximos pagamentos</div>' + agrP.slice(0, 3).map(function(x){
-        var dias = Math.round((new Date(x.d + 'T12:00:00') - new Date(hoje + 'T12:00:00')) / 86400000);
-        return '<div class="mh-prox"><div class="mh-prox-d"><b>' + x.d.slice(8, 10) + '</b><span>' + MESN[parseInt(x.d.slice(5, 7), 10) - 1] + '</span></div><b class="mh-prox-t">' + x.t + '</b><em>' + (dias <= 0 ? 'hoje' : 'em ' + dias + (dias === 1 ? ' dia' : ' dias')) + '</em><span class="kpi-money">' + fmtBRL(x.v) + '</span></div>'; }).join('') : '') +
+        var dias = Math.round((new Date(x.d + 'T12:00:00') - new Date(hoje + 'T12:00:00')) / 86400000), _def = _pvDataDefinida({ data: x.d });
+        return '<div class="mh-prox"><div class="mh-prox-d"><b>' + (_def ? x.d.slice(8, 10) : '?') + '</b><span>' + (_def ? MESN[parseInt(x.d.slice(5, 7), 10) - 1] : 'data') + '</span></div><b class="mh-prox-t">' + x.t + '</b><em>' + (!_def ? 'data a definir' : dias <= 0 ? 'hoje' : 'em ' + dias + (dias === 1 ? ' dia' : ' dias')) + '</em><span class="kpi-money">' + fmtBRL(x.v) + '</span></div>'; }).join('') : '') +
     '<button class="mh-link" onclick="gpSwitchTab(\'proventos\', document.getElementById(\'gpTab-proventos\'))">Ver todos os proventos →</button>';
 
   renderMhMapa();
@@ -5532,7 +5532,7 @@ function renderPatPaineis(seriePatrimonioFn){
       .sort(function(a,b){return a.data<b.data?-1:1;}).slice(0,4);
     var meses=['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
     var rows=futuros.map(function(p){
-      var d=new Date(p.data+'T12:00:00');
+      var d=new Date(p.data+'T12:00:00'), _def=_pvDataDefinida(p);
       var v=_provTotalBRL(p);
       var aprovado=p.status==='aprovado'||p.status==='futuro';
       var cor=aprovado?'#3dac58':'#c9a961';
@@ -5540,8 +5540,8 @@ function renderPatPaineis(seriePatrimonioFn){
       var bd=aprovado?'rgba(61,172,88,.2)':'rgba(201,169,97,.2)';
       return '<div class="pat-prov-row">'+
         '<div class="pat-prov-date" style="background:'+bg+';border:1px solid '+bd+'">'+
-          '<span class="pat-prov-mes" style="color:'+cor+'">'+meses[d.getMonth()]+'</span>'+
-          '<span class="pat-prov-dia" style="color:'+cor+'">'+d.getDate()+'</span>'+
+          '<span class="pat-prov-mes" style="color:'+cor+'">'+(_def?meses[d.getMonth()]:'A DEF.')+'</span>'+
+          '<span class="pat-prov-dia" style="color:'+cor+'">'+(_def?d.getDate():'?')+'</span>'+
         '</div>'+
         '<div style="flex:1;min-width:0"><div style="font-size:11px;font-weight:700;color:#f0ece0;font-family:var(--mono)">'+(p.ticker||'—')+'</div></div>'+
         '<div style="font-size:11px;color:'+cor+';font-weight:700;font-family:var(--mono)">'+fmtBRL(v).replace('R$ ','R$')+'</div>'+
@@ -11409,6 +11409,9 @@ function _pvRotuloTipo(p){
 }
 function _pvHoje(){ return new Date().toISOString().slice(0, 10); }
 function _pvFuturo(p){ return p.data > _pvHoje() || p.status === 'futuro'; }
+// Provento anunciado sem data de pagamento: a B3 e os sites de dados usam 31/12/9999
+// como "a definir". Sem esse filtro, a tabela ano × mês ia de 9999 até o 1º ano.
+function _pvDataDefinida(p){ return !!(p && p.data) && parseInt(p.data.slice(0, 4), 10) <= new Date().getFullYear() + 2; }
 
 function setProvRange(m){
   _provMeses = m;
@@ -11526,7 +11529,7 @@ function _pvLinha(x){
   var principal = cota + ' × ' + _txNum(qtd, 6);
   var tag = fut ? '<span class="tag fut">a receber</span>' : '';
   var det = (dataCom ? 'data com ' + dataCom : '') + (dataCom ? ' · ' : '') + (auto ? 'automático' : 'lançado por você');
-  var meta = (fut ? 'paga em ' : 'pago em ') + _txDataCurta(p.data) + (dataCom ? ' · data com ' + dataCom.slice(0, 5) : '');
+  var meta = (_pvDataDefinida(p) ? (fut ? 'paga em ' : 'pago em ') + _txDataCurta(p.data) : 'pagamento a definir') + (dataCom ? ' · data com ' + dataCom.slice(0, 5) : '');
   var _fl = _provFatorLiq(p);
   var _liqLinha = _fl < 1 ? '<div class="tx2-sutil pv-liq" style="font-size:12.5px;white-space:nowrap" title="' + (usd ? 'Líquido após 30% retidos nos EUA' : 'Líquido após 15% de IR retido na fonte') + '">líq. ' + _txBRL(brl * _fl) + '</div>' : '';
   var colBrl = _txBRL(brl) + (usd ? '<div class="tx2-sutil" style="font-size:12.5px">' + _txUSD(nativo) + '</div>' : '') + _liqLinha;
@@ -11571,7 +11574,8 @@ function renderProventos(){
     if(k !== mesAtual){
       mesAtual = k;
       var mes = _TX_MESES[parseInt(k.slice(5), 10) - 1];
-      html += '<div class="tx2-mes"><span>' + mes.charAt(0).toUpperCase() + mes.slice(1) + ' de ' + k.slice(0, 4) + '</span><span class="tx2-mes-r"><b class="in">' + _txCurto(porMes[k]) + '</b></span></div>';
+      var _rotMes = _pvDataDefinida(x.p) ? mes.charAt(0).toUpperCase() + mes.slice(1) + ' de ' + k.slice(0, 4) : 'Pagamento a definir';
+      html += '<div class="tx2-mes"><span>' + _rotMes + '</span><span class="tx2-mes-r"><b class="in">' + _txCurto(porMes[k]) + '</b></span></div>';
     }
     html += _pvLinha(x);
   });
@@ -11613,7 +11617,7 @@ var _PV_MESES_CURTO = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Ou
 function _pvPorMes(){
   var m = {};
   loadProventos().forEach(function(p){
-    if(!p.data) return;
+    if(!p.data || !_pvDataDefinida(p)) return;   // "a definir" não entra na tabela nem no gráfico
     var k = p.data.slice(0, 7), fut = _pvFuturo(p), v = _provTotalBRL(p);
     var o = m[k] = m[k] || { rec: 0, fut: 0, porTipo: { Dividendo: 0, JCP: 0, Rendimento: 0, Outro: 0 } };
     if(fut) o.fut += v; else { o.rec += v; o.porTipo[_pvTipo(p)] += v; }
@@ -11684,11 +11688,11 @@ function renderProvProximos(){
   var nomes = {}; try { nomes = JSON.parse(localStorage.getItem('g20_tx_nomes') || '{}'); } catch(e){}
   var mostrar = lista.slice(0, 8);
   box.innerHTML = mostrar.map(function(o){
-    var dias = Math.round((new Date(o.data + 'T12:00:00') - new Date(hoje + 'T12:00:00')) / 86400000);
-    var quando = dias <= 0 ? '<span class="hoje">hoje</span>' : '<span>em ' + dias + (dias === 1 ? ' dia' : ' dias') + '</span>';
+    var dias = Math.round((new Date(o.data + 'T12:00:00') - new Date(hoje + 'T12:00:00')) / 86400000), _def = _pvDataDefinida(o);
+    var quando = !_def ? '<span>data a definir</span>' : dias <= 0 ? '<span class="hoje">hoje</span>' : '<span>em ' + dias + (dias === 1 ? ' dia' : ' dias') + '</span>';
     var nome = (typeof rvCotacoes !== 'undefined' && rvCotacoes[o.ticker] && rvCotacoes[o.ticker].nome) || nomes[o.ticker] || '';
     return '<div class="pv-prox">' +
-      '<div class="pv-data"><b>' + o.data.slice(8, 10) + '</b><span>' + _PV_MESES_CURTO[parseInt(o.data.slice(5, 7), 10) - 1] + '</span></div>' +
+      '<div class="pv-data"><b>' + (_def ? o.data.slice(8, 10) : '?') + '</b><span>' + (_def ? _PV_MESES_CURTO[parseInt(o.data.slice(5, 7), 10) - 1] : 'data') + '</span></div>' +
       _txLogo({ kind: 'rv', ticker: o.ticker }) +
       '<div class="pv-prox-info"><b>' + _txEsc(o.ticker) + '</b><div>' + Object.keys(o.tipos).join(' + ') + (nome ? ' · ' + _txEsc(nome) : '') + '</div></div>' +
       '<div class="pv-prox-valor"><b>' + _txBRL(o.total) + '</b>' + (o.usd ? '<div style="font:500 12px \'DM Sans\',sans-serif;color:var(--tx-t3)">' + _txUSD(o.usd) + '</div>' : '') + quando + '</div>' +
@@ -11781,7 +11785,7 @@ function renderProventosChart(){
   var lista = loadProventos(), porMes = {}, futMes = {};
   meses.forEach(function(k){ porMes[k] = {}; futMes[k] = 0; });
   for(var f = 1; f <= 3; f++){ var df = new Date(hoje.getFullYear(), hoje.getMonth() + f, 1), kf = df.getFullYear() + '-' + String(df.getMonth() + 1).padStart(2, '0');
-    if(lista.some(function(p){ return _pvFuturo(p) && p.data && p.data.slice(0, 7) >= kf; })){ meses.push(kf); porMes[kf] = {}; futMes[kf] = 0; } else break; }
+    if(lista.some(function(p){ return _pvFuturo(p) && _pvDataDefinida(p) && p.data.slice(0, 7) >= kf; })){ meses.push(kf); porMes[kf] = {}; futMes[kf] = 0; } else break; }
   var totCl = {}, totFut = 0;
   lista.forEach(function(p){ if(!p.data) return; var k = p.data.slice(0, 7); if(!porMes[k]) return; var v = _provTotalBRL(p);
     if(_pvFuturo(p)){ futMes[k] += v; totFut += v; return; }
@@ -11874,7 +11878,7 @@ function renderPvGraficos(){
   var boxY = document.getElementById('pvGfxAno');
   if(boxY){
     var porAno = {};
-    lista.forEach(function(p){ if(!p.data) return; var a = p.data.slice(0, 4), o = porAno[a] = porAno[a] || { r: 0, f: 0 }; if(_pvFuturo(p)) o.f += _provTotalBRL(p); else o.r += _provTotalBRL(p); });
+    lista.forEach(function(p){ if(!p.data || !_pvDataDefinida(p)) return; var a = p.data.slice(0, 4), o = porAno[a] = porAno[a] || { r: 0, f: 0 }; if(_pvFuturo(p)) o.f += _provTotalBRL(p); else o.r += _provTotalBRL(p); });
     var anos = Object.keys(porAno).sort();
     var cres = anos.map(function(a, i){ if(!i) return null; var ant = porAno[anos[i - 1]].r; return ant > 0 ? (porAno[a].r / ant - 1) * 100 : null; });
     var ultC = anos.filter(function(a){ return a < anoAtual; }).pop(), pri = anos[0];
