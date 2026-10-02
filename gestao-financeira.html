@@ -1197,8 +1197,6 @@ input:focus, select:focus {
     user-select: none;
 }
 
-/* iPhone: tocar e segurar num mês não abre a lupa/menu de texto do sistema */
-.month-button{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .month-button {
     padding: 7px 9px;
     border: 1.5px solid var(--border);
@@ -3887,6 +3885,17 @@ body.dark .gf-ico-parc{color:#c4b5fd}
 .gf-ico-pg{margin-left:6px;font-size:12px;vertical-align:middle;opacity:.9;cursor:help}
 tr.gf-linha{cursor:pointer}
 tr.gf-linha > td:first-child{white-space:nowrap}
+/* CELULAR (out/2026): a coluna da data ficou mais larga e o selo de recorrência
+   (∞ / 1/3) fica ao lado da data, numa faixa própria, alinhado em todas as
+   linhas; a descrição começa um pouco mais à direita e nunca é invadida. */
+@media (max-width:600px){
+  html body #main-table th:nth-child(1), #main-table td:nth-child(1){width:27% !important}
+  html body #main-table th:nth-child(2), #main-table td:nth-child(2){width:39% !important;padding-left:6px !important}
+  html body #main-table th:nth-child(3), #main-table td:nth-child(3){width:34% !important}
+  html body #main-table tr.gf-linha > td:first-child{white-space:nowrap !important;font-size:13px}
+  html body #main-table tr.gf-linha .gf-ico-rec{display:inline-flex;margin:0 0 0 5px;min-width:30px;height:22px;padding:0 6px;font-size:14px;vertical-align:middle}
+  html body #main-table tr.gf-linha .gf-ico-parc{font-size:11.5px}
+}
 </style>
 <style id="gf-semfim-css">
 .gf-semfim{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9px;font-size:10px;font-weight:700;letter-spacing:.3px;white-space:nowrap;color:#c9a961;background:rgba(201,169,97,.12);border:1px solid rgba(201,169,97,.35);vertical-align:middle}
@@ -4895,8 +4904,7 @@ tr.gf-linha > td:first-child{white-space:nowrap}
         let currentSort = { col: 'date', asc: false };
 
         let currentYearFilter = new Date().getFullYear().toString();
-        // Abre sempre no mês corrente (o aluno pode trocar para o ano todo ou outros meses nos botões)
-        let currentMonthFilter = [String(new Date().getMonth() + 1).padStart(2, '0')];
+        let currentMonthFilter = [];
         let lastSubmissionMonth = null;
 
         // === ESTADOS DE LOGIN E PROFILE (V118.0) ===
@@ -6638,7 +6646,7 @@ tr.gf-linha > td:first-child{white-space:nowrap}
            "Intervalo" marca tudo entre dois toques. Atalhos: últimos 3 e 6
            meses e ano todo.
            ═══════════════════════════════════════════════════════════════════ */
-        let _gfMulti = false, _gfModoInt = false, _gfIntIni = null, _gfIgnorarClique = 0, _gfUltimoToque = 0;
+        let _gfMulti = false, _gfModoInt = false, _gfIntIni = null, _gfIgnorarClique = 0;
         function _gfAtualizarMeses(){ currentMonthFilter.sort(); renderMonthButtons(); renderAll(); _gfBarraMulti(); }
         function _gfBarraMulti(){
             const cont = document.getElementById('month-buttons-container'); if (!cont) return;
@@ -6695,7 +6703,6 @@ tr.gf-linha > td:first-child{white-space:nowrap}
             let t = null, alvo = null, x0 = 0, y0 = 0;
             document.addEventListener('touchstart', function(e){
                 const b = e.target && e.target.closest && e.target.closest('#month-buttons-container .month-button'); if (!b) return;
-                _gfUltimoToque = Date.now();
                 alvo = b; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
                 clearTimeout(t);
                 t = setTimeout(function(){ if (!alvo) return; _gfIgnorarClique = Date.now(); _gfMultiEntrar(alvo.getAttribute('data-month')); alvo = null; }, 450);
@@ -6760,9 +6767,6 @@ tr.gf-linha > td:first-child{white-space:nowrap}
             container.onmousedown = (e) => {
                 const target = e.target.closest('.month-button');
                 if (!target || e.ctrlKey || e.metaKey) return;
-                /* No celular, todo toque também gera um "mousedown" de compatibilidade, que
-                   zerava a seleção e desfazia o modo de vários meses (tocar e segurar). */
-                if (_gfMulti || Date.now() - _gfUltimoToque < 1200) return;
 
                 isDragging = true;
                 dragStartIndex = Array.from(buttons).indexOf(target);
