@@ -15,7 +15,7 @@
 <title>Gestão Financeira — G20 Masterclass</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/g20-topbar.css?v=10">
-<script src="assets/g20-notifications.js?v=11"></script>
+<script src="assets/g20-notifications.js?v=12"></script>
 <link rel="stylesheet" href="assets/g20-sidebar.css?v=10">
 <link rel="stylesheet" href="assets/g20-scrollbar.css?v=10">
 <link rel="stylesheet" href="assets/g20-search.css?v=10">
@@ -4056,6 +4056,15 @@ body.didactic-on .didactic-note{ display:block; }
             </div>
         </div>
 
+        <!-- MODAL: CONTAS DOS PRÓXIMOS 7 DIAS (out/2026) -->
+        <div id="gf-contas-modal" class="modal-overlay">
+            <div class="modal-content" style="width: 440px; max-height: 80vh; overflow-y: auto;">
+                <h3 style="font-weight:800; color:var(--primary); font-size:16px; margin-bottom:6px;">🧾 Contas dos próximos 7 dias</h3>
+                <div id="gf-contas-lista" style="margin-bottom:16px"></div>
+                <button class="btn btn-outline" style="width:100%; min-height:44px" onclick="closeModal('gf-contas-modal')">Fechar</button>
+            </div>
+        </div>
+
         <!-- MODAL: EDITAR LANÇAMENTO DE UMA SÉRIE (lançamento 01/10: a janela era chamada
              pelo código, mas não existia na página, e editar série dava erro) -->
         <div id="edit-recurrence-modal" class="modal-overlay">
@@ -4294,8 +4303,8 @@ body.didactic-on .didactic-note{ display:block; }
                             <span class="kpi-stat-value" id="kpi-savings-rate">—</span>
                         </div>
                         <div class="kpi-stat">
-                            <span class="kpi-stat-label">Transações</span>
-                            <span class="kpi-stat-value" id="kpi-trans-count">—</span>
+                            <span class="kpi-stat-label" title="Quanto da receita do mês foi investido (meta G20: pelo menos 20%)">Aporte do mês</span>
+                            <span class="kpi-stat-value" id="kpi-trans-count" style="cursor:pointer" onclick="location.href='gestao-patrimonial.html#novo-aporte'" title="Registrar aporte na Minha Carteira">—</span>
                         </div>
                         <div class="kpi-stat">
                             <span class="kpi-stat-label" title="Valor médio de cada saída no período">Gasto médio</span>
@@ -4348,8 +4357,8 @@ body.didactic-on .didactic-note{ display:block; }
                             <span class="kpi-stat-value red" id="kpi-top-expense">—</span>
                         </div>
                         <div class="kpi-stat">
-                            <span class="kpi-stat-label">Qtd. Saídas</span>
-                            <span class="kpi-stat-value" id="kpi-expense-count">—</span>
+                            <span class="kpi-stat-label" title="Despesas lançadas de hoje até daqui a 7 dias">A vencer 7d</span>
+                            <span class="kpi-stat-value" id="kpi-expense-count" style="cursor:pointer" onclick="_gfAbrirContas()" title="Ver as contas da semana">—</span>
                         </div>
                         <div class="kpi-stat">
                             <span class="kpi-stat-label">Média Mensal</span>
@@ -7720,9 +7729,87 @@ body.didactic-on .didactic-note{ display:block; }
             });
         })();
 
+        /* ═══════════════════════════════════════════════════════════════════
+           APORTE DO MÊS E CONTAS A VENCER NOS PRÓPRIOS CARDS (out/2026)
+           O G20 ensina INVESTIR PRIMEIRO: a medida é quanto % da RECEITA do
+           mês foi investido (meta mínima 20%), e não quanto "sobrou". Os cards
+           grandes "Sobra × Investimento" e "Contas da semana" saíram da tela;
+           as duas informações ficam dentro dos cards Saldo e Despesa, e o
+           gráfico de 6 meses (aporte × meta) foi para a Inteligência Financeira.
+           ═══════════════════════════════════════════════════════════════════ */
+        const G20_META_APORTE = 20;   // % da receita
+        function _gfMesRef(){ return (currentMonthFilter.length === 1 && currentYearFilter !== 'all') ? (currentYearFilter + '-' + currentMonthFilter[0]) : _hojeLocal().slice(0, 7); }
+        function _gfReceitaDoMes(mes){ let r = 0; (data.transactions || []).forEach(t => { if (t && t.amount > 0 && t.date && t.date.slice(0, 7) === mes) r += t.amount; }); return r; }
+        function _gfCorAporte(pct){ return pct == null ? '' : pct >= G20_META_APORTE * 1.5 ? '#c9a961' : pct >= G20_META_APORTE ? '#15803d' : pct >= G20_META_APORTE / 2 ? '#d97706' : '#b91c1c'; }
+        window._gfAtualizarAporteKpi = function(){
+            const el = document.getElementById('kpi-trans-count'); if (!el) return;
+            if (!window._gfInvest || !window._gfInvest.ok) { el.textContent = '…'; el.style.color = ''; return; }
+            const mes = _gfMesRef(), rec = _gfReceitaDoMes(mes), ap = Math.max(0, _gfInvestidoNoMes(mes).total);
+            const pct = rec > 0 ? ap / rec * 100 : null;
+            const curto = v => v >= 1000 ? 'R$ ' + (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + 'k' : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+            el.textContent = curto(ap) + (pct == null ? '' : ' · ' + Math.round(pct) + '%') + (pct != null && pct >= G20_META_APORTE * 1.5 ? ' 🎯' : '');
+            el.style.color = _gfCorAporte(pct);
+            el.title = (pct == null ? 'Sem receita lançada no mês' : Math.round(pct) + '% da receita do mês investido · meta G20: pelo menos ' + G20_META_APORTE + '%') + '. Toque para registrar um aporte.';
+        };
+        function _gfContasSemana(){
+            const hoje = _hojeLocal(), lim = (function(){ const d = new Date(); d.setDate(d.getDate() + 7); return _isoLocal(d); })();
+            return (data.transactions || []).filter(t => t && t.amount < 0 && t.date >= hoje && t.date <= lim).sort((a, b) => a.date.localeCompare(b.date) || a.amount - b.amount);
+        }
+        window._gfAtualizarContasKpi = function(){
+            const el = document.getElementById('kpi-expense-count'); if (!el) return;
+            const l = _gfContasSemana(), tot = l.reduce((a, t) => a + Math.abs(t.amount), 0);
+            el.textContent = l.length ? (tot.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }) + ' · ' + l.length) : 'nenhuma';
+        };
+        window._gfAbrirContas = function(){
+            const l = _gfContasSemana(), box = document.getElementById('gf-contas-lista'); if (!box) return;
+            const hoje = _hojeLocal(), am = (function(){ const d = new Date(); d.setDate(d.getDate() + 1); return _isoLocal(d); })();
+            const dias = ['dom','seg','ter','qua','qui','sex','sáb'];
+            const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            const rot = iso => iso === hoje ? '<b style="color:#ef5b61">hoje</b>' : iso === am ? '<b style="color:#d97706">amanhã</b>' : (function(){ const [y, m, d] = iso.split('-').map(Number); return dias[new Date(y, m - 1, d).getDay()] + ' ' + String(d).padStart(2, '0') + '/' + String(m).padStart(2, '0'); })();
+            const brl = v => Math.abs(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+            const tot = l.reduce((a, t) => a + Math.abs(t.amount), 0);
+            box.innerHTML = l.length
+                ? '<div style="font-size:13px;opacity:.8;margin-bottom:8px">' + l.length + (l.length === 1 ? ' conta' : ' contas') + ' · total <b>' + brl(tot) + '</b></div>' +
+                  l.map(t => '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--border,rgba(148,163,184,.15));font-size:14px">' +
+                    '<span style="min-width:72px;font-size:12.5px">' + rot(t.date) + '</span>' +
+                    '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(String(t.desc || '').replace(/\s\(Recorrente\)$/, '')) + '</span>' +
+                    '<b style="white-space:nowrap">' + brl(t.amount) + '</b></div>').join('')
+                : '<div style="font-size:14px;opacity:.8;padding:6px 0">Nenhuma despesa lançada para os próximos 7 dias.</div>';
+            openModal('gf-contas-modal');
+        };
+        /* Aporte × meta, últimos 6 meses: card na Inteligência Financeira */
+        function _gfRenderAporteMeta(){
+            const pulso = document.getElementById('chart-daily-box'); if (!pulso || !pulso.parentNode) return;
+            let box = document.getElementById('gf-aporte-meta-box');
+            if (!box) {
+                box = document.createElement('div'); box.id = 'gf-aporte-meta-box'; box.className = 'chart-container';
+                pulso.parentNode.insertBefore(box, pulso.nextSibling);
+            }
+            const ok = window._gfInvest && window._gfInvest.ok;
+            const ref = _gfMesRef(), nomes = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+            const meses = []; for (let k = 5; k >= 0; k--) meses.push(addMesesISO(ref + '-01', -k).slice(0, 7));
+            const linhas = meses.map(m => { const rec = _gfReceitaDoMes(m), ap = ok ? Math.max(0, _gfInvestidoNoMes(m).total) : 0; return { m, pct: rec > 0 ? ap / rec * 100 : null, ap }; });
+            const maxP = Math.max(G20_META_APORTE * 1.6, ...linhas.map(l => l.pct || 0));
+            const alt = 120, yMeta = alt - Math.round(G20_META_APORTE / maxP * alt);
+            const barras = linhas.map(l => '<div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:4px" title="' + (l.pct == null ? 'sem receita' : Math.round(l.pct) + '% da receita') + '">' +
+                '<div style="font-size:11px;font-weight:700;color:' + (_gfCorAporte(l.pct) || 'inherit') + '">' + (l.pct == null ? '—' : Math.round(l.pct) + '%') + '</div>' +
+                '<div style="height:' + alt + 'px;width:100%;display:flex;align-items:flex-end;justify-content:center"><div style="width:55%;max-width:28px;border-radius:5px 5px 0 0;background:' + (_gfCorAporte(l.pct) || 'rgba(148,163,184,.4)') + ';height:' + (l.pct == null ? 0 : Math.max(2, Math.round(Math.min(l.pct, maxP) / maxP * alt))) + 'px"></div></div>' +
+                '<div style="font-size:11px;opacity:.75">' + nomes[parseInt(l.m.slice(5), 10) - 1] + '/' + l.m.slice(2, 4) + '</div></div>').join('');
+            box.innerHTML = '<h4 class="chart-title">Aporte × Meta (6 meses)</h4>' +
+                '<div style="font-size:12px;opacity:.75;text-align:center;margin:-4px 0 10px">% da receita investido em cada mês · meta G20: ' + G20_META_APORTE + '%' + (ok ? '' : ' · carregando aportes…') + '</div>' +
+                '<div style="position:relative;padding:0 6px">' +
+                  '<div style="position:absolute;left:0;right:0;top:' + (18 + yMeta) + 'px;border-top:2px dashed rgba(201,169,97,.8)"><span style="position:absolute;right:0;top:-16px;font-size:10.5px;color:#c9a961;font-weight:700">meta ' + G20_META_APORTE + '%</span></div>' +
+                  '<div style="display:flex;gap:6px;align-items:flex-end">' + barras + '</div>' +
+                '</div>';
+        }
         (function(){
             const _ra = renderAll;
-            renderAll = function(){ const r = _ra.apply(this, arguments); try { _gfRenderSobra(); } catch(e){ console.warn('[GF] sobra:', e); } return r; };
+            renderAll = function(){
+                const r = _ra.apply(this, arguments);
+                try { ['gf-sobra-card', 'gf-contas-card'].forEach(id => { const e = document.getElementById(id); if (e) e.remove(); }); } catch(e){}
+                try { _gfRenderAporteMeta(); } catch(e){ console.warn('[GF] aporte×meta:', e); }
+                return r;
+            };
         })();
 
         window._gfLimparFiltros = function(){
@@ -7747,8 +7834,8 @@ body.didactic-on .didactic-note{ display:block; }
                 window._fbLoad(['users', currentUserUid, 'dados', 'rendaFixa']).catch(() => null)
             ]).then(([a, b]) => {
                 const val = d => { try { const v = d && d.exists && d.data() ? d.data().value : null; return Array.isArray(v) ? v : (typeof v === 'string' ? JSON.parse(v) : []); } catch(e){ return []; } };
-                window._gfInvest = { ok: !!(a || b), rv: val(a), rf: val(b) };
-                try { _gfRenderSobra(); } catch(e){}
+                window._gfInvest = { ok: true, rv: val(a), rf: val(b) };   // carregou (mesmo vazio: conta nova mostra R$ 0)
+                try { _gfAtualizarAporteKpi(); _gfRenderAporteMeta(); } catch(e){}
             }).finally(() => { window._gfInvest.carregando = false; });
         };
         function _gfInvestidoNoMes(mes){
@@ -7818,6 +7905,42 @@ body.didactic-on .didactic-note{ display:block; }
                     '<div style="display:flex;gap:6px;align-items:flex-end">' + barras + '</div>' +
                   '</div>' +
                 '</div>';
+        }
+
+        /* ═══════════════════════════════════════════════════════════════════
+           CONTAS DOS PRÓXIMOS 7 DIAS (out/2026)
+           Despesas já lançadas com data de hoje até daqui a 7 dias (aluguel,
+           parcelas, recorrências). O sino também avisa na véspera e no dia
+           (assets/g20-notifications.js, interruptor "Finanças" no perfil).
+           ═══════════════════════════════════════════════════════════════════ */
+        function _gfRenderContas(){
+            const sobra = document.getElementById('gf-sobra-card'); if (!sobra || !sobra.parentNode) return;
+            let box = document.getElementById('gf-contas-card');
+            if (!box) {
+                box = document.createElement('div'); box.id = 'gf-contas-card';
+                box.style.cssText = 'margin:10px 0 4px;padding:14px 18px;border-radius:16px;border:1px solid rgba(239,91,97,.25);background:linear-gradient(135deg,rgba(239,91,97,.07),rgba(239,91,97,.01))';
+                sobra.parentNode.insertBefore(box, sobra.nextSibling);
+            }
+            const hoje = _hojeLocal(), lim = (function(){ const d = new Date(); d.setDate(d.getDate() + 7); return _isoLocal(d); })();
+            const am = (function(){ const d = new Date(); d.setDate(d.getDate() + 1); return _isoLocal(d); })();
+            const lista = (data.transactions || []).filter(t => t && t.amount < 0 && t.date >= hoje && t.date <= lim).sort((a, b) => a.date.localeCompare(b.date) || a.amount - b.amount);
+            const brl = v => Math.abs(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+            const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            const dias = ['dom','seg','ter','qua','qui','sex','sáb'];
+            const rotDia = iso => iso === hoje ? '<b style="color:#ef5b61">hoje</b>' : iso === am ? '<b style="color:#f59e0b">amanhã</b>' : (function(){ const [y, m, d] = iso.split('-').map(Number); const dt = new Date(y, m - 1, d); return dias[dt.getDay()] + ' ' + String(d).padStart(2, '0') + '/' + String(m).padStart(2, '0'); })();
+            const total = lista.reduce((a, t) => a + Math.abs(t.amount), 0);
+            const linhas = lista.slice(0, 8).map(t =>
+                '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid rgba(148,163,184,.12);font-size:13.5px">' +
+                  '<span style="min-width:74px;font-size:12px;opacity:.85">' + rotDia(t.date) + '</span>' +
+                  '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(String(t.desc || '').replace(/\s\(Recorrente\)$/, '')) + '</span>' +
+                  '<b style="white-space:nowrap">' + brl(t.amount) + '</b></div>').join('');
+            box.innerHTML =
+                '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px">' +
+                  '<div style="font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#ef5b61">🧾 Contas dos próximos 7 dias</div>' +
+                  (lista.length ? '<div style="font-size:13px">' + lista.length + (lista.length === 1 ? ' conta · ' : ' contas · ') + '<b>' + brl(total) + '</b></div>' : '') +
+                '</div>' +
+                (lista.length ? linhas + (lista.length > 8 ? '<div style="font-size:12px;opacity:.7;padding-top:6px">+ ' + (lista.length - 8) + ' outras no extrato</div>' : '')
+                              : '<div style="font-size:13px;opacity:.75;padding:4px 0">Nenhuma despesa lançada para os próximos 7 dias.</div>');
         }
 
         function renderAll() {
@@ -8006,8 +8129,7 @@ body.didactic-on .didactic-note{ display:block; }
             }
 
             // Contagem de transações e ticket médio
-            const tcEl = document.getElementById('kpi-trans-count');
-            if (tcEl) tcEl.innerText = _fk.length + ' lançam.';
+            try { _gfAtualizarAporteKpi(); } catch(e){}   // "Aporte do mês" (antes: total de lançamentos)
             const atEl = document.getElementById('kpi-avg-ticket');
             /* Lançamento 01/10: antes era saldo ÷ total de lançamentos (misturava
                entradas e saídas e não significava nada). Agora é o gasto médio
@@ -8034,8 +8156,7 @@ body.didactic-on .didactic-note{ display:block; }
             if (teEl) teEl.innerText = topExp < 0 ? fmtCur(Math.abs(topExp)) : '—';
 
             // Qtd saídas
-            const ecEl = document.getElementById('kpi-expense-count');
-            if (ecEl) ecEl.innerText = expTxs.length + ' saídas';
+            try { _gfAtualizarContasKpi(); } catch(e){}   // "A vencer (7 dias)" (antes: quantidade de saídas)
 
             // Média mensal de despesa
             const expMonths = [...new Set(expTxs.map(t => t.date.slice(0, 7)))].length || 1;
