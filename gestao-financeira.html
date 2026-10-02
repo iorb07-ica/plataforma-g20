@@ -3802,10 +3802,13 @@ body.didactic-on .didactic-note{ display:block; }
 }
 </style>
 <style id="gf-extrato-css">
-.gf-ico-rec{display:inline-block;margin-left:5px;font-size:13px;font-weight:800;color:#c9a961;line-height:1;vertical-align:middle;cursor:help}
-.gf-ico-parc{font-size:12px;color:#7c3aed}
+.gf-ico-rec{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:20px;padding:0 6px;margin-left:6px;border-radius:10px;font-size:15px;font-weight:900;line-height:1;vertical-align:middle;cursor:help;color:#8a6d1f;background:rgba(201,169,97,.18);border:1px solid rgba(201,169,97,.55)}
+.gf-ico-parc{font-size:11.5px;font-weight:800;color:#6d28d9;background:rgba(124,58,237,.12);border-color:rgba(124,58,237,.45)}
+body.dark .gf-ico-rec{color:#e8c766}
+body.dark .gf-ico-parc{color:#c4b5fd}
 .gf-ico-pg{margin-left:6px;font-size:12px;vertical-align:middle;opacity:.9;cursor:help}
 tr.gf-linha{cursor:pointer}
+tr.gf-linha > td:first-child{white-space:nowrap}
 </style>
 <style id="gf-semfim-css">
 .gf-semfim{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9px;font-size:10px;font-weight:700;letter-spacing:.3px;white-space:nowrap;color:#c9a961;background:rgba(201,169,97,.12);border:1px solid rgba(201,169,97,.35);vertical-align:middle}
@@ -4669,7 +4672,7 @@ tr.gf-linha{cursor:pointer}
                         <!-- Campo de busca com lupa dentro -->
                         <div style="position:relative; margin-bottom:6px;">
                             <i class="fa-solid fa-magnifying-glass" style="position:absolute; left:9px; top:50%; transform:translateY(-50%); color:var(--muted); font-size:12px; pointer-events:none;"></i>
-                            <input type="text" id="table-search" placeholder="Pesquisar descrição, valor, #tag..." onkeyup="renderAll()" style="width:100%; padding-left:28px; height:28px; font-size:12px; box-sizing:border-box;">
+                            <input type="text" id="table-search" placeholder="Pesquisar descrição, valor, cartão, #tag..." onkeyup="renderAll()" style="width:100%; padding-left:28px; height:28px; font-size:12px; box-sizing:border-box;">
                         </div>
                         <div class="scrollable-table">
                             <table id="main-table">
@@ -7728,7 +7731,10 @@ tr.gf-linha{cursor:pointer}
                 const matchStatus = fStatus === 'all' || (fStatus === 'confirmed' && t.verified) || (fStatus === 'pending' && !t.verified);
 
                 const tagsMatch = t.tags && t.tags.some(tag => tag.toLowerCase().includes(searchTerm));
-                const matchSearch = t.desc.toLowerCase().includes(searchTerm) || t.amount.toString().includes(searchTerm) || tagsMatch;
+                /* busca também pela forma de pagamento (ex.: "nubank" lista todas as
+                   compras no Nubank) e pela categoria (out/2026) */
+                const matchSearch = t.desc.toLowerCase().includes(searchTerm) || t.amount.toString().includes(searchTerm) || tagsMatch ||
+                    String(t.payment || '').toLowerCase().includes(searchTerm) || String(t.category || '').toLowerCase().includes(searchTerm);
 
                 return matchDate && matchTag && matchStatus && matchSearch;
             });
@@ -8157,9 +8163,10 @@ tr.gf-linha{cursor:pointer}
                         const iconClass = isSubscription ? 'rec-icon-continuous' : 'rec-icon-installment';
                         const iconTitle = isSubscription ? 'Recorrente sem data de término' : `Parcelado: ${t.desc.match(/\((\d+)\/\d+\)/)?.[0] || 'Finito'}`;
                         /* Extrato limpo (out/2026): ∞ = recorrente sem término; ◔ = parcelado (tem fim) */
+                        const _parc = (t.desc.match(/\((\d+\/\d+)\)/) || [])[1];
                         recIconHtml = isSubscription
                             ? `<span class="gf-ico-rec" title="${iconTitle}">∞</span>`
-                            : `<span class="gf-ico-rec gf-ico-parc" title="${iconTitle}">◔</span>`;
+                            : `<span class="gf-ico-rec gf-ico-parc" title="${iconTitle}">${_parc || '◔'}</span>`;
                     }
 
 
@@ -8211,7 +8218,7 @@ tr.gf-linha{cursor:pointer}
                                     <div style="display: flex; align-items: center; margin-bottom: 3px;">
                                         <i class="fa-solid ${catIcon} cat-icon-display" title="Ícone da Categoria"></i>
                                         
-                                        <span>${baseDesc}</span>${(function(){ try { const dc = _gfDataCaixa(t); if (!dc || dc === t.date) return ''; const f = dc.split('-').reverse().slice(0, 2).join('/'); return t.pagoEm ? '<span class="gf-ico-pg" title="Pago em ' + f + '">💸</span>' : '<span class="gf-ico-pg" title="' + String(t.payment).replace(/[<>&"']/g, '') + ' · fatura vence ' + f + '">💳</span>'; } catch(e){ return ''; } })()}
+                                        <span>${baseDesc}</span>
                                     </div>
                                     <div style="font-size: 10px; color: var(--text-light); margin-top: 3px;">
                                         ${t.tags.map(tag => `<span class="extrato-tag" title="Tag: ${tag}">${tag}</span>`).join('')}
