@@ -2822,3 +2822,35 @@
   var n = 0, t = setInterval(function(){ confirmar(aplicar); if (++n > 30 || (ehAdmin !== null && document.getElementById('g20AdmBtn'))) clearInterval(t); }, 700);
   window.addEventListener('resize', function(){ if (ehAdmin) aplicar(); });
 })();
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   FOTO NO NETWORKING (out/2026)
+   Quem tem o cartão público ativo mas sem foto (a foto do perfil ou a do
+   Google nunca tinha sido copiada para o cartão) ganha a foto automaticamente,
+   uma vez por aparelho. Custa 2 leituras e, se faltar, 1 gravação.
+   ═══════════════════════════════════════════════════════════════════════════ */
+(function(){
+  'use strict';
+  if (window.__g20NetFoto || window.G20_VER_ALUNO) return; window.__g20NetFoto = true;
+  var n = 0, t = setInterval(function(){
+    if (++n > 30) { clearInterval(t); return; }
+    try {
+      if (!window.firebase || !firebase.apps || !firebase.apps.length || !firebase.auth) return;
+      var u = firebase.auth().currentUser; if (!u) return;
+      clearInterval(t);
+      var k = 'g20_netfoto_ok_' + u.uid; try { if (localStorage.getItem(k)) return; } catch(e){}
+      var db = firebase.firestore(), card = db.collection('networking_public').doc(u.uid);
+      card.get().then(function(c){
+        if (!c.exists) return;                                   // sem cartão público: nada a fazer
+        if ((c.data() || {}).foto) { try { localStorage.setItem(k, '1'); } catch(e){} return; }
+        return db.collection('users').doc(u.uid).get().then(function(d){
+          var x = d.exists ? (d.data() || {}) : {}, p = x.perfil || {};
+          var f = p.foto || x.photo || x.foto || u.photoURL || '';
+          if (!(/^https:\/\/[^\s"'<>()`\\]+$/i.test(f) || /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/=]+$/.test(f))) return;
+          return card.set({ foto: f, atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
+            .then(function(){ try { localStorage.setItem(k, '1'); } catch(e){} });
+        });
+      }).catch(function(){});
+    } catch(e){}
+  }, 1500);
+})();
