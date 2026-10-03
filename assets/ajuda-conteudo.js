@@ -15,7 +15,7 @@
   var P = 'assets/ajuda/';
 
   window.G20_AJUDA = {
-    versao: '2026-10-02b',
+    versao: '2026-10-03a',
 
     secoes: [
 
@@ -58,14 +58,18 @@
       /* ── MEU PERFIL ───────────────────────────────────────────────── */
       {
         id: 'meu-perfil', ico: '👤', titulo: 'Meu Perfil',
-        resumo: 'Sua pontuação de 0 a 100, como melhorar e o Face ID.',
+        resumo: 'Sua nota de 0 a 100, como melhorar, os alertas e o Face ID.',
         passos: [
-          { img: P+'meu-perfil/perf01-pontuacao.webp', titulo: 'A Pontuação do perfil',
-            texto: 'No topo do Meu Perfil fica a sua <b>pontuação, de 0 a 100</b>. Ela mede o quanto o seu perfil está completo e bem contado. Só você vê a sua nota.' },
+          { img: P+'meu-perfil/perf01-pontuacao.webp', titulo: 'A nota do seu perfil',
+            texto: 'No topo do Meu Perfil fica a <b>nota do seu perfil, de 0 a 100</b>, com estrelas. Ela mede a qualidade do perfil, e não só se os campos obrigatórios estão preenchidos. Só você vê a sua nota. No celular, o cartão da nota aparece logo no início da página.' },
           { img: P+'meu-perfil/perf02-como-melhorar.webp', titulo: 'Como chegar a 100',
-            texto: 'Toque no cartão da pontuação para ver a lista <b>“Como melhorar”</b>, com quantos pontos cada item vale. O botão <b>“Preencher”</b> leva você direto ao campo.<br><br>Contam ponto: os campos obrigatórios, a foto, o “Sobre você”, as redes, o seu negócio, hobbies, favoritos e os dados extras. Perfil público e o que você mostra nas redes <b>não</b> contam: privacidade é escolha sua.' },
+            texto: 'Embaixo da nota aparecem as <b>dicas que mais sobem a sua nota</b>, cada uma com os pontos que vale (ex.: “Adicione uma foto de perfil +10”). Toque na dica para ir direto à parte certa.<br><br>Contam ponto: a foto, os dados pessoais, a Vida Financeira completa (inclusive os campos opcionais), o “O que você espera do G20” e o “Sobre mim” escritos de verdade (algumas frases), a profissão, pelo menos uma rede social, hobbies, o cartão do Networking ativado e o login com Face ID.' },
+          { img: P+'meu-perfil/perf04-dividas.webp', titulo: 'Suas dívidas',
+            texto: 'Em <b>Vida Financeira</b>, a pergunta “Como estão suas dívidas hoje?” tem opções para cada situação, de <b>“Não tenho nenhuma dívida”</b> até “As dívidas são meu maior problema hoje”. Dívidas caras são as de cartão de crédito, cheque especial e empréstimo pessoal. Essa resposta é só sua e do Israel: não aparece no Networking.' },
+          { img: P+'meu-perfil/perf05-alertas.webp', titulo: 'Os alertas do sino',
+            texto: 'Em <b>Acesso e Alertas</b> você escolhe quais avisos quer receber no sino. O alerta <b>🧾 Finanças</b> avisa das contas que vencem hoje ou amanhã e quando uma categoria do orçamento chega a 80% ou estoura. Desligou, ele para de avisar.' },
           { img: P+'meu-perfil/perf03-face-id.webp', titulo: 'Entrar com Face ID',
-            texto: 'Em <b>Acesso e Alertas</b>, toque em <b>“Ativar Face ID neste aparelho”</b>. Nos próximos acessos é só tocar em “Entrar com Face ID” na tela de login. Sua biometria nunca sai do aparelho, e cada aparelho é ativado separadamente.' }
+            texto: 'Em <b>Acesso e Alertas</b>, toque em <b>“Ativar Face ID neste aparelho”</b> (no computador com Windows aparece “Windows Hello”). Nos próximos acessos é só tocar em “Entrar com Face ID” na tela de login. Sua biometria nunca sai do aparelho, e cada aparelho é ativado separadamente.' }
         ]
       },
 
@@ -108,6 +112,8 @@
             texto: 'Na Minha Carteira, toque em <b>“Importar”</b>. Se não aparecer, arraste a barra de abas para o lado.' },
           { img: P+'minha-carteira/cart02-plataforma-antiga.webp', titulo: 'Escolha a origem',
             texto: 'Usava a plataforma antiga do G20? Escolha <b>“Plataforma antiga”</b>. Usa Status Invest ou MyProfit? Escolha a sua opção e siga o passo a passo da tela.' },
+          { img: P+'minha-carteira/cart10-status-invest.webp', titulo: 'Vindo do Status Invest',
+            texto: 'No <b>computador</b>, abra o Status Invest, entre em <b>Carteira › Transações</b> e, embaixo da tabela, troque o <b>10</b> por <b>Todos</b>. Clique em qualquer parte da página, aperte <b>Ctrl + A</b> e depois <b>Ctrl + C</b>. Volte para a plataforma, clique no quadro e aperte <b>Ctrl + V</b>.<br><br>Não tem acesso à aba Transações? Faça o mesmo na tela <b>Posição na Carteira</b>: cada ativo entra como uma compra pelo preço médio, com a data de hoje (sem o histórico de compras e vendas).<br><br>Colou de novo depois? A plataforma avisa que você já importou e traz só o que for novo, sem duplicar.' },
           { img: P+'minha-carteira/cart03-login-antigo.webp', titulo: 'O login da plataforma antiga',
             texto: 'Digite o <b>e-mail e a senha que você usava na plataforma ANTIGA</b> e toque em “Buscar minha carteira”. Essa senha é usada só para buscar a carteira e <b>não fica gravada</b> em lugar nenhum.' },
           { img: P+'minha-carteira/cart04-previa.webp', titulo: 'Confira e importe',
@@ -128,22 +134,32 @@
       /* ── GESTÃO FINANCEIRA ────────────────────────────────────────── */
       {
         id: 'gestao-financeira', ico: '🧾', titulo: 'Gestão Financeira',
-        resumo: 'Receitas, despesas, orçamento e quanto sobra para investir.',
+        resumo: 'Receitas, despesas, cartão de crédito, orçamento e o saldo real da sua conta.',
         passos: [
+          { img: P+'gestao-financeira/gf08-primeiros-passos.webp', titulo: 'Primeiros passos',
+            texto: 'Começando agora? O cartão <b>Primeiros passos</b> mostra o que falta para a Gestão Financeira ficar pronta: definir o saldo inicial, cadastrar os cartões, lançar a primeira receita, a primeira despesa e criar o primeiro orçamento. Cada passo se marca sozinho quando você faz. Não se aplica a você? Use <b>“Não tenho saldo agora”</b>, <b>“Não uso cartão”</b> ou <b>“Depois”</b>. Quando tudo estiver pronto, o cartão some.' },
           { img: P+'gestao-financeira/gf01-periodo.webp', titulo: 'Escolha o período',
-            texto: 'O ano, os últimos 3 ou 6 meses, o ano todo ou um mês específico.' },
-          { img: P+'gestao-financeira/gf02-resumo.webp', titulo: 'O resumo',
-            texto: 'Saldo, receitas e despesas do período escolhido.' },
-          { img: P+'gestao-financeira/gf03-sobra.webp', titulo: 'Sobra e investimento',
-            texto: 'Quanto sobrou no mês e quanto disso virou investimento. Investiu? Toque em <b>“Registrar aporte”</b>.' },
+            texto: 'A página sempre abre no <b>mês atual</b>. Toque em outro mês, nos atalhos (últimos 3 ou 6 meses, ano todo) ou, no celular, <b>toque e segure</b> um mês para escolher vários.' },
+          { img: P+'gestao-financeira/gf02-resumo.webp', titulo: 'Saldo, Receitas e Despesas',
+            texto: '<b>Saldo do mês</b>: receitas menos despesas, com o anel da sua taxa de economia e a comparação com o mês anterior. <b>Receitas</b>: com uma barra mostrando como o mês está em relação à sua média. <b>Despesas</b>: quanto da receita foi gasto e quanto do orçamento já foi usado.' },
+          { img: P+'gestao-financeira/gf09-saldo-inicial.webp', titulo: 'Saldo da conta (saldo inicial)',
+            texto: 'No card do Saldo, toque em <b>“Definir saldo inicial”</b> e informe quanto você tinha na conta no dia em que começou a registrar (aceita zero e valor negativo). Ele <b>não conta como receita</b>: serve para a plataforma mostrar <b>“Na conta”</b>, o saldo real de hoje, e para o gráfico da evolução do saldo partir do valor certo.' },
+          { img: P+'gestao-financeira/gf10-a-vencer.webp', titulo: 'Contas a vencer',
+            texto: 'No card das Despesas, <b>“A vencer 7d”</b> mostra quanto sai da conta nos próximos 7 dias. Toque para ver a lista. As compras no cartão aparecem juntas como uma conta só, a <b>fatura</b>, no dia do vencimento. O sino também avisa na véspera e no dia.' },
           { img: P+'gestao-financeira/gf04-lancar.webp', titulo: 'Lançar uma entrada ou saída',
-            texto: 'Preencha a data, a descrição, o valor, o tipo (<b>Saída</b> ou <b>Entrada</b>), a forma de pagamento e a categoria, e toque em <b>“Lançar”</b>. Gasto que se repete? Marque <b>“Repetir / parcelar”</b>.' },
+            texto: 'Preencha a data, a descrição, o valor, toque em <b>− Saída</b> ou <b>+ Entrada</b>, escolha a forma de pagamento e a categoria, e toque em <b>“Lançar”</b>. Lançou a mesma descrição antes? A categoria e a forma de pagamento vêm sozinhas. Gasto que se repete ou parcelado? Marque <b>“Repetir / parcelar”</b>.<br><br>No celular, o botão dourado <b>＋</b> no canto da tela leva direto ao lançamento.' },
+          { img: P+'gestao-financeira/gf11-cartao.webp', titulo: 'Cartão de crédito',
+            texto: 'Toque na engrenagem ao lado de <b>Forma de pagamento</b> e no <b>💳</b> do seu cartão para informar o <b>dia do fechamento</b> e o <b>dia do vencimento</b>. A partir daí, cada compra no cartão conta no dia da compra (no orçamento e nas categorias), mas só <b>sai da sua conta no vencimento da fatura</b>. Ao escolher o cartão no lançamento, a plataforma mostra em que dia ele sai da conta.' },
+          { img: P+'gestao-financeira/gf12-pago-em-outra-data.webp', titulo: 'Pago em outra data?',
+            texto: 'Boleto pago depois, Pix agendado ou conta que só vai sair da conta em outro dia? Ao lançar, toque em <b>“Pago em outra data?”</b> e informe o dia em que o dinheiro sai da conta.' },
           { img: P+'gestao-financeira/gf05-inteligencia.webp', titulo: 'Inteligência financeira',
-            texto: 'Gráficos que mostram para onde o seu dinheiro está indo: evolução do saldo, calendário de gastos, categorias e muito mais.' },
+            texto: 'Gráficos que mostram para onde o seu dinheiro está indo. A <b>Evolução do saldo</b> mostra o fluxo de caixa: o saldo da sua conta dia a dia, com o cartão entrando no vencimento. No celular aparecem os 2 principais; toque em <b>“Ver todos os gráficos”</b> para abrir os outros.' },
           { img: P+'gestao-financeira/gf06-orcamento.webp', titulo: 'Orçamento',
-            texto: 'Defina um limite por categoria e acompanhe quanto já gastou de cada uma.' },
+            texto: 'Defina um limite por categoria (ou por tag) e acompanhe quanto já gastou. Com o ano inteiro selecionado, aparece também o limite <b>até o mês atual</b>, para você saber se está dentro do ritmo.' },
           { img: P+'gestao-financeira/gf07-extrato.webp', titulo: 'Extrato',
-            texto: 'Todos os lançamentos, com busca por descrição, valor ou #tag.' }
+            texto: 'Todos os lançamentos. A busca encontra por descrição, valor, <b>#tag</b>, categoria ou <b>cartão</b> (ex.: “nubank” mostra tudo o que foi pago no Nubank). O selo <b>∞</b> marca o que se repete sem data de término, e <b>2/10</b> marca a parcela. Toque na linha para ver os detalhes: cartão, quando vence a fatura e quando o dinheiro sai da conta.' },
+          { img: P+'gestao-financeira/gf13-atalhos.webp', titulo: 'Atalhos no celular',
+            texto: 'Logo abaixo dos filtros, os atalhos <b>＋ Lançar · Extrato · Gráficos · Orçamento</b> levam direto para cada parte da página, sem precisar rolar.' }
         ]
       },
 
@@ -274,6 +290,14 @@
         r: 'Só aparece quem ativou o <b>Perfil Público</b> no Meu Perfil. É uma escolha sua, e você pode desativar quando quiser.' },
       { p: 'Os meus dados estão seguros?',
         r: 'Os seus dados financeiros e o seu perfil completo são visíveis só para você. No Networking aparece apenas o que você escolher mostrar. A senha da plataforma antiga, usada na importação, não fica gravada em lugar nenhum.' },
+      { p: 'Comprei no cartão e o saldo da conta não diminuiu.',
+        r: 'É assim mesmo: a compra conta como despesa no dia da compra, mas só sai da conta no <b>vencimento da fatura</b>. Para isso funcionar, cadastre o fechamento e o vencimento do cartão (veja <a href="#gestao-financeira">Gestão Financeira › Cartão de crédito</a>).' },
+      { p: 'O que é o saldo inicial? Ele conta como receita?',
+        r: 'Não conta como receita. É quanto você tinha na conta quando começou a usar a Gestão Financeira. Com ele, a plataforma mostra o saldo real da conta (“Na conta”) e o gráfico da evolução do saldo parte do valor certo.' },
+      { p: 'Colei a carteira do Status Invest e apareceu uma mensagem vermelha.',
+        r: 'Confira se você estava na aba <b>Transações</b> do Status Invest, com <b>Todos</b> selecionado embaixo da tabela, e copiou a página inteira (Ctrl + A e Ctrl + C). Se mesmo assim não der, mande pelo <a href="#" onclick="ajFeedback(\'bug\');return false">Feedback</a> um print da mensagem: ela traz um “detalhe técnico” que ajuda a resolver rápido.' },
+      { p: 'Alguns botões do topo sumiram quando aumentei o zoom.',
+        r: 'Com zoom maior, o topo se ajusta: os atalhos do meio viram só ícones (o nome aparece ao passar o mouse) e a busca vira uma lupa. Nada é cortado. Para voltar ao tamanho normal, aperte <b>Ctrl + 0</b>.' },
       { p: 'A tela está um pouco diferente do print da ajuda.',
         r: 'A plataforma está sempre evoluindo, e os prints podem levar alguns dias para acompanhar uma mudança. O caminho costuma ser o mesmo.' },
       { p: 'Não achei a resposta aqui. Como peço ajuda?',
