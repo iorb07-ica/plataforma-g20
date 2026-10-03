@@ -3004,3 +3004,19 @@
     if (mostrarInstalar || mostrarNotif) setTimeout(function(){ if (!document.getElementById('g20Inst') && !document.querySelector('.modal-overlay.active, .modal.show')) abrir(false); }, 4000);
   }, 1500);
 })();
+
+/* ═══════════════════════════════════════════════════════════════════
+   MENU LATERAL NO CELULAR: RESPIRO EMBAIXO DO "SAIR" (out/2026)
+   No iPhone, a barrinha de gestos (embaixo da tela) ficava por cima do
+   botão Sair. Agora o fim do menu tem a altura da barrinha + uma folga.
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+  'use strict';
+  if (document.getElementById('g20-sair-respiro-css')) return;
+  var st = document.createElement('style'); st.id = 'g20-sair-respiro-css';
+  st.textContent = '@media (max-width:768px){' +
+    '#sidebar .sidebar-footer{padding-bottom:calc(env(safe-area-inset-bottom, 0px) + 28px)!important;margin-bottom:0!important}' +
+    '#sidebar.open{scroll-padding-bottom:calc(env(safe-area-inset-bottom, 0px) + 28px)}' +
+  '}';
+  (document.head || document.documentElement).appendChild(st);
+})();
