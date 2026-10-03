@@ -2686,3 +2686,55 @@
   document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'hidden') gravar(true); });
   window.addEventListener('pagehide', function(){ gravar(true); });
 })();
+
+/* ═══════════════════════════════════════════════════════════════════
+   AJUDA DESTA PÁGINA (out/2026)
+   - Computador: botão 🛟 na barra do topo, que abre a Central de Ajuda
+     direto na seção da página onde o aluno está.
+   - Celular: a barra do topo não tem espaço; o item "Central de Ajuda"
+     do menu lateral passa a abrir direto na seção da página atual.
+   A Central já abre na versão (celular ou computador) do aparelho.
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+  'use strict';
+  if (window.__g20AjudaPagina) return;
+  window.__g20AjudaPagina = true;
+  var PAG = (location.pathname.split('/').pop() || 'index.html').toLowerCase();
+  if (PAG === 'ajuda.html') return;
+  var SECAO = {
+    'dashboard.html': 'dashboard', 'gestao-patrimonial.html': 'minha-carteira', 'gestao-financeira.html': 'gestao-financeira',
+    'sala-de-aula.html': 'sala-de-aula', 'g20flix.html': 'g20flix', 'g20cast.html': 'g20cast', 'biblioteca.html': 'biblioteca',
+    'carteira.html': 'carteira-g20', 'game-g20.html': 'game-g20', 'networking.html': 'networking', 'perfil.html': 'meu-perfil'
+  };
+  var destino = 'ajuda.html' + (SECAO[PAG] ? '#' + SECAO[PAG] : '');
+
+  function css(){
+    if (document.getElementById('g20-ajuda-btn-css')) return;
+    var st = document.createElement('style'); st.id = 'g20-ajuda-btn-css';
+    st.textContent = '#g20AjudaBtn{display:inline-flex;align-items:center;justify-content:center}' +
+      '#g20AjudaBtn svg{width:18px;height:18px}' +
+      '@media (max-width:768px){#g20AjudaBtn{display:none!important}}';
+    (document.head || document.documentElement).appendChild(st);
+  }
+  function botao(){
+    var barra = document.querySelector('.topbar .topbar-right');
+    if (!barra || document.getElementById('g20AjudaBtn')) return !!barra;
+    var b = document.createElement('a');
+    b.id = 'g20AjudaBtn'; b.className = 'btn-icon'; b.href = destino;
+    b.title = 'Ajuda desta página'; b.setAttribute('aria-label', 'Ajuda desta página');
+    b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><path d="m4.93 4.93 4.24 4.24M14.83 14.83l4.24 4.24M14.83 9.17l4.24-4.24M4.93 19.07l4.24-4.24"/></svg>';
+    // antes do sino de notificações, quando existir; senão, no começo da barra
+    var sino = barra.querySelector('[onclick*="otific"], #notifBtn, .notif-btn');
+    if (sino && sino.parentNode === barra) barra.insertBefore(b, sino); else barra.insertBefore(b, barra.firstChild);
+    return true;
+  }
+  function menu(){
+    document.querySelectorAll('#sidebar a[href="ajuda.html"], #sidebar a[href^="ajuda.html#"]').forEach(function(a){ a.setAttribute('href', destino); });
+  }
+  function iniciar(){
+    css(); menu(); botao();
+    // o menu e a barra podem ser montados um pouco depois
+    var n = 0, t = setInterval(function(){ menu(); botao(); if (++n > 10) clearInterval(t); }, 500);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
+})();
