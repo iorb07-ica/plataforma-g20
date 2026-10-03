@@ -130,6 +130,7 @@
 
     function checar(){
       try{
+        if(window.G20_VER_ALUNO) return true;   // admin vendo a página de um aluno (somente leitura): a trava é do aluno, não do admin
         if(typeof firebase === 'undefined' || !firebase.apps || !firebase.apps.length || !firebase.auth) return false;
         firebase.auth().onAuthStateChanged(function(user){
           if(!user) return;                       // sem login, o guard de auth de cada página resolve
