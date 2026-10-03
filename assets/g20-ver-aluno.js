@@ -82,9 +82,9 @@
     var b = document.createElement('div');
     b.id = 'g20VerAlunoFaixa';
     b.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:2147483000;background:linear-gradient(90deg,#7c2d12,#9a3412);color:#fff;font:700 13.5px/1.3 "DM Sans",system-ui,sans-serif;padding:10px 14px calc(10px + env(safe-area-inset-bottom,0px));display:flex;align-items:center;gap:10px;box-shadow:0 -6px 20px rgba(0,0,0,.35)';
-    b.innerHTML = '<span style="font-size:18px">👁</span><span style="flex:1">Vendo como <b></b> · somente leitura: nada do que você fizer aqui é salvo</span><button type="button" style="border:1px solid rgba(255,255,255,.6);background:transparent;color:#fff;border-radius:999px;padding:6px 14px;font:inherit;cursor:pointer">Sair</button>';
+    b.innerHTML = '<span style="font-size:18px">👁</span><span style="flex:1">Vendo como <b></b> · somente leitura: nada do que você fizer aqui é salvo</span><button type="button" style="border:1px solid rgba(255,255,255,.6);background:transparent;color:#fff;border-radius:999px;padding:6px 14px;font:inherit;cursor:pointer;white-space:nowrap">← Voltar aos alunos</button>';
     b.querySelector('b').textContent = nome || 'aluno';
-    b.querySelector('button').onclick = sair;
+    b.querySelector('button').onclick = function(){ location.href = 'admin-acompanhamento.html'; };   // volta para a lista de alunos
     document.body.appendChild(b);
     document.body.style.paddingBottom = '56px';
   }
