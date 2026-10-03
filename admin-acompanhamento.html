@@ -102,6 +102,8 @@ tr:last-child td{border-bottom:none}
 .ac-pag{display:flex;gap:8px;justify-content:center;align-items:center;margin-top:12px;font-size:13px;color:var(--text3)}
 .ac-pag button{height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);cursor:pointer}
 .ac-wrap{overflow-x:auto}
+.acd{display:none}.ac-din .acd{display:table-cell}
+.ac-num{white-space:nowrap;font-variant-numeric:tabular-nums}
 </style>
 
 <div class="ac-stats">
@@ -117,6 +119,15 @@ tr:last-child td{border-bottom:none}
   <div class="ac-box"><h3>Curso por turma</h3><div id="acTurmas">Carregando…</div></div>
 </div>
 
+<div class="ac-box" style="margin-bottom:16px" id="acDinBox">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <h3 style="margin:0">Carteira e finanças dos alunos</h3>
+    <span id="acDinStatus" style="font-size:12px;color:var(--text3)">Carrega a Minha Carteira e a Gestão Financeira de cada aluno (leva alguns segundos).</span>
+    <button class="ac-btn" id="acDinBtn" style="margin-left:auto" onclick="acCarregarDinheiro()">Carregar carteira e finanças</button>
+  </div>
+  <div class="ac-stats" id="acDinStats" style="display:none;margin:14px 0 0"></div>
+</div>
+
 <div class="ac-box">
   <div class="ac-filtros">
     <input id="acBusca" type="search" placeholder="🔎 Buscar por nome ou e-mail" oninput="acPagina=0;acRender()">
@@ -129,9 +140,12 @@ tr:last-child td{border-bottom:none}
   <div class="ac-wrap"><table class="ac-tab">
     <thead><tr>
       <th onclick="acOrdenar('nome')">Aluno</th><th onclick="acOrdenar('turma')">Turma</th><th onclick="acOrdenar('cadastro')">Cadastro</th>
-      <th onclick="acOrdenar('perfil')">Perfil</th><th onclick="acOrdenar('pct')">Aulas</th><th onclick="acOrdenar('ultima')">Última aula concluída</th><th onclick="acOrdenar('status')">Situação</th>
+      <th onclick="acOrdenar('perfil')">Perfil</th><th onclick="acOrdenar('pct')">Aulas</th><th onclick="acOrdenar('ultima')">Última aula concluída</th>
+      <th class="acd" onclick="acOrdenar('patr')">Patrimônio investido</th><th class="acd" onclick="acOrdenar('ap12')">Aportes 12m</th><th class="acd" onclick="acOrdenar('ultAporte')">Último aporte</th>
+      <th class="acd" onclick="acOrdenar('nAtivos')">Ativos</th><th class="acd" onclick="acOrdenar('econ')">Economia (mês ant.)</th><th class="acd" onclick="acOrdenar('ultLanc')">Gestão Fin.</th>
+      <th onclick="acOrdenar('status')">Situação</th>
     </tr></thead>
-    <tbody id="acCorpo"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:24px">Carregando os alunos…</td></tr></tbody>
+    <tbody id="acCorpo"><tr><td colspan="13" style="text-align:center;color:var(--text3);padding:24px">Carregando os alunos…</td></tr></tbody>
   </table></div>
   <div class="ac-pag" id="acPag"></div>
   <div style="font-size:11.5px;color:var(--text3);margin-top:10px;line-height:1.5">Aulas: só as concluídas sobre o total de aulas publicadas hoje. Tempo de uso, último acesso e páginas visitadas entram na próxima fase, quando o registro de uso estiver no ar.</div>
@@ -154,6 +168,7 @@ const auth = firebase.auth();
 const db = firebase.firestore();
 let acAlunos = [], acAulasPub = {}, acTotalAulas = 0, acOrdem = { col: 'pct', dir: -1 }, acPagina = 0;
 const AC_POR_PAGINA = 50;
+let acDinCarregado = false;
 
 function acEsc(v){ return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function acData(v){ try { const d = v && v.toDate ? v.toDate() : (typeof v === 'number' ? new Date(v) : (v ? new Date(v) : null)); return d && !isNaN(d) ? d : null; } catch(e){ return null; } }
@@ -207,7 +222,7 @@ async function acCarregar(){
     acMontarTurmas(); acResumo(); acRender();
   } catch(e){
     console.error('[Acompanhamento]', e);
-    document.getElementById('acCorpo').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--red);padding:24px">Não consegui carregar: ' + acEsc(e.message) + '</td></tr>';
+    document.getElementById('acCorpo').innerHTML = '<tr><td colspan="13" style="text-align:center;color:var(--red);padding:24px">Não consegui carregar: ' + acEsc(e.message) + '</td></tr>';
   } finally { const ol = document.getElementById('g20LoadingOverlay'); if (ol) ol.style.display = 'none'; }
 }
 
@@ -260,7 +275,8 @@ function acFiltrados(){
 }
 function acOrdenar(col){ acOrdem = { col: col, dir: acOrdem.col === col ? -acOrdem.dir : (col === 'nome' || col === 'turma' ? 1 : -1) }; acRender(); }
 function acValor(a, col){
-  if (col === 'cadastro' || col === 'ultima') return a[col] ? a[col].getTime() : 0;
+  if (col === 'cadastro' || col === 'ultima' || col === 'ultAporte' || col === 'ultLanc') return a[col] ? a[col].getTime() : 0;
+  if (col === 'econ') return a.econ == null ? -999 : a.econ;
   if (col === 'perfil') return a.perfil == null ? -1 : a.perfil;
   if (col === 'turma') return parseInt(String(a.turma).replace(/\D/g, ''), 10) || 0;
   return typeof a[col] === 'string' ? a[col].toLowerCase() : (a[col] || 0);
@@ -277,14 +293,106 @@ function acRender(){
       '<td>' + (a.perfil == null ? '<span style="color:var(--text3)">–</span>' : '<b style="color:' + (a.perfil >= 80 ? 'var(--green)' : a.perfil >= 50 ? 'var(--gold)' : 'var(--red)') + '">' + a.perfil + '</b>') + '</td>' +
       '<td><div class="ac-bar"><div class="t"><i style="width:' + a.pct + '%"></i></div><span>' + a.feitas + '/' + acTotalAulas + '</span></div></td>' +
       '<td>' + (a.ultima ? acFmt(a.ultima) + ' <small style="color:var(--text3)">(' + acRel(a.ultima) + ')</small>' : '–') + '</td>' +
+      acColsDinheiro(a) +
       '<td><span class="ac-pill" style="color:' + cor[0] + ';background:' + cor[1] + '">' + a.status + '</span></td></tr>';
-  }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:24px">Nenhum aluno com esses filtros.</td></tr>';
+  }).join('') || '<tr><td colspan="13" style="text-align:center;color:var(--text3);padding:24px">Nenhum aluno com esses filtros.</td></tr>';
   document.querySelectorAll('#acCorpo tr.cl').forEach(tr => tr.onclick = function(){ window.location.href = 'admin-aluno-progresso.html?uid=' + encodeURIComponent(tr.dataset.uid); });
   document.getElementById('acPag').innerHTML = lista.length + ' aluno(s)' + (pags > 1 ? ' · <button onclick="acPagina=Math.max(0,acPagina-1);acRender()">‹</button> página ' + (acPagina + 1) + ' de ' + pags + ' <button onclick="acPagina=Math.min(' + (pags - 1) + ',acPagina+1);acRender()">›</button>' : '');
 }
+/* ═══ CARTEIRA E FINANÇAS (Fase 1.5) ═══
+   Por aluno: users/{uid}/dados/rvAportes, rendaFixa, patrimonioBens,
+   rvDividendos e financeiro_Pessoal. Valores em reais (dólar convertido pelo
+   câmbio gravado em cada compra). "Patrimônio investido" = custo, não o valor
+   de mercado (esse aparece no "Ver como o aluno"). */
+function acN(v){ return v == null || isNaN(v) ? '' : Math.round(v * 100) / 100; }
+function acBRL(v, curto){ if (v == null || isNaN(v)) return '–'; if (curto && Math.abs(v) >= 1e6) return 'R$ ' + (v / 1e6).toFixed(1).replace('.', ',') + ' mi'; if (curto && Math.abs(v) >= 1e4) return 'R$ ' + Math.round(v / 1e3) + ' mil'; return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }); }
+function acColsDinheiro(a){
+  if (!acDinCarregado) return '<td class="acd"></td><td class="acd"></td><td class="acd"></td><td class="acd"></td><td class="acd"></td><td class="acd"></td>';
+  const e = a.econ == null ? '–' : '<b style="color:' + (a.econ >= 20 ? 'var(--green)' : a.econ >= 10 ? 'var(--gold)' : 'var(--red)') + '">' + a.econ + '%</b>';
+  return '<td class="acd ac-num">' + (a.patr ? acBRL(a.patr, true) : '<span style="color:var(--text3)">não importou</span>') + '</td>' +
+    '<td class="acd ac-num">' + (a.ap12 ? acBRL(a.ap12, true) : '–') + '</td>' +
+    '<td class="acd ac-num">' + (a.ultAporte ? acRel(a.ultAporte) : '–') + '</td>' +
+    '<td class="acd ac-num">' + (a.nAtivos || '–') + '</td>' +
+    '<td class="acd ac-num">' + e + '</td>' +
+    '<td class="acd ac-num">' + (a.nLanc ? a.nLanc + ' · ' + acRel(a.ultLanc) : '<span style="color:var(--text3)">não usa</span>') + '</td>';
+}
+async function acDadosAluno(a){
+  const ref = db.collection('users').doc(a.uid).collection('dados');
+  const ler = id => ref.doc(id).get().then(d => d.exists ? (d.data() || {}) : null).catch(() => null);
+  const [rv, rf, bens, prov, gf] = await Promise.all([ler('rvAportes'), ler('rendaFixa'), ler('patrimonioBens'), ler('rvDividendos'), ler('financeiro_Pessoal')]);
+  const hoje = new Date(), lim12 = new Date(hoje.getFullYear() - 1, hoje.getMonth(), hoje.getDate()).toISOString().slice(0, 10);
+  // renda variável: custo líquido por ativo (compras − vendas pelo preço médio)
+  const ap = (rv && Array.isArray(rv.value)) ? rv.value : [];
+  const pos = {}; let ap12 = 0, ult = '', orig = {};
+  ap.slice().sort((x, y) => String(x.data).localeCompare(String(y.data))).forEach(t => {
+    const fx = t.moeda === 'USD' ? (Number(t.fxRate) || 5) : 1, q = Number(t.qtd) || 0, v = q * (Number(t.preco) || 0) * fx, k = String(t.ticker || '').toUpperCase();
+    const p = pos[k] = pos[k] || { q: 0, c: 0 };
+    if (t.op === 'V') { const pm = p.q > 0 ? p.c / p.q : 0; p.q -= q; p.c -= pm * q; if (p.q <= 1e-9) { p.q = 0; p.c = 0; } }
+    else { p.q += q; p.c += v; if (!t.bonificacao && t.data >= lim12) ap12 += v; if (t.data > ult && !t.bonificacao) ult = t.data; }
+    const og = String(t.origem || '').toLowerCase();
+    const o = (t.idV1 || og.indexOf('plataforma') === 0) ? 'Plataforma antiga' : og === 'myprofit' ? 'MyProfit' : t.idSI ? (String(t.idSI).indexOf('si-pos-') === 0 ? 'Status Invest (posição)' : 'Status Invest') : 'Manual';
+    orig[o] = (orig[o] || 0) + 1;
+  });
+  a.rv = Object.keys(pos).reduce((s, k) => s + Math.max(0, pos[k].c), 0);
+  a.nAtivos = Object.keys(pos).filter(k => pos[k].q > 0).length;
+  a.nTx = ap.length; a.ap12 = ap12; a.ultAporte = ult ? new Date(ult + 'T12:00:00') : null;
+  a.origem = Object.keys(orig).sort((x, y) => orig[y] - orig[x]).join(', ');
+  const rfl = (rf && Array.isArray(rf.value)) ? rf.value : [];
+  a.rf = rfl.filter(r => !r.resgatado && !r.resgatadoEm).reduce((s, r) => s + (Number(r.valorAtual) || Number(r.valorInv) || 0), 0);
+  rfl.forEach(r => { if (r.dataInicio >= lim12) a.ap12 += Number(r.valorInv) || 0; });
+  const bl = (bens && Array.isArray(bens.value)) ? bens.value : [];
+  a.bens = bl.reduce((s, b) => s + (Number(b.valor) || 0) - (Number(b.divida) || 0), 0);
+  a.patr = a.rv + a.rf + a.bens;
+  const pl = (prov && Array.isArray(prov.value)) ? prov.value : [];
+  a.prov12 = pl.filter(p => String(p.dataPag || p.data || '') >= lim12 && String(p.dataPag || p.data || '') <= hoje.toISOString().slice(0, 10))
+               .reduce((s, p) => s + (Number(p.valor) || 0) * (p.moeda === 'USD' ? 5 : 1), 0);
+  // Gestão Financeira (perfil principal)
+  a.nLanc = 0; a.ultLanc = null; a.recAnt = null; a.despAnt = null; a.econ = null; a.usaOrc = false;
+  try {
+    const d = gf && gf.data ? (typeof gf.data === 'string' ? JSON.parse(gf.data) : gf.data) : null;
+    if (d && Array.isArray(d.transactions)) {
+      const hj = hoje.toISOString().slice(0, 10), ant = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1), mAnt = ant.getFullYear() + '-' + String(ant.getMonth() + 1).padStart(2, '0');
+      let ul = '', rec = 0, desp = 0;
+      d.transactions.forEach(t => { if (!t || !t.date) return; if (t.date <= hj) { a.nLanc++; if (t.date > ul) ul = t.date; }
+        if (t.date.slice(0, 7) === mAnt) { if (t.amount > 0) rec += t.amount; else desp += -t.amount; } });
+      a.ultLanc = ul ? new Date(ul + 'T12:00:00') : null; a.recAnt = rec; a.despAnt = desp;
+      a.econ = rec > 0 ? Math.round((rec - desp) / rec * 100) : null;
+      a.usaOrc = Object.keys(d.budgets || {}).length > 0 || Object.keys(d.tagBudgets || {}).length > 0;
+    }
+  } catch(e){}
+}
+async function acCarregarDinheiro(){
+  const b = document.getElementById('acDinBtn'), st = document.getElementById('acDinStatus');
+  b.disabled = true; b.textContent = 'Carregando…';
+  const alvos = acAlunos.filter(a => a.aprovado && !a.admin); let feitos = 0;
+  // em lotes de 8 para não sobrecarregar
+  for (let i = 0; i < alvos.length; i += 8) {
+    await Promise.all(alvos.slice(i, i + 8).map(a => acDadosAluno(a).catch(() => {})));
+    feitos = Math.min(alvos.length, i + 8); st.textContent = 'Carregando… ' + feitos + ' de ' + alvos.length;
+  }
+  acDinCarregado = true; document.querySelector('.ac-tab').classList.add('ac-din');
+  const n = alvos.length || 1, imp = alvos.filter(a => a.nTx > 0), gfU = alvos.filter(a => a.nLanc > 0),
+        gf30 = alvos.filter(a => a.ultLanc && Date.now() - a.ultLanc.getTime() < 30 * 864e5), ap90 = alvos.filter(a => a.ultAporte && Date.now() - a.ultAporte.getTime() < 90 * 864e5);
+  const somaPatr = alvos.reduce((s, a) => s + (a.patr || 0), 0), somaAp = alvos.reduce((s, a) => s + (a.ap12 || 0), 0);
+  const ec = alvos.filter(a => a.econ != null);
+  const card = (l, v, sub, c) => '<div class="ac-stat"><div class="l">' + l + '</div><div class="v"' + (c ? ' style="color:' + c + '"' : '') + '>' + v + '</div><div class="s">' + sub + '</div></div>';
+  const ds = document.getElementById('acDinStats'); ds.style.display = '';
+  ds.innerHTML = card('Importaram a carteira', imp.length + ' <small style="font-size:15px;color:var(--text3)">de ' + alvos.length + '</small>', Math.round(imp.length / n * 100) + '% dos alunos', 'var(--gold)') +
+    card('Patrimônio investido', acBRL(somaPatr, true), 'soma dos alunos (custo) · média ' + acBRL(imp.length ? somaPatr / imp.length : 0, true)) +
+    card('Aportes em 12 meses', acBRL(somaAp, true), 'média ' + acBRL(imp.length ? somaAp / imp.length / 12 : 0, true) + ' por aluno/mês', 'var(--green)') +
+    card('Aportaram (90 dias)', ap90.length, 'alunos com compra nos últimos 90 dias') +
+    card('Usam a Gestão Financeira', gfU.length + ' <small style="font-size:15px;color:var(--text3)">de ' + alvos.length + '</small>', gf30.length + ' lançaram nos últimos 30 dias', 'var(--blue)') +
+    card('Taxa de economia média', ec.length ? Math.round(ec.reduce((s, a) => s + a.econ, 0) / ec.length) + '%' : '–', 'mês passado, de quem lançou receita');
+  st.textContent = 'Atualizado agora · patrimônio pelo custo (o valor de mercado aparece no "Ver como o aluno").';
+  b.textContent = 'Recarregar'; b.disabled = false;
+  acRender();
+}
+
 function acCsv(){
-  const lin = [['Nome','E-mail','Turma','Cadastro','Nota do perfil','Aulas concluídas','Total de aulas','% do curso','Última aula concluída','Situação']];
-  acFiltrados().forEach(a => lin.push([a.nome, a.email, a.turma, acFmt(a.cadastro), a.perfil == null ? '' : a.perfil, a.feitas, acTotalAulas, a.pct, acFmt(a.ultima), a.status]));
+  const lin = [['Nome','E-mail','Turma','Cadastro','Nota do perfil','Aulas concluídas','Total de aulas','% do curso','Última aula concluída','Situação']
+    .concat(acDinCarregado ? ['Patrimônio investido (R$)','Renda variável (R$)','Renda fixa (R$)','Bens (R$)','Aportes 12m (R$)','Último aporte','Nº de ativos','Proventos 12m (R$)','Origem da carteira','Lançamentos GF','Último lançamento GF','Receita mês ant. (R$)','Despesa mês ant. (R$)','Taxa de economia mês ant. (%)','Usa orçamento'] : [])];
+  acFiltrados().forEach(a => lin.push([a.nome, a.email, a.turma, acFmt(a.cadastro), a.perfil == null ? '' : a.perfil, a.feitas, acTotalAulas, a.pct, acFmt(a.ultima), a.status]
+    .concat(acDinCarregado ? [acN(a.patr), acN(a.rv), acN(a.rf), acN(a.bens), acN(a.ap12), acFmt(a.ultAporte), a.nAtivos || 0, acN(a.prov12), a.origem || '', a.nLanc || 0, acFmt(a.ultLanc), acN(a.recAnt), acN(a.despAnt), a.econ == null ? '' : a.econ, a.usaOrc ? 'sim' : 'não'] : [])));
   const csv = lin.map(l => l.map(c => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"').join(';')).join('\n');
   const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }), url = URL.createObjectURL(blob), el = document.createElement('a');
   el.href = url; el.download = 'acompanhamento-g20-' + new Date().toISOString().slice(0, 10) + '.csv'; document.body.appendChild(el); el.click(); el.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
