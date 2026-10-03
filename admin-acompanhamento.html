@@ -128,6 +128,7 @@ tr:last-child td{border-bottom:none}
     <h3 style="margin:0">Carteira e finanças dos alunos</h3>
     <span id="acDinStatus" style="font-size:12px;color:var(--text3)">Carrega a Minha Carteira e a Gestão Financeira de cada aluno (leva alguns segundos).</span>
     <button class="ac-btn" id="acDinBtn" style="margin-left:auto" onclick="acCarregarDinheiro()">Carregar carteira e finanças</button>
+    <button class="ac-btn" id="acSrvBtn" onclick="acRecalcularServidor()" title="Recalcula agora, no servidor, o resumo de todos os alunos (o automático roda todo dia às 19h)">⚙ Recalcular no servidor</button>
   </div>
   <div class="ac-stats" id="acDinStats" style="display:none;margin:14px 0 0"></div>
 </div>
@@ -144,12 +145,12 @@ tr:last-child td{border-bottom:none}
   <div class="ac-wrap"><table class="ac-tab">
     <thead><tr>
       <th onclick="acOrdenar('nome')">Aluno</th><th onclick="acOrdenar('turma')">Turma</th><th onclick="acOrdenar('cadastro')">Cadastro</th>
-      <th onclick="acOrdenar('acesso')">Último acesso</th><th onclick="acOrdenar('perfil')">Perfil</th><th onclick="acOrdenar('pct')">Aulas</th><th onclick="acOrdenar('ultima')">Última aula concluída</th>
+      <th onclick="acOrdenar('acesso')">Último acesso</th><th onclick="acOrdenar('seg30')" title="Tempo ativo na plataforma nos últimos 30 dias">Uso 30d</th><th onclick="acOrdenar('perfil')">Perfil</th><th onclick="acOrdenar('pct')">Aulas</th><th onclick="acOrdenar('ultima')">Última aula concluída</th>
       <th class="acd" onclick="acOrdenar('patr')">Patrimônio investido</th><th class="acd" onclick="acOrdenar('ap12')">Aportes 12m</th><th class="acd" onclick="acOrdenar('ultAporte')">Último aporte</th>
       <th class="acd" onclick="acOrdenar('nAtivos')">Ativos</th><th class="acd" onclick="acOrdenar('econ')">Economia (mês ant.)</th><th class="acd" onclick="acOrdenar('ultLanc')">Gestão Fin.</th>
       <th onclick="acOrdenar('status')">Situação</th>
     </tr></thead>
-    <tbody id="acCorpo"><tr><td colspan="14" style="text-align:center;color:var(--text3);padding:24px">Carregando os alunos…</td></tr></tbody>
+    <tbody id="acCorpo"><tr><td colspan="15" style="text-align:center;color:var(--text3);padding:24px">Carregando os alunos…</td></tr></tbody>
   </table></div>
   <div class="ac-pag" id="acPag"></div>
   <div style="font-size:11.5px;color:var(--text3);margin-top:10px;line-height:1.5">Aulas: só as concluídas sobre o total de aulas publicadas hoje. Tempo de uso, último acesso e páginas visitadas entram na próxima fase, quando o registro de uso estiver no ar.</div>
@@ -203,7 +204,7 @@ const AC_DATAS = ['cadastro', 'ultima', 'ultAporte', 'ultLanc', 'acesso'];
 function acCacheSalvar(){
   try {
     const alunos = acAlunos.map(a => { const o = Object.assign({}, a); AC_DATAS.forEach(k => { o[k] = a[k] ? a[k].getTime() : null; }); return o; });
-    sessionStorage.setItem(AC_CACHE, JSON.stringify({ em: acCacheEm || Date.now(), total: acTotalAulas, din: acDinCarregado, alunos: alunos }));
+    sessionStorage.setItem(AC_CACHE, JSON.stringify({ em: acCacheEm || Date.now(), total: acTotalAulas, din: acDinCarregado, resumoEm: window._acResumoEm || 0, alunos: alunos }));
   } catch(e){ console.warn('[Acompanhamento] cache não salvo:', e && e.message); }
 }
 function acCacheLer(){
@@ -218,7 +219,8 @@ let acCacheEm = 0;
 function acCacheInfo(){
   const el = document.getElementById('acCacheInfo'); if (!el || !acCacheEm) return;
   const min = Math.floor((Date.now() - acCacheEm) / 60000);
-  el.textContent = 'Dados de ' + new Date(acCacheEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) + (min >= 1 ? ' (há ' + min + ' min)' : ' (agora)');
+  el.textContent = 'Dados de ' + new Date(acCacheEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) + (min >= 1 ? ' (há ' + min + ' min)' : ' (agora)') +
+    (window._acResumoEm ? ' · resumo do servidor de ' + new Date(window._acResumoEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 }
 setInterval(acCacheInfo, 30000);
 function acAtualizarAgora(){ try { sessionStorage.removeItem(AC_CACHE); } catch(e){} acGuardarEstado(); location.reload(); }
@@ -227,7 +229,7 @@ function acAtualizarAgora(){ try { sessionStorage.removeItem(AC_CACHE); } catch(
 async function acCarregar(){
   const _c = acCacheLer();
   if (_c) {   // volta rápida: sem ler o Firestore
-    acAlunos = _c.alunos; acTotalAulas = _c.total; acCacheEm = _c.em;
+    acAlunos = _c.alunos; acTotalAulas = _c.total; acCacheEm = _c.em; window._acResumoEm = _c.resumoEm || 0;
     acMontarTurmas(); acResumo();
     const _e = acRestaurarEstado();
     if (_c.din) { acDinCarregado = true; document.querySelector('.ac-tab').classList.add('ac-din'); acDinResumo(); }
@@ -248,7 +250,24 @@ async function acCarregar(){
                feitas: 0, pct: 0, ultima: null, recentes: 0 };
     });
     const sete = Date.now() - 7 * 864e5;
-    await Promise.all(acAlunos.filter(a => a.aprovado).map(async a => {
+    /* RESUMO DO SERVIDOR (Fase 3): acompanhamento/{uid}, recalculado todo dia às
+       19h. Com ele, o painel não lê progresso, atividade nem carteira de cada
+       aluno: 1 leitura por aluno, e a carteira e finanças já vêm prontas. */
+    let resumos = {};
+    try { const rs = await db.collection('acompanhamento').get(); rs.forEach(d => { resumos[d.id] = d.data() || {}; }); } catch(e){ console.warn('[Acompanhamento] sem resumo do servidor:', e && e.message); }
+    let comResumo = 0, maisAntigo = 0;
+    acAlunos.forEach(a => {
+      const r = resumos[a.uid]; if (!r || !a.aprovado) return;
+      comResumo++; a._resumo = true;
+      const em = r.atualizadoEm && r.atualizadoEm.toDate ? r.atualizadoEm.toDate().getTime() : 0; if (em && (!maisAntigo || em < maisAntigo)) maisAntigo = em;
+      const c = r.curso || {}; a.feitas = c.feitas || 0; a.pct = acTotalAulas ? Math.round(a.feitas / acTotalAulas * 100) : (c.pct || 0); a.ultima = c.ult ? new Date(c.ult) : null; a.recentes = c.rec7 || 0;
+      const u = r.uso || {}; a.seg30 = u.seg30 || 0; a.dias30 = u.dias30 || 0; a.seg7 = u.seg7 || 0;
+      const k = r.carteira || {}; ['rv','rf','bens','patr','ap12','nAtivos','nTx','prov12','origem'].forEach(x => { a[x] = k[x] != null ? k[x] : (typeof k[x] === 'string' ? '' : 0); });
+      a.ultAporte = k.ultAporte ? new Date(k.ultAporte + 'T12:00:00') : null;
+      const g = r.gf || {}; a.nLanc = g.nLanc || 0; a.ultLanc = g.ultLanc ? new Date(g.ultLanc + 'T12:00:00') : null; a.recAnt = g.recAnt; a.despAnt = g.despAnt; a.econ = g.econ == null ? null : g.econ; a.usaOrc = !!g.usaOrc;
+    });
+    window._acResumoEm = maisAntigo;
+    await Promise.all(acAlunos.filter(a => a.aprovado && !a._resumo).map(async a => {
       try {
         const pr = await db.collection('users').doc(a.uid).collection('progresso').get();
         let ult = 0;
@@ -264,12 +283,14 @@ async function acCarregar(){
     acAlunos.forEach(a => { a.status = acStatus(a); });
     acCacheEm = Date.now();
     acMontarTurmas(); acResumo();
+    const _todosComResumo = comResumo > 0 && acAlunos.filter(a => a.aprovado && !a.admin && !a._resumo).length === 0;
+    if (_todosComResumo) { acDinCarregado = true; document.querySelector('.ac-tab').classList.add('ac-din'); acDinResumo(); }
     const _est = acRestaurarEstado(); acRender(); acCacheSalvar(); acCacheInfo();
-    if (_est && _est.din) acCarregarDinheiro().then(function(){ if (_est.y) window.scrollTo(0, _est.y); });
+    if (_est && _est.din && !_todosComResumo) acCarregarDinheiro().then(function(){ if (_est.y) window.scrollTo(0, _est.y); });
     else if (_est && _est.y) setTimeout(function(){ window.scrollTo(0, _est.y); }, 50);
   } catch(e){
     console.error('[Acompanhamento]', e);
-    document.getElementById('acCorpo').innerHTML = '<tr><td colspan="14" style="text-align:center;color:var(--red);padding:24px">Não consegui carregar: ' + acEsc(e.message) + '</td></tr>';
+    document.getElementById('acCorpo').innerHTML = '<tr><td colspan="15" style="text-align:center;color:var(--red);padding:24px">Não consegui carregar: ' + acEsc(e.message) + '</td></tr>';
   } finally { const ol = document.getElementById('g20LoadingOverlay'); if (ol) ol.style.display = 'none'; }
 }
 
@@ -335,6 +356,7 @@ function acOrdenar(col){ acOrdem = { col: col, dir: acOrdem.col === col ? -acOrd
 function acValor(a, col){
   if (col === 'cadastro' || col === 'ultima' || col === 'ultAporte' || col === 'ultLanc' || col === 'acesso') return a[col] ? a[col].getTime() : 0;
   if (col === 'econ') return a.econ == null ? -999 : a.econ;
+  if (col === 'seg30') return a.seg30 || 0;
   if (col === 'perfil') return a.perfil == null ? -1 : a.perfil;
   if (col === 'turma') return parseInt(String(a.turma).replace(/\D/g, ''), 10) || 0;
   return typeof a[col] === 'string' ? a[col].toLowerCase() : (a[col] || 0);
@@ -366,12 +388,13 @@ function acRender(){
       '<td><div class="ac-nome">' + acEsc(a.nome) + '</div><div class="ac-mail">' + acEsc(a.email) + '</div></td>' +
       '<td>' + acEsc(a.turma || '–') + '</td><td>' + acFmt(a.cadastro) + '</td>' +
       '<td>' + (a.acesso ? acRel(a.acesso) : '<span style="color:var(--text3)">–</span>') + '</td>' +
+      '<td class="ac-num">' + (a.seg30 ? acTempo(a.seg30) + ' <small style="color:var(--text3)">· ' + a.dias30 + 'd</small>' : '<span style="color:var(--text3)">–</span>') + '</td>' +
       '<td>' + (a.perfil == null ? '<span style="color:var(--text3)">–</span>' : '<b style="color:' + (a.perfil >= 80 ? 'var(--green)' : a.perfil >= 50 ? 'var(--gold)' : 'var(--red)') + '">' + a.perfil + '</b>') + '</td>' +
       '<td><div class="ac-bar"><div class="t"><i style="width:' + a.pct + '%"></i></div><span>' + a.feitas + '/' + acTotalAulas + '</span></div></td>' +
       '<td>' + (a.ultima ? acFmt(a.ultima) + ' <small style="color:var(--text3)">(' + acRel(a.ultima) + ')</small>' : '–') + '</td>' +
       acColsDinheiro(a) +
       '<td><span class="ac-pill" style="color:' + cor[0] + ';background:' + cor[1] + '">' + a.status + '</span></td></tr>';
-  }).join('') || '<tr><td colspan="14" style="text-align:center;color:var(--text3);padding:24px">Nenhum aluno com esses filtros.</td></tr>';
+  }).join('') || '<tr><td colspan="15" style="text-align:center;color:var(--text3);padding:24px">Nenhum aluno com esses filtros.</td></tr>';
   document.querySelectorAll('#acCorpo tr.cl').forEach(tr => tr.onclick = function(){ acGuardarEstado(); window.location.href = 'admin-aluno-progresso.html?uid=' + encodeURIComponent(tr.dataset.uid); });
   document.getElementById('acPag').innerHTML = lista.length + ' aluno(s)' + (pags > 1 ? ' · <button onclick="acPagina=Math.max(0,acPagina-1);acRender()">‹</button> página ' + (acPagina + 1) + ' de ' + pags + ' <button onclick="acPagina=Math.min(' + (pags - 1) + ',acPagina+1);acRender()">›</button>' : '');
 }
@@ -380,6 +403,7 @@ function acRender(){
    rvDividendos e financeiro_Pessoal. Valores em reais (dólar convertido pelo
    câmbio gravado em cada compra). "Patrimônio investido" = custo, não o valor
    de mercado (esse aparece no "Ver como o aluno"). */
+function acTempo(seg){ seg = Math.round(seg || 0); const h = Math.floor(seg / 3600), m = Math.round((seg % 3600) / 60); return h ? h + 'h' + String(m).padStart(2, '0') : m + 'min'; }
 function acN(v){ return v == null || isNaN(v) ? '' : Math.round(v * 100) / 100; }
 function acBRL(v, curto){ if (v == null || isNaN(v)) return '–'; if (curto && Math.abs(v) >= 1e6) return 'R$ ' + (v / 1e6).toFixed(1).replace('.', ',') + ' mi'; if (curto && Math.abs(v) >= 1e4) return 'R$ ' + Math.round(v / 1e3) + ' mil'; return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }); }
 function acColsDinheiro(a){
@@ -469,10 +493,22 @@ function acDinResumo(){
   b.textContent = 'Recarregar'; b.disabled = false;
 }
 
+async function acRecalcularServidor(){
+  const b = document.getElementById('acSrvBtn'); b.disabled = true; b.textContent = 'Recalculando… (pode levar 1 minuto)';
+  try {
+    const tk = await auth.currentUser.getIdToken();
+    const r = await fetch('https://g20-proxy.vercel.app/api/backup?job=acompanhamento', { method: 'POST', headers: { 'Authorization': 'Bearer ' + tk } });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    alert('Pronto: ' + j.alunos + ' alunos recalculados em ' + j.segundos + 's.');
+    acAtualizarAgora();
+  } catch(e){ alert('Não consegui recalcular: ' + e.message); b.disabled = false; b.textContent = '⚙ Recalcular no servidor'; }
+}
+
 function acCsv(){
-  const lin = [['Nome','E-mail','Turma','Cadastro','Último acesso','Nota do perfil','Aulas concluídas','Total de aulas','% do curso','Última aula concluída','Situação']
+  const lin = [['Nome','E-mail','Turma','Cadastro','Último acesso','Uso 30 dias (min)','Dias ativos 30d','Nota do perfil','Aulas concluídas','Total de aulas','% do curso','Última aula concluída','Situação']
     .concat(acDinCarregado ? ['Patrimônio investido (R$)','Renda variável (R$)','Renda fixa (R$)','Bens (R$)','Aportes 12m (R$)','Último aporte','Nº de ativos','Proventos 12m (R$)','Origem da carteira','Lançamentos GF','Último lançamento GF','Receita mês ant. (R$)','Despesa mês ant. (R$)','Taxa de economia mês ant. (%)','Usa orçamento'] : [])];
-  acFiltrados().forEach(a => lin.push([a.nome, a.email, a.turma, acFmt(a.cadastro), a.acesso ? a.acesso.toLocaleString('pt-BR') : '', a.perfil == null ? '' : a.perfil, a.feitas, acTotalAulas, a.pct, acFmt(a.ultima), a.status]
+  acFiltrados().forEach(a => lin.push([a.nome, a.email, a.turma, acFmt(a.cadastro), a.acesso ? a.acesso.toLocaleString('pt-BR') : '', a.seg30 ? Math.round(a.seg30 / 60) : '', a.dias30 || '', a.perfil == null ? '' : a.perfil, a.feitas, acTotalAulas, a.pct, acFmt(a.ultima), a.status]
     .concat(acDinCarregado ? [acN(a.patr), acN(a.rv), acN(a.rf), acN(a.bens), acN(a.ap12), acFmt(a.ultAporte), a.nAtivos || 0, acN(a.prov12), a.origem || '', a.nLanc || 0, acFmt(a.ultLanc), acN(a.recAnt), acN(a.despAnt), a.econ == null ? '' : a.econ, a.usaOrc ? 'sim' : 'não'] : [])));
   const csv = lin.map(l => l.map(c => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"').join(';')).join('\n');
   const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }), url = URL.createObjectURL(blob), el = document.createElement('a');
