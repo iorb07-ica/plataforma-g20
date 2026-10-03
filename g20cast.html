@@ -374,7 +374,8 @@ html.g20gg-aberto,html.g20gg-aberto body{overflow:hidden!important}
 #g20Grande .gg-knob{position:absolute;top:50%;left:0;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;background:#e8c766;box-shadow:0 2px 6px rgba(0,0,0,.5)}
 #g20Grande .gg-tempos{width:100%;max-width:440px;display:flex;justify-content:space-between;font:500 12px 'JetBrains Mono',monospace;color:#9a958e;margin-top:8px}
 #g20Grande .gg-ctrl{width:100%;max-width:440px;display:flex;align-items:center;justify-content:space-between;margin-top:18px}
-#g20Grande .gg-esp{width:58px}
+#g20Grande .gg-prox{width:58px;height:40px;color:#e8e6e3}
+#g20Grande .gg-auto{font-size:12px;color:#6b6862;margin-top:18px;text-align:center}
 #g20Grande .gg-ctrl svg{width:34px;height:34px}
 #g20Grande .gg-play{width:76px;height:76px;border-radius:50%;background:linear-gradient(135deg,#e8c766,#c9a961);color:#1a1920}
 #g20Grande .gg-play svg{width:30px;height:30px}
@@ -1264,7 +1265,8 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
     '<div class="gg-num"></div><div class="gg-tit"></div><div class="gg-art">G20Cast · Israel Oreano</div>' +
     '<div class="gg-bar"><div class="gg-fill"></div><div class="gg-knob"></div></div>' +
     '<div class="gg-tempos"><span class="gg-cur">0:00</span><span class="gg-rest">-0:00</span></div>' +
-    '<div class="gg-ctrl"><button class="gg-vel" aria-label="Velocidade de reprodução">1x</button><button class="gg-back" aria-label="Voltar 10 segundos">' + PIC_BACK + '</button><button class="gg-play" aria-label="Tocar ou pausar">' + PIC_PAUSE + '</button><button class="gg-fwd" aria-label="Avançar 10 segundos">' + PIC_FWD + '</button><span class="gg-esp" aria-hidden="true"></span></div>';
+    '<div class="gg-ctrl"><button class="gg-vel" aria-label="Velocidade de reprodução">1x</button><button class="gg-back" aria-label="Voltar 10 segundos">' + PIC_BACK + '</button><button class="gg-play" aria-label="Tocar ou pausar">' + PIC_PAUSE + '</button><button class="gg-fwd" aria-label="Avançar 10 segundos">' + PIC_FWD + '</button><button class="gg-prox" aria-label="Próximo episódio"><svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5.5v13l9.5-6.5z"/><rect x="16.5" y="5.5" width="2.6" height="13" rx="1"/></svg></button></div>' +
+    '<div class="gg-auto">Ao terminar, toca o episódio anterior automaticamente</div>';
   document.body.appendChild(gr);
   var gFill = gr.querySelector('.gg-fill'), gKnob = gr.querySelector('.gg-knob'), gBar = gr.querySelector('.gg-bar'), gPlay = gr.querySelector('.gg-play'), gVel = gr.querySelector('.gg-vel');
   function abrirGrande(){
@@ -1291,6 +1293,7 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
   gr.querySelector('.gg-back').addEventListener('click', function(){ if (CUR) CUR.au.currentTime = Math.max(0, CUR.au.currentTime - 10); });
   gr.querySelector('.gg-fwd').addEventListener('click', function(){ if (CUR) CUR.au.currentTime = Math.min(CUR.au.duration || 1e9, CUR.au.currentTime + 10); });
   gVel.addEventListener('click', function(){ mVel.click(); gVel.textContent = mVel.textContent; });
+  gr.querySelector('.gg-prox').addEventListener('click', function(){ tocarProximo(); });
   function seekGrande(e){ if (!CUR || !CUR.au.duration) return; var r = gBar.getBoundingClientRect(); var x = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); CUR.au.currentTime = x * CUR.au.duration; atualizarGrande(); }
   gBar.addEventListener('pointerdown', function(e){ try { gBar.setPointerCapture(e.pointerId); } catch(x){} seekGrande(e); });
   gBar.addEventListener('pointermove', function(e){ if (e.buttons & 1) seekGrande(e); });
@@ -1350,31 +1353,72 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
     var au = document.querySelector('.epc-playerwrap audio');
     if (!au) return;
     host.appendChild(au);
+    CUR = { au: au, num: num, titulo: '', img: '' };
+    prepararEpisodio(num, el.getAttribute('data-titulo'));
+    var ultimoSalvo = 0;
+    // os ouvintes leem sempre o episódio ATUAL (CUR.num): o mesmo áudio passa de um episódio para o outro
+    au.addEventListener('loadedmetadata', function(){ retomar(); atualizarMini(); posicaoBloqueio(); });
+    au.addEventListener('timeupdate', function(){
+      atualizarMini();
+      if (Date.now() - ultimoSalvo > 5000) { ultimoSalvo = Date.now(); salvarProg(CUR.num, au.currentTime, au.duration, au.duration && au.currentTime > au.duration * 0.92); posicaoBloqueio(); }
+    });
+    au.addEventListener('play', function(){ atualizarMini(); try { navigator.mediaSession.playbackState = 'playing'; } catch(e){} });
+    au.addEventListener('pause', function(){ if (!CUR) return; atualizarMini(); salvarProg(CUR.num, au.currentTime, au.duration); decorar(); try { navigator.mediaSession.playbackState = 'paused'; } catch(e){} });
+    au.addEventListener('ended', function(){
+      if (!CUR) return;
+      salvarProg(CUR.num, au.duration, au.duration, true); decorar();
+      if (!tocarProximo()) atualizarMini();      // acabou: segue para o episódio anterior da lista
+    });
+    if (au.readyState >= 1) retomar();
+    mostrarMini(); atualizarMini();
+  };
+
+  /* Dados do episódio atual: título, capa, rótulos e tela de bloqueio */
+  function prepararEpisodio(num, tituloCartao){
     var ep = epPorNum(num) || {};
-    CUR = { au: au, num: num, titulo: el.getAttribute('data-titulo') || ep.titulo || '', img: ep.img || '' };
+    CUR.num = num; CUR.titulo = tituloCartao || ep.titulo || ''; CUR.img = ep.img || ''; CUR.retomou = false;
     var capa = mini.querySelector('.gm-capa'), cv = document.querySelector('.epc-cover');
     // a capa do episódio; se não carregar, fica a capa do G20Cast que já está na página
     var capaPadrao = cv ? getComputedStyle(cv).backgroundImage : 'none';
     capa.style.backgroundImage = CUR.img ? 'url("' + CUR.img.replace(/"/g, '%22') + '"), ' + capaPadrao : capaPadrao;
     mini.querySelector('.gm-tit').textContent = rotulo();
-    mVel.textContent = '1x';
-    var ultimoSalvo = 0, retomou = false;
-    function retomar(){
-      if (retomou) return; retomou = true;
-      var a = prog()[num];
-      if (a && !a.ok && a.t > 10 && (!au.duration || a.t < au.duration - 15)) { try { au.currentTime = a.t; } catch(e){} }
-    }
-    au.addEventListener('loadedmetadata', function(){ retomar(); atualizarMini(); posicaoBloqueio(); });
-    au.addEventListener('timeupdate', function(){
-      atualizarMini();
-      if (Date.now() - ultimoSalvo > 5000) { ultimoSalvo = Date.now(); salvarProg(num, au.currentTime, au.duration, au.duration && au.currentTime > au.duration * 0.92); posicaoBloqueio(); }
-    });
-    au.addEventListener('play', function(){ atualizarMini(); try { navigator.mediaSession.playbackState = 'playing'; } catch(e){} });
-    au.addEventListener('pause', function(){ atualizarMini(); salvarProg(num, au.currentTime, au.duration); decorar(); try { navigator.mediaSession.playbackState = 'paused'; } catch(e){} });
-    au.addEventListener('ended', function(){ salvarProg(num, au.duration, au.duration, true); atualizarMini(); decorar(); });
-    if (au.readyState >= 1) retomar();
-    mediaSession(); mostrarMini(); atualizarMini();
-  };
+    mVel.textContent = (CUR.au.playbackRate || 1) + 'x';
+    if (gr.classList.contains('on')) abrirGrande();
+    atualizarBotaoProximo();
+    mediaSession();
+  }
+  function retomar(){
+    if (!CUR || CUR.retomou) return; CUR.retomou = true;
+    var au = CUR.au, a = prog()[CUR.num];
+    if (a && !a.ok && a.t > 10 && (!au.duration || a.t < au.duration - 15)) { try { au.currentTime = a.t; } catch(e){} }
+  }
+  /* Próximo = o episódio anterior na lista (o de ontem), com áudio */
+  function proximoEp(){
+    if (!CUR) return null;
+    try {
+      var i = -1; for (var k = 0; k < _allEps.length; k++) if (String(_allEps[k].num) === String(CUR.num)) { i = k; break; }
+      for (var j = i + 1; j < _allEps.length; j++) if (_allEps[j].audioUrl) return _allEps[j];
+    } catch(e){}
+    return null;
+  }
+  function tocarProximo(){
+    var ep = proximoEp(); if (!ep || !CUR) return false;
+    var au = CUR.au, vel = au.playbackRate || 1;
+    salvarProg(CUR.num, au.currentTime, au.duration);
+    var w = document.querySelector('.epc-playerwrap'); if (w) w.parentNode.removeChild(w);   // o player do cartão antigo sai; o mini assume
+    document.querySelectorAll('.epc[data-playing="1"]').forEach(function(c){ c.removeAttribute('data-playing'); });
+    au.src = ep.audioUrl; au.playbackRate = vel;
+    prepararEpisodio(ep.num, ep.titulo);
+    var p = au.play(); if (p && p.catch) p.catch(function(){});
+    au.playbackRate = vel;
+    decorar(); mostrarMini(); atualizarMini();
+    return true;
+  }
+  function atualizarBotaoProximo(){
+    var b = gr.querySelector('.gg-prox'); if (!b) return;
+    var ep = proximoEp(); b.disabled = !ep; b.style.opacity = ep ? '' : '.3';
+    b.setAttribute('aria-label', ep ? 'Próximo episódio: #' + ep.num : 'Não há próximo episódio');
+  }
 
   // o player do card some quando a lista é redesenhada (busca, "ver mais"): no computador, o mini assume
   new MutationObserver(function(){ mostrarMini(); }).observe(document.getElementById('epList') || document.body, { childList: true });
