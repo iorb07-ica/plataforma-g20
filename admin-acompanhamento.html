@@ -94,7 +94,9 @@ tr:last-child td{border-bottom:none}
 .ac-tab th:hover{color:var(--gold)}
 .ac-tab td{padding:10px 8px;border-top:1px solid var(--border);vertical-align:middle}
 .ac-tab tr.cl{cursor:pointer}.ac-tab tr.cl:hover td{background:rgba(255,255,255,.025)}
-.ac-nome{font-weight:800;color:var(--text)}.ac-mail{font-size:11.5px;color:var(--text3)}
+.ac-nome{font-weight:800;color:var(--text)}
+.ac-av{width:34px;height:34px;border-radius:50%;flex-shrink:0;overflow:hidden;background:linear-gradient(135deg,#c9a961,#8a6d1f);color:#16151a;font-weight:900;font-size:12px;display:flex;align-items:center;justify-content:center}
+.ac-av img{width:100%;height:100%;object-fit:cover}.ac-mail{font-size:11.5px;color:var(--text3)}
 .ac-bar{display:flex;align-items:center;gap:8px;min-width:140px}
 .ac-bar .t{flex:1;height:6px;border-radius:4px;background:rgba(255,255,255,.08)}
 .ac-bar .t i{display:block;height:100%;border-radius:4px;background:var(--gold)}
@@ -160,13 +162,13 @@ tr:last-child td{border-bottom:none}
   </div>
   <div class="ac-wrap"><table class="ac-tab">
     <thead><tr>
-      <th onclick="acOrdenar('nome')">Aluno</th><th onclick="acOrdenar('turma')">Turma</th><th onclick="acOrdenar('cadastro')">Cadastro</th>
+      <th onclick="acOrdenar('nome')">Aluno</th><th onclick="acOrdenar('net')" title="Cartão no Networking: com foto, sem foto ou sem cartão">Networking</th><th onclick="acOrdenar('turma')">Turma</th><th onclick="acOrdenar('cadastro')">Cadastro</th>
       <th onclick="acOrdenar('acesso')">Último acesso</th><th onclick="acOrdenar('seg30')" title="Tempo ativo na plataforma nos últimos 30 dias">Uso 30d</th><th onclick="acOrdenar('perfil')">Perfil</th><th onclick="acOrdenar('pct')">Aulas</th><th onclick="acOrdenar('ultima')">Última aula concluída</th>
       <th class="acd" onclick="acOrdenar('patr')">Patrimônio investido</th><th class="acd" onclick="acOrdenar('ap12')">Aportes 12m</th><th class="acd" onclick="acOrdenar('ultAporte')">Último aporte</th>
       <th class="acd" onclick="acOrdenar('nAtivos')">Ativos</th><th class="acd" onclick="acOrdenar('econ')">Economia (mês ant.)</th><th class="acd" onclick="acOrdenar('ultLanc')">Gestão Fin.</th>
       <th onclick="acOrdenar('status')">Situação</th>
     </tr></thead>
-    <tbody id="acCorpo"><tr><td colspan="15" style="text-align:center;color:var(--text3);padding:24px">Carregando os alunos…</td></tr></tbody>
+    <tbody id="acCorpo"><tr><td colspan="16" style="text-align:center;color:var(--text3);padding:24px">Carregando os alunos…</td></tr></tbody>
   </table></div>
   <div class="ac-pag" id="acPag"></div>
   <div style="font-size:11.5px;color:var(--text3);margin-top:10px;line-height:1.5">Aulas: só as concluídas sobre o total de aulas publicadas hoje. Tempo de uso, último acesso e páginas visitadas entram na próxima fase, quando o registro de uso estiver no ar.</div>
@@ -257,12 +259,16 @@ async function acCarregar(){
   try {
     await acCarregarAulas();
     const snap = await db.collection('users').get();
+    window._acFotos = {};
     acAlunos = snap.docs.map(d => {
       const u = d.data() || {};
+      const _f = (u.perfil && u.perfil.foto) || u.photo || u.foto || '';
+      if (/^(https:\/\/[^\s"'<>()`\\]+|data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/=]+)$/i.test(_f)) window._acFotos[d.id] = _f;
       return { uid: d.id, nome: u.name || u.nome || u.displayName || '(sem nome)', email: u.email || '', turma: u.turma || '',
                aprovado: u.aprovado === true || u.role === 'admin', admin: u.role === 'admin', bloqueado: u.bloqueado === true,
                cadastro: acData(u.criadoEm || u.createdAt), perfil: typeof u.perfilNota === 'number' ? u.perfilNota : null,
                acesso: acData(u.ultimoAcesso),
+               temFoto: !!((u.perfil && u.perfil.foto) || u.photo || u.foto),
                fone: String((u.perfil && (u.perfil.whatsapp || u.perfil.telefone || u.perfil.celular)) || u.whatsapp || u.telefone || '').replace(/\D/g, ''),
                feitas: 0, pct: 0, ultima: null, recentes: 0 };
     });
@@ -270,6 +276,8 @@ async function acCarregar(){
     /* RESUMO DO SERVIDOR (Fase 3): acompanhamento/{uid}, recalculado todo dia às
        19h. Com ele, o painel não lê progresso, atividade nem carteira de cada
        aluno: 1 leitura por aluno, e a carteira e finanças já vêm prontas. */
+    try { const ns = await db.collection('networking_public').get(); const net = {}; ns.forEach(d => { net[d.id] = !!(d.data() || {}).foto; });
+      acAlunos.forEach(a => { a.net = (a.uid in net) ? (net[a.uid] ? 'com' : 'sem') : 'nao'; }); } catch(e){ console.warn('[Acompanhamento] Networking:', e && e.message); }
     let resumos = {};
     try { const rs = await db.collection('acompanhamento').get(); rs.forEach(d => { resumos[d.id] = d.data() || {}; }); } catch(e){ console.warn('[Acompanhamento] sem resumo do servidor:', e && e.message); }
     let comResumo = 0, maisAntigo = 0;
@@ -307,7 +315,7 @@ async function acCarregar(){
     else if (_est && _est.y) setTimeout(function(){ window.scrollTo(0, _est.y); }, 50);
   } catch(e){
     console.error('[Acompanhamento]', e);
-    document.getElementById('acCorpo').innerHTML = '<tr><td colspan="15" style="text-align:center;color:var(--red);padding:24px">Não consegui carregar: ' + acEsc(e.message) + '</td></tr>';
+    document.getElementById('acCorpo').innerHTML = '<tr><td colspan="16" style="text-align:center;color:var(--red);padding:24px">Não consegui carregar: ' + acEsc(e.message) + '</td></tr>';
   } finally { const ol = document.getElementById('g20LoadingOverlay'); if (ol) ol.style.display = 'none'; }
 }
 
@@ -347,6 +355,8 @@ function acResumo(){
   document.getElementById('stPerfil').textContent = comNota.length ? Math.round(comNota.reduce((s, a) => s + a.perfil, 0) / comNota.length) : '–';
   document.getElementById('stCurso').textContent = Math.round(ap.reduce((s, a) => s + a.pct, 0) / n) + '%';
   document.getElementById('stTotalAulas').textContent = acTotalAulas + ' aulas publicadas';
+  const _cards = ap.filter(a => a.net === 'com' || a.net === 'sem');
+  if (_cards.length) { const el = document.getElementById('stPend'); el.textContent = el.textContent + ' · Networking: ' + ap.filter(a => a.net === 'com').length + ' com foto, ' + ap.filter(a => a.net === 'sem').length + ' sem'; }
   document.getElementById('stComecaram').textContent = Math.round(ap.filter(a => a.feitas > 0).length / n * 100) + '%';
   const comAcesso = ap.filter(a => a.acesso);
   if (comAcesso.length) {
@@ -374,6 +384,7 @@ function acValor(a, col){
   if (col === 'cadastro' || col === 'ultima' || col === 'ultAporte' || col === 'ultLanc' || col === 'acesso') return a[col] ? a[col].getTime() : 0;
   if (col === 'econ') return a.econ == null ? -999 : a.econ;
   if (col === 'seg30') return a.seg30 || 0;
+  if (col === 'net') return a.net === 'com' ? 2 : a.net === 'sem' ? 1 : 0;
   if (col === 'perfil') return a.perfil == null ? -1 : a.perfil;
   if (col === 'turma') return parseInt(String(a.turma).replace(/\D/g, ''), 10) || 0;
   return typeof a[col] === 'string' ? a[col].toLowerCase() : (a[col] || 0);
@@ -403,7 +414,8 @@ function acRender(){
   document.getElementById('acCorpo').innerHTML = pagina.map(a => {
     const cor = AC_COR[a.status] || ['#b0bac8','rgba(176,186,200,.12)'];
     return '<tr class="cl" data-uid="' + acEsc(a.uid) + '">' +
-      '<td><div class="ac-nome">' + acEsc(a.nome) + '</div><div class="ac-mail">' + acEsc(a.email) + '</div></td>' +
+      '<td><div style="display:flex;align-items:center;gap:10px"><div class="ac-av">' + (window._acFotos && window._acFotos[a.uid] ? '<img src="' + acEsc(window._acFotos[a.uid]) + '" alt="" loading="lazy">' : acEsc((a.nome || '?').split(' ').map(x => x[0] || '').slice(0, 2).join('').toUpperCase())) + '</div><div><div class="ac-nome">' + acEsc(a.nome) + '</div><div class="ac-mail">' + acEsc(a.email) + '</div></div></div></td>' +
+      '<td>' + (a.net === 'com' ? '<span class="ac-pill" style="color:#2ecc71;background:rgba(46,204,113,.14)">📷 com foto</span>' : a.net === 'sem' ? '<span class="ac-pill" style="color:#f39c12;background:rgba(243,156,18,.14)">sem foto</span>' : '<span style="color:var(--text3);font-size:12px">sem cartão</span>') + (a.temFoto && a.net !== 'com' ? '<div style="font-size:10.5px;color:var(--text3);margin-top:3px">tem foto no perfil</div>' : '') + '</td>' +
       '<td>' + acEsc(a.turma || '–') + '</td><td>' + acFmt(a.cadastro) + '</td>' +
       '<td>' + (a.acesso ? acRel(a.acesso) : '<span style="color:var(--text3)">–</span>') + '</td>' +
       '<td class="ac-num">' + (a.seg30 ? acTempo(a.seg30) + ' <small style="color:var(--text3)">· ' + a.dias30 + 'd</small>' : '<span style="color:var(--text3)">–</span>') + '</td>' +
@@ -412,7 +424,7 @@ function acRender(){
       '<td>' + (a.ultima ? acFmt(a.ultima) + ' <small style="color:var(--text3)">(' + acRel(a.ultima) + ')</small>' : '–') + '</td>' +
       acColsDinheiro(a) +
       '<td><span class="ac-pill" style="color:' + cor[0] + ';background:' + cor[1] + '">' + a.status + '</span></td></tr>';
-  }).join('') || '<tr><td colspan="15" style="text-align:center;color:var(--text3);padding:24px">Nenhum aluno com esses filtros.</td></tr>';
+  }).join('') || '<tr><td colspan="16" style="text-align:center;color:var(--text3);padding:24px">Nenhum aluno com esses filtros.</td></tr>';
   document.querySelectorAll('#acCorpo tr.cl').forEach(tr => tr.onclick = function(){ acGuardarEstado(); window.location.href = 'admin-aluno-progresso.html?uid=' + encodeURIComponent(tr.dataset.uid); });
   document.getElementById('acPag').innerHTML = lista.length + ' aluno(s)' + (pags > 1 ? ' · <button onclick="acPagina=Math.max(0,acPagina-1);acRender()">‹</button> página ' + (acPagina + 1) + ' de ' + pags + ' <button onclick="acPagina=Math.min(' + (pags - 1) + ',acPagina+1);acRender()">›</button>' : '');
 }
@@ -518,7 +530,9 @@ async function acRecalcularServidor(){
     const r = await fetch('https://g20-proxy.vercel.app/api/backup?job=acompanhamento', { method: 'POST', headers: { 'Authorization': 'Bearer ' + tk } });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
-    alert('Pronto: ' + j.alunos + ' alunos recalculados em ' + j.segundos + 's.');
+    const fn = j.fotosNetworking || {};
+    alert('Pronto: ' + j.alunos + ' alunos recalculados em ' + j.segundos + 's.' +
+      (fn.cartoes != null ? '\n\nNetworking: ' + fn.consertados + ' cartão(ões) ganharam a foto agora.' + (fn.semNenhumaFoto ? ' ' + fn.semNenhumaFoto + ' aluno(s) não têm foto nenhuma (nem no perfil, nem no Google).' : '') : ''));
     acAtualizarAgora();
   } catch(e){ alert('Não consegui recalcular: ' + e.message); b.disabled = false; b.textContent = '⚙ Recalcular no servidor'; }
 }
@@ -573,9 +587,9 @@ function acAtencao(){
 }
 
 function acCsv(){
-  const lin = [['Nome','E-mail','Turma','Cadastro','Último acesso','Uso 30 dias (min)','Dias ativos 30d','Nota do perfil','Aulas concluídas','Total de aulas','% do curso','Última aula concluída','Situação']
+  const lin = [['Nome','E-mail','Turma','Networking','Foto no perfil','Cadastro','Último acesso','Uso 30 dias (min)','Dias ativos 30d','Nota do perfil','Aulas concluídas','Total de aulas','% do curso','Última aula concluída','Situação']
     .concat(acDinCarregado ? ['Patrimônio investido (R$)','Renda variável (R$)','Renda fixa (R$)','Bens (R$)','Aportes 12m (R$)','Último aporte','Nº de ativos','Proventos 12m (R$)','Origem da carteira','Lançamentos GF','Último lançamento GF','Receita mês ant. (R$)','Despesa mês ant. (R$)','Taxa de economia mês ant. (%)','Usa orçamento'] : [])];
-  acFiltrados().forEach(a => lin.push([a.nome, a.email, a.turma, acFmt(a.cadastro), a.acesso ? a.acesso.toLocaleString('pt-BR') : '', a.seg30 ? Math.round(a.seg30 / 60) : '', a.dias30 || '', a.perfil == null ? '' : a.perfil, a.feitas, acTotalAulas, a.pct, acFmt(a.ultima), a.status]
+  acFiltrados().forEach(a => lin.push([a.nome, a.email, a.turma, a.net === 'com' ? 'com foto' : a.net === 'sem' ? 'sem foto' : 'sem cartão', a.temFoto ? 'sim' : 'não', acFmt(a.cadastro), a.acesso ? a.acesso.toLocaleString('pt-BR') : '', a.seg30 ? Math.round(a.seg30 / 60) : '', a.dias30 || '', a.perfil == null ? '' : a.perfil, a.feitas, acTotalAulas, a.pct, acFmt(a.ultima), a.status]
     .concat(acDinCarregado ? [acN(a.patr), acN(a.rv), acN(a.rf), acN(a.bens), acN(a.ap12), acFmt(a.ultAporte), a.nAtivos || 0, acN(a.prov12), a.origem || '', a.nLanc || 0, acFmt(a.ultLanc), acN(a.recAnt), acN(a.despAnt), a.econ == null ? '' : a.econ, a.usaOrc ? 'sim' : 'não'] : [])));
   lin[0].push('Atenção');
   acFiltrados().forEach((a, i) => { if (lin[i + 1]) lin[i + 1].push(acMotivos(a).map(k => AC_MOT[k].t).join(' | ')); });
