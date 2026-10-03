@@ -2738,3 +2738,87 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
 })();
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ATALHO DO PAINEL ADMIN (out/2026) · só para o admin, em todas as páginas
+   - Computador: botão 🛠 na barra do topo com um menu: Painel admin,
+     Acompanhamento e Alunos & acessos.
+   - Celular: seção "Admin" no topo do menu lateral, com os mesmos atalhos.
+   Aluno nunca vê (só aparece depois de confirmar role admin no cadastro).
+   ═══════════════════════════════════════════════════════════════════════════ */
+(function(){
+  'use strict';
+  if (window.__g20AtalhoAdmin) return; window.__g20AtalhoAdmin = true;
+  if (window.G20_VER_ALUNO) return;                       // no "ver como o aluno" a faixa já tem o "Voltar aos alunos"
+  var PAG = (location.pathname.split('/').pop() || '').toLowerCase();
+  if (/^(login|aguardando|termos-de-uso)\.html$/.test(PAG)) return;
+  var LINKS = [
+    { href: 'admin-hub.html', ico: '🛠', txt: 'Painel admin' },
+    { href: 'admin-acompanhamento.html', ico: '📊', txt: 'Acompanhamento' },
+    { href: 'admin.html', ico: '👥', txt: 'Alunos & acessos' }
+  ];
+  var ehAdmin = null;
+  function confirmar(cb){
+    if (ehAdmin !== null) { if (ehAdmin) cb(); return; }
+    try {
+      if (!window.firebase || !firebase.apps || !firebase.apps.length || !firebase.auth) return;
+      var u = firebase.auth().currentUser; if (!u) return;
+      var k = 'g20_guard_' + u.uid, v = null; try { v = sessionStorage.getItem(k); } catch(e){}
+      if (v === 'admin') { ehAdmin = true; cb(); return; }
+      if (v === 'ok') { ehAdmin = false; return; }
+      ehAdmin = false;   // evita repetir a leitura enquanto confere
+      firebase.firestore().collection('users').doc(u.uid).get().then(function(d){
+        ehAdmin = !!(d.exists && (d.data() || {}).role === 'admin'); if (ehAdmin) cb();
+      }).catch(function(){ ehAdmin = null; });
+    } catch(e){}
+  }
+  function css(){
+    if (document.getElementById('g20-admin-atalho-css')) return;
+    var st = document.createElement('style'); st.id = 'g20-admin-atalho-css';
+    st.textContent =
+      '#g20AdmBtn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:36px;padding:0 12px;border-radius:10px;border:1px solid rgba(201,169,97,.55);background:rgba(201,169,97,.12);color:#e8c766;font:800 12.5px "DM Sans",system-ui,sans-serif;cursor:pointer;white-space:nowrap}' +
+      '#g20AdmBtn:hover{background:rgba(201,169,97,.22)}' +
+      '#g20AdmMenu{position:fixed;z-index:2147483000;min-width:210px;background:#1f1e24;border:1px solid rgba(201,169,97,.35);border-radius:12px;padding:6px;box-shadow:0 18px 40px rgba(0,0,0,.45);display:none}' +
+      '#g20AdmMenu.on{display:block}' +
+      '#g20AdmMenu a{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;color:#f0ece0;text-decoration:none;font:700 13.5px "DM Sans",system-ui,sans-serif}' +
+      '#g20AdmMenu a:hover{background:rgba(201,169,97,.14)}' +
+      '#g20AdmMenu a.atual{color:#e8c766}' +
+      '@media (max-width:768px){#g20AdmBtn{display:none!important}}' +
+      '@media (min-width:769px) and (max-width:1300px){#g20AdmBtn .t{display:none}}';
+    (document.head || document.documentElement).appendChild(st);
+  }
+  function botao(){
+    var barra = document.querySelector('.topbar .topbar-right');
+    if (!barra || document.getElementById('g20AdmBtn')) return;
+    var b = document.createElement('button'); b.type = 'button'; b.id = 'g20AdmBtn'; b.title = 'Painel admin';
+    b.innerHTML = '<span>🛠</span><span class="t">Admin</span>';
+    var m = document.createElement('div'); m.id = 'g20AdmMenu';
+    LINKS.forEach(function(l){ var a = document.createElement('a'); a.href = l.href; if (PAG === l.href) a.className = 'atual'; a.innerHTML = '<span>' + l.ico + '</span><span></span>'; a.lastChild.textContent = l.txt; m.appendChild(a); });
+    document.body.appendChild(m);   // fora da barra do topo: assim nada da página cobre o menu
+    b.addEventListener('click', function(e){
+      e.stopPropagation();
+      var r = b.getBoundingClientRect();
+      m.style.top = (r.bottom + 8) + 'px'; m.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
+      m.classList.toggle('on');
+    });
+    m.addEventListener('click', function(e){ e.stopPropagation(); });
+    document.addEventListener('click', function(){ m.classList.remove('on'); });
+    barra.insertBefore(b, barra.firstChild);
+  }
+  function menuLateral(){
+    var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
+    if (!sb || sb.querySelector('.nav-section--admin')) return;
+    var sec = document.createElement('div'); sec.className = 'nav-section nav-section--admin';
+    var lbl = document.createElement('div'); lbl.className = 'nav-label'; lbl.textContent = 'Admin'; sec.appendChild(lbl);
+    LINKS.forEach(function(l){
+      var a = document.createElement('a'); a.href = l.href; a.className = 'nav-item' + (PAG === l.href ? ' active' : '');
+      var s = document.createElement('span'); s.className = 'ico'; s.textContent = l.ico; a.appendChild(s); a.appendChild(document.createTextNode(l.txt));
+      sec.appendChild(a);
+    });
+    var primeira = sb.querySelector('.nav-section');
+    if (primeira) primeira.parentNode.insertBefore(sec, primeira); else sb.appendChild(sec);
+  }
+  function aplicar(){ css(); botao(); if (window.innerWidth <= 768) menuLateral(); }
+  var n = 0, t = setInterval(function(){ confirmar(aplicar); if (++n > 30 || (ehAdmin !== null && document.getElementById('g20AdmBtn'))) clearInterval(t); }, 700);
+  window.addEventListener('resize', function(){ if (ehAdmin) aplicar(); });
+})();
