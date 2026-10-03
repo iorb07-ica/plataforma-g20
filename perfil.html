@@ -116,6 +116,8 @@ button{font-family:inherit;cursor:pointer}a{text-decoration:none;color:inherit}
 }
 .avatar-big:hover .avatar-overlay{opacity:1}
 .avatar-input{display:none}
+@media (hover:none){ .avatar-big .avatar-overlay{opacity:1 !important;background:rgba(0,0,0,.35)} }
+.avatar-trocar{display:block;margin:8px auto 0;border:none;background:transparent;color:var(--gold,#c9a961);font:700 12.5px "DM Sans",system-ui,sans-serif;cursor:pointer;text-decoration:underline}
 
 .profile-info{flex:1;min-width:0}
 .profile-name-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px}
@@ -1336,6 +1338,7 @@ if(localStorage.getItem('g20_uid')){
           <div class="avatar-overlay">📷</div>
         </div>
         <input type="file" id="avatarInput" class="avatar-input" accept="image/*" onchange="handleAvatarChange(event)">
+        <button type="button" class="avatar-trocar" onclick="document.getElementById('avatarInput').click()">📷 Trocar foto</button>
       </div>
       <div class="profile-info">
         <div class="profile-name-row">
@@ -2420,8 +2423,11 @@ function handleAvatarChange(event) {
          documento, e mandá-la a cada pausa de digitação seria caro. Aqui a
          barra pede o clique explícito. */
       var _h = document.getElementById('saveHint');
-      if (_h) _h.textContent = 'Foto trocada — clique em salvar para confirmar';
+      if (_h) _h.textContent = 'Foto trocada — salvando…';
       document.getElementById('saveBar').classList.add('visible');
+      /* out/2026: salva sozinho (antes esperava o clique em "Salvar", e quem saía
+         da página sem clicar perdia a foto, que nunca chegava ao Networking) */
+      try { _autoStatus('pendente'); _autoAgendar(); } catch(e){}
     };
     img.src = e.target.result;
   };
@@ -3056,6 +3062,12 @@ async function salvarPerfil(opts) {
       perfil.foto = _avatarBase64;
     } else if (existing.foto) {
       perfil.foto = existing.foto;
+    } else {
+      /* out/2026: a foto que o aluno VÊ no perfil (a do Google, ou a do cadastro
+         antigo) nunca era gravada no perfil, então o cartão do Networking ficava
+         só com as iniciais. Agora ela é guardada como a foto do perfil. */
+      var _fotoVista = (_userData && (_userData.photo || _userData.foto)) || (firebase.auth().currentUser && firebase.auth().currentUser.photoURL) || '';
+      if (/^https:\/\/[^\s"'<>()`\\]+$/i.test(_fotoVista) || /^data:image\/(jpeg|png|webp);base64,/.test(_fotoVista)) perfil.foto = _fotoVista;
     }
 
     var updateData = {
