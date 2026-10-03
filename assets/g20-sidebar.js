@@ -2527,8 +2527,18 @@
     }
   }
 
+  function soltarTrilhos(){
+    Array.prototype.forEach.call(document.querySelectorAll('[' + ATTR + ']'), function(el){
+      if (el.matches('main,.main,.content')) return;
+      el.removeAttribute(ATTR);                                  /* mede sem a trava */
+      var cs = getComputedStyle(el);
+      var soLado = /(auto|scroll)/.test(cs.overflowX) && el.scrollHeight <= el.clientHeight + 2;
+      if (!soLado) el.setAttribute(ATTR, '1');                   /* rola na vertical: continua marcado */
+    });
+  }
   function aplicar(){
     if (!MOB.matches) { desfazer(); return; }
+    try { soltarTrilhos(); } catch(e){}
     var main = document.querySelector('.main') || document.querySelector('main');
     if (!main) return;
     var vh = window.innerHeight || 700, achou = false;
@@ -2538,6 +2548,12 @@
       var cs = getComputedStyle(el);
       if (!/(auto|scroll)/.test(cs.overflowY)) return;
       if (cs.position === 'fixed' || cs.position === 'absolute') return;
+      /* Trilho que rola para o LADO (módulos da Sala de Aula, carrosséis): no CSS,
+         "overflow-x:auto" deixa o overflow-y também "auto", e ele era confundido
+         com a caixa que rola a página; aí ganhava overflow-x:clip e parava de
+         deslizar no celular (out/2026). Só vale para quem rola de verdade na vertical. */
+      if (/(auto|scroll)/.test(cs.overflowX) && el.scrollHeight <= el.clientHeight + 2) return;
+      if (el.scrollWidth > el.clientWidth + 2 && el.scrollHeight <= el.clientHeight + 2) return;
       if (el.clientHeight < vh * 0.45) return;                 /* listas e trilhos internos ficam como estão */
       var y = el.scrollTop;
       marcarCadeia(el);
