@@ -2294,6 +2294,7 @@ function mostrarTelaLockAula(aula) {
 
 // ─── VIEW HOME ───
 function showHome() {
+  try { _saYtFlush(); _saYtPararTimer(); } catch(e){}
   if (typeof _discPararListener === 'function') _discPararListener();
   try { renderContinuar(); } catch(e){}
   currentModuloId = null;
@@ -2334,6 +2335,7 @@ function renderModulesGrid() {
 
 // ─── VIEW MÓDULO ───
 function showModulo(moduloId) {
+  try { _saYtFlush(); _saYtPararTimer(); } catch(e){}
   if (typeof _discPararListener === 'function') _discPararListener();
   currentModuloId = moduloId;
   currentAulaId = null;
@@ -2419,6 +2421,7 @@ function showModulo(moduloId) {
 
 // ─── VIEW AULA ───
 function showAula(moduloId, aulaId) {
+  try { _saYtFlush(); _saYtPararTimer(); } catch(e){}   // guarda a posição da aula anterior
   currentModuloId = moduloId;
   currentAulaId = aulaId;
   pushState('aula', { moduloId: moduloId, aulaId: aulaId });
@@ -2623,26 +2626,153 @@ function autoMarcarConcluida(aulaId) {
 }
 
 
+/* ═══════════════════════════════════════════════════════════════════════
+   PLAYER COM RETOMADA E CONCLUSÃO AUTOMÁTICA (out/2026)
+   - Usa a API gratuita do YouTube (iframe_api) para saber em que ponto o
+     aluno está e quando o vídeo termina.
+   - Continua de onde parou: a posição de cada aula fica guardada na conta
+     (users/{uid}/config/salaDeAula), então vale entre celular e computador.
+   - Concluída sozinha ao chegar a 92% do vídeo ou no fim. O botão manual
+     continua funcionando para marcar e desmarcar.
+   - Se a API do YouTube não carregar, cai no iframe simples de antes.
+   ═══════════════════════════════════════════════════════════════════════ */
+var _saYt = null, _saYtTimer = null, _saYtAula = null, _saYtUltNuvem = 0, _saYtAvisou = false;
+function _saYtCarregarApi(){
+  if (window.YT && window.YT.Player) return Promise.resolve(true);
+  if (window._saYtApiProm) return window._saYtApiProm;
+  window._saYtApiProm = new Promise(function(ok){
+    var feito = false;
+    var antes = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = function(){ try { if (antes) antes(); } catch(e){} if (!feito) { feito = true; ok(true); } };
+    var sc = document.createElement('script'); sc.src = 'https://www.youtube.com/iframe_api'; sc.async = true;
+    sc.onerror = function(){ if (!feito) { feito = true; ok(false); } };
+    document.head.appendChild(sc);
+    setTimeout(function(){ if (!feito) { feito = true; ok(!!(window.YT && window.YT.Player)); } }, 6000);
+  });
+  return window._saYtApiProm;
+}
+function _saYtPararTimer(){ if (_saYtTimer) { clearInterval(_saYtTimer); _saYtTimer = null; } }
+function _saYtFlush(){
+  try {
+    if (_saYt && _saYtAula && _saYt.getCurrentTime) {
+      var t = _saYt.getCurrentTime() || 0, d = _saYt.getDuration() || 0;
+      if (t > 0) _saPosSalvar(_saYtAula, t, d, true);
+    }
+  } catch(e){}
+}
+function _saFmtTempo(seg){ seg = Math.max(0, Math.floor(seg || 0)); var h = Math.floor(seg / 3600), m = Math.floor((seg % 3600) / 60), s2 = seg % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s2).padStart(2, '0'); }
+function _saAviso(txt){
+  try {
+    var el = document.getElementById('saAvisoFlutuante');
+    if (!el) { el = document.createElement('div'); el.id = 'saAvisoFlutuante'; el.style.cssText = 'position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:100060;background:#1f1d24;color:#f0ece0;border:1px solid rgba(201,169,97,.5);padding:10px 16px;border-radius:12px;font-size:14px;font-weight:600;box-shadow:0 12px 30px rgba(0,0,0,.4);transition:opacity .3s;max-width:92vw;text-align:center'; document.body.appendChild(el); }
+    el.textContent = txt; el.style.opacity = '1';
+    clearTimeout(el._t); el._t = setTimeout(function(){ el.style.opacity = '0'; }, 3800);
+  } catch(e){}
+}
+
 function loadYouTubePlayer(url, aulaId) {
   var card = document.getElementById('sa-thumb-card');
   if (!card) return;
   var wrap = card.parentElement;
+  _saYtFlush(); _saYtPararTimer();
+  try { if (_saYt && _saYt.destroy) _saYt.destroy(); } catch(e){}
+  _saYt = null; _saYtAula = aulaId; _saYtAvisou = false;
+  var ytId = (String(url).match(/embed\/([\w-]+)/) || [])[1] || '';
+  var pos = _saPos[aulaId], inicio = 0;
+  if (pos && pos.t > 15 && (!pos.d || pos.t < pos.d - 30)) inicio = Math.max(0, Math.floor(pos.t) - 3);
   wrap.style.cssText = 'width:100%;background:transparent;border-radius:0;box-shadow:none;aspect-ratio:auto;height:auto';
   wrap.innerHTML =
-    '<div style="position:relative;width:100%;aspect-ratio:16/9;border-radius:16px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.7);opacity:0;transition:opacity 0.4s ease">' +
-      '<iframe src="' + url + '?rel=0&autoplay=1&modestbranding=1&color=white" ' +
-        'style="position:absolute;inset:0;width:100%;height:100%;border:none;display:block" ' +
-        'allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture">' +
-      '</iframe>' +
+    '<div style="position:relative;width:100%;aspect-ratio:16/9;border-radius:16px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.7);opacity:0;transition:opacity 0.4s ease;background:#000">' +
+      '<div id="saYtPlayer" style="position:absolute;inset:0;width:100%;height:100%"></div>' +
     '</div>';
-  // fade-in após render
-  requestAnimationFrame(function() {
-    requestAnimationFrame(function() {
-      var d = wrap.querySelector('div');
-      if (d) d.style.opacity = '1';
-    });
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){ var d = wrap.querySelector('div'); if (d) d.style.opacity = '1'; }); });
+  if (inicio) _saAviso('Continuando de onde você parou (' + _saFmtTempo(inicio) + ')');
+
+  function simples(){
+    var alvo = document.getElementById('saYtPlayer'); if (!alvo) return;
+    alvo.outerHTML = '<iframe src="' + url + '?rel=0&autoplay=1&modestbranding=1&color=white&playsinline=1' + (inicio ? '&start=' + inicio : '') + '" ' +
+      'style="position:absolute;inset:0;width:100%;height:100%;border:none;display:block" allowfullscreen ' +
+      'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>';
+  }
+  if (!ytId) { simples(); return; }
+  _saYtCarregarApi().then(function(ok){
+    if (_saYtAula !== aulaId || !document.getElementById('saYtPlayer')) return;   // já trocou de aula
+    if (!ok) { simples(); return; }
+    try {
+      _saYt = new YT.Player('saYtPlayer', {
+        videoId: ytId, width: '100%', height: '100%',
+        playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1, start: inicio || 0, color: 'white' },
+        events: {
+          onStateChange: function(ev){
+            if (ev.data === 1) {                                   // tocando
+              _saYtPararTimer();
+              _saYtTimer = setInterval(function(){
+                try {
+                  var t = _saYt.getCurrentTime() || 0, d = _saYt.getDuration() || 0;
+                  _saPosSalvar(aulaId, t, d, false);
+                  if (d > 60 && t / d >= 0.92 && !isConcluida(aulaId)) {
+                    autoMarcarConcluida(aulaId);
+                    if (!_saYtAvisou) { _saYtAvisou = true; _saAviso('✓ Aula marcada como concluída'); }
+                  }
+                } catch(e){}
+              }, 5000);
+            } else if (ev.data === 2) { _saYtPararTimer(); _saYtFlush(); }   // pausou
+            else if (ev.data === 0) {                              // terminou
+              _saYtPararTimer();
+              _saPosSalvar(aulaId, 0, (_saYt.getDuration && _saYt.getDuration()) || 0, true);
+              if (!isConcluida(aulaId)) { autoMarcarConcluida(aulaId); _saAviso('✓ Aula concluída! Bora para a próxima.'); }
+            }
+          }
+        }
+      });
+    } catch(e){ simples(); }
   });
 }
+
+/* Posição de cada aula + última aula, por conta (vale entre aparelhos) */
+var _saPos = {}, _saNuvemPend = null, _saNuvemTimer = null;
+function _saPosKey(){ return 'g20_sa_pos_' + (_saUid() || 'anon'); }
+try { _saPos = JSON.parse(localStorage.getItem('g20_sa_pos_' + (localStorage.getItem('g20_uid') || 'anon')) || '{}') || {}; } catch(e){ _saPos = {}; }
+function _saNuvemRef(){
+  try { var uid = _saUid(); if (!uid || !window.firebase) return null; return firebase.firestore().collection('users').doc(uid).collection('config').doc('salaDeAula'); } catch(e){ return null; }
+}
+function _saNuvemGravar(dados, agora){
+  _saNuvemPend = Object.assign(_saNuvemPend || {}, dados);
+  var enviar = function(){
+    var ref = _saNuvemRef(), d = _saNuvemPend; _saNuvemPend = null; _saNuvemTimer = null;
+    if (!ref || !d) return;
+    ref.set(d, { merge: true }).catch(function(e){ console.warn('[SA] retomada não sincronizou:', e && e.message); });
+  };
+  if (agora) { clearTimeout(_saNuvemTimer); enviar(); }
+  else if (!_saNuvemTimer) _saNuvemTimer = setTimeout(enviar, 45000);   // no máx. 1 gravação a cada 45s enquanto assiste
+}
+function _saPosSalvar(aulaId, t, d, agora){
+  if (!aulaId) return;
+  var reg = { t: Math.round(t || 0), d: Math.round(d || 0), em: Date.now() };
+  _saPos[aulaId] = reg;
+  // guarda só as 40 mais recentes
+  var ids = Object.keys(_saPos); if (ids.length > 40) ids.sort(function(a, b){ return (_saPos[a].em || 0) - (_saPos[b].em || 0); }).slice(0, ids.length - 40).forEach(function(k){ delete _saPos[k]; });
+  try { localStorage.setItem(_saPosKey(), JSON.stringify(_saPos)); } catch(e){}
+  var o = {}; o[aulaId] = reg;
+  _saNuvemGravar({ posicoes: o }, agora);
+}
+/* Ao abrir a Sala de Aula: traz da conta a última aula e as posições
+   (o que for mais recente vence) */
+function _saNuvemCarregar(){
+  var ref = _saNuvemRef(); if (!ref) return;
+  ref.get().then(function(doc){
+    if (!doc.exists) return;
+    var d = doc.data() || {};
+    if (d.posicoes) Object.keys(d.posicoes).forEach(function(k){ var r = d.posicoes[k]; if (r && (!_saPos[k] || (r.em || 0) > (_saPos[k].em || 0))) _saPos[k] = r; });
+    try { localStorage.setItem(_saPosKey(), JSON.stringify(_saPos)); } catch(e){}
+    var u = d.ultima, loc = null;
+    try { loc = JSON.parse(localStorage.getItem(_saUltimaKey()) || 'null'); } catch(e){}
+    if (u && u.aulaId && (!loc || (u.em || 0) > (loc.em || 0))) { try { localStorage.setItem(_saUltimaKey(), JSON.stringify(u)); } catch(e){} }
+    try { var vh = document.getElementById('view-home'); if (!vh || vh.classList.contains('active')) renderContinuar(); } catch(e){}
+  }).catch(function(e){ console.warn('[SA] não consegui trazer a retomada:', e && e.message); });
+}
+document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'hidden') { _saYtFlush(); if (_saNuvemPend) _saNuvemGravar({}, true); } });
+window.addEventListener('pagehide', function(){ _saYtFlush(); if (_saNuvemPend) _saNuvemGravar({}, true); });
 
 // ─── COMENTÁRIOS E DÚVIDAS ───
 try {
@@ -2689,7 +2819,7 @@ window.addEventListener('popstate', function(e) {
 function saInit(uid, db, role) {
   SA_IS_ADMIN = (role === 'admin');
   if (SA_IS_ADMIN) document.body.classList.add('is-admin');
-  window._saUid = uid;
+  window._saUidAtual = uid;   // antes sobrescrevia a função _saUid() e quebrava o "continuar de onde parou"
   window._saDb = db;
 
   var overlay = document.getElementById('saLoadingMsg');
@@ -2701,7 +2831,7 @@ function saInit(uid, db, role) {
     if (overlay) overlay.style.display = 'none';
     if(!_saOpenFromHash()) showHome();
     // Atualizar concluídas e módulos em background silenciosamente
-    loadConcluidas(uid, db).catch(function(){});
+    loadConcluidas(uid, db).catch(function(){}); try { _saNuvemCarregar(); } catch(e){}
     if (!SA_IS_ADMIN && _saCacheIdade() < SA_REFRESH_MIN) return;   // cache recente: não relê
     loadModulosFromFirestore(db).then(function() {
       // Atualizar grid em background sem piscar (só se estiver na home, não em aula/módulo)
@@ -2714,7 +2844,7 @@ function saInit(uid, db, role) {
 
   // Sem cache — carregar do Firestore (primeira visita)
   Promise.all([
-    loadConcluidas(uid, db),
+    loadConcluidas(uid, db).then(function(){ try { _saNuvemCarregar(); } catch(e){} }),
     loadModulosFromFirestore(db)
   ]).then(function() {
     if (overlay) overlay.style.display = 'none';
@@ -3424,11 +3554,9 @@ function filtrarAulas(termo){
 function _saUltimaKey(){ return 'g20_sa_ultima_' + (_saUid() || 'anon'); }
 
 function registrarUltimaAula(moduloId, aulaId){
-  try {
-    localStorage.setItem(_saUltimaKey(), JSON.stringify({
-      moduloId: moduloId, aulaId: aulaId, em: Date.now()
-    }));
-  } catch(e){}
+  var u = { moduloId: moduloId, aulaId: aulaId, em: Date.now() };
+  try { localStorage.setItem(_saUltimaKey(), JSON.stringify(u)); } catch(e){}
+  try { _saNuvemGravar({ ultima: u }, true); } catch(e){}   // vale no outro aparelho
 }
 
 function renderContinuar(){
@@ -3464,7 +3592,8 @@ function renderContinuar(){
   }
 
   var tit = document.getElementById('saContinuarTit');
-  if (tit) tit.textContent = (alvoMod.tag ? alvoMod.tag + ' · ' : '') + alvoAula.titulo;
+  var _p = _saPos[alvoAula.id], _onde = (_p && _p.t > 15 && (!_p.d || _p.t < _p.d - 30)) ? ' · parou em ' + _saFmtTempo(_p.t) : '';
+  if (tit) tit.textContent = (alvoMod.tag ? alvoMod.tag + ' · ' : '') + alvoAula.titulo + _onde;
   el.dataset.moduloId = alvoMod.id;
   el.dataset.aulaId   = alvoAula.id;
   el.dataset.temAula  = '1';
