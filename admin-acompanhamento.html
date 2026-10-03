@@ -106,6 +106,10 @@ tr:last-child td{border-bottom:none}
 .ac-num{white-space:nowrap;font-variant-numeric:tabular-nums}
 </style>
 
+<div style="display:flex;align-items:center;gap:10px;justify-content:flex-end;margin:-6px 0 10px;font-size:12.5px;color:var(--text3)">
+  <span id="acCacheInfo"></span>
+  <button class="ac-btn" style="height:32px" onclick="acAtualizarAgora()">↻ Atualizar agora</button>
+</div>
 <div class="ac-stats">
   <div class="ac-stat"><div class="l">Alunos aprovados</div><div class="v" id="stAlunos">–</div><div class="s" id="stPend">–</div></div>
   <div class="ac-stat"><div class="l">Nota média do perfil</div><div class="v" id="stPerfil" style="color:var(--gold)">–</div><div class="s">de 0 a 100</div></div>
@@ -192,8 +196,46 @@ async function acCarregarAulas(){
   acTotalAulas = Object.keys(acAulasPub).length;
 }
 
+/* CACHE DA SESSÃO (15 min): voltar de um aluno não relê tudo do Firestore.
+   "Atualizar agora" força uma leitura nova. */
+const AC_CACHE = 'g20_ac_cache', AC_CACHE_MIN = 15;
+const AC_DATAS = ['cadastro', 'ultima', 'ultAporte', 'ultLanc'];
+function acCacheSalvar(){
+  try {
+    const alunos = acAlunos.map(a => { const o = Object.assign({}, a); AC_DATAS.forEach(k => { o[k] = a[k] ? a[k].getTime() : null; }); return o; });
+    sessionStorage.setItem(AC_CACHE, JSON.stringify({ em: acCacheEm || Date.now(), total: acTotalAulas, din: acDinCarregado, alunos: alunos }));
+  } catch(e){ console.warn('[Acompanhamento] cache não salvo:', e && e.message); }
+}
+function acCacheLer(){
+  try {
+    const c = JSON.parse(sessionStorage.getItem(AC_CACHE) || 'null');
+    if (!c || !Array.isArray(c.alunos) || Date.now() - c.em > AC_CACHE_MIN * 60000) return null;
+    c.alunos.forEach(a => AC_DATAS.forEach(k => { a[k] = a[k] ? new Date(a[k]) : null; }));
+    return c;
+  } catch(e){ return null; }
+}
+let acCacheEm = 0;
+function acCacheInfo(){
+  const el = document.getElementById('acCacheInfo'); if (!el || !acCacheEm) return;
+  const min = Math.floor((Date.now() - acCacheEm) / 60000);
+  el.textContent = 'Dados de ' + new Date(acCacheEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) + (min >= 1 ? ' (há ' + min + ' min)' : ' (agora)');
+}
+setInterval(acCacheInfo, 30000);
+function acAtualizarAgora(){ try { sessionStorage.removeItem(AC_CACHE); } catch(e){} acGuardarEstado(); location.reload(); }
+
 /* 2) alunos + progresso: UMA leitura por aluno (antes eram duas a cada filtro) */
 async function acCarregar(){
+  const _c = acCacheLer();
+  if (_c) {   // volta rápida: sem ler o Firestore
+    acAlunos = _c.alunos; acTotalAulas = _c.total; acCacheEm = _c.em;
+    acMontarTurmas(); acResumo();
+    const _e = acRestaurarEstado();
+    if (_c.din) { acDinCarregado = true; document.querySelector('.ac-tab').classList.add('ac-din'); acDinResumo(); }
+    acRender(); acCacheInfo();
+    if (_e && _e.y) setTimeout(function(){ window.scrollTo(0, _e.y); }, 50);
+    const ol = document.getElementById('g20LoadingOverlay'); if (ol) ol.style.display = 'none';
+    return;
+  }
   try {
     await acCarregarAulas();
     const snap = await db.collection('users').get();
@@ -219,7 +261,11 @@ async function acCarregar(){
       } catch(e){ console.warn('[Acompanhamento] progresso de', a.uid, e && e.message); }
     }));
     acAlunos.forEach(a => { a.status = acStatus(a); });
-    acMontarTurmas(); acResumo(); acRender();
+    acCacheEm = Date.now();
+    acMontarTurmas(); acResumo();
+    const _est = acRestaurarEstado(); acRender(); acCacheSalvar(); acCacheInfo();
+    if (_est && _est.din) acCarregarDinheiro().then(function(){ if (_est.y) window.scrollTo(0, _est.y); });
+    else if (_est && _est.y) setTimeout(function(){ window.scrollTo(0, _est.y); }, 50);
   } catch(e){
     console.error('[Acompanhamento]', e);
     document.getElementById('acCorpo').innerHTML = '<tr><td colspan="13" style="text-align:center;color:var(--red);padding:24px">Não consegui carregar: ' + acEsc(e.message) + '</td></tr>';
@@ -281,6 +327,23 @@ function acValor(a, col){
   if (col === 'turma') return parseInt(String(a.turma).replace(/\D/g, ''), 10) || 0;
   return typeof a[col] === 'string' ? a[col].toLowerCase() : (a[col] || 0);
 }
+/* Volta do "ver como o aluno" no mesmo ponto: busca, filtros, ordem, página e rolagem */
+function acGuardarEstado(){
+  try { sessionStorage.setItem('g20_ac_estado', JSON.stringify({ q: document.getElementById('acBusca').value, t: document.getElementById('acTurma').value,
+    sit: document.getElementById('acSit').value, ordem: acOrdem, pag: acPagina, din: acDinCarregado, y: window.scrollY })); } catch(e){}
+}
+function acRestaurarEstado(){
+  let e = null; try { e = JSON.parse(sessionStorage.getItem('g20_ac_estado') || 'null'); } catch(x){}
+  if (!e) return null;
+  document.getElementById('acBusca').value = e.q || '';
+  if (e.t) document.getElementById('acTurma').value = e.t;
+  if (e.sit) document.getElementById('acSit').value = e.sit;
+  if (e.ordem) acOrdem = e.ordem; acPagina = e.pag || 0;
+  return e;
+}
+window.addEventListener('pagehide', acGuardarEstado);
+window.addEventListener('scroll', function(){ clearTimeout(window._acScrollT); window._acScrollT = setTimeout(acGuardarEstado, 300); }, { passive: true });
+
 function acRender(){
   const lista = acFiltrados().sort((x, y) => { const a = acValor(x, acOrdem.col), b = acValor(y, acOrdem.col); return (a > b ? 1 : a < b ? -1 : 0) * acOrdem.dir; });
   const pags = Math.max(1, Math.ceil(lista.length / AC_POR_PAGINA)); if (acPagina >= pags) acPagina = pags - 1;
@@ -296,7 +359,7 @@ function acRender(){
       acColsDinheiro(a) +
       '<td><span class="ac-pill" style="color:' + cor[0] + ';background:' + cor[1] + '">' + a.status + '</span></td></tr>';
   }).join('') || '<tr><td colspan="13" style="text-align:center;color:var(--text3);padding:24px">Nenhum aluno com esses filtros.</td></tr>';
-  document.querySelectorAll('#acCorpo tr.cl').forEach(tr => tr.onclick = function(){ window.location.href = 'admin-aluno-progresso.html?uid=' + encodeURIComponent(tr.dataset.uid); });
+  document.querySelectorAll('#acCorpo tr.cl').forEach(tr => tr.onclick = function(){ acGuardarEstado(); window.location.href = 'admin-aluno-progresso.html?uid=' + encodeURIComponent(tr.dataset.uid); });
   document.getElementById('acPag').innerHTML = lista.length + ' aluno(s)' + (pags > 1 ? ' · <button onclick="acPagina=Math.max(0,acPagina-1);acRender()">‹</button> página ' + (acPagina + 1) + ' de ' + pags + ' <button onclick="acPagina=Math.min(' + (pags - 1) + ',acPagina+1);acRender()">›</button>' : '');
 }
 /* ═══ CARTEIRA E FINANÇAS (Fase 1.5) ═══
@@ -371,6 +434,12 @@ async function acCarregarDinheiro(){
     feitos = Math.min(alvos.length, i + 8); st.textContent = 'Carregando… ' + feitos + ' de ' + alvos.length;
   }
   acDinCarregado = true; document.querySelector('.ac-tab').classList.add('ac-din');
+  acDinResumo(); acCacheSalvar();
+  b.textContent = 'Recarregar'; b.disabled = false;
+  acRender();
+}
+function acDinResumo(){
+  const alvos = acAlunos.filter(a => a.aprovado && !a.admin), st = document.getElementById('acDinStatus'), b = document.getElementById('acDinBtn');
   const n = alvos.length || 1, imp = alvos.filter(a => a.nTx > 0), gfU = alvos.filter(a => a.nLanc > 0),
         gf30 = alvos.filter(a => a.ultLanc && Date.now() - a.ultLanc.getTime() < 30 * 864e5), ap90 = alvos.filter(a => a.ultAporte && Date.now() - a.ultAporte.getTime() < 90 * 864e5);
   const somaPatr = alvos.reduce((s, a) => s + (a.patr || 0), 0), somaAp = alvos.reduce((s, a) => s + (a.ap12 || 0), 0);
@@ -383,9 +452,8 @@ async function acCarregarDinheiro(){
     card('Aportaram (90 dias)', ap90.length, 'alunos com compra nos últimos 90 dias') +
     card('Usam a Gestão Financeira', gfU.length + ' <small style="font-size:15px;color:var(--text3)">de ' + alvos.length + '</small>', gf30.length + ' lançaram nos últimos 30 dias', 'var(--blue)') +
     card('Taxa de economia média', ec.length ? Math.round(ec.reduce((s, a) => s + a.econ, 0) / ec.length) + '%' : '–', 'mês passado, de quem lançou receita');
-  st.textContent = 'Atualizado agora · patrimônio pelo custo (o valor de mercado aparece no "Ver como o aluno").';
+  st.textContent = 'Patrimônio pelo custo (o valor de mercado aparece no "Ver como o aluno").';
   b.textContent = 'Recarregar'; b.disabled = false;
-  acRender();
 }
 
 function acCsv(){
