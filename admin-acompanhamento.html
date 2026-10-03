@@ -144,12 +144,12 @@ tr:last-child td{border-bottom:none}
   <div class="ac-wrap"><table class="ac-tab">
     <thead><tr>
       <th onclick="acOrdenar('nome')">Aluno</th><th onclick="acOrdenar('turma')">Turma</th><th onclick="acOrdenar('cadastro')">Cadastro</th>
-      <th onclick="acOrdenar('perfil')">Perfil</th><th onclick="acOrdenar('pct')">Aulas</th><th onclick="acOrdenar('ultima')">Última aula concluída</th>
+      <th onclick="acOrdenar('acesso')">Último acesso</th><th onclick="acOrdenar('perfil')">Perfil</th><th onclick="acOrdenar('pct')">Aulas</th><th onclick="acOrdenar('ultima')">Última aula concluída</th>
       <th class="acd" onclick="acOrdenar('patr')">Patrimônio investido</th><th class="acd" onclick="acOrdenar('ap12')">Aportes 12m</th><th class="acd" onclick="acOrdenar('ultAporte')">Último aporte</th>
       <th class="acd" onclick="acOrdenar('nAtivos')">Ativos</th><th class="acd" onclick="acOrdenar('econ')">Economia (mês ant.)</th><th class="acd" onclick="acOrdenar('ultLanc')">Gestão Fin.</th>
       <th onclick="acOrdenar('status')">Situação</th>
     </tr></thead>
-    <tbody id="acCorpo"><tr><td colspan="13" style="text-align:center;color:var(--text3);padding:24px">Carregando os alunos…</td></tr></tbody>
+    <tbody id="acCorpo"><tr><td colspan="14" style="text-align:center;color:var(--text3);padding:24px">Carregando os alunos…</td></tr></tbody>
   </table></div>
   <div class="ac-pag" id="acPag"></div>
   <div style="font-size:11.5px;color:var(--text3);margin-top:10px;line-height:1.5">Aulas: só as concluídas sobre o total de aulas publicadas hoje. Tempo de uso, último acesso e páginas visitadas entram na próxima fase, quando o registro de uso estiver no ar.</div>
@@ -199,7 +199,7 @@ async function acCarregarAulas(){
 /* CACHE DA SESSÃO (15 min): voltar de um aluno não relê tudo do Firestore.
    "Atualizar agora" força uma leitura nova. */
 const AC_CACHE = 'g20_ac_cache', AC_CACHE_MIN = 15;
-const AC_DATAS = ['cadastro', 'ultima', 'ultAporte', 'ultLanc'];
+const AC_DATAS = ['cadastro', 'ultima', 'ultAporte', 'ultLanc', 'acesso'];
 function acCacheSalvar(){
   try {
     const alunos = acAlunos.map(a => { const o = Object.assign({}, a); AC_DATAS.forEach(k => { o[k] = a[k] ? a[k].getTime() : null; }); return o; });
@@ -244,6 +244,7 @@ async function acCarregar(){
       return { uid: d.id, nome: u.name || u.nome || u.displayName || '(sem nome)', email: u.email || '', turma: u.turma || '',
                aprovado: u.aprovado === true || u.role === 'admin', admin: u.role === 'admin', bloqueado: u.bloqueado === true,
                cadastro: acData(u.criadoEm || u.createdAt), perfil: typeof u.perfilNota === 'number' ? u.perfilNota : null,
+               acesso: acData(u.ultimoAcesso),
                feitas: 0, pct: 0, ultima: null, recentes: 0 };
     });
     const sete = Date.now() - 7 * 864e5;
@@ -268,7 +269,7 @@ async function acCarregar(){
     else if (_est && _est.y) setTimeout(function(){ window.scrollTo(0, _est.y); }, 50);
   } catch(e){
     console.error('[Acompanhamento]', e);
-    document.getElementById('acCorpo').innerHTML = '<tr><td colspan="13" style="text-align:center;color:var(--red);padding:24px">Não consegui carregar: ' + acEsc(e.message) + '</td></tr>';
+    document.getElementById('acCorpo').innerHTML = '<tr><td colspan="14" style="text-align:center;color:var(--red);padding:24px">Não consegui carregar: ' + acEsc(e.message) + '</td></tr>';
   } finally { const ol = document.getElementById('g20LoadingOverlay'); if (ol) ol.style.display = 'none'; }
 }
 
@@ -276,6 +277,12 @@ async function acCarregar(){
 function acStatus(a){
   if (!a.aprovado) return a.bloqueado ? 'Bloqueado' : 'Aguardando';
   if (a.cadastro && Date.now() - a.cadastro.getTime() < 7 * 864e5 && !a.feitas) return 'Novo';
+  if (a.acesso) {   // com o registro de uso: vale o último acesso à plataforma
+    const dA = (Date.now() - a.acesso.getTime()) / 864e5;
+    if (dA > 14) return 'Sumido';
+    if (dA > 7) return 'Esfriando';
+    return a.pct >= 100 ? 'Concluiu' : 'Ativo';
+  }
   if (a.pct >= 100) return 'Concluiu';
   if (a.recentes > 0) return 'Ativo';
   if (!a.feitas) return 'Não começou';
@@ -283,7 +290,7 @@ function acStatus(a){
   return dias <= 14 ? 'Esfriando' : 'Parado';
 }
 const AC_COR = { 'Concluiu': ['#2ecc71','rgba(46,204,113,.14)'], 'Ativo': ['#3498db','rgba(52,152,219,.14)'], 'Novo': ['#c4b5fd','rgba(196,181,253,.14)'],
-  'Esfriando': ['#f39c12','rgba(243,156,18,.14)'], 'Parado': ['#e63946','rgba(230,57,70,.14)'], 'Não começou': ['#b0bac8','rgba(176,186,200,.12)'],
+  'Esfriando': ['#f39c12','rgba(243,156,18,.14)'], 'Sumido': ['#e63946','rgba(230,57,70,.16)'], 'Parado': ['#e63946','rgba(230,57,70,.14)'], 'Não começou': ['#b0bac8','rgba(176,186,200,.12)'],
   'Aguardando': ['#e8b84b','rgba(232,184,75,.12)'], 'Bloqueado': ['#6b7a94','rgba(107,122,148,.14)'] };
 
 function acMontarTurmas(){
@@ -303,7 +310,12 @@ function acResumo(){
   document.getElementById('stCurso').textContent = Math.round(ap.reduce((s, a) => s + a.pct, 0) / n) + '%';
   document.getElementById('stTotalAulas').textContent = acTotalAulas + ' aulas publicadas';
   document.getElementById('stComecaram').textContent = Math.round(ap.filter(a => a.feitas > 0).length / n * 100) + '%';
-  document.getElementById('stAtivos7').textContent = ap.filter(a => a.recentes > 0).length;
+  const comAcesso = ap.filter(a => a.acesso);
+  if (comAcesso.length) {
+    document.getElementById('stAtivos7').textContent = ap.filter(a => a.acesso && Date.now() - a.acesso.getTime() < 7 * 864e5).length;
+    document.getElementById('stAtivos7').parentNode.querySelector('.l').textContent = 'Entraram (7 dias)';
+    document.getElementById('stAtivos7').parentNode.querySelector('.s').textContent = 'acessaram a plataforma na última semana';
+  } else document.getElementById('stAtivos7').textContent = ap.filter(a => a.recentes > 0).length;
   const etapas = [['Cadastro aprovado', ap.length], ['Perfil com nota ≥ 80', ap.filter(a => (a.perfil || 0) >= 80).length], ['1ª aula concluída', ap.filter(a => a.feitas > 0).length],
                   ['Metade do curso', ap.filter(a => a.pct >= 50).length], ['Curso completo', ap.filter(a => a.pct >= 100).length]];
   document.getElementById('acFunil').innerHTML = etapas.map(e => '<div class="ac-fun"><span>' + e[0] + '</span><div class="t"><i style="width:' + Math.round(e[1] / n * 100) + '%"></i></div><b>' + e[1] + ' · ' + Math.round(e[1] / n * 100) + '%</b></div>').join('');
@@ -321,7 +333,7 @@ function acFiltrados(){
 }
 function acOrdenar(col){ acOrdem = { col: col, dir: acOrdem.col === col ? -acOrdem.dir : (col === 'nome' || col === 'turma' ? 1 : -1) }; acRender(); }
 function acValor(a, col){
-  if (col === 'cadastro' || col === 'ultima' || col === 'ultAporte' || col === 'ultLanc') return a[col] ? a[col].getTime() : 0;
+  if (col === 'cadastro' || col === 'ultima' || col === 'ultAporte' || col === 'ultLanc' || col === 'acesso') return a[col] ? a[col].getTime() : 0;
   if (col === 'econ') return a.econ == null ? -999 : a.econ;
   if (col === 'perfil') return a.perfil == null ? -1 : a.perfil;
   if (col === 'turma') return parseInt(String(a.turma).replace(/\D/g, ''), 10) || 0;
@@ -353,12 +365,13 @@ function acRender(){
     return '<tr class="cl" data-uid="' + acEsc(a.uid) + '">' +
       '<td><div class="ac-nome">' + acEsc(a.nome) + '</div><div class="ac-mail">' + acEsc(a.email) + '</div></td>' +
       '<td>' + acEsc(a.turma || '–') + '</td><td>' + acFmt(a.cadastro) + '</td>' +
+      '<td>' + (a.acesso ? acRel(a.acesso) : '<span style="color:var(--text3)">–</span>') + '</td>' +
       '<td>' + (a.perfil == null ? '<span style="color:var(--text3)">–</span>' : '<b style="color:' + (a.perfil >= 80 ? 'var(--green)' : a.perfil >= 50 ? 'var(--gold)' : 'var(--red)') + '">' + a.perfil + '</b>') + '</td>' +
       '<td><div class="ac-bar"><div class="t"><i style="width:' + a.pct + '%"></i></div><span>' + a.feitas + '/' + acTotalAulas + '</span></div></td>' +
       '<td>' + (a.ultima ? acFmt(a.ultima) + ' <small style="color:var(--text3)">(' + acRel(a.ultima) + ')</small>' : '–') + '</td>' +
       acColsDinheiro(a) +
       '<td><span class="ac-pill" style="color:' + cor[0] + ';background:' + cor[1] + '">' + a.status + '</span></td></tr>';
-  }).join('') || '<tr><td colspan="13" style="text-align:center;color:var(--text3);padding:24px">Nenhum aluno com esses filtros.</td></tr>';
+  }).join('') || '<tr><td colspan="14" style="text-align:center;color:var(--text3);padding:24px">Nenhum aluno com esses filtros.</td></tr>';
   document.querySelectorAll('#acCorpo tr.cl').forEach(tr => tr.onclick = function(){ acGuardarEstado(); window.location.href = 'admin-aluno-progresso.html?uid=' + encodeURIComponent(tr.dataset.uid); });
   document.getElementById('acPag').innerHTML = lista.length + ' aluno(s)' + (pags > 1 ? ' · <button onclick="acPagina=Math.max(0,acPagina-1);acRender()">‹</button> página ' + (acPagina + 1) + ' de ' + pags + ' <button onclick="acPagina=Math.min(' + (pags - 1) + ',acPagina+1);acRender()">›</button>' : '');
 }
@@ -457,9 +470,9 @@ function acDinResumo(){
 }
 
 function acCsv(){
-  const lin = [['Nome','E-mail','Turma','Cadastro','Nota do perfil','Aulas concluídas','Total de aulas','% do curso','Última aula concluída','Situação']
+  const lin = [['Nome','E-mail','Turma','Cadastro','Último acesso','Nota do perfil','Aulas concluídas','Total de aulas','% do curso','Última aula concluída','Situação']
     .concat(acDinCarregado ? ['Patrimônio investido (R$)','Renda variável (R$)','Renda fixa (R$)','Bens (R$)','Aportes 12m (R$)','Último aporte','Nº de ativos','Proventos 12m (R$)','Origem da carteira','Lançamentos GF','Último lançamento GF','Receita mês ant. (R$)','Despesa mês ant. (R$)','Taxa de economia mês ant. (%)','Usa orçamento'] : [])];
-  acFiltrados().forEach(a => lin.push([a.nome, a.email, a.turma, acFmt(a.cadastro), a.perfil == null ? '' : a.perfil, a.feitas, acTotalAulas, a.pct, acFmt(a.ultima), a.status]
+  acFiltrados().forEach(a => lin.push([a.nome, a.email, a.turma, acFmt(a.cadastro), a.acesso ? a.acesso.toLocaleString('pt-BR') : '', a.perfil == null ? '' : a.perfil, a.feitas, acTotalAulas, a.pct, acFmt(a.ultima), a.status]
     .concat(acDinCarregado ? [acN(a.patr), acN(a.rv), acN(a.rf), acN(a.bens), acN(a.ap12), acFmt(a.ultAporte), a.nAtivos || 0, acN(a.prov12), a.origem || '', a.nLanc || 0, acFmt(a.ultLanc), acN(a.recAnt), acN(a.despAnt), a.econ == null ? '' : a.econ, a.usaOrc ? 'sim' : 'não'] : [])));
   const csv = lin.map(l => l.map(c => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"').join(';')).join('\n');
   const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }), url = URL.createObjectURL(blob), el = document.createElement('a');

@@ -129,6 +129,7 @@ details.f-aulas summary{cursor:pointer;color:var(--gold);font-size:12.5px;margin
 
 <div class="f-kpis" id="fKpis"></div>
 
+<div class="f-box" style="margin-bottom:16px"><h3>Uso da plataforma (30 dias) <span id="fUsoTit"></span></h3><div id="fUso" class="f-vazio">Carregando…</div></div>
 <div class="f-grid">
   <div class="f-box"><h3>Sala de Aula <span id="fCursoTit"></span></h3><div id="fCurso" class="f-vazio">Carregando…</div></div>
   <div class="f-box"><h3>Carteira <span id="fCartTit"></span></h3><div id="fCart" class="f-vazio">Carregando…</div></div>
@@ -233,6 +234,7 @@ async function f360Carregar(){
     db.collection('game-g20').doc(_uid).collection('carteiras').get().catch(() => null),
     db.collection('consultoria').doc('agendamentos').collection('items').where('uid', '==', _uid).get().catch(() => null)
   ]);
+  const uso = await f360Uso(uref, u);
   const aulas = await f360Curso(mods, prog, cfgSA);
   await f360Comentarios(mods, aulas);
   const cart = f360Carteira(rv, rf, bens, prov);
@@ -242,6 +244,7 @@ async function f360Carregar(){
   // KPIs
   const k = (l, v, s, c) => '<div class="f-kpi"><div class="l">' + l + '</div><div class="v"' + (c ? ' style="color:' + c + '"' : '') + '>' + v + '</div><div class="s">' + s + '</div></div>';
   document.getElementById('fKpis').innerHTML =
+    k('Último acesso', uso.ult ? fRel(uso.ult) : '–', uso.seg ? fTempo(uso.seg) + ' em 30 dias' : 'sem registro de uso ainda', 'var(--blue)') +
     k('Curso', aulas.pct + '%', aulas.feitas + ' de ' + aulas.total + ' aulas', 'var(--green)') +
     k('Última aula concluída', aulas.ult ? fRel(aulas.ult) : '–', aulas.ult ? fData(aulas.ult) : 'nenhuma ainda') +
     k('Patrimônio', cart.patr ? fBRL(cart.patr, true) : '–', cart.patr ? 'pelo custo · ' + cart.nAtivos + ' ativos' : 'não importou a carteira', 'var(--gold)') +
@@ -251,6 +254,39 @@ async function f360Carregar(){
   // linha do tempo
   fTl.sort((x, y) => y.d - x.d);
   fSet('fTl', fTl.length ? fTl.slice(0, 40).map(e => '<div class="f-tl"><span>' + e.d.toLocaleDateString('pt-BR') + '</span><div>' + e.t + '</div></div>').join('') : '<div class="f-vazio">Sem eventos ainda.</div>');
+}
+
+function fTempo(seg){ seg = Math.round(seg || 0); const h = Math.floor(seg / 3600), m = Math.round((seg % 3600) / 60); return h ? h + 'h ' + String(m).padStart(2, '0') + 'min' : m + ' min'; }
+const F_PAG = { dashboard: 'Dashboard', 'sala-de-aula': 'Sala de Aula', 'gestao-patrimonial': 'Minha Carteira', 'gestao-financeira': 'Gestão Financeira', carteira: 'Carteira G20',
+  'game-g20': 'Game G20', biblioteca: 'Biblioteca', g20cast: 'G20Cast', 'g20cast-premium': 'G20Cast Premium', g20flix: 'G20Flix', networking: 'Networking', noticias: 'Notícias',
+  'command-center': 'Command Center', 'minha-jornada': 'Minha Jornada', atlas: 'Atlas', perfil: 'Meu Perfil', ajuda: 'Central de Ajuda', consultoria: 'Consultoria', arena: 'Arena' };
+async function f360Uso(uref, u){
+  const r = { seg: 0, ult: fDt(u.ultimoAcesso) };
+  const hoje = new Date(Date.now() - 3 * 3600 * 1000), dias = [];
+  for (let i = 29; i >= 0; i--) { const d = new Date(hoje.getTime() - i * 864e5); dias.push(d.toISOString().slice(0, 10)); }
+  let sn = null;
+  try { sn = await uref.collection('atividade').where(firebase.firestore.FieldPath.documentId(), '>=', dias[0]).get(); } catch(e){ try { sn = await uref.collection('atividade').get(); } catch(_){} }
+  const porDia = {}, pags = {}, horas = {}, apar = {}; let sess = 0;
+  if (sn) sn.forEach(d => { if (d.id < dias[0]) return; const x = d.data() || {}; porDia[d.id] = Number(x.seg) || 0; r.seg += Number(x.seg) || 0; sess += Number(x.sessoes) || 0;
+    Object.keys(x.paginas || {}).forEach(k => pags[k] = (pags[k] || 0) + (Number(x.paginas[k]) || 0));
+    Object.keys(x.horas || {}).forEach(k => horas[k] = (horas[k] || 0) + (Number(x.horas[k]) || 0));
+    Object.keys(x.aparelhos || {}).forEach(k => apar[k] = (apar[k] || 0) + (Number(x.aparelhos[k]) || 0)); });
+  const ativos = dias.filter(d => porDia[d] > 0).length;
+  document.getElementById('fUsoTit').textContent = r.seg ? fTempo(r.seg) + ' · ' + ativos + ' dias' : '';
+  if (!r.seg) { fSet('fUso', '<div class="f-vazio">Ainda sem registro de uso. A medição começou a funcionar agora: os dados aparecem a partir do próximo acesso do aluno.' + (r.ult ? ' Último acesso: ' + fData(r.ult) + '.' : '') + '</div>'); return r; }
+  const mx = Math.max(1, ...dias.map(d => porDia[d] || 0));
+  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">';
+  html += '<div><div style="font-size:11.5px;color:var(--text3)">Minutos por dia (30 dias)</div><div class="f-cols">' + dias.map(d => '<div class="f-col" title="' + d.split('-').reverse().join('/') + ' · ' + fTempo(porDia[d] || 0) + '"><i style="height:' + Math.round((porDia[d] || 0) / mx * 90) + 'px"></i></div>').join('') + '</div>' +
+    fLi('Dias com uso', ativos + ' de 30') + fLi('Sessões', sess + (sess ? ' · média ' + fTempo(r.seg / sess) : '')) + fLi('Último acesso', r.ult ? fData(r.ult) + ' (' + fRel(r.ult) + ')' : '–') + '</div>';
+  const tp = Object.keys(pags).sort((a, b) => pags[b] - pags[a]), mp = pags[tp[0]] || 1;
+  html += '<div><div style="font-size:11.5px;color:var(--text3)">Tempo por página</div>' + tp.slice(0, 8).map(k => '<div class="f-bar"><span class="n">' + fEsc(F_PAG[k] || k) + '</span><div class="t"><i style="width:' + Math.round(pags[k] / mp * 100) + '%"></i></div><span class="q">' + fTempo(pags[k]) + '</span></div>').join('') + '</div>';
+  const faixas = [['Madrugada (0h-6h)', 0, 6], ['Manhã (6h-12h)', 6, 12], ['Tarde (12h-18h)', 12, 18], ['Noite (18h-24h)', 18, 24]];
+  const fx = faixas.map(f => [f[0], Object.keys(horas).filter(h => +h >= f[1] && +h < f[2]).reduce((s2, h) => s2 + horas[h], 0)]), mf = Math.max(1, ...fx.map(f => f[1]));
+  const ap2 = Object.keys(apar).sort((a, b) => apar[b] - apar[a]).map(k => ({ celular: 'Celular (navegador)', celular_app: 'Celular (app instalado)', computador: 'Computador', computador_app: 'Computador (app)' }[k] || k) + ' ' + Math.round(apar[k] / r.seg * 100) + '%');
+  html += '<div><div style="font-size:11.5px;color:var(--text3)">Quando usa</div>' + fx.map(f => '<div class="f-bar"><span class="n">' + f[0] + '</span><div class="t"><i style="width:' + Math.round(f[1] / mf * 100) + '%"></i></div><span class="q">' + Math.round(f[1] / r.seg * 100) + '%</span></div>').join('') + fLi('Aparelho', fEsc(ap2.join(' · ') || '–')) + '</div>';
+  html += '</div>';
+  fSet('fUso', html);
+  return r;
 }
 
 async function f360Curso(mods, prog, cfg){
