@@ -12685,6 +12685,7 @@ function _impMarcarDuplicados(itens){
   itens.forEach(function(it){
     it._dup = false; it._motivo = '';
     if((it.idV1 && ids['v1:' + it.idV1]) || (it.idSI && ids['si:' + it.idSI])){ it._dup = true; it._motivo = 'já importado'; return; }
+    if(it.posicao && (porAtivo[String(it.ticker).toUpperCase() + '|C'] || porAtivo[String(it.ticker).toUpperCase() + '|V'])){ it._dup = true; it._motivo = 'ativo já está na carteira'; return; }
     var k = String(it.ticker).toUpperCase() + '|' + (it.op || 'C'), v = _impValor(it);
     var lista = porAtivo[k] || [];
     var kx = _mvChave(it);
@@ -12836,6 +12837,14 @@ function _siNum(v){
   if(s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.');   // 1.548,85 → 1548.85
   return parseFloat(s);
 }
+/* Quantidade no padrão do Status Invest: "1.350" é mil trezentos e cinquenta
+   (ponto de milhar), e não 1,35. Antes, quantidades a partir de 1.000 vinham
+   divididas por mil. "0.125" (cripto) continua 0,125. */
+function _siQtd(v){
+  var s = String(v == null ? '' : v).replace(/[^\d,.\-]/g, '');
+  if(/^-?[1-9]\d{0,2}(\.\d{3})+$/.test(s)) return parseFloat(s.replace(/\./g, ''));
+  return _siNum(s);
+}
 function _siData(v){ var m = String(v || '').match(/(\d{2})\/(\d{2})\/(\d{4})/); return m ? m[3] + '-' + m[2] + '-' + m[1] : ''; }
 function _siNorm(v){ return String(v || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim(); }
 
@@ -12863,11 +12872,45 @@ function _siLinha(cel){
   if(!mt) return null;
   var venc = String(cel[iData + 1] || '').trim();
   var off = (venc === '' || venc === '-' || venc === '—' || /^\d{2}\/\d{2}\/\d{4}$/.test(venc) || !/\d/.test(venc)) ? 2 : 1;
-  var r = { cat: k >= 2 ? cel[k - 2] : '', ativo: mt[1], ordem: cel[k], corretora: (k + 1 < iData) ? cel[k + 1] : '', data: _siData(cel[iData]),
-            qtd: _siNum(cel[iData + off]), preco: _siNum(cel[iData + off + 1]), total: _siNum(cel[iData + off + 2]) };
+  // categoria: normalmente logo antes do ativo; se ali estiver o logo do ativo
+  // (célula de imagem separada), procura uma coluna antes
+  var _cat = '';
+  for(var q = k - 2; q >= Math.max(0, k - 4); q--){ if(_SI_TIPO[_siNorm(cel[q])]){ _cat = cel[q]; break; } }
+  if(!_cat && k >= 2) _cat = cel[k - 2];
+  var r = { cat: _cat, ativo: mt[1], ordem: cel[k], corretora: (k + 1 < iData) ? cel[k + 1] : '', data: _siData(cel[iData]),
+            qtd: _siQtd(cel[iData + off]), preco: _siNum(cel[iData + off + 1]), total: _siNum(cel[iData + off + 2]) };
   if(!r.data || !isFinite(r.qtd)) return null;
   return r;
 }
+/* POSIÇÃO NA CARTEIRA (out/2026): quem não tem a aba Transações (o Status Invest
+   novo restringiu para assinantes) só consegue copiar a "Posição na Carteira":
+   ticker, preço médio, quantidade. Cada ativo vira UMA compra pelo preço médio,
+   na data de hoje (o aluno é avisado). Lido do texto copiado. */
+function _siLerPosicoes(texto){
+  var L = String(texto || '').split(/\r?\n/), out = [], hoje = (function(){ var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); })();
+  var reTk = /^\s*([A-Z]{4}\d{1,2}[A-Z]?|[A-Z]{1,5}(?:\.[AB])?)\s*$/;
+  var reVal = /^\s*(R\$|US\$|\$)\s?(-?[\d.]+(?:,\d+)?)/;
+  for(var i = 0; i < L.length; i++){
+    var mt = L[i].match(reTk); if(!mt) continue;
+    var j = i + 1; while(j < L.length && !L[j].trim()) j++;
+    var mp = (L[j] || '').match(reVal); if(!mp) continue;            // logo depois do ticker: o preço médio
+    var moeda = mp[1] === 'R$' ? 'BRL' : 'USD', pm = _siNum(mp[2]), qtd = null;
+    for(var k = j + 1; k < L.length && k < j + 80; k++){
+      if(reTk.test(L[k])) break;                                      // chegou no próximo ativo
+      var cols = L[k].split('\t').map(function(c){ return c.trim(); });
+      if(cols.length < 2) continue;
+      // "R$24,13 <tab> 1.350 <tab> R$ 26.379,00" ou "- <tab> 51 <tab> R$ 253,47" ou "15.220 <tab> R$ 67.729,00"
+      for(var c = 0; c < cols.length - 1; c++){
+        if(/^-?[\d.]+(?:,\d+)?$/.test(cols[c]) && reVal.test(cols[c + 1])){ qtd = _siQtd(cols[c]); break; }
+      }
+      if(qtd != null) break;
+    }
+    if(!(pm > 0) || !(qtd > 0)) continue;
+    out.push({ cat: '', ativo: mt[1], ordem: 'Compra', corretora: 'Status Invest (posição)', data: hoje, qtd: qtd, preco: pm, total: pm * qtd, posicao: true, moedaPos: moeda });
+  }
+  return out;
+}
+
 // Tipo pelo ticker, quando a tabela não traz a categoria
 function _siTipoTicker(t){
   t = String(t || '').toUpperCase().replace(/\.SA$/, '');
@@ -12905,7 +12948,7 @@ function siLer(html, texto){
       var meio = m[3], ordem = '', corretora = '';
       var mo = meio.match(/^(Compra|Venda|Bonifica\S*|Convers\S* \([SE]\)|Desdobramento|Grupamento|Subscri\S*|Amortiza\S*|Fra\S*|Leil\S*|Resgate|Atualiza\S*|Incorpora\S*|Cis\S*)\s*(.*)$/i);
       if(mo){ ordem = mo[1]; corretora = mo[2]; } else { ordem = meio; }
-      linhas.push({ cat: m[1], ativo: m[2], ordem: ordem, corretora: corretora, data: _siData(m[4]), qtd: _siNum(m[6]), preco: _siNum(m[7]), total: _siNum(m[8]) });
+      linhas.push({ cat: m[1], ativo: m[2], ordem: ordem, corretora: corretora, data: _siData(m[4]), qtd: _siQtd(m[6]), preco: _siNum(m[7]), total: _siNum(m[8]) });
     }
   }
   if(!linhas.length && texto){
@@ -12914,7 +12957,7 @@ function siLer(html, texto){
     var re2 = /(?:^| )([A-Z][A-Z0-9]{2,5}\d{0,2}[A-Z]?(?:\.[A-Z])?) (Compra|Venda|Bonifica\S*|Convers\S* \([SE]\)|Desdobramento|Grupamento|Subscri\S*) ([^\d]{0,90}?) ?(\d{2}\/\d{2}\/\d{4}) (?:(?:-|—|\d{2}\/\d{2}\/\d{4}) )?(-?[\d.]+(?:,\d+)?) (?:R\$ ?)?(-?[\d.]+(?:,\d+)?) (?:R\$ ?)?(-?[\d.]+(?:,\d+)?)/g;
     var m2;
     while((m2 = re2.exec(t2)) !== null){
-      linhas.push({ cat: '', ativo: m2[1], ordem: m2[2], corretora: m2[3].trim(), data: _siData(m2[4]), qtd: _siNum(m2[5]), preco: _siNum(m2[6]), total: _siNum(m2[7]) });
+      linhas.push({ cat: '', ativo: m2[1], ordem: m2[2], corretora: m2[3].trim(), data: _siData(m2[4]), qtd: _siQtd(m2[5]), preco: _siNum(m2[6]), total: _siNum(m2[7]) });
     }
   }
   return linhas;
@@ -12981,6 +13024,12 @@ function siProcessar(html, texto){
 }
 function _siProcessar(html, texto){
   var linhas = siLer(html, texto);
+  window._siPosicao = false;
+  if(!linhas.length && _siModo !== 'mp'){
+    var _txt = texto || (function(){ try { var d = document.createElement('div'); d.innerHTML = html || ''; return d.innerText || d.textContent || ''; } catch(e){ return ''; } })();
+    var pos = _siLerPosicoes(_txt);
+    if(pos.length){ linhas = pos; window._siPosicao = true; }
+  }
   if(!linhas.length){
     document.getElementById('siCola').textContent = '';
     siStatus('Não encontrei transações no que foi colado. Confira se está na aba Transações do Status Invest, com "Todos" selecionado embaixo da tabela, e tente de novo: Ctrl+A e Ctrl+C lá, Ctrl+V aqui.', 'erro');
@@ -12988,6 +13037,7 @@ function _siProcessar(html, texto){
   }
   window._siUltimasLinhas = linhas;   // para o detalhe técnico, se nada for reconhecido
   var conv = siConverter(linhas);
+  if(window._siPosicao) conv.itens.forEach(function(it){ it.idSI = 'si-pos-' + it.ticker; it.posicao = true; it.corretora = ''; });
   _siItens = conv.itens; _siResumo = conv.resumo;
   document.getElementById('siCola').textContent = linhas.length + ' linhas lidas';
   siRenderPrevia();
@@ -13002,7 +13052,9 @@ function siRenderPrevia(){
      "tudo já está" e o aluno achava que já tinha importado) */
   var jaTinha = _siItens.length - novos;
   var origem = _siModo === 'mp' ? 'MyProfit' : 'Status Invest';
-  if(novos && jaTinha) siStatus('Encontrei ' + novos + ' transação(ões) nova(s) para importar. As outras ' + jaTinha + ' você já tinha importado antes e não serão duplicadas. Confira abaixo e clique em Importar.', 'ok');
+  if(window._siPosicao && novos) siStatus('Não encontrei a aba Transações, mas li a sua POSIÇÃO ATUAL: ' + _siItens.length + ' ativos. Cada um entra como uma compra pelo preço médio, com a data de hoje (sem o histórico de compras e vendas). ' + (jaTinha ? jaTinha + ' ativos que você já tem na carteira ficam de fora para não duplicar. ' : '') + 'Se tiver acesso à aba Transações do Status Invest, prefira ela: traz as datas reais. Confira abaixo e clique em Importar.', 'ok');
+  else if(window._siPosicao) siStatus('✅ Todos os ativos dessa posição já estão na sua Minha Carteira. Nada foi duplicado.', 'ok');
+  else if(novos && jaTinha) siStatus('Encontrei ' + novos + ' transação(ões) nova(s) para importar. As outras ' + jaTinha + ' você já tinha importado antes e não serão duplicadas. Confira abaixo e clique em Importar.', 'ok');
   else if(novos) siStatus('Transações encontradas! Confira abaixo e clique em Importar.', 'ok');
   else if(_siItens.length) siStatus('✅ Você já importou essas transações! As ' + _siItens.length + ' transações do ' + origem + ' já estão na sua Minha Carteira, e nada foi duplicado. Se fez compras ou vendas novas depois, é só colar de novo quando quiser: a plataforma traz só o que for novo.', 'ok');
   else {
