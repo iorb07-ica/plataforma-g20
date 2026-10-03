@@ -15,7 +15,7 @@
   var P = 'assets/ajuda/';
 
   window.G20_AJUDA = {
-    versao: '2026-10-03a',
+    versao: '2026-10-03b',
 
     secoes: [
 
@@ -126,6 +126,8 @@
             texto: 'Todas as suas compras e vendas. Depois de importar, <b>confira se as quantidades e o preço médio batem com a sua corretora</b>.' },
           { img: P+'minha-carteira/cart08-proventos.webp', titulo: 'Proventos',
             texto: 'Dividendos, JCP e rendimentos recebidos e a receber, com totais e média mensal.' },
+          { img: P+'minha-carteira/cart11-quem-pagou.webp', titulo: 'Quem pagou em cada mês',
+            texto: 'Na aba Proventos, a tabela <b>Quem pagou</b> mostra cada ativo mês a mês. Busque um ativo pelo nome, ordene por maior total ou de A a Z, e toque em <b>Todos</b> para ver, ano a ano, quanto cada ativo já pagou desde o início.' },
           { img: P+'minha-carteira/cart09-adicionar.webp', titulo: 'Lançar algo novo',
             texto: 'Comprou ou recebeu algo? Toque no <b>“+”</b> e escolha: aporte em ações e FIIs, renda fixa, bem patrimonial ou provento.' }
         ]
@@ -196,14 +198,20 @@
       /* ── G20CAST ──────────────────────────────────────────────────── */
       {
         id: 'g20cast', ico: '🎧', titulo: 'G20Cast',
-        resumo: 'O podcast diário do G20.',
+        resumo: 'O podcast diário do G20, para ouvir aqui dentro da plataforma.',
         passos: [
-          { img: P+'g20cast/cast01-episodio-do-dia.webp', titulo: 'O episódio do dia',
-            texto: 'O episódio mais recente em destaque. Toque no play para ouvir.' },
-          { img: P+'g20cast/cast02-spotify.webp', titulo: 'No Spotify',
-            texto: 'Prefere o app? Toque em <b>“Abrir”</b> e ouça e siga o G20Cast no Spotify.' },
+          { img: P+'g20cast/cast01-episodio-do-dia.webp', titulo: 'O episódio de hoje',
+            texto: 'O episódio mais recente fica em destaque no topo. Toque no play para ouvir.' },
+          { img: P+'g20cast/cast02-lista.webp', titulo: 'A lista de episódios',
+            texto: 'Todos os episódios, do mais novo para o mais antigo. A lista mostra onde você <b>parou</b> (ex.: “parou em 9:40”) e os que você já <b>ouviu</b> (✓). Ao voltar para um episódio, ele continua de onde você parou.' },
           { img: P+'g20cast/cast03-busca.webp', titulo: 'Busca de episódios',
-            texto: 'Procure um episódio por tema ou palavra.' }
+            texto: 'Procure um episódio por tema ou palavra.' },
+          { img: P+'g20cast/cast04-mini-player.webp', titulo: 'O mini player',
+            texto: 'No celular, enquanto o episódio toca, o <b>mini player</b> fica logo acima da barra de baixo: pausa, voltar e avançar 10 segundos e velocidade. Pode rolar a página à vontade que ele continua ali. Toque no título para abrir o player grande.' },
+          { img: P+'g20cast/cast05-player-grande.webp', titulo: 'O player grande',
+            texto: 'A capa, o título e a barra de progresso (arraste para ir a qualquer ponto). No centro, a <b>velocidade</b> (1x, 1.5x ou 2x). Embaixo, voltar e avançar 10 segundos e os botões <b>⏮ episódio anterior</b> e <b>⏭ próximo</b>. Quando um episódio termina, o anterior começa sozinho. Para minimizar, toque na setinha ou arraste para baixo.' },
+          { titulo: 'Com a tela bloqueada',
+            texto: 'O áudio continua tocando com a tela bloqueada, e os botões de pausa e de voltar e avançar 10 segundos aparecem na tela de bloqueio. No computador, o player aparece dentro do próprio episódio.' }
         ]
       },
 
