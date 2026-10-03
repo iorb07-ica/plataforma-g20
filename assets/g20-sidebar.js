@@ -2589,3 +2589,100 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar);
   else iniciar();
 })();
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   REGISTRO DE USO (out/2026) · Acompanhamento do Israel
+   Mede o tempo ATIVO na plataforma (aba visível e com toque, rolagem, tecla
+   ou vídeo/áudio tocando no último minuto), por página e por hora do dia.
+   Grava pouco: acumula no aparelho e grava no máximo a cada 5 minutos de uso
+   e ao sair da página, num documento por aluno por dia:
+     users/{uid}/atividade/{AAAA-MM-DD} = { seg, sessoes, paginas{}, horas{},
+                                            aparelhos{}, ultimo }
+   e o "último acesso" no cadastro (users/{uid}.ultimoAcesso), 1 vez por
+   sessão (sessão nova = mais de 30 min sem uso).
+   Não mede: admin, modo "ver como o aluno", páginas de login/termos.
+   ═══════════════════════════════════════════════════════════════════════════ */
+(function(){
+  'use strict';
+  if (window.__g20Uso) return; window.__g20Uso = true;
+  var pag = (location.pathname.split('/').pop() || 'index.html').toLowerCase();
+  if (/^(login|termos-de-uso|aguardando|index)\.html$/.test(pag) || pag === '') return;
+  var CHAVE_PAG = pag.replace(/\.html$/, '').replace(/[^a-z0-9_-]/g, '_').slice(0, 40) || 'outra';
+  var TICK = 15, INATIVO = 60, LOTE = 300, SESSAO = 30 * 60 * 1000;
+  var ultInter = Date.now(), acc = {}, accSeg = 0, sessaoNova = false, uid = null, desligado = false;
+  var mobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+  var app = false; try { app = window.matchMedia('(display-mode: standalone)').matches || !!navigator.standalone; } catch(e){}
+  var aparelho = (mobile ? 'celular' : 'computador') + (app ? '_app' : '');
+
+  function marca(){ ultInter = Date.now(); }
+  ['pointerdown', 'keydown', 'touchstart', 'wheel', 'scroll'].forEach(function(ev){ window.addEventListener(ev, marca, { passive: true, capture: true }); });
+  var mm = 0; window.addEventListener('mousemove', function(){ var n = Date.now(); if (n - mm > 5000) { mm = n; marca(); } }, { passive: true });
+
+  function hojeSP(){ var d = new Date(Date.now() - 3 * 3600 * 1000); return d.toISOString().slice(0, 10); }
+  function horaSP(){ return String(new Date(Date.now() - 3 * 3600 * 1000).getUTCHours()); }
+  function midiaTocando(){
+    try {
+      if (window._saYtTimer) return true;                                  // vídeo da Sala de Aula
+      var a = document.activeElement; if (a && a.tagName === 'IFRAME') return true;   // assistindo vídeo embutido
+      var ms = document.querySelectorAll('audio,video');
+      for (var i = 0; i < ms.length; i++) if (!ms[i].paused && !ms[i].ended) return true;
+    } catch(e){}
+    return false;
+  }
+  function ativo(){ return document.visibilityState === 'visible' && (Date.now() - ultInter < INATIVO * 1000 || midiaTocando()); }
+
+  // sessão: mais de 30 min sem uso = sessão nova
+  try {
+    var ult = Number(localStorage.getItem('g20_uso_ult') || 0);
+    if (!ult || Date.now() - ult > SESSAO) sessaoNova = true;
+  } catch(e){ sessaoNova = true; }
+
+  function quemSou(){
+    if (window.G20_VER_ALUNO) { desligado = true; return null; }
+    try {
+      if (!window.firebase || !firebase.apps || !firebase.apps.length || !firebase.auth) return null;
+      var u = firebase.auth().currentUser; if (!u) return null;
+      if (sessionStorage.getItem('g20_guard_' + u.uid) === 'admin') { desligado = true; return null; }
+      return u.uid;
+    } catch(e){ return null; }
+  }
+
+  function gravar(forcar){
+    if (desligado) return;
+    if (!uid) uid = quemSou();
+    if (!uid || (!accSeg && !sessaoNova)) return;
+    if (!forcar && accSeg < LOTE) return;
+    try {
+      var db = firebase.firestore(), FV = firebase.firestore.FieldValue, inc = FV.increment;
+      var dias = Object.keys(acc);
+      if (!dias.length && sessaoNova) { var d0 = hojeSP(); acc[d0] = { seg: 0, p: {}, h: {} }; dias = [d0]; }
+      dias.forEach(function(dia){
+        var a = acc[dia], dado = { ultimo: FV.serverTimestamp() };
+        if (a.seg) {
+          dado.seg = inc(a.seg);
+          dado.paginas = {}; Object.keys(a.p).forEach(function(k){ dado.paginas[k] = inc(a.p[k]); });
+          dado.horas = {};   Object.keys(a.h).forEach(function(k){ dado.horas[k] = inc(a.h[k]); });
+          dado.aparelhos = {}; dado.aparelhos[aparelho] = inc(a.seg);
+        } else dado.seg = inc(0);
+        if (sessaoNova) dado.sessoes = inc(1);
+        db.collection('users').doc(uid).collection('atividade').doc(dia).set(dado, { merge: true })
+          .catch(function(e){ console.warn('[uso] não gravou:', e && e.message); });
+      });
+      if (sessaoNova) db.collection('users').doc(uid).set({ ultimoAcesso: FV.serverTimestamp() }, { merge: true }).catch(function(){});
+      acc = {}; accSeg = 0; sessaoNova = false;
+    } catch(e){}
+  }
+
+  setInterval(function(){
+    if (desligado) return;
+    if (!ativo()) return;
+    var dia = hojeSP(), h = horaSP(), a = acc[dia] = acc[dia] || { seg: 0, p: {}, h: {} };
+    a.seg += TICK; a.p[CHAVE_PAG] = (a.p[CHAVE_PAG] || 0) + TICK; a.h[h] = (a.h[h] || 0) + TICK; accSeg += TICK;
+    try { localStorage.setItem('g20_uso_ult', String(Date.now())); } catch(e){}
+    gravar(false);
+  }, TICK * 1000);
+  // primeira gravação da sessão (último acesso) assim que o login estiver pronto
+  var tent = 0, t0 = setInterval(function(){ tent++; if (desligado || tent > 40) { clearInterval(t0); return; } if (quemSou()) { uid = quemSou(); clearInterval(t0); if (sessaoNova) gravar(true); } }, 1500);
+  document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'hidden') gravar(true); });
+  window.addEventListener('pagehide', function(){ gravar(true); });
+})();
