@@ -10,12 +10,15 @@
    - Recursos "Em breve" (com cadeado) NÃO entram aqui até serem lançados.
 
    Cada passo: { img, titulo, texto }   (img é opcional)
+   Celular × computador: imgPc = print do computador (sem ele, usa o do celular);
+   pc = { titulo, texto, img } troca o passo inteiro no computador;
+   so: 'cel' ou so: 'pc' = o passo só aparece naquela versão.
    ═══════════════════════════════════════════════════════════════════════ */
 (function(){
   var P = 'assets/ajuda/';
 
   window.G20_AJUDA = {
-    versao: '2026-10-03b',
+    versao: '2026-10-03c',
 
     secoes: [
 
@@ -84,21 +87,21 @@
             texto: 'Cada passo do tour destaca um card e explica para que ele serve.' },
           { img: P+'dashboard/tour03-rever.webp', titulo: 'Rever o tour',
             texto: 'Quer ver de novo? Toque no <b>“?”</b> no topo do Dashboard.' },
-          { img: P+'dashboard/dash01-navegacao.webp', titulo: 'Como navegar',
+          { img: P+'dashboard/dash01-navegacao.webp', imgPc: P+'dashboard/pc/dash01-navegacao.webp', titulo: 'Como navegar',
             texto: 'No celular, use a <b>barra de baixo</b> para as páginas principais ou o menu <b>☰</b> no canto de cima para ver todas.' },
-          { img: P+'dashboard/dash02-cardgp.webp', titulo: 'Minha Carteira',
+          { img: P+'dashboard/dash02-cardgp.webp', imgPc: P+'dashboard/pc/dash02-cardgp.webp', titulo: 'Minha Carteira',
             texto: 'O seu patrimônio total e a evolução nos últimos dias.' },
-          { img: P+'dashboard/dash03-carddesempenho.webp', titulo: 'Desempenho',
+          { img: P+'dashboard/dash03-carddesempenho.webp', imgPc: P+'dashboard/pc/dash03-carddesempenho.webp', titulo: 'Desempenho',
             texto: 'Quanto a sua carteira rendeu hoje, na semana, no mês, no ano e em 5 anos.' },
-          { img: P+'dashboard/dash04-cardagenda.webp', titulo: 'Agenda de proventos',
+          { img: P+'dashboard/dash04-cardagenda.webp', imgPc: P+'dashboard/pc/dash04-cardagenda.webp', titulo: 'Agenda de proventos',
             texto: 'O que você tem para receber nos próximos dias, ativo por ativo.' },
-          { img: P+'dashboard/dash05-metaif.webp', titulo: 'Independência financeira',
+          { img: P+'dashboard/dash05-metaif.webp', imgPc: P+'dashboard/pc/dash05-metaif.webp', titulo: 'Independência financeira',
             texto: 'Toque no <b>lápis</b> e defina a sua meta. O card passa a mostrar quanto você já percorreu.' },
-          { img: P+'dashboard/dash06-gfcard.webp', titulo: 'Gestão Financeira',
+          { img: P+'dashboard/dash06-gfcard.webp', imgPc: P+'dashboard/pc/dash06-gfcard.webp', titulo: 'Gestão Financeira',
             texto: 'O resumo do seu mês: quanto entrou, quanto saiu e quanto sobrou para investir.' },
-          { img: P+'dashboard/dash08-gamecard.webp', titulo: 'Game G20',
+          { img: P+'dashboard/dash08-gamecard.webp', imgPc: P+'dashboard/pc/dash08-gamecard.webp', titulo: 'Game G20',
             texto: 'A sua posição no ranking da turma, direto no Dashboard.' },
-          { img: P+'dashboard/dash07-castcard.webp', titulo: 'G20Cast',
+          { img: P+'dashboard/dash07-castcard.webp', imgPc: P+'dashboard/pc/dash07-castcard.webp', titulo: 'G20Cast',
             texto: 'O episódio do dia a um toque.' }
         ]
       },
@@ -108,27 +111,27 @@
         id: 'minha-carteira', ico: '💰', titulo: 'Minha Carteira',
         resumo: 'Traga a sua carteira da plataforma antiga e acompanhe tudo num lugar só.',
         passos: [
-          { img: P+'minha-carteira/cart01-importar.webp', titulo: 'Importar a carteira',
+          { img: P+'minha-carteira/cart01-importar.webp', imgPc: P+'minha-carteira/pc/cart01-importar.webp', titulo: 'Importar a carteira',
             texto: 'Na Minha Carteira, toque em <b>“Importar”</b>. Se não aparecer, arraste a barra de abas para o lado.' },
-          { img: P+'minha-carteira/cart02-plataforma-antiga.webp', titulo: 'Escolha a origem',
+          { img: P+'minha-carteira/cart02-plataforma-antiga.webp', imgPc: P+'minha-carteira/pc/cart02-plataforma-antiga.webp', titulo: 'Escolha a origem',
             texto: 'Usava a plataforma antiga do G20? Escolha <b>“Plataforma antiga”</b>. Usa Status Invest ou MyProfit? Escolha a sua opção e siga o passo a passo da tela.' },
-          { img: P+'minha-carteira/cart10-status-invest.webp', titulo: 'Vindo do Status Invest',
+          { img: P+'minha-carteira/cart10-status-invest.webp', imgPc: P+'minha-carteira/pc/cart10-status-invest.webp', titulo: 'Vindo do Status Invest',
             texto: 'No <b>computador</b>, abra o Status Invest, entre em <b>Carteira › Transações</b> e, embaixo da tabela, troque o <b>10</b> por <b>Todos</b>. Clique em qualquer parte da página, aperte <b>Ctrl + A</b> e depois <b>Ctrl + C</b>. Volte para a plataforma, clique no quadro e aperte <b>Ctrl + V</b>.<br><br>Não tem acesso à aba Transações? Faça o mesmo na tela <b>Posição na Carteira</b>: cada ativo entra como uma compra pelo preço médio, com a data de hoje (sem o histórico de compras e vendas).<br><br>Colou de novo depois? A plataforma avisa que você já importou e traz só o que for novo, sem duplicar.' },
           { img: P+'minha-carteira/cart03-login-antigo.webp', titulo: 'O login da plataforma antiga',
             texto: 'Digite o <b>e-mail e a senha que você usava na plataforma ANTIGA</b> e toque em “Buscar minha carteira”. Essa senha é usada só para buscar a carteira e <b>não fica gravada</b> em lugar nenhum.' },
           { img: P+'minha-carteira/cart04-previa.webp', titulo: 'Confira e importe',
             texto: 'Aparece uma prévia com todas as compras e vendas. Confira e toque em <b>“Importar”</b>. O que já existir na sua carteira não é duplicado. Desdobramentos, grupamentos e proventos a Minha Carteira calcula sozinha.' },
-          { img: P+'minha-carteira/cart05-visao-geral.webp', titulo: 'Visão Geral',
+          { img: P+'minha-carteira/cart05-visao-geral.webp', imgPc: P+'minha-carteira/pc/cart05-visao-geral.webp', titulo: 'Visão Geral',
             texto: 'O seu patrimônio total, a variação do dia e a divisão entre renda variável, renda fixa e bens.' },
-          { img: P+'minha-carteira/cart06-renda-passiva.webp', titulo: 'Renda passiva',
+          { img: P+'minha-carteira/cart06-renda-passiva.webp', imgPc: P+'minha-carteira/pc/cart06-renda-passiva.webp', titulo: 'Renda passiva',
             texto: 'Os proventos dos últimos 12 meses, mês a mês, e os próximos pagamentos.' },
-          { img: P+'minha-carteira/cart07-transacoes.webp', titulo: 'Transações',
+          { img: P+'minha-carteira/cart07-transacoes.webp', imgPc: P+'minha-carteira/pc/cart07-transacoes.webp', titulo: 'Transações',
             texto: 'Todas as suas compras e vendas. Depois de importar, <b>confira se as quantidades e o preço médio batem com a sua corretora</b>.' },
-          { img: P+'minha-carteira/cart08-proventos.webp', titulo: 'Proventos',
+          { img: P+'minha-carteira/cart08-proventos.webp', imgPc: P+'minha-carteira/pc/cart08-proventos.webp', titulo: 'Proventos',
             texto: 'Dividendos, JCP e rendimentos recebidos e a receber, com totais e média mensal.' },
-          { img: P+'minha-carteira/cart11-quem-pagou.webp', titulo: 'Quem pagou em cada mês',
+          { img: P+'minha-carteira/cart11-quem-pagou.webp', imgPc: P+'minha-carteira/pc/cart11-quem-pagou.webp', titulo: 'Quem pagou em cada mês',
             texto: 'Na aba Proventos, a tabela <b>Quem pagou</b> mostra cada ativo mês a mês. Busque um ativo pelo nome, ordene por maior total ou de A a Z, e toque em <b>Todos</b> para ver, ano a ano, quanto cada ativo já pagou desde o início.' },
-          { img: P+'minha-carteira/cart09-adicionar.webp', titulo: 'Lançar algo novo',
+          { img: P+'minha-carteira/cart09-adicionar.webp', imgPc: P+'minha-carteira/pc/cart09-adicionar.webp', titulo: 'Lançar algo novo',
             texto: 'Comprou ou recebeu algo? Toque no <b>“+”</b> e escolha: aporte em ações e FIIs, renda fixa, bem patrimonial ou provento.' }
         ]
       },
@@ -138,29 +141,29 @@
         id: 'gestao-financeira', ico: '🧾', titulo: 'Gestão Financeira',
         resumo: 'Receitas, despesas, cartão de crédito, orçamento e o saldo real da sua conta.',
         passos: [
-          { img: P+'gestao-financeira/gf08-primeiros-passos.webp', titulo: 'Primeiros passos',
+          { img: P+'gestao-financeira/gf08-primeiros-passos.webp', imgPc: P+'gestao-financeira/pc/gf08-primeiros-passos.webp', titulo: 'Primeiros passos',
             texto: 'Começando agora? O cartão <b>Primeiros passos</b> mostra o que falta para a Gestão Financeira ficar pronta: definir o saldo inicial, cadastrar os cartões, lançar a primeira receita, a primeira despesa e criar o primeiro orçamento. Cada passo se marca sozinho quando você faz. Não se aplica a você? Use <b>“Não tenho saldo agora”</b>, <b>“Não uso cartão”</b> ou <b>“Depois”</b>. Quando tudo estiver pronto, o cartão some.' },
-          { img: P+'gestao-financeira/gf01-periodo.webp', titulo: 'Escolha o período',
+          { img: P+'gestao-financeira/gf01-periodo.webp', imgPc: P+'gestao-financeira/pc/gf01-periodo.webp', titulo: 'Escolha o período',
             texto: 'A página sempre abre no <b>mês atual</b>. Toque em outro mês, nos atalhos (últimos 3 ou 6 meses, ano todo) ou, no celular, <b>toque e segure</b> um mês para escolher vários.' },
-          { img: P+'gestao-financeira/gf02-resumo.webp', titulo: 'Saldo, Receitas e Despesas',
+          { img: P+'gestao-financeira/gf02-resumo.webp', imgPc: P+'gestao-financeira/pc/gf02-resumo.webp', titulo: 'Saldo, Receitas e Despesas',
             texto: '<b>Saldo do mês</b>: receitas menos despesas, com o anel da sua taxa de economia e a comparação com o mês anterior. <b>Receitas</b>: com uma barra mostrando como o mês está em relação à sua média. <b>Despesas</b>: quanto da receita foi gasto e quanto do orçamento já foi usado.' },
-          { img: P+'gestao-financeira/gf09-saldo-inicial.webp', titulo: 'Saldo da conta (saldo inicial)',
+          { img: P+'gestao-financeira/gf09-saldo-inicial.webp', imgPc: P+'gestao-financeira/pc/gf09-saldo-inicial.webp', titulo: 'Saldo da conta (saldo inicial)',
             texto: 'No card do Saldo, toque em <b>“Definir saldo inicial”</b> e informe quanto você tinha na conta no dia em que começou a registrar (aceita zero e valor negativo). Ele <b>não conta como receita</b>: serve para a plataforma mostrar <b>“Na conta”</b>, o saldo real de hoje, e para o gráfico da evolução do saldo partir do valor certo.' },
-          { img: P+'gestao-financeira/gf10-a-vencer.webp', titulo: 'Contas a vencer',
+          { img: P+'gestao-financeira/gf10-a-vencer.webp', imgPc: P+'gestao-financeira/pc/gf10-a-vencer.webp', titulo: 'Contas a vencer',
             texto: 'No card das Despesas, <b>“A vencer 7d”</b> mostra quanto sai da conta nos próximos 7 dias. Toque para ver a lista. As compras no cartão aparecem juntas como uma conta só, a <b>fatura</b>, no dia do vencimento. O sino também avisa na véspera e no dia.' },
-          { img: P+'gestao-financeira/gf04-lancar.webp', titulo: 'Lançar uma entrada ou saída',
+          { img: P+'gestao-financeira/gf04-lancar.webp', imgPc: P+'gestao-financeira/pc/gf04-lancar.webp', titulo: 'Lançar uma entrada ou saída',
             texto: 'Preencha a data, a descrição, o valor, toque em <b>− Saída</b> ou <b>+ Entrada</b>, escolha a forma de pagamento e a categoria, e toque em <b>“Lançar”</b>. Lançou a mesma descrição antes? A categoria e a forma de pagamento vêm sozinhas. Gasto que se repete ou parcelado? Marque <b>“Repetir / parcelar”</b>.<br><br>No celular, o botão dourado <b>＋</b> no canto da tela leva direto ao lançamento.' },
-          { img: P+'gestao-financeira/gf11-cartao.webp', titulo: 'Cartão de crédito',
+          { img: P+'gestao-financeira/gf11-cartao.webp', imgPc: P+'gestao-financeira/pc/gf11-cartao.webp', titulo: 'Cartão de crédito',
             texto: 'Toque na engrenagem ao lado de <b>Forma de pagamento</b> e no <b>💳</b> do seu cartão para informar o <b>dia do fechamento</b> e o <b>dia do vencimento</b>. A partir daí, cada compra no cartão conta no dia da compra (no orçamento e nas categorias), mas só <b>sai da sua conta no vencimento da fatura</b>. Ao escolher o cartão no lançamento, a plataforma mostra em que dia ele sai da conta.' },
-          { img: P+'gestao-financeira/gf12-pago-em-outra-data.webp', titulo: 'Pago em outra data?',
+          { img: P+'gestao-financeira/gf12-pago-em-outra-data.webp', imgPc: P+'gestao-financeira/pc/gf12-pago-em-outra-data.webp', titulo: 'Pago em outra data?',
             texto: 'Boleto pago depois, Pix agendado ou conta que só vai sair da conta em outro dia? Ao lançar, toque em <b>“Pago em outra data?”</b> e informe o dia em que o dinheiro sai da conta.' },
-          { img: P+'gestao-financeira/gf05-inteligencia.webp', titulo: 'Inteligência financeira',
+          { img: P+'gestao-financeira/gf05-inteligencia.webp', imgPc: P+'gestao-financeira/pc/gf05-inteligencia.webp', titulo: 'Inteligência financeira',
             texto: 'Gráficos que mostram para onde o seu dinheiro está indo. A <b>Evolução do saldo</b> mostra o fluxo de caixa: o saldo da sua conta dia a dia, com o cartão entrando no vencimento. No celular aparecem os 2 principais; toque em <b>“Ver todos os gráficos”</b> para abrir os outros.' },
-          { img: P+'gestao-financeira/gf06-orcamento.webp', titulo: 'Orçamento',
+          { img: P+'gestao-financeira/gf06-orcamento.webp', imgPc: P+'gestao-financeira/pc/gf06-orcamento.webp', titulo: 'Orçamento',
             texto: 'Defina um limite por categoria (ou por tag) e acompanhe quanto já gastou. Com o ano inteiro selecionado, aparece também o limite <b>até o mês atual</b>, para você saber se está dentro do ritmo.' },
-          { img: P+'gestao-financeira/gf07-extrato.webp', titulo: 'Extrato',
+          { img: P+'gestao-financeira/gf07-extrato.webp', imgPc: P+'gestao-financeira/pc/gf07-extrato.webp', titulo: 'Extrato',
             texto: 'Todos os lançamentos. A busca encontra por descrição, valor, <b>#tag</b>, categoria ou <b>cartão</b> (ex.: “nubank” mostra tudo o que foi pago no Nubank). O selo <b>∞</b> marca o que se repete sem data de término, e <b>2/10</b> marca a parcela. Toque na linha para ver os detalhes: cartão, quando vence a fatura e quando o dinheiro sai da conta.' },
-          { img: P+'gestao-financeira/gf13-atalhos.webp', titulo: 'Atalhos no celular',
+          { so: 'cel', img: P+'gestao-financeira/gf13-atalhos.webp', titulo: 'Atalhos no celular',
             texto: 'Logo abaixo dos filtros, os atalhos <b>＋ Lançar · Extrato · Gráficos · Orçamento</b> levam direto para cada parte da página, sem precisar rolar.' }
         ]
       },
@@ -200,17 +203,19 @@
         id: 'g20cast', ico: '🎧', titulo: 'G20Cast',
         resumo: 'O podcast diário do G20, para ouvir aqui dentro da plataforma.',
         passos: [
-          { img: P+'g20cast/cast01-episodio-do-dia.webp', titulo: 'O episódio de hoje',
+          { img: P+'g20cast/cast01-episodio-do-dia.webp', imgPc: P+'g20cast/pc/cast01-episodio-do-dia.webp', titulo: 'O episódio de hoje',
             texto: 'O episódio mais recente fica em destaque no topo. Toque no play para ouvir.' },
-          { img: P+'g20cast/cast02-lista.webp', titulo: 'A lista de episódios',
+          { img: P+'g20cast/cast02-lista.webp', imgPc: P+'g20cast/pc/cast02-lista.webp', titulo: 'A lista de episódios',
             texto: 'Todos os episódios, do mais novo para o mais antigo. A lista mostra onde você <b>parou</b> (ex.: “parou em 9:40”) e os que você já <b>ouviu</b> (✓). Ao voltar para um episódio, ele continua de onde você parou.' },
-          { img: P+'g20cast/cast03-busca.webp', titulo: 'Busca de episódios',
+          { img: P+'g20cast/cast03-busca.webp', imgPc: P+'g20cast/pc/cast03-busca.webp', titulo: 'Busca de episódios',
             texto: 'Procure um episódio por tema ou palavra.' },
           { img: P+'g20cast/cast04-mini-player.webp', titulo: 'O mini player',
+            pc: { img: P+'g20cast/pc/cast04-player-pc.webp', titulo: 'O player no episódio',
+                  texto: 'No computador, ao clicar num episódio, o player abre dentro dele: play e pausa, a barra de progresso (clique para ir a qualquer ponto), voltar e avançar 10 segundos e a velocidade. Ao voltar para um episódio, ele continua de onde você parou.' },
             texto: 'No celular, enquanto o episódio toca, o <b>mini player</b> fica logo acima da barra de baixo: pausa, voltar e avançar 10 segundos e velocidade. Pode rolar a página à vontade que ele continua ali. Toque no título para abrir o player grande.' },
-          { img: P+'g20cast/cast05-player-grande.webp', titulo: 'O player grande',
+          { so: 'cel', img: P+'g20cast/cast05-player-grande.webp', titulo: 'O player grande',
             texto: 'A capa, o título e a barra de progresso (arraste para ir a qualquer ponto). No centro, a <b>velocidade</b> (1x, 1.5x ou 2x). Embaixo, voltar e avançar 10 segundos e os botões <b>⏮ episódio anterior</b> e <b>⏭ próximo</b>. Quando um episódio termina, o anterior começa sozinho. Para minimizar, toque na setinha ou arraste para baixo.' },
-          { titulo: 'Com a tela bloqueada',
+          { so: 'cel', titulo: 'Com a tela bloqueada',
             texto: 'O áudio continua tocando com a tela bloqueada, e os botões de pausa e de voltar e avançar 10 segundos aparecem na tela de bloqueio. No computador, o player aparece dentro do próprio episódio.' }
         ]
       },
