@@ -102,6 +102,14 @@ tr:last-child td{border-bottom:none}
 .ac-pag{display:flex;gap:8px;justify-content:center;align-items:center;margin-top:12px;font-size:13px;color:var(--text3)}
 .ac-pag button{height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);cursor:pointer}
 .ac-wrap{overflow-x:auto}
+.ac-at{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border);flex-wrap:wrap}
+.ac-at .q{flex:1;min-width:220px}
+.ac-at .n{font-weight:800;color:var(--text);cursor:pointer}
+.ac-at .n:hover{color:var(--gold)}
+.ac-mot{display:inline-block;margin:4px 6px 0 0;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700}
+.ac-zap{height:34px;padding:0 13px;border-radius:999px;border:1px solid rgba(46,204,113,.5);background:rgba(46,204,113,.1);color:#2ecc71;font-weight:800;font-family:inherit;font-size:12.5px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center}
+.ac-fchip{height:30px;padding:0 11px;border-radius:999px;border:1px solid var(--border);background:transparent;color:var(--text2);font-family:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.ac-fchip.on{border-color:var(--gold);color:var(--gold);background:rgba(232,184,75,.1)}
 .acd{display:none}.ac-din .acd{display:table-cell}
 .ac-num{white-space:nowrap;font-variant-numeric:tabular-nums}
 </style>
@@ -121,6 +129,14 @@ tr:last-child td{border-bottom:none}
 <div class="ac-row">
   <div class="ac-box"><h3>Funil do aluno</h3><div id="acFunil">Carregando…</div></div>
   <div class="ac-box"><h3>Curso por turma</h3><div id="acTurmas">Carregando…</div></div>
+</div>
+
+<div class="ac-box" style="margin-bottom:16px" id="acAtBox">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+    <h3 style="margin:0;color:#e63946">Precisam de atenção <span id="acAtN"></span></h3>
+    <div id="acAtFiltros" style="display:flex;gap:6px;flex-wrap:wrap;margin-left:auto"></div>
+  </div>
+  <div id="acAtLista" style="font-size:13px;color:var(--text3)">Carregando…</div>
 </div>
 
 <div class="ac-box" style="margin-bottom:16px" id="acDinBox">
@@ -247,6 +263,7 @@ async function acCarregar(){
                aprovado: u.aprovado === true || u.role === 'admin', admin: u.role === 'admin', bloqueado: u.bloqueado === true,
                cadastro: acData(u.criadoEm || u.createdAt), perfil: typeof u.perfilNota === 'number' ? u.perfilNota : null,
                acesso: acData(u.ultimoAcesso),
+               fone: String((u.perfil && (u.perfil.whatsapp || u.perfil.telefone || u.perfil.celular)) || u.whatsapp || u.telefone || '').replace(/\D/g, ''),
                feitas: 0, pct: 0, ultima: null, recentes: 0 };
     });
     const sete = Date.now() - 7 * 864e5;
@@ -379,6 +396,7 @@ window.addEventListener('pagehide', acGuardarEstado);
 window.addEventListener('scroll', function(){ clearTimeout(window._acScrollT); window._acScrollT = setTimeout(acGuardarEstado, 300); }, { passive: true });
 
 function acRender(){
+  try { acAtencao(); } catch(e){ console.warn('[Acompanhamento] atenção:', e); }
   const lista = acFiltrados().sort((x, y) => { const a = acValor(x, acOrdem.col), b = acValor(y, acOrdem.col); return (a > b ? 1 : a < b ? -1 : 0) * acOrdem.dir; });
   const pags = Math.max(1, Math.ceil(lista.length / AC_POR_PAGINA)); if (acPagina >= pags) acPagina = pags - 1;
   const pagina = lista.slice(acPagina * AC_POR_PAGINA, (acPagina + 1) * AC_POR_PAGINA);
@@ -505,11 +523,62 @@ async function acRecalcularServidor(){
   } catch(e){ alert('Não consegui recalcular: ' + e.message); b.disabled = false; b.textContent = '⚙ Recalcular no servidor'; }
 }
 
+/* ═══ PRECISAM DE ATENÇÃO (Fase 5) ═══
+   Cada aluno aparece uma vez, com todos os motivos, do mais grave para o
+   mais leve. O botão de WhatsApp abre a conversa com uma mensagem pronta
+   (pelo motivo principal), que você pode editar antes de enviar. */
+const AC_MOT = {
+  sumido:   { t: 'Sumido',               peso: 100, cor: '#e63946', msg: n => 'Oi ' + n + ', tudo bem? Aqui é o Israel. Senti sua falta na plataforma do G20! Como estão as coisas por aí? Se precisar de ajuda para retomar, é só me chamar.' },
+  parado:   { t: 'Parou as aulas',       peso: 80,  cor: '#e63946', msg: n => 'Oi ' + n + ', tudo bem? Vi que faz um tempo que você não avança nas aulas do G20. Travou em alguma coisa? Me conta que eu te ajudo a destravar.' },
+  naoComecou:{ t: 'Não começou as aulas', peso: 70,  cor: '#f39c12', msg: n => 'Oi ' + n + ', tudo bem? Aqui é o Israel. Vi que você ainda não começou as aulas do G20 na plataforma. Quer uma ajuda para dar o primeiro passo?' },
+  esfriando:{ t: 'Esfriando',            peso: 60,  cor: '#f39c12', msg: n => 'Oi ' + n + '! Passando para saber como você está. Faz alguns dias que você não entra na plataforma do G20. Bora seguir juntos?' },
+  carteira: { t: 'Não importou a carteira', peso: 40, cor: '#e8b84b', msg: n => 'Oi ' + n + '! Já trouxe a sua carteira para a nova plataforma do G20? Se quiser, eu te ajudo a importar. É rapidinho.' },
+  gfParada: { t: 'Gestão Financeira parada', peso: 30, cor: '#e8b84b', msg: n => 'Oi ' + n + '! Vi que a sua Gestão Financeira está parada há um tempo. Bora retomar os lançamentos deste mês? Ela é a base para aumentar o seu aporte.' },
+  perfil:   { t: 'Perfil incompleto',    peso: 20,  cor: '#3498db', msg: n => 'Oi ' + n + '! O seu perfil na plataforma do G20 está quase lá. Completando, eu consigo te orientar muito melhor. Leva uns 5 minutos!' }
+};
+let acAtFiltro = '';
+function acMotivos(a){
+  const m = [], dias = d => d ? (Date.now() - d.getTime()) / 864e5 : 999;
+  const novo = a.cadastro && dias(a.cadastro) < 7;
+  if (a.acesso) { const d = dias(a.acesso); if (d > 14) m.push('sumido'); else if (d > 7) m.push('esfriando'); }
+  if (!novo && !a.feitas) m.push('naoComecou');
+  else if (a.feitas && a.pct < 100 && dias(a.ultima) > 21 && m.indexOf('sumido') < 0) m.push('parado');
+  if (acDinCarregado && !novo && !a.nTx && !a.patr) m.push('carteira');
+  if (acDinCarregado && a.nLanc > 0 && dias(a.ultLanc) > 30) m.push('gfParada');
+  if (a.perfil != null && a.perfil < 60) m.push('perfil');
+  return m.sort((x, y) => AC_MOT[y].peso - AC_MOT[x].peso);
+}
+function acAtencao(){
+  const lista = acAlunos.filter(a => a.aprovado && !a.admin).map(a => ({ a: a, m: acMotivos(a) })).filter(x => x.m.length)
+    .sort((x, y) => AC_MOT[y.m[0]].peso - AC_MOT[x.m[0]].peso || y.m.length - x.m.length);
+  const cont = {}; lista.forEach(x => x.m.forEach(k => { cont[k] = (cont[k] || 0) + 1; }));
+  document.getElementById('acAtN').textContent = '(' + lista.length + ')';
+  document.getElementById('acAtFiltros').innerHTML = '<button class="ac-fchip' + (!acAtFiltro ? ' on' : '') + '" onclick="acAtFiltro=\'\';acAtencao()">Todos</button>' +
+    Object.keys(AC_MOT).filter(k => cont[k]).map(k => '<button class="ac-fchip' + (acAtFiltro === k ? ' on' : '') + '" onclick="acAtFiltro=\'' + k + '\';acAtencao()">' + AC_MOT[k].t + ' · ' + cont[k] + '</button>').join('');
+  const vis = lista.filter(x => !acAtFiltro || x.m.indexOf(acAtFiltro) >= 0);
+  const mostrar = window._acAtTodos ? vis : vis.slice(0, 8);
+  document.getElementById('acAtLista').innerHTML = !vis.length ? '<div style="padding:8px 0">Ninguém aqui. 🎉</div>' : mostrar.map(x => {
+    const a = x.a, nome1 = acEsc((a.nome || '').split(' ')[0] || ''), princ = acAtFiltro || x.m[0];
+    const det = [];
+    if (a.acesso) det.push('último acesso ' + acRel(a.acesso));
+    det.push('aulas ' + a.feitas + '/' + acTotalAulas + (a.ultima ? ' (última ' + acRel(a.ultima) + ')' : ''));
+    if (a.perfil != null) det.push('perfil ' + a.perfil);
+    const fone = a.fone && a.fone.length >= 10 ? (a.fone.length <= 11 ? '55' + a.fone : a.fone) : '';
+    const zap = fone ? '<a class="ac-zap" target="_blank" rel="noopener" href="https://wa.me/' + fone + '?text=' + encodeURIComponent(AC_MOT[princ].msg((a.nome || '').split(' ')[0] || '')) + '">WhatsApp</a>' : '<span style="font-size:11.5px;color:var(--text3)">sem telefone no perfil</span>';
+    return '<div class="ac-at"><div class="q"><span class="n" data-uid="' + acEsc(a.uid) + '">' + acEsc(a.nome) + '</span> <small style="color:var(--text3)">' + acEsc(a.turma || '') + '</small><div>' +
+      x.m.map(k => '<span class="ac-mot" style="color:' + AC_MOT[k].cor + ';background:' + AC_MOT[k].cor + '22">' + AC_MOT[k].t + '</span>').join('') +
+      '</div><div style="font-size:11.5px;color:var(--text3);margin-top:3px">' + det.join(' · ') + '</div></div>' + zap + '</div>';
+  }).join('') + (vis.length > 8 ? '<div style="text-align:center;margin-top:8px"><button class="ac-fchip" onclick="window._acAtTodos=!window._acAtTodos;acAtencao()">' + (window._acAtTodos ? 'Mostrar menos' : 'Ver todos (' + vis.length + ')') + '</button></div>' : '');
+  document.querySelectorAll('#acAtLista .n').forEach(el => el.onclick = function(){ acGuardarEstado(); location.href = 'admin-aluno-progresso.html?uid=' + encodeURIComponent(el.dataset.uid); });
+}
+
 function acCsv(){
   const lin = [['Nome','E-mail','Turma','Cadastro','Último acesso','Uso 30 dias (min)','Dias ativos 30d','Nota do perfil','Aulas concluídas','Total de aulas','% do curso','Última aula concluída','Situação']
     .concat(acDinCarregado ? ['Patrimônio investido (R$)','Renda variável (R$)','Renda fixa (R$)','Bens (R$)','Aportes 12m (R$)','Último aporte','Nº de ativos','Proventos 12m (R$)','Origem da carteira','Lançamentos GF','Último lançamento GF','Receita mês ant. (R$)','Despesa mês ant. (R$)','Taxa de economia mês ant. (%)','Usa orçamento'] : [])];
   acFiltrados().forEach(a => lin.push([a.nome, a.email, a.turma, acFmt(a.cadastro), a.acesso ? a.acesso.toLocaleString('pt-BR') : '', a.seg30 ? Math.round(a.seg30 / 60) : '', a.dias30 || '', a.perfil == null ? '' : a.perfil, a.feitas, acTotalAulas, a.pct, acFmt(a.ultima), a.status]
     .concat(acDinCarregado ? [acN(a.patr), acN(a.rv), acN(a.rf), acN(a.bens), acN(a.ap12), acFmt(a.ultAporte), a.nAtivos || 0, acN(a.prov12), a.origem || '', a.nLanc || 0, acFmt(a.ultLanc), acN(a.recAnt), acN(a.despAnt), a.econ == null ? '' : a.econ, a.usaOrc ? 'sim' : 'não'] : [])));
+  lin[0].push('Atenção');
+  acFiltrados().forEach((a, i) => { if (lin[i + 1]) lin[i + 1].push(acMotivos(a).map(k => AC_MOT[k].t).join(' | ')); });
   const csv = lin.map(l => l.map(c => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"').join(';')).join('\n');
   const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }), url = URL.createObjectURL(blob), el = document.createElement('a');
   el.href = url; el.download = 'acompanhamento-g20-' + new Date().toISOString().slice(0, 10) + '.csv'; document.body.appendChild(el); el.click(); el.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
