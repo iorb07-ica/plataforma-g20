@@ -4265,10 +4265,10 @@ tr.gf-linha > td:first-child{white-space:nowrap}
                     <div style="font-size:11.5px;opacity:.7;margin-bottom:12px">Serve para acertar as datas que o app mostra como "Ontem", "Quinta" etc.</div>
                     <label for="gf-fat-arq" class="gf-fat-drop" id="gf-fat-drop">
                         <span style="font-size:28px">🖼️</span>
-                        <b>Escolher prints</b>
-                        <span style="font-size:12px;opacity:.75">até 8 imagens · JPG ou PNG</span>
+                        <b>Escolher prints ou o PDF da fatura</b>
+                        <span style="font-size:12px;opacity:.75">até 8 imagens (JPG/PNG) ou 1 PDF</span>
                     </label>
-                    <input type="file" id="gf-fat-arq" accept="image/*" multiple style="display:none" onchange="_gfFaturaArquivos(this.files)">
+                    <input type="file" id="gf-fat-arq" accept="image/*,application/pdf,.pdf" multiple style="display:none" onchange="_gfFaturaArquivos(this.files)">
                     <div id="gf-fat-thumbs" style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0"></div>
                     <div id="gf-fat-status" style="font-size:13px;margin:6px 0 10px"></div>
                     <button type="button" class="btn btn-primary" id="gf-fat-ler" style="width:100%;min-height:46px" onclick="_gfFaturaLer()" disabled>Ler fatura</button>
@@ -8343,7 +8343,7 @@ tr.gf-linha > td:first-child{white-space:nowrap}
             const sel = document.getElementById('gf-fat-cartao');
             const cart = Object.keys(data.cartoes || {}), outros = (data.paymentMethods || []).filter(m => cart.indexOf(m) < 0);
             sel.innerHTML = cart.map(c => '<option>' + c.replace(/[<>&]/g, '') + '</option>').join('') + (cart.length && outros.length ? '<option disabled>──────────</option>' : '') + outros.map(c => '<option>' + c.replace(/[<>&]/g, '') + '</option>').join('');
-            document.getElementById('gf-fat-dia').value = _hojeLocal();
+            document.getElementById('gf-fat-dia').value = _hojeLocal(); _gfFatPdfRes = null;
             _gfFaturaVoltar(); _gfFatImgs = []; document.getElementById('gf-fat-thumbs').innerHTML = ''; document.getElementById('gf-fat-status').textContent = ''; document.getElementById('gf-fat-ler').disabled = true;
             openModal('gf-fat-modal');
         };
@@ -8362,7 +8362,100 @@ tr.gf-linha > td:first-child{white-space:nowrap}
                 img.src = url;
             });
         }
+        /* ═══ PDF DA FATURA (out/2026) ═══
+           1º tenta ler o TEXTO do PDF no próprio navegador (pdf.js), sem IA e sem
+           custo. Se o PDF não tiver texto (escaneado) ou a leitura não achar
+           compras, as páginas viram imagens e seguem pela IA, como os prints. */
+        let _gfFatPdfRes = null;
+        function _gfPdfLib(){
+            if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+            return new Promise(function(ok, falha){
+                const sc = document.createElement('script');
+                sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+                sc.onload = function(){ try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; ok(window.pdfjsLib); } catch(e){ falha(e); } };
+                sc.onerror = function(){ falha(new Error('não consegui carregar o leitor de PDF')); };
+                document.head.appendChild(sc);
+            });
+        }
+        // linhas do PDF reconstruídas pela posição vertical do texto
+        async function _gfPdfLinhas(pdf){
+            const linhas = [];
+            for (let pg = 1; pg <= Math.min(pdf.numPages, 15); pg++) {
+                const page = await pdf.getPage(pg), tc = await page.getTextContent(), grupos = {};
+                tc.items.forEach(it => { if (!it.str || !it.str.trim()) return; const y = Math.round(it.transform[5] / 3) * 3; (grupos[y] = grupos[y] || []).push(it); });
+                Object.keys(grupos).map(Number).sort((a, b) => b - a).forEach(y => {
+                    linhas.push(grupos[y].sort((a, b) => a.transform[4] - b.transform[4]).map(i => i.str.trim()).join('  ').replace(/\s{3,}/g, '  '));
+                });
+            }
+            return linhas;
+        }
+        const _GF_MES = { JAN: 1, FEV: 2, MAR: 3, ABR: 4, MAI: 5, JUN: 6, JUL: 7, AGO: 8, SET: 9, OUT: 10, NOV: 11, DEZ: 12 };
+        function _gfPdfData(txt, ref){
+            let m = txt.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/), d, mo, a = null;
+            if (m) { d = +m[1]; mo = +m[2]; if (m[3]) a = +m[3] < 100 ? 2000 + +m[3] : +m[3]; }
+            else { m = txt.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').match(/^(\d{1,2})\s*(?:DE\s*)?(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)/); if (!m) return null; d = +m[1]; mo = _GF_MES[m[2]]; }
+            if (!a) { const r = new Date(ref + 'T12:00:00'); a = r.getFullYear(); if (new Date(a, mo - 1, d) > r) a--; }
+            return a + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+        }
+        function _gfPdfLer(linhas, ref){
+            const itens = []; let venc = null, total = null;
+            const reLinha = /^(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|\d{1,2}\s*(?:de\s*)?(?:jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[a-z]*\.?)\s+(.+?)\s+(-\s*)?(?:R\$|US\$)?\s*(-\s*)?(\d{1,3}(?:\.\d{3})*,\d{2})\s*(-)?\s*$/i;
+            linhas.forEach(l => {
+                const L = l.replace(/\s+/g, ' ').trim(), low = L.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                if (!venc) { const mv = low.match(/vencimento[^0-9]{0,20}(\d{1,2}\/\d{1,2}\/\d{2,4}|\d{1,2}\s*(?:de\s*)?(?:jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[a-z]*\s*(?:de\s*)?\d{4})/); if (mv) { const t = mv[1].replace(/\s*de\s*/g, ' '); const mm = t.match(/(\d{1,2})\s*([a-z]{3})[a-z]*\s*(\d{4})/); venc = mm ? (mm[3] + '-' + String(_GF_MES[mm[2].toUpperCase()]).padStart(2, '0') + '-' + mm[1].padStart(2, '0')) : _gfPdfData(t, ref); } }
+                if (total == null) { const mt = low.match(/total (?:da fatura|desta fatura|a pagar)[^0-9]{0,15}(\d{1,3}(?:\.\d{3})*,\d{2})/); if (mt) total = parseFloat(mt[1].replace(/\./g, '').replace(',', '.')); }
+                const m = L.match(reLinha); if (!m) return;
+                const data = _gfPdfData(m[1].replace(/\.$/, ''), ref); if (!data) return;
+                let desc = m[2].replace(/(?:R|US)\$/gi, ' ').replace(/\s{2,}/g, ' ').trim(); const valor = parseFloat(m[5].replace(/\./g, '').replace(',', '.'));
+                if (!(valor > 0) || /^(total|saldo|limite|subtotal)/i.test(desc)) return;
+                const neg = !!(m[3] || m[4] || m[6]), d2 = desc.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                let parcela = null; const mp = desc.match(/(?:parcela\s*)?\b(\d{1,2})\s*\/\s*(\d{1,2})\b/i);
+                if (mp && +mp[1] <= +mp[2] && +mp[2] > 1) { parcela = (+mp[1]) + '/' + (+mp[2]); desc = desc.replace(mp[0], '').replace(/\s{2,}/g, ' ').replace(/[-–\s]+$/, '').trim(); }
+                let tipo = 'compra', motivo = null, cat = null;
+                if (/pagamento|pgto|pag fatura/.test(d2)) { tipo = 'ignorar'; motivo = 'pagamento da fatura'; }
+                else if (/estorno|credito|devolu|reembols|cancel|cashback/.test(d2) || neg) tipo = 'estorno';
+                if (/\biof\b|juros|multa|encargo|anuidade|tarifa/.test(d2)) cat = 'Tarifas e juros';
+                desc = desc.replace(/\bBRA\b/gi, ' ').replace(/\s{2,}/g, ' ').trim();
+                // "UBER" → "Uber", "REDE ANGELONI" → "Rede Angeloni" (só se veio tudo em maiúsculas)
+                if (desc === desc.toUpperCase()) desc = desc.toLowerCase().replace(/(^|[\s\-\/.(])([a-zà-ú])/g, (x, a, c) => a + c.toUpperCase());
+                itens.push({ data, data_rotulo: m[1], descricao: desc, valor, parcela, tipo, motivo, categoria_app: cat });
+            });
+            return { vencimento: venc, total_fatura: total, itens, origem: 'pdf' };
+        }
+        async function _gfPdfParaImagens(pdf){
+            const imgs = [];
+            for (let pg = 1; pg <= Math.min(pdf.numPages, 8); pg++) {
+                const page = await pdf.getPage(pg), vp0 = page.getViewport({ scale: 1 }), esc = Math.min(2, 1568 / Math.max(vp0.width, vp0.height));
+                const vp = page.getViewport({ scale: esc }), c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+                await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+                const d = c.toDataURL('image/jpeg', 0.82); imgs.push({ media_type: 'image/jpeg', data: d.split(',')[1], url: d });
+            }
+            return imgs;
+        }
+
         window._gfFaturaArquivos = async function(files){
+            _gfFatPdfRes = null;
+            const pdfArq = Array.from(files || []).find(f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
+            if (pdfArq) {
+                const st = document.getElementById('gf-fat-status'), b = document.getElementById('gf-fat-ler');
+                st.textContent = 'Lendo o PDF…'; b.disabled = true; _gfFatImgs = [];
+                try {
+                    const lib = await _gfPdfLib(), pdf = await lib.getDocument({ data: await pdfArq.arrayBuffer() }).promise;
+                    const linhas = await _gfPdfLinhas(pdf), ref = (document.getElementById('gf-fat-dia').value || _hojeLocal());
+                    const res = linhas.join(' ').length > 200 ? _gfPdfLer(linhas, ref) : { itens: [] };
+                    if (res.itens.filter(i => i.tipo !== 'ignorar').length >= 1) {
+                        _gfFatPdfRes = res;
+                        document.getElementById('gf-fat-thumbs').innerHTML = '<div style="font-size:13px;padding:8px 12px;border-radius:10px;background:rgba(21,128,61,.08);color:#15803d;font-weight:700">📄 ' + pdfArq.name.replace(/[<>&]/g, '') + '</div>';
+                        st.textContent = '✓ PDF lido no seu aparelho, sem IA: ' + res.itens.filter(i => i.tipo !== 'ignorar').length + ' lançamento(s). Toque em "Ler fatura" para conferir.';
+                    } else {
+                        _gfFatImgs = await _gfPdfParaImagens(pdf);
+                        document.getElementById('gf-fat-thumbs').innerHTML = _gfFatImgs.map((i, n) => '<img class="gf-fat-thumb" src="' + i.url + '" alt="página ' + (n + 1) + '">').join('');
+                        st.textContent = 'Este PDF é uma imagem (escaneado) ou tem um formato diferente: ' + _gfFatImgs.length + ' página(s) vão ser lidas pela IA.';
+                    }
+                    b.disabled = false;
+                } catch(e){ st.textContent = '⚠️ Não consegui abrir o PDF (' + e.message + '). Se ele tiver senha, tire a senha ou envie prints.'; }
+                return;
+            }
             const st = document.getElementById('gf-fat-status'), lista = Array.from(files || []).filter(f => /^image\//.test(f.type)).slice(0, 8);
             if (!lista.length) { st.textContent = 'Escolha imagens (prints da fatura).'; return; }
             st.textContent = 'Preparando ' + lista.length + ' print(s)…';
@@ -8374,6 +8467,7 @@ tr.gf-linha > td:first-child{white-space:nowrap}
         };
         window._gfFaturaLer = async function(){
             const st = document.getElementById('gf-fat-status'), b = document.getElementById('gf-fat-ler');
+            if (_gfFatPdfRes) { _gfFaturaPrevia(_gfFatPdfRes); return; }   // PDF lido sem IA
             if (!_gfFatImgs.length) return;
             b.disabled = true; b.textContent = 'Lendo a fatura… (uns 10 a 30 segundos)'; st.textContent = '';
             try {
@@ -8438,6 +8532,7 @@ tr.gf-linha > td:first-child{white-space:nowrap}
             if (_ninc) conf += '<br><span style="color:#b45309;font-weight:700">📅 ' + _ninc + (_ninc === 1 ? ' compra está' : ' compras estão') + ' no topo do primeiro print, sem o dia aparecendo. Confira a data destacada (ou envie também o print de cima).</span>';
             if (j.bancos_misturados) conf += '<br><span style="color:#b45309;font-weight:700">⚠️ Parece que os prints são de cartões diferentes. Para as datas e o cartão ficarem certos, importe um cartão por vez.</span>';
             if (_outroBanco) conf += '<br><span style="color:#b45309;font-weight:700">⚠️ Os prints parecem ser do ' + esc(j.banco) + ', mas o cartão escolhido é ' + esc(_cartSel) + '. Confira antes de lançar (dá para voltar em "Outros prints" e trocar o cartão).</span>';
+            if (j.origem === 'pdf') conf += '<br><span style="color:#15803d">📄 Lido direto do PDF, sem IA.</span>';
             document.getElementById('gf-fat-resumo').innerHTML = 'Cartão <b>' + esc(document.getElementById('gf-fat-cartao').value) + '</b>' + (venc ? ' · vencimento ' + venc : '') + conf +
                 '<br>Confira as datas, descrições e categorias. Itens cinza foram reconhecidos como não sendo compra (ex.: pagamento da fatura). "Já lançado" vem desmarcado para não duplicar.';
             document.getElementById('gf-fat-passo1').style.display = 'none'; document.getElementById('gf-fat-passo2').style.display = '';
