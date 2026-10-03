@@ -2854,3 +2854,153 @@
     } catch(e){}
   }, 1500);
 })();
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   INSTALAR O APP + ATIVAR NOTIFICAÇÕES (out/2026)
+   Janela que aparece uma vez por sessão para quem:
+   - ainda não instalou a plataforma como app (iPhone, Android ou computador),
+     com o passo a passo do aparelho dele e, quando o navegador permite, o
+     botão "Instalar agora";
+   - já instalou (ou está no computador/Android), mas não ativou as
+     notificações, com o botão "Ativar notificações" (o iPhone só deixa pedir
+     a permissão depois de um toque do aluno).
+   No menu lateral fica sempre o atalho "📲 Instalar o app" para quem não instalou.
+   ═══════════════════════════════════════════════════════════════════════════ */
+(function(){
+  'use strict';
+  if (window.__g20Instalar || window.G20_VER_ALUNO) return; window.__g20Instalar = true;
+  var PAG = (location.pathname.split('/').pop() || '').toLowerCase();
+  if (/^(login|aguardando|termos-de-uso|index)\.html$/.test(PAG) || /obrigatorio=1/.test(location.search)) return;
+  var ua = navigator.userAgent || '';
+  var IOS = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  var ANDROID = /Android/i.test(ua), MOBILE = IOS || ANDROID;
+  var SAFARI_MAC = !MOBILE && /Safari/.test(ua) && !/Chrome|Chromium|Edg\//.test(ua);
+  function instalado(){ try { return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; } catch(e){ return false; } }
+  var promptInstalar = null;
+  window.addEventListener('beforeinstallprompt', function(e){ e.preventDefault(); promptInstalar = e; var b = document.getElementById('g20InstBtnAgora'); if (b) b.style.display = ''; });
+  window.addEventListener('appinstalled', function(){ try { localStorage.setItem('g20_app_instalado', String(Date.now())); } catch(e){} fechar(); });
+
+  function pushSuportado(){ return 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window; }
+  function permissao(){ try { return Notification.permission; } catch(e){ return 'unsupported'; } }
+
+  function css(){
+    if (document.getElementById('g20-inst-css')) return;
+    var st = document.createElement('style'); st.id = 'g20-inst-css';
+    st.textContent =
+      '#g20Inst{position:fixed;inset:0;z-index:2147482000;background:rgba(10,9,13,.72);display:flex;align-items:flex-end;justify-content:center;padding:12px;font-family:"DM Sans",system-ui,sans-serif}' +
+      '@media(min-width:700px){#g20Inst{align-items:center}}' +
+      '#g20Inst .cx{width:100%;max-width:460px;max-height:92vh;overflow:auto;background:#1f1e24;color:#f0ece0;border:1px solid rgba(201,169,97,.35);border-radius:20px;padding:22px 20px calc(18px + env(safe-area-inset-bottom,0px));box-shadow:0 30px 70px rgba(0,0,0,.55)}' +
+      '#g20Inst h3{margin:0 0 4px;font-size:19px;font-weight:900}#g20Inst .sub{font-size:13.5px;color:#b3adb9;line-height:1.5;margin:0 0 14px}' +
+      '#g20Inst .ben{display:grid;gap:8px;margin:0 0 16px}#g20Inst .ben div{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;line-height:1.4}#g20Inst .ben b{color:#e8c766}' +
+      '#g20Inst .passos{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:12px 14px;margin:0 0 14px}' +
+      '#g20Inst .passo{display:flex;gap:10px;align-items:flex-start;padding:7px 0;font-size:14px;line-height:1.45}' +
+      '#g20Inst .num{width:24px;height:24px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:#c9a961;color:#16151a;font-weight:900;font-size:12px}' +
+      '#g20Inst .ico{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;padding:0 6px;border-radius:6px;background:rgba(255,255,255,.1);font-weight:800;margin:0 2px}' +
+      '#g20Inst .bt{width:100%;min-height:48px;border:none;border-radius:12px;font:800 15px "DM Sans",system-ui,sans-serif;cursor:pointer;margin-top:8px}' +
+      '#g20Inst .bt.ouro{background:linear-gradient(135deg,#e8c766,#c9a961);color:#16151a}' +
+      '#g20Inst .bt.leve{background:transparent;color:#b3adb9;border:1px solid rgba(255,255,255,.14)}' +
+      '#g20Inst .aviso{font-size:12.5px;color:#fbbf24;line-height:1.5;margin:6px 0 0}' +
+      '#g20Inst .ok{font-size:13.5px;color:#4ade80;font-weight:700;margin:6px 0 0}' +
+      '#g20Inst .notif{border-top:1px solid rgba(255,255,255,.08);margin-top:14px;padding-top:14px}';
+    (document.head || document.documentElement).appendChild(st);
+  }
+  function fechar(){ var j = document.getElementById('g20Inst'); if (j) j.remove(); }
+  function passosInstalar(){
+    if (IOS) return '<div class="passo"><span class="num">1</span><span>Toque no botão <span class="ico">⬆︎</span> <b>Compartilhar</b> (na barra do Safari, embaixo ou em cima)</span></div>' +
+      '<div class="passo"><span class="num">2</span><span>Role e toque em <b>"Adicionar à Tela de Início"</b> <span class="ico">＋</span></span></div>' +
+      '<div class="passo"><span class="num">3</span><span>Toque em <b>Adicionar</b> e, a partir de agora, <b>abra o G20 pelo ícone</b> na tela do celular</span></div>';
+    if (ANDROID) return '<div class="passo"><span class="num">1</span><span>Toque no menu <span class="ico">⋮</span> do Chrome (canto de cima)</span></div>' +
+      '<div class="passo"><span class="num">2</span><span>Toque em <b>"Instalar app"</b> ou <b>"Adicionar à tela inicial"</b></span></div>' +
+      '<div class="passo"><span class="num">3</span><span>Confirme e <b>abra o G20 pelo ícone</b> na tela do celular</span></div>';
+    if (SAFARI_MAC) return '<div class="passo"><span class="num">1</span><span>No menu do Safari, clique em <b>Arquivo</b></span></div>' +
+      '<div class="passo"><span class="num">2</span><span>Clique em <b>"Adicionar ao Dock"</b></span></div>';
+    return '<div class="passo"><span class="num">1</span><span>Na barra de endereço, clique no ícone <span class="ico">⊕</span> de <b>instalar</b> (à direita), ou no menu <span class="ico">⋮</span> › <b>"Instalar G20"</b> / "Transmitir, salvar e compartilhar › Instalar"</span></div>' +
+      '<div class="passo"><span class="num">2</span><span>Confirme em <b>Instalar</b>: o G20 abre como um programa e ganha um atalho no computador</span></div>';
+  }
+  function blocoNotif(){
+    var p = permissao();
+    if (p === 'granted') return '';
+    if (IOS && !instalado()) return '<div class="notif"><b>🔔 Notificações no iPhone</b><p class="aviso">No iPhone, as notificações só funcionam com o G20 instalado na Tela de Início. Instale seguindo os passos acima e, depois, abra pelo ícone para ativar.</p></div>';
+    if (!pushSuportado()) return '';
+    if (p === 'denied') return '<div class="notif"><b>🔔 As notificações estão bloqueadas</b><p class="aviso">' + (IOS ? 'Vá em Ajustes › Notificações › G20 e ative "Permitir Notificações".' : ANDROID ? 'Toque no cadeado ao lado do endereço (ou em Configurações › Apps › G20) › Notificações › Permitir.' : 'Clique no cadeado à esquerda do endereço › Notificações › Permitir, e recarregue a página.') + '</p></div>';
+    return '<div class="notif"><b>🔔 Ative as notificações</b><p class="sub" style="margin:4px 0 0">Para receber as respostas do Israel, os avisos de lives e as contas que vencem, mesmo com a plataforma fechada.</p><button type="button" class="bt ouro" id="g20InstNotif">Ativar notificações</button><div id="g20InstNotifMsg"></div></div>';
+  }
+  function abrir(forcar){
+    css(); fechar();
+    var inst = instalado();
+    var precisaInstalar = !inst;
+    var precisaNotif = permissao() !== 'granted' && (pushSuportado() || IOS);
+    if (!forcar && !precisaInstalar && !precisaNotif) return;
+    var j = document.createElement('div'); j.id = 'g20Inst';
+    var html = '<div class="cx" role="dialog" aria-label="Instalar o app G20">';
+    if (precisaInstalar) {
+      html += '<h3>📲 Instale o G20 ' + (MOBILE ? 'no seu celular' : 'no seu computador') + '</h3>' +
+        '<p class="sub">Leva 10 segundos e deixa a plataforma muito melhor:</p>' +
+        '<div class="ben">' +
+          '<div><span>🔔</span><span><b>Notificações</b>: respostas do Israel, lives, contas a vencer e novidades' + (IOS ? ' (no iPhone, <b>só funcionam com o app instalado</b>)' : '') + '</span></div>' +
+          '<div><span>⚡</span><span><b>Abre direto</b>, em tela cheia, sem barra de navegador, como um app</span></div>' +
+          '<div><span>🔐</span><span><b>Entrada com Face ID</b> ou digital, sem digitar a senha</span></div>' +
+          '<div><span>🏠</span><span><b>Ícone do G20</b> na tela de início, sempre à mão</span></div>' +
+        '</div>' +
+        '<button type="button" class="bt ouro" id="g20InstBtnAgora" style="' + (promptInstalar ? '' : 'display:none') + '">Instalar agora</button>' +
+        '<div class="passos">' + passosInstalar() + '</div>';
+    } else {
+      html += '<h3>🔔 Falta só ativar as notificações</h3><p class="sub">Você já está usando o G20 como app. Ative as notificações para não perder nada.</p>';
+    }
+    html += blocoNotif();
+    html += '<button type="button" class="bt leve" id="g20InstDepois">Agora não</button>';
+    if (precisaInstalar) html += '<button type="button" class="bt leve" id="g20InstJa" style="border:none;font-weight:600;font-size:13px;min-height:36px">Já instalei</button>';
+    html += '</div>';
+    j.innerHTML = html;
+    document.body.appendChild(j);
+    j.addEventListener('click', function(e){ if (e.target === j) fechar(); });
+    document.getElementById('g20InstDepois').onclick = fechar;
+    var ja = document.getElementById('g20InstJa'); if (ja) ja.onclick = function(){ try { localStorage.setItem('g20_app_ja', String(Date.now())); } catch(e){} fechar(); };
+    var ag = document.getElementById('g20InstBtnAgora');
+    if (ag) ag.onclick = function(){ if (!promptInstalar) return; promptInstalar.prompt(); promptInstalar.userChoice.then(function(){ promptInstalar = null; ag.style.display = 'none'; }); };
+    var nt = document.getElementById('g20InstNotif');
+    if (nt) nt.onclick = function(){
+      var msg = document.getElementById('g20InstNotifMsg');
+      try {
+        Notification.requestPermission().then(function(p){
+          if (p !== 'granted') { msg.innerHTML = '<p class="aviso">Permissão não concedida. Se mudar de ideia, dá para ativar depois nas configurações do aparelho.</p>'; return; }
+          msg.innerHTML = '<p class="ok">✓ Notificações ativadas!</p>';
+          nt.style.display = 'none';
+          var u = window.firebase && firebase.auth && firebase.auth().currentUser;
+          var reg = window._g20SwReg;
+          var assinar = function(r){ if (r && u && window.G20Push) window.G20Push.initPermission(r); };
+          if (reg) assinar(reg); else if (navigator.serviceWorker) navigator.serviceWorker.ready.then(assinar);
+        });
+      } catch(e){ msg.innerHTML = '<p class="aviso">Este navegador não permitiu. Tente pelo app instalado.</p>'; }
+    };
+  }
+  window.G20Instalar = { abrir: function(){ abrir(true); } };
+
+  // atalho fixo no menu lateral para quem não instalou
+  function itemMenu(){
+    if (instalado()) return;
+    var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
+    if (!sb || sb.querySelector('.g20-inst-item')) return;
+    var a = document.createElement('a'); a.href = '#'; a.className = 'nav-item g20-inst-item';
+    a.innerHTML = '<span class="ico">📲</span>Instalar o app';
+    a.onclick = function(e){ e.preventDefault(); abrir(true); };
+    var sec = sb.querySelector('.nav-section--ajuda') || sb.querySelector('.nav-section:last-of-type');
+    if (sec) sec.appendChild(a); else sb.appendChild(a);
+  }
+
+  // abre sozinho uma vez por sessão (depois do login e da página carregar)
+  var n = 0, t = setInterval(function(){
+    itemMenu();
+    if (++n > 20) { clearInterval(t); return; }
+    try {
+      if (!window.firebase || !firebase.apps || !firebase.apps.length || !firebase.auth || !firebase.auth().currentUser) return;
+    } catch(e){ return; }
+    clearInterval(t); itemMenu();
+    var k = 'g20_inst_sessao';
+    try { if (sessionStorage.getItem(k)) return; sessionStorage.setItem(k, '1'); } catch(e){}
+    var ja = 0; try { ja = Number(localStorage.getItem('g20_app_ja') || 0); } catch(e){}
+    var mostrarInstalar = !instalado() && !(ja && Date.now() - ja < 30 * 864e5);
+    var mostrarNotif = permissao() === 'default' && pushSuportado() && (instalado() || !IOS);
+    if (mostrarInstalar || mostrarNotif) setTimeout(function(){ if (!document.getElementById('g20Inst') && !document.querySelector('.modal-overlay.active, .modal.show')) abrir(false); }, 4000);
+  }, 1500);
+})();
