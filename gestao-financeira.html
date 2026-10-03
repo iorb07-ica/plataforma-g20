@@ -1197,6 +1197,10 @@ input:focus, select:focus {
     user-select: none;
 }
 
+/* iPhone: tocar e segurar num mês não abre a lupa/menu de texto do sistema */
+.gf-sinal{width:40px;height:40px;flex-shrink:0;border-radius:8px;border:1px solid var(--border,#ddd);background:var(--surface,#fff);color:var(--text2,#666);font:700 20px/1 'DM Sans',sans-serif;cursor:pointer}
+.gf-sinal.neg{background:#e63946;border-color:#e63946;color:#fff}
+.month-button{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .month-button {
     padding: 7px 9px;
     border: 1.5px solid var(--border);
@@ -4230,10 +4234,10 @@ tr.gf-linha > td:first-child{white-space:nowrap}
         <div id="gf-saldo-modal" class="modal-overlay">
             <div class="modal-content" style="width: 420px;">
                 <h3 style="font-weight:800; color:var(--primary); font-size:16px; margin-bottom:6px;">🏦 Saldo inicial da conta</h3>
-                <p style="font-size:13px; opacity:.8; line-height:1.5; margin-bottom:14px">Quanto você tinha na conta no dia em que começou a registrar aqui. Não conta como receita: serve para o gráfico da evolução do saldo e para o "Na conta hoje" mostrarem o saldo real. Está zerado? Informe 0,00. Se estava no negativo, use o sinal de menos (ex.: -500,00).</p>
+                <p style="font-size:13px; opacity:.8; line-height:1.5; margin-bottom:14px">Quanto você tinha na conta no dia em que começou a registrar aqui. Não conta como receita: serve para o gráfico da evolução do saldo e para o "Na conta hoje" mostrarem o saldo real. Está zerado? Informe 0,00. Se estava no negativo, toque no botão <b>−</b> ao lado do valor.</p>
                 <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px">
                     <div style="flex:1; min-width:140px"><label style="font-size:11px">Data</label><input type="date" id="gf-si-data" style="width:100%; height:40px"></div>
-                    <div style="flex:1; min-width:140px"><label style="font-size:11px">Saldo em conta (R$)</label><input type="text" id="gf-si-valor" inputmode="decimal" placeholder="Ex.: 8.000,00" style="width:100%; height:40px"></div>
+                    <div style="flex:1; min-width:140px"><label style="font-size:11px">Saldo em conta (R$)</label><div style="display:flex; gap:6px"><button type="button" class="gf-sinal" data-sinal-de="gf-si-valor" onclick="_gfTrocarSinal('gf-si-valor')" aria-pressed="false" title="Toque se o saldo estava negativo">−</button><input type="text" id="gf-si-valor" inputmode="numeric" data-negativo="1" autocomplete="off" placeholder="0,00" oninput="formatCurrencyInput(this)" onblur="handleCurrencyBlur(this)" style="flex:1; min-width:0; height:40px; text-align:right; font-weight:700"></div></div>
                 </div>
                 <div style="display:flex; gap:8px; flex-wrap:wrap">
                     <button class="btn btn-primary" style="flex:1; min-height:44px" onclick="_gfSalvarSaldoInicial()">Salvar</button>
@@ -5611,11 +5615,15 @@ tr.gf-linha > td:first-child{white-space:nowrap}
         window.formatCurrencyInput = (input) => {
             const initialValue = input.value;
             const initialCursorPosition = input.selectionStart;
+            // Campos que aceitam valor negativo (ex.: saldo inicial no vermelho) guardam o sinal
+            const podeNeg = input.getAttribute('data-negativo') === '1';
+            const neg = podeNeg && /^\s*[-−]/.test(initialValue);
 
             let value = initialValue.replace(/[^0-9]/g, '');
 
             if (value === '') {
-                input.value = '';
+                input.value = neg ? '-' : '';
+                if (podeNeg) _gfSinalBotao(input);
                 return;
             }
 
@@ -5626,9 +5634,10 @@ tr.gf-linha > td:first-child{white-space:nowrap}
             value = value.replace(/(\d+)(\d{2})$/, '$1,$2');
             value = value.replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1.');
             value = value.replace(/^0(\d{1,2})/, '$1').replace(/^0\.(\d{3})/, '$1').replace(/^0,/, '0,');
-
+            if (neg) value = '-' + value;
 
             input.value = value;
+            if (podeNeg) _gfSinalBotao(input);
 
             const newCursorPosition = initialCursorPosition + (value.length - initialValue.length);
             input.setSelectionRange(newCursorPosition, newCursorPosition);
@@ -5636,9 +5645,10 @@ tr.gf-linha > td:first-child{white-space:nowrap}
 
         window.handleCurrencyBlur = (input) => {
             let parsed = parseCurrency(input.value);
+            if (input.getAttribute('data-negativo') === '1' && /^\s*[-−]\s*$/.test(input.value)) { input.value = ''; _gfSinalBotao(input); return; }
 
             if (!isNaN(parsed) && input.value.trim() !== '') {
-                input.value = parsed.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+                input.value = (parsed < 0 ? '-' : '') + Math.abs(parsed).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, ".");
             } else if (input.value.trim() === '') {
                 input.value = '';
             } else {
@@ -5652,9 +5662,23 @@ tr.gf-linha > td:first-child{white-space:nowrap}
             if (v === '') return 0;
 
             v = v.replace(/\./g, '');
-            v = v.replace(',', '.');
+            v = v.replace(',', '.').replace('−', '-');
 
             return parseFloat(v) || 0;
+        };
+        // Botão "−" ao lado de um campo que aceita negativo: no celular o teclado numérico
+        // não tem o sinal de menos, então o aluno troca o sinal por aqui.
+        window._gfSinalBotao = (input) => {
+            const b = document.querySelector('[data-sinal-de="' + input.id + '"]'); if (!b) return;
+            const neg = /^\s*[-−]/.test(input.value);
+            b.classList.toggle('neg', neg); b.setAttribute('aria-pressed', neg ? 'true' : 'false');
+            b.title = neg ? 'Saldo negativo (toque para deixar positivo)' : 'Toque se o saldo estava negativo';
+        };
+        window._gfTrocarSinal = (id) => {
+            const input = document.getElementById(id); if (!input) return;
+            const v = input.value.trim();
+            input.value = /^[-−]/.test(v) ? v.replace(/^[-−]\s*/, '') : '-' + v;
+            formatCurrencyInput(input); input.focus();
         };
 
         // ===== HISTÓRICO DE DESCRIÇÕES E SUGESTÃO DE CATEGORIA =====
@@ -6727,7 +6751,7 @@ tr.gf-linha > td:first-child{white-space:nowrap}
            "Intervalo" marca tudo entre dois toques. Atalhos: últimos 3 e 6
            meses e ano todo.
            ═══════════════════════════════════════════════════════════════════ */
-        let _gfMulti = false, _gfModoInt = false, _gfIntIni = null, _gfIgnorarClique = 0;
+        let _gfMulti = false, _gfModoInt = false, _gfIntIni = null, _gfIgnorarClique = 0, _gfUltimoToque = 0;
         function _gfAtualizarMeses(){ currentMonthFilter.sort(); renderMonthButtons(); renderAll(); _gfBarraMulti(); }
         function _gfBarraMulti(){
             const cont = document.getElementById('month-buttons-container'); if (!cont) return;
@@ -6784,6 +6808,7 @@ tr.gf-linha > td:first-child{white-space:nowrap}
             let t = null, alvo = null, x0 = 0, y0 = 0;
             document.addEventListener('touchstart', function(e){
                 const b = e.target && e.target.closest && e.target.closest('#month-buttons-container .month-button'); if (!b) return;
+                _gfUltimoToque = Date.now();
                 alvo = b; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
                 clearTimeout(t);
                 t = setTimeout(function(){ if (!alvo) return; _gfIgnorarClique = Date.now(); _gfMultiEntrar(alvo.getAttribute('data-month')); alvo = null; }, 450);
@@ -6848,6 +6873,9 @@ tr.gf-linha > td:first-child{white-space:nowrap}
             container.onmousedown = (e) => {
                 const target = e.target.closest('.month-button');
                 if (!target || e.ctrlKey || e.metaKey) return;
+                /* No celular, todo toque também gera um "mousedown" de compatibilidade, que
+                   zerava a seleção e desfazia o modo de vários meses (tocar e segurar). */
+                if (_gfMulti || Date.now() - _gfUltimoToque < 1200) return;
 
                 isDragging = true;
                 dragStartIndex = Array.from(buttons).indexOf(target);
@@ -8052,6 +8080,7 @@ tr.gf-linha > td:first-child{white-space:nowrap}
             const si = _gfSI();
             document.getElementById('gf-si-data').value = si ? si.data : _hojeLocal();
             document.getElementById('gf-si-valor').value = si ? Number(si.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+            _gfSinalBotao(document.getElementById('gf-si-valor'));
             document.getElementById('gf-si-remover').style.display = si ? 'block' : 'none';
             openModal('gf-saldo-modal');
         };
