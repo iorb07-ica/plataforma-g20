@@ -793,6 +793,23 @@ div .sa-aula-item-desc { color: #ffffff !important; }
 .sa-modules-grid::-webkit-scrollbar-thumb { background: rgba(201,169,97,0.3); border-radius: 2px; }
 .sa-modules-grid::-webkit-scrollbar-thumb:hover { background: rgba(201,169,97,0.55); }
 
+/* DESLIZE NO CELULAR (out/2026): trilho mais leve ao toque.
+   - arraste curto também anda: um toque leve para o lado já leva ao próximo
+     módulo (script "saTrilhoToque", mais abaixo)
+   - touch-action: o navegador decide o eixo sem esperar script nenhum
+   - overscroll contido: o fim do trilho não "vaza" para a página
+   - sem o efeito de :hover (pulo do card) em telas de toque: o 1º toque
+     ativava o hover e engolia o gesto no iPhone */
+@media (hover: none), (max-width: 768px) {
+  .sa-modules-grid {
+    overscroll-behavior-x: contain;
+    touch-action: pan-x pan-y;
+    scroll-padding-left: 4px;
+  }
+  .sa-module-card { transition: none; }
+  .sa-module-card:hover { transform: none; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+}
+
 /* CARD DE MÓDULO — Netflix style */
 .sa-module-card {
   position: relative;
@@ -2305,6 +2322,38 @@ function showHome() {
   renderModulesGrid();
   if (window.lucide && lucide.createIcons) lucide.createIcons();
 }
+
+/* Toque leve no trilho dos módulos (out/2026): no celular, arrastes curtos
+   ficavam presos no mesmo card (o encaixe puxava de volta). Agora, se o dedo
+   andou mais de 30px para o lado (e mais para o lado do que para cima/baixo),
+   o trilho vai para o próximo (ou anterior) módulo. Não interfere no toque
+   para abrir o módulo nem na rolagem da página. */
+(function saTrilhoToque(){
+  var x0 = 0, y0 = 0, idx0 = 0, ativo = false;
+  function grid(){ return document.getElementById('modulesGrid'); }
+  function cards(g){ return Array.prototype.filter.call(g.children, function(c){ return c.offsetWidth > 0; }); }
+  function indiceAtual(g){
+    var cs = cards(g), sl = g.scrollLeft, melhor = 0, dist = 1e9;
+    cs.forEach(function(c, i){ var d = Math.abs(c.offsetLeft - g.offsetLeft - sl); if (d < dist) { dist = d; melhor = i; } });
+    return melhor;
+  }
+  document.addEventListener('touchstart', function(e){
+    var g = grid(); if (!g || !e.touches || e.touches.length !== 1 || !g.contains(e.target)) { ativo = false; return; }
+    ativo = true; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; idx0 = indiceAtual(g);
+  }, { passive: true });
+  document.addEventListener('touchend', function(e){
+    if (!ativo) return; ativo = false;
+    var g = grid(); if (!g) return;
+    var t = e.changedTouches && e.changedTouches[0]; if (!t) return;
+    var dx = t.clientX - x0, dy = t.clientY - y0;
+    if (Math.abs(dx) < 30 || Math.abs(dx) < Math.abs(dy) * 1.2) return;   // toque ou rolagem vertical
+    var cs = cards(g); if (!cs.length) return;
+    var alvo = Math.max(0, Math.min(cs.length - 1, idx0 + (dx < 0 ? 1 : -1)));
+    setTimeout(function(){
+      if (indiceAtual(g) !== alvo) g.scrollTo({ left: cs[alvo].offsetLeft - g.offsetLeft, behavior: 'smooth' });
+    }, 60);
+  }, { passive: true });
+})();
 
 function renderModulesGrid() {
   var grid = document.getElementById('modulesGrid');
