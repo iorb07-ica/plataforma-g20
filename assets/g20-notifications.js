@@ -510,14 +510,16 @@
           snap.forEach(function(doc){
             var n = doc.data() || {};
             var ts = (n.criadoEm && n.criadoEm.toMillis) ? n.criadoEm.toMillis() : (n.ts || Date.now());
+            var _perg = String(n.pergunta || '').trim();
             injected.push({
               id:     'fbresp-' + doc.id,
               ico:    '💬',
               bg:     'rgba(201,169,97,.22)',
-              titulo: 'Resposta ao seu feedback',
-              desc:   n.resposta || '',
+              titulo: 'O Israel respondeu o seu feedback',
+              // out/2026: a pergunta aparece junto (quando a resposta é nova o bastante para tê-la)
+              desc:   (_perg ? 'Você: "' + (_perg.length > 70 ? _perg.slice(0, 70) + '…' : _perg) + '" · ' : '') + 'Israel: ' + (n.resposta || ''),
               ts:     ts,
-              link:   'dashboard.html'
+              link:   'perfil.html#mensagens'
             });
           });
           if(!injected.length) return;
