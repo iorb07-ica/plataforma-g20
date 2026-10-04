@@ -338,6 +338,34 @@ async function f360Comentarios(mods, aulas){
   if (meus.length) { const pri = meus[meus.length - 1]; fEvento(pri.d, 'Primeiro comentário, na aula <b>' + fEsc(pri.aula.titulo) + '</b>'); if (meus.length > 1) fEvento(meus[0].d, 'Comentou na aula <b>' + fEsc(meus[0].aula.titulo) + '</b>'); }
 }
 
+/* ═══ CONFERÊNCIA DA CARTEIRA (out/2026) · apoio à migração ═══
+   Aponta o que vale conferir com o aluno: posição negativa (vendeu mais do que
+   comprou), venda antes de qualquer compra, quantidade quebrada em ação/FII da
+   B3, preço zerado, data no futuro, lançamento repetido, dólar sem câmbio e
+   ticker com "F" (mercado fracionário) separado do ticker normal. */
+function f360Conferir(ap){
+  const hoje = new Date().toISOString().slice(0, 10), out = [], porT = {}, vistos = {};
+  const brl = t => /^(Acao|FII|FIAGRO|FIInfra|BDR|ETF)$/i.test(String(t.tipo || '')) && t.moeda !== 'USD';
+  ap.slice().sort((x, y) => String(x.data).localeCompare(String(y.data))).forEach(t => {
+    const k = String(t.ticker || '').toUpperCase(), q = Number(t.qtd) || 0, pr = Number(t.preco);
+    const o = porT[k] = porT[k] || { q: 0, comprou: false, avisos: {} };
+    if (t.op === 'V') { if (!o.comprou && !o.avisos.vendaAntes) { o.avisos.vendaAntes = 1; out.push([k, 'venda em ' + String(t.data).split('-').reverse().join('/') + ' antes de qualquer compra']); } o.q -= q; }
+    else { o.q += q; o.comprou = true; }
+    if (brl(t) && Math.abs(q - Math.round(q)) > 1e-9 && !o.avisos.frac) { o.avisos.frac = 1; out.push([k, 'quantidade quebrada (' + q + ') em ativo da B3']); }
+    if (!(pr > 0) && !t.bonificacao && !o.avisos.preco) { o.avisos.preco = 1; out.push([k, 'lançamento com preço zerado']); }
+    if (String(t.data) > hoje && !o.avisos.fut) { o.avisos.fut = 1; out.push([k, 'lançamento com data no futuro (' + String(t.data).split('-').reverse().join('/') + ')']); }
+    if (t.moeda === 'USD' && !(Number(t.fxRate) > 0) && !o.avisos.fx) { o.avisos.fx = 1; out.push([k, 'compra em dólar sem o câmbio do dia']); }
+    const ch = [k, t.op, t.data, q, pr].join('|');
+    if (vistos[ch] && !o.avisos.dup) { o.avisos.dup = 1; out.push([k, 'lançamento repetido (mesma data, quantidade e preço)']); }
+    vistos[ch] = 1;
+  });
+  Object.keys(porT).forEach(k => {
+    if (porT[k].q < -1e-9) out.push([k, 'posição NEGATIVA (' + (Math.round(porT[k].q * 1e6) / 1e6) + '): vendeu mais do que comprou']);
+    if (/^[A-Z]{4}\d{1,2}F$/.test(k) && porT[k.slice(0, -1)]) out.push([k, 'está separado de ' + k.slice(0, -1) + ' (o "F" é só o mercado fracionário)']);
+  });
+  return out;
+}
+
 function f360Carteira(rv, rf, bens, prov){
   const ap = (rv && Array.isArray(rv.value)) ? rv.value : [];
   const hoje = new Date(), lim12 = new Date(hoje.getFullYear() - 1, hoje.getMonth(), 1).toISOString().slice(0, 10);
@@ -370,6 +398,12 @@ function f360Carteira(rv, rf, bens, prov){
   const mx = Math.max(1, ...ks.map(k => meses[k] || 0)), mn = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   let html = '<div style="font-size:11.5px;color:var(--text3)">Aportes mês a mês (12 meses)</div><div class="f-cols">' + ks.map(k => '<div class="f-col" title="' + fBRL(meses[k] || 0) + '"><i style="height:' + Math.round((meses[k] || 0) / mx * 90) + 'px"></i><small>' + mn[+k.slice(5) - 1] + '</small></div>').join('') + '</div>';
   html += Object.keys(classes).sort((x, y) => classes[y] - classes[x]).map(c => '<div class="f-bar"><span class="n">' + c + '</span><div class="t"><i style="width:' + Math.round(classes[c] / patr * 100) + '%"></i></div><span class="q">' + Math.round(classes[c] / patr * 100) + '%</span></div>').join('');
+  const _conf = f360Conferir(ap);
+  html += _conf.length
+    ? '<div style="margin:12px 0 4px;padding:10px 12px;border-radius:10px;background:rgba(243,156,18,.1);border:1px solid rgba(243,156,18,.35)"><b style="color:#f39c12;font-size:12.5px">⚠️ Para conferir com o aluno (' + _conf.length + ')</b>' +
+      _conf.slice(0, 12).map(c => '<div style="font-size:12.5px;margin-top:5px"><b>' + fEsc(c[0]) + '</b> · ' + fEsc(c[1]) + '</div>').join('') + (_conf.length > 12 ? '<div style="font-size:12px;color:var(--text3);margin-top:4px">+ ' + (_conf.length - 12) + ' ponto(s)</div>' : '') + '</div>'
+    : (ap.length ? '<div style="margin:12px 0 4px;font-size:12.5px;color:var(--green)">✓ Nenhuma inconsistência encontrada nos lançamentos</div>' : '');
+  window._fConferir = _conf.length;
   html += fLi('Ativos na carteira', nAtivos) + fLi('Aportes em 12 meses', fBRL(ap12)) + fLi('Proventos em 12 meses', fBRL(prov12)) + fLi('Origem dos lançamentos', fEsc(Object.keys(orig).join(', ') || '–'));
   html += '<div style="margin-top:10px"><button class="btn btn-back" onclick="verComoAluno(\'gestao-patrimonial.html\')">👁 Abrir a Minha Carteira dele</button></div>';
   fSet('fCart', html);
