@@ -38,18 +38,24 @@
 
   // ── 3) cache local separado (memória desta aba) ────────────────────────
   var mem = {}, LS = Storage.prototype, oGet = LS.getItem, oSet = LS.setItem, oRem = LS.removeItem;
+  /* Chaves que são DA SESSÃO DO ADMIN e precisam ir para a memória real (out/2026):
+     a "última atividade" (senão as outras janelas achavam que o admin estava
+     parado e desconectavam tudo depois de 30 min no "ver como"), o último uso do
+     app (bloqueio do Face ID), o registro de uso e o gravador de logout. */
+  var REAIS = /^(g20_last_activity|g20_ultimo_uso|g20_uso_ult|g20_logout_log|g20_keep_logged|g20_inst_proximo|g20_app_ja)$/;
   function eLocal(s){ try { return s === window.localStorage; } catch(e){ return false; } }
   LS.getItem = function(k){
     if (!eLocal(this)) return oGet.call(this, k);
     if (k === 'g20_uid' || k === 'g20_dados_owner') return ALVO;
-    if (k === 'g20_perfil_ok') return '1';   // a trava de perfil incompleto é do aluno, não do admin que está vendo
+    if (k === 'g20_perfil_ok') return '1';
+    if (REAIS.test(k)) return oGet.call(this, k);   // a trava de perfil incompleto é do aluno, não do admin que está vendo
     if (Object.prototype.hasOwnProperty.call(mem, k)) return mem[k];
     // preferências visuais do admin (tema etc.) continuam valendo; dados do aluno não
     if (/^(g20-theme|g20_theme|g20_sidebar|g20_tour|firebase:|__)/.test(k)) return oGet.call(this, k);   // tema do admin e chaves internas do Firebase
     return null;
   };
-  LS.setItem = function(k, v){ if (!eLocal(this)) return oSet.call(this, k, v); mem[k] = String(v); };
-  LS.removeItem = function(k){ if (!eLocal(this)) return oRem.call(this, k); delete mem[k]; };
+  LS.setItem = function(k, v){ if (!eLocal(this) || REAIS.test(k)) return oSet.call(this, k, v); mem[k] = String(v); };
+  LS.removeItem = function(k){ if (!eLocal(this) || REAIS.test(k)) return oRem.call(this, k); delete mem[k]; };
 
   // ── 1) o login "vira" o aluno nesta aba ───────────────────────────────
   var real = null, perfilAluno = null;

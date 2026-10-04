@@ -13,6 +13,44 @@
     'tokenBrapi','tokenFmp','tokenLogoDev','tokenTwelve',
     'prov_last_import','prov_last_status','prov_last_start',
     'rv_prov_last_import','rv_prov_last_status','rv_prov_last_start'];
+  /* ═══ GRAVADOR DE LOGOUT (out/2026) ═══
+     "Caixa-preta": toda desconexão anota o motivo, a página e a hora em
+     localStorage 'g20_logout_log' (últimas 20). A tela de login mostra a última.
+     Quem chama o signOut pode dizer o motivo antes: window.G20LogoutMotivo = '...'. */
+  window.g20RegistrarLogout = function(motivo){
+    try {
+      var log = []; try { log = JSON.parse(localStorage.getItem('g20_logout_log') || '[]') || []; } catch(e){}
+      log.unshift({ motivo: String(motivo || 'desconhecido').slice(0, 120), pagina: (location.pathname.split('/').pop() || '') + (location.search || ''), em: Date.now(),
+                    app: (function(){ try { return window.matchMedia('(display-mode: standalone)').matches || !!navigator.standalone; } catch(e){ return false; } })() });
+      localStorage.setItem('g20_logout_log', JSON.stringify(log.slice(0, 20)));
+    } catch(e){}
+  };
+  (function embrulharSignOut(n){
+    try {
+      if (window.firebase && firebase.auth && firebase.apps && firebase.apps.length) {
+        var a = firebase.auth();
+        if (!a.__g20SignOutLog) {
+          var orig = a.signOut.bind(a);
+          a.signOut = function(){ window.g20RegistrarLogout(window.G20LogoutMotivo || 'botão Sair (ou saída manual)'); window.G20LogoutMotivo = null; return orig(); };
+          a.__g20SignOutLog = true;
+          /* página protegida aberta sem login: anota se não houve uma saída registrada há pouco */
+          a.onAuthStateChanged(function(u){
+            if (u) return;
+            var pg = (location.pathname.split('/').pop() || '').toLowerCase();
+            if (/^(login|aguardando|termos-de-uso|index)\.html$/.test(pg) || !pg) return;
+            try {
+              var lg = JSON.parse(localStorage.getItem('g20_logout_log') || '[]') || [];
+              if (lg[0] && Date.now() - lg[0].em < 15000) return;
+            } catch(e){}
+            window.g20RegistrarLogout('login não estava salvo ao abrir a página (sessão encerrada ao fechar o app/navegador, ou dados do navegador apagados)');
+          });
+        }
+        return;
+      }
+    } catch(e){}
+    if (n > 0) setTimeout(function(){ embrulharSignOut(n - 1); }, 200);
+  })(150);
+
   function g20WipeFinance(){
     try{
       G20_PRIVATE_KEYS.forEach(function(k){ try{ localStorage.removeItem('g20_'+k); }catch(e){} });
@@ -290,11 +328,26 @@
   // é compartilhada entre abas (localStorage), então estar ativo em uma aba
   // mantém todas logadas — só desconecta após 30 min SEM atividade em nenhuma.
   (function(){
-    var IDLE_MS = 30 * 60 * 1000;          // 30 minutos
+    /* out/2026: no APP INSTALADO o limite é 2 horas (aparelho pessoal); no
+       navegador continuam 30 min (computador compartilhado). Vídeo ou áudio
+       tocando (aula, G20Cast) conta como atividade: antes, quem assistia uma aula
+       longa sem tocar na tela era desconectado no meio dela. */
+    var APP = false; try { APP = window.matchMedia('(display-mode: standalone)').matches || !!navigator.standalone; } catch(e){}
+    var IDLE_MS = (APP ? 120 : 30) * 60 * 1000;
     var ACT_KEY = 'g20_last_activity';
     var lastMark = 0;
+    function midiaTocando(){
+      try {
+        if (window._saYtTimer) return true;                                   // vídeo da Sala de Aula tocando
+        var ae = document.activeElement; if (ae && ae.tagName === 'IFRAME' && document.visibilityState === 'visible') return true;
+        var ms = document.querySelectorAll('audio,video');
+        for (var i = 0; i < ms.length; i++) if (!ms[i].paused && !ms[i].ended) return true;
+      } catch(e){}
+      return false;
+    }
 
     function autoLogout(){
+      window.G20LogoutMotivo = 'inatividade (' + Math.round(IDLE_MS / 60000) + ' min sem uso' + (APP ? ', app instalado' : '') + ')';
       try{
         g20WipeFinance();
         ['dados_owner','uid','user_profile'].forEach(function(k){ try{ localStorage.removeItem('g20_'+k); }catch(e){} });
@@ -319,6 +372,7 @@
     }
     function checkIdle(){
       try{
+        if(midiaTocando()){ markActivity(); return; }
         var last = parseInt(localStorage.getItem(ACT_KEY) || '0', 10);
         if(last && (Date.now() - last) >= IDLE_MS){ autoLogout(); }
       }catch(e){}
@@ -2246,6 +2300,7 @@
 
   function sair(){
     ls(K_ULT, '0');
+    window.G20LogoutMotivo = 'tela de Face ID: "Entrar de outro jeito"';
     try {
       firebase.auth().signOut().then(function(){ location.href = 'login.html'; }, function(){ location.href = 'login.html'; });
     } catch(e){ location.href = 'login.html'; }
