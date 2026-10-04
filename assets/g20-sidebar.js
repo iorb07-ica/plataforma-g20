@@ -3035,3 +3035,232 @@
   '}';
   (document.head || document.documentElement).appendChild(st);
 })();
+
+/* ═══════════════════════════════════════════════════════════════════
+   BARRA DO TOPO UNIFICADA (out/2026)
+   Uma barra igual em todas as páginas, montada aqui a partir dos botões
+   que cada página já tem (nenhum botão muda de comportamento; só de lugar).
+   Computador: título · atalhos · busca · feedback · ajuda · tema · sino
+               │ botões próprios da página
+   Celular:    ☰ · título · busca · sino · ⋯ (tema, feedback, ajuda e os
+               botões próprios da página, em "Nesta página")
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+  'use strict';
+  if (window.__g20TopoUnico) return;
+  /* ETAPA DE TESTE: a barra nova só aparece em quem ligou o teste neste aparelho
+     (abrir qualquer página com ?topo=novo; para desligar, ?topo=antigo).
+     Para liberar para todos os alunos, troque LIBERADA para true. */
+  var LIBERADA = false;
+  try {
+    var q = (location.search.match(/[?&]topo=(novo|antigo)/) || [])[1];
+    if (q === 'novo') localStorage.setItem('g20_topo_novo', '1');
+    if (q === 'antigo') localStorage.removeItem('g20_topo_novo');
+    if (!LIBERADA && localStorage.getItem('g20_topo_novo') !== '1') return;
+  } catch(e){ if (!LIBERADA) return; }
+  window.__g20TopoUnico = true;
+
+  var PAG = (location.pathname.split('/').pop() || 'index.html').toLowerCase();
+  var EMOJI = { 'networking.html': '🤝', 'perfil.html': '👤', 'ajuda.html': '🛟', 'arena.html': '💬', 'dashboard.html': '🏠' };
+  var TITULO = { 'dashboard.html': 'Dashboard' };
+  var MOB = window.matchMedia('(max-width: 768px)');
+  // páginas que não têm tema claro (no computador elas já não mostravam o botão de tema)
+  var SEM_TEMA = { 'networking.html':1, 'perfil.html':1, 'ajuda.html':1, 'noticias.html':1, 'arena.html':1 };
+
+  var ICO = {
+    mais: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
+    lua: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></svg>',
+    sol: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>'
+  };
+
+  function css(){
+    if (document.getElementById('g20-topo-unico-css')) return;
+    var st = document.createElement('style'); st.id = 'g20-topo-unico-css';
+    st.textContent =
+      /* fundo e ☰ iguais em todas as páginas (tema escuro; o claro segue o da página) */
+      'html body:not(.light) .topbar{background:rgba(31,30,34,.96)!important}' +
+      'html body .topbar .btn-menu,html body .topbar .menu-btn{width:40px!important;height:40px!important;border-radius:10px!important;border:1px solid rgba(255,255,255,.1)!important;background:rgba(255,255,255,.04)!important;color:#c9c5bd!important;align-items:center;justify-content:center;font-size:20px!important;padding:0!important;flex-shrink:0}' +
+      'html body.light .topbar .btn-menu,html body.light .topbar .menu-btn{border-color:rgba(0,0,0,.12)!important;background:rgba(0,0,0,.03)!important;color:#3a373f!important}' +
+      'html body .topbar .page-title{white-space:nowrap!important;overflow:hidden;text-overflow:ellipsis;min-width:0;display:block!important;text-transform:uppercase}' +
+      'html body .topbar .topbar-left{min-width:0}' +
+      'html body .topbar .topbar-right{display:flex!important;align-items:center;gap:8px!important;flex-shrink:0}' +
+      'html body .topbar .topbar-right > .g20tb-item:not(.g20tb-extra){width:38px!important;height:38px!important;min-width:38px;border-radius:10px!important;display:inline-flex!important;align-items:center;justify-content:center;flex-shrink:0;padding:0!important;margin:0!important}' +
+      'html body .topbar .topbar-right > .g20tb-extra{flex-shrink:0;margin:0!important}' +
+      '.g20tb-oculto{display:none!important}' +
+      'html body .topbar .topbar-right > .g20tb-item:not(.g20tb-extra) svg{width:18px!important;height:18px!important}' +
+      '.g20tb-sep{width:1px;height:24px;background:rgba(255,255,255,.12);margin:0 2px;flex-shrink:0}' +
+      'body.light .g20tb-sep{background:rgba(0,0,0,.14)}' +
+      '#g20TemaBtn,#g20MaisBtn{border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#c9c5bd;cursor:pointer}' +
+      'body.light #g20TemaBtn,body.light #g20MaisBtn{border-color:rgba(0,0,0,.12);background:rgba(0,0,0,.03);color:#3a373f}' +
+      '#g20TemaBtn svg,#g20MaisBtn svg{width:18px;height:18px}' +
+      '#g20MaisBtn{display:none!important}' +
+      '#g20MaisMenu{position:fixed;z-index:9000;min-width:220px;max-width:calc(100vw - 20px);background:#2a2730;border:1px solid rgba(201,169,97,.4);border-radius:14px;padding:4px 0;box-shadow:0 16px 40px rgba(0,0,0,.55);display:none;font-family:"DM Sans",sans-serif}' +
+      '#g20MaisMenu.on{display:block}' +
+      '#g20MaisMenu button{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;background:none;border:0;color:#e8e6e3;font:600 15px "DM Sans",sans-serif;text-align:left;cursor:pointer}' +
+      '#g20MaisMenu button:active{background:rgba(201,169,97,.12)}' +
+      '#g20MaisMenu .mi{width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;color:#c9a961;flex-shrink:0}' +
+      '#g20MaisMenu .mi svg,#g20MaisMenu .mi i{width:20px;height:20px}' +
+      '#g20MaisMenu .sec{font:700 11px "DM Sans",sans-serif;letter-spacing:1.2px;color:#6b6862;padding:8px 14px 2px;text-transform:uppercase}' +
+      '#g20MaisMenu .lin{height:1px;background:rgba(255,255,255,.1);margin:4px 12px}' +
+      'body.light #g20MaisMenu{background:#fff;border-color:rgba(201,169,97,.6)}body.light #g20MaisMenu button{color:#1a191e}' +
+      '@media (max-width:768px){' +
+        'html body .topbar .topbar-right > .g20tb-item.g20tb-cel-off{display:none!important}' +
+        '.g20tb-sep{display:none!important}' +
+        '#g20MaisBtn{display:inline-flex!important}' +
+        'html body .topbar .page-title{font-size:12px!important;letter-spacing:1.4px!important}' +
+        'html body .topbar .topbar-right{gap:6px!important}' +
+        'html body .topbar .topbar-left{flex:1 1 auto!important;min-width:0!important;overflow:hidden}' +
+      '}';
+    (document.head || document.documentElement).appendChild(st);
+  }
+
+  function visivelOriginal(el){
+    if (!el) return false;
+    if (el.__g20vis !== undefined) return el.__g20vis;
+    var s = el.style.display === 'none' || getComputedStyle(el).display === 'none';
+    // só decide uma vez, antes de mexermos (o que o celular esconde é decidido pelo CSS da página)
+    el.__g20vis = !s || MOB.matches;   // no celular a página às vezes esconde tudo: aí o ⋯ recupera
+    if (el.style.display === 'none' && !el.classList.contains('g20tb-item')) el.__g20vis = false;
+    return el.__g20vis;
+  }
+  function rotulo(el){
+    var t = (el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('data-tip') || el.innerText || '').replace(/\s+/g, ' ').trim();
+    return t.length > 40 ? t.slice(0, 40) : t;
+  }
+  function tipo(el){
+    var a = ((el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('title') || '') + ' ' + (el.id || '') + ' ' + (el.className && el.className.baseVal === undefined ? el.className : '') + ' ' + (el.getAttribute('onclick') || '')).toLowerCase();
+    if (el.id === 'g20AjudaBtn') return 'ajuda';
+    if (el.id === 'g20FeedbackBtn' || /feedback/.test(a)) return 'feedback';
+    if (/gsearch|buscar|busca/.test(a) || el.querySelector('.btn-gsearch')) return 'busca';
+    if (el.id === 'g20TemaBtn') return 'temaNovo';
+    if (/theme|tema/.test(a)) return 'tema';
+    if (/notific|sino|bell/.test(a) || el.querySelector('[data-lucide="bell"], .notif-dot')) return 'sino';
+    return 'extra';
+  }
+
+  function temaAtualClaro(){ return document.body.classList.contains('light'); }
+  function atualizarTemaBtn(){
+    var b = document.getElementById('g20TemaBtn'); if (!b) return;
+    b.innerHTML = temaAtualClaro() ? ICO.sol : ICO.lua;
+    b.title = temaAtualClaro() ? 'Mudar para o tema escuro' : 'Mudar para o tema claro';
+  }
+
+  var ORIG = { tema: null, feedback: null, ajuda: null, extras: [] };
+
+  function ocultar(el){ el.classList.add('g20tb-oculto'); el.style.setProperty('display', 'none', 'important'); }
+  function mostrar(el){ el.classList.remove('g20tb-oculto'); if (el.style.getPropertyValue('display') === 'none') el.style.removeProperty('display'); }
+  function ehSino(el){
+    var a = ((el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('title') || '') + ' ' + (el.getAttribute('onclick') || '') + ' ' + (el.id || '')).toLowerCase();
+    return /notific|sino/.test(a) || !!el.querySelector('[data-lucide="bell"], .notif-dot, #notifDot');
+  }
+  function montar(){
+    var barra = document.querySelector('.topbar .topbar-right');
+    if (!barra) return;
+    css();
+    var filhos = Array.prototype.slice.call(barra.children).filter(function(e){ return !e.classList.contains('g20tb-sep') && e.id !== 'g20MaisBtn' && e.id !== 'g20TemaBtn'; });
+    var g = { busca: null, feedback: null, ajuda: null, tema: null, temaNovo: document.getElementById('g20TemaBtn'), sino: null, extras: [] };
+    filhos.forEach(function(el){
+      // botões que a própria página mantém escondidos (alertas que aparecem só quando há novidade,
+      // botões antigos) ficam exatamente como estão: não mexemos neles
+      if (el.matches('.btn-gsearch') || el.querySelector('.btn-gsearch')) { if (!g.busca) g.busca = el; return; }
+      if (el.id === 'g20FeedbackBtn') { g.feedback = el; return; }
+      if (el.id === 'g20AjudaBtn') { g.ajuda = el; return; }
+      if (el.matches('#g20ThemeSwitch, .v21-theme-switch, #themeBtn')) {
+        if (!g.tema && !SEM_TEMA[PAG] && visivelOriginal(el)) g.tema = el; else if (!el.classList.contains('g20tb-oculto')) ocultar(el);
+        return;
+      }
+      if (ehSino(el)) { if (!g.sino) g.sino = el; return; }
+      if (el.classList.contains('g20tb-item') || visivelOriginal(el) && el.style.display !== 'none' && getComputedStyle(el).display !== 'none') g.extras.push(el);
+    });
+    // tema: um botão único (lua ou sol) que aciona o da própria página
+    if (g.tema) {
+      ocultar(g.tema);
+      if (!g.temaNovo) {
+        var tb = document.createElement('button'); tb.type = 'button'; tb.id = 'g20TemaBtn'; tb.setAttribute('aria-label', 'Alternar tema claro/escuro');
+        tb.addEventListener('click', function(){ var o = ORIG.tema; if (o) o.click(); setTimeout(atualizarTemaBtn, 60); });
+        g.temaNovo = tb;
+      }
+      ORIG.tema = g.tema;
+    }
+    ORIG.feedback = g.feedback; ORIG.ajuda = g.ajuda; ORIG.extras = g.extras;
+
+    var ordem = [g.busca, g.feedback, g.ajuda, g.temaNovo, g.sino].filter(Boolean);
+    ordem.forEach(function(el){ el.classList.add('g20tb-item'); mostrar(el); barra.appendChild(el); });
+    [g.feedback, g.ajuda, g.temaNovo].forEach(function(el){ if (el) el.classList.add('g20tb-cel-off'); });
+    var sep = barra.querySelector('.g20tb-sep');
+    if (g.extras.length) {
+      if (!sep) { sep = document.createElement('span'); sep.className = 'g20tb-sep'; sep.setAttribute('aria-hidden', 'true'); }
+      barra.appendChild(sep);
+      g.extras.forEach(function(el){ el.classList.add('g20tb-item', 'g20tb-extra', 'g20tb-cel-off'); barra.appendChild(el); });
+    } else if (sep) sep.remove();
+    // ⋯ do celular, sempre por último
+    var mais = document.getElementById('g20MaisBtn');
+    if (!mais) {
+      mais = document.createElement('button'); mais.type = 'button'; mais.id = 'g20MaisBtn'; mais.className = 'g20tb-item';
+      mais.setAttribute('aria-label', 'Mais opções'); mais.setAttribute('aria-haspopup', 'menu'); mais.innerHTML = ICO.mais;
+      mais.addEventListener('click', function(e){ e.stopPropagation(); alternarMenu(); });
+    }
+    barra.appendChild(mais);
+    atualizarTemaBtn();
+    titulo();
+  }
+
+  function titulo(){
+    var t = document.querySelector('.topbar .page-title'); if (!t) return;
+    t.style.setProperty('display', 'block', 'important');
+    // algumas páginas espremem a área do título no celular (o Dashboard deixava só 56px)
+    var l = t.parentElement;
+    if (l && l.classList.contains('topbar-left') && MOB.matches) { l.style.setProperty('flex', '1 1 auto', 'important'); l.style.setProperty('width', 'auto', 'important'); l.style.setProperty('max-width', 'none', 'important'); l.style.setProperty('min-width', '0', 'important'); }
+    t.style.setProperty('max-width', 'none', 'important'); t.style.setProperty('width', 'auto', 'important');
+    if (!t.textContent.trim() && TITULO[PAG]) t.textContent = TITULO[PAG];
+    var e = EMOJI[PAG];
+    if (e && t.textContent.trim() && !/^\p{Extended_Pictographic}/u.test(t.textContent.trim())) t.textContent = e + ' ' + t.textContent.trim();
+  }
+
+  /* ── menu do ⋯ ── */
+  var menu = null;
+  function item(icone, texto, acao){
+    var b = document.createElement('button'); b.type = 'button';
+    b.innerHTML = '<span class="mi">' + icone + '</span><span>' + texto + '</span>';
+    b.addEventListener('click', function(){ fecharMenu(); setTimeout(acao, 30); });
+    return b;
+  }
+  function iconeDe(el){
+    var s = el.querySelector('svg'); if (s) return s.outerHTML;
+    var i = el.querySelector('i'); if (i) return i.outerHTML;
+    return (el.textContent || '•').trim().slice(0, 2);
+  }
+  function abrirMenu(){
+    if (!menu) { menu = document.createElement('div'); menu.id = 'g20MaisMenu'; menu.setAttribute('role', 'menu'); document.body.appendChild(menu); }
+    menu.innerHTML = '';
+    if (ORIG.tema) menu.appendChild(item(temaAtualClaro() ? ICO.lua : ICO.sol, temaAtualClaro() ? 'Tema escuro' : 'Tema claro', function(){ ORIG.tema.click(); setTimeout(atualizarTemaBtn, 60); }));
+    if (ORIG.feedback) menu.appendChild(item(iconeDe(ORIG.feedback), 'Enviar feedback', function(){ ORIG.feedback.click(); }));
+    if (ORIG.ajuda) menu.appendChild(item(iconeDe(ORIG.ajuda), 'Ajuda desta página', function(){ location.href = ORIG.ajuda.getAttribute('href') || 'ajuda.html'; }));
+    var extras = ORIG.extras.filter(function(e){ return document.body.contains(e); });
+    if (extras.length) {
+      var l = document.createElement('div'); l.className = 'lin'; menu.appendChild(l);
+      var s = document.createElement('div'); s.className = 'sec'; s.textContent = 'Nesta página'; menu.appendChild(s);
+      extras.forEach(function(el){ menu.appendChild(item(iconeDe(el), rotulo(el) || 'Opção', function(){ el.click(); })); });
+    }
+    var b = document.getElementById('g20MaisBtn').getBoundingClientRect();
+    menu.style.top = Math.round(b.bottom + 8) + 'px';
+    menu.style.right = Math.max(10, Math.round(window.innerWidth - b.right)) + 'px';
+    menu.classList.add('on');
+    document.getElementById('g20MaisBtn').setAttribute('aria-expanded', 'true');
+  }
+  function fecharMenu(){ if (menu) menu.classList.remove('on'); var b = document.getElementById('g20MaisBtn'); if (b) b.setAttribute('aria-expanded', 'false'); }
+  function alternarMenu(){ if (menu && menu.classList.contains('on')) fecharMenu(); else abrirMenu(); }
+  document.addEventListener('click', function(e){ if (menu && menu.classList.contains('on') && !menu.contains(e.target)) fecharMenu(); });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') fecharMenu(); });
+  window.addEventListener('scroll', fecharMenu, { passive: true });
+
+  /* tema mudou por outro caminho: o ícone acompanha */
+  new MutationObserver(atualizarTemaBtn).observe(document.body || document.documentElement, { attributes: true, attributeFilter: ['class'] });
+
+  function iniciar(){
+    montar();
+    // outros scripts põem botões na barra depois (feedback, ajuda, notificações)
+    var n = 0, t = setInterval(function(){ montar(); if (++n > 12) clearInterval(t); }, 500);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
+})();
