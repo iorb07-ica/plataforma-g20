@@ -327,7 +327,7 @@ body{
         </div>
       </div>
       <label class="remember-row">
-        <input type="checkbox" id="chkRemember">
+        <input type="checkbox" id="chkRemember" checked>
         <span>Manter conectado neste dispositivo</span>
       </label>
       <div class="remember-hint">Não marque em computador compartilhado.</div>
@@ -616,9 +616,14 @@ function _salvarPrefPersistencia() {
     localStorage.setItem('g20_keep_logged', manter && manter.checked ? '1' : '0');
   } catch(e){}
 }
+function _ehApp(){ try { return window.matchMedia('(display-mode: standalone)').matches || !!navigator.standalone; } catch(e){ return false; } }
 async function _aplicarPersistencia() {
   try {
+    /* out/2026: marcado por padrão (antes vinha desmarcado e, depois de limpar o
+       navegador ou reinstalar o app, cada login durava só até fechar a janela).
+       No app instalado (aparelho pessoal) fica sempre conectado. */
     var keep = localStorage.getItem('g20_keep_logged');
+    if (keep === null || _ehApp()) keep = '1';
     var modo = (keep === '1')
       ? firebase.auth.Auth.Persistence.LOCAL
       : firebase.auth.Auth.Persistence.SESSION;
@@ -633,7 +638,8 @@ async function _aplicarPersistencia() {
   try{
     var chk = document.getElementById('chkRemember');
     if(chk){
-      chk.checked = (localStorage.getItem('g20_keep_logged') === '1');
+      chk.checked = _ehApp() || (localStorage.getItem('g20_keep_logged') !== '0');
+      if (_ehApp()) { var _row = chk.closest('.remember-row'); if (_row) _row.style.display = 'none'; var _h = document.querySelector('.remember-hint'); if (_h) _h.style.display = 'none'; }
       chk.addEventListener('change', function(){
         _salvarPrefPersistencia();
         _aplicarPersistencia();
@@ -822,8 +828,14 @@ async function cadastrarEmail() {
 // ── Aviso de logout automático por inatividade ───────────────
 (function(){
   try{
+    var _lg = []; try { _lg = JSON.parse(localStorage.getItem('g20_logout_log') || '[]') || []; } catch(_){}
+    var _u = _lg[0];
     if(new URLSearchParams(location.search).get('timeout') === '1'){
       showMsg('🔒 Você foi desconectado por inatividade. Faça login novamente.', 'info');
+    } else if (_u && Date.now() - _u.em < 12 * 3600 * 1000 && !/botão Sair/.test(_u.motivo) && localStorage.getItem('g20_ult_login_uid')) {
+      /* gravador de logout (out/2026): mostra por que a pessoa caiu aqui */
+      var _h2 = new Date(_u.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      showMsg('ℹ️ Você foi desconectado às ' + _h2 + ': ' + _u.motivo + '.', 'info');
     }
   }catch(e){}
 })();
