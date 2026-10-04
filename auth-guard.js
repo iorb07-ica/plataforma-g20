@@ -121,7 +121,20 @@
     }
     var resolvido = false;
     firebase.auth().onAuthStateChanged(function (user) {
-      if (!user) { ir('login.html'); return; }
+      if (!user) {
+        /* Gravador de logout (out/2026): página aberta sem login. Se não houve
+           uma saída registrada nos últimos segundos, o login simplesmente não
+           estava mais salvo (ex.: "Manter conectado" desmarcado e janela fechada). */
+        try {
+          var lg = JSON.parse(localStorage.getItem('g20_logout_log') || '[]') || [];
+          if (!lg[0] || Date.now() - lg[0].em > 15000) {
+            lg.unshift({ motivo: 'login não estava salvo ao abrir a página (sessão encerrada ao fechar o app/navegador, ou dados do navegador apagados)',
+                         pagina: (location.pathname.split('/').pop() || '') + (location.search || ''), em: Date.now() });
+            localStorage.setItem('g20_logout_log', JSON.stringify(lg.slice(0, 20)));
+          }
+        } catch (e) {}
+        ir('login.html'); return;
+      }
       if (resolvido) return;
       resolvido = true;
       verificarAcesso(user).then(function (ok) {
