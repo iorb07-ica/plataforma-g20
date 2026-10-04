@@ -735,6 +735,15 @@ body.preview-aluno-mode .sa-admin-topbar-btn { display: none !important; }
   .sa-modrow-busca{width:40px;height:40px;padding:0 !important;border-radius:12px !important;display:inline-flex !important;align-items:center;justify-content:center}
   .sa-modrow-busca svg{display:block}
   html body .sa-modules-grid .sa-module-card, html body .sa-modules-grid .sa-module-card.sa-featured{height:clamp(340px, calc(100svh - 308px), 600px) !important}
+
+  /* sem a barrinha de rolagem do trilho (fica só a dos pontinhos) */
+  html body .sa-modules-grid{scrollbar-width:none}
+  html body .sa-modules-grid::-webkit-scrollbar{display:none;height:0}
+  /* fundo único, no tom escuro dos cards, até a barra de baixo */
+  html.sa-home-cel, html.sa-home-cel body{background:#0d0d0f !important}
+  html.sa-home-cel body .sa-modules-grid{background:transparent !important}
+  /* altura dos cards calculada pela tela (script saAjustarCards) */
+  html.sa-home-cel body .sa-modules-grid .sa-module-card, html.sa-home-cel body .sa-modules-grid .sa-module-card.sa-featured{height:var(--sa-card-h, 440px) !important}
 </style>
 </head>
 <body>
@@ -4305,6 +4314,42 @@ function csm(){ if(window.innerWidth<=768){ var sb=document.getElementById('side
   })();
   </script>
 
+<script>
+/* SALA DE AULA NO CELULAR (out/2026): os cards ocupam exatamente o espaço que sobra
+   entre o topo e a barra de baixo, com os pontinhos e o "1 de 6" visíveis e SEM
+   rolar a página. Recalcula ao girar a tela, ao montar os módulos e ao voltar
+   para a tela inicial. */
+(function(){
+  var MOB = window.matchMedia('(max-width: 768px)');
+  function ajustar(){
+    var html = document.documentElement, home = document.getElementById('view-home');
+    var emCasa = MOB.matches && home && home.classList.contains('active');
+    html.classList.toggle('sa-home-cel', !!emCasa);
+    var cont = document.querySelector('.content');
+    if (!emCasa) { if (cont) cont.style.removeProperty('padding-bottom'); return; }
+    var g = document.getElementById('modulesGrid'), d = document.getElementById('saDots'), nav = document.querySelector('.bottom-nav');
+    if (!g || !g.children.length) return;
+    var navTopo = (nav && getComputedStyle(nav).display !== 'none') ? nav.getBoundingClientRect().top : window.innerHeight;
+    var topoGrade = g.getBoundingClientRect().top + window.scrollY;
+    var gp = parseFloat(getComputedStyle(g).paddingTop) || 0, gpb = parseFloat(getComputedStyle(g).paddingBottom) || 0;
+    var pontos = d ? (d.offsetHeight + (parseFloat(getComputedStyle(d).marginTop) || 0) + (parseFloat(getComputedStyle(d).marginBottom) || 0)) : 0;
+    var h = Math.floor(navTopo - topoGrade - gp - gpb - pontos - 12);
+    h = Math.max(300, Math.min(620, h));
+    html.style.setProperty('--sa-card-h', h + 'px');
+    // o fim da página termina junto com os pontinhos: nada para rolar
+    if (cont) cont.style.setProperty('padding-bottom', Math.max(0, Math.ceil(window.innerHeight - navTopo) + 6) + 'px', 'important');
+  }
+  var t; function agendar(){ clearTimeout(t); t = setTimeout(ajustar, 60); }
+  window.addEventListener('resize', agendar);
+  window.addEventListener('orientationchange', function(){ setTimeout(ajustar, 300); });
+  document.addEventListener('DOMContentLoaded', function(){
+    var g = document.getElementById('modulesGrid'); if (g) new MutationObserver(agendar).observe(g, { childList: true });
+    var h = document.getElementById('view-home'); if (h) new MutationObserver(agendar).observe(h, { attributes: true, attributeFilter: ['class'] });
+    var c = document.getElementById('saContinuar'); if (c) new MutationObserver(agendar).observe(c, { attributes: true, attributeFilter: ['style'] });
+    agendar(); setTimeout(ajustar, 800); setTimeout(ajustar, 2000);
+  });
+})();
+</script>
 </body>
 </html>
 
