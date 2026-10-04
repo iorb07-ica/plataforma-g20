@@ -8302,6 +8302,120 @@ body .topbar .g20-tab:not(.active):not(.soon):hover{color:#e8b84b !important}
       </div>
     </div>
 
+    <!-- ═══════════════════════════════════════════════════════════════════
+         CONTADOR DA MIGRAÇÃO (out/2026)
+         Só para alunos aprovados de turmas antigas (todas menos a Turma 21)
+         que ainda não têm carteira na nova plataforma. Some sozinho quando o
+         aluno importa e depois de 15/10/2026 23h59. O total da turma vem do
+         servidor (game-g20-ranking/atual, campo migracao), nunca com dado de
+         outro aluno. Base: quem já entrou na nova plataforma ou tem ativo
+         cadastrado. Admin testa com ?migracao=teste.
+         ═══════════════════════════════════════════════════════════════════ -->
+    <style>
+    .mg-card{--mg-cor:var(--gold);display:none;margin:0 0 16px;background:var(--surface);border:1px solid var(--mg-cor);border-radius:16px;padding:16px 20px;box-shadow:0 24px 48px rgba(0,0,0,.35);align-items:center;gap:24px;flex-wrap:wrap}
+    .mg-card.show{display:flex}
+    .mg-rel{min-width:220px}
+    .mg-tit{font-size:13px;color:var(--text2)}
+    .mg-dig{display:flex;gap:8px;align-items:flex-end;margin-top:6px}
+    .mg-dig b{display:block;font-size:34px;font-weight:600;line-height:1;color:var(--mg-cor);font-variant-numeric:tabular-nums}
+    .mg-dig small{display:block;font-size:12px;color:var(--text2);margin-top:4px;text-align:center}
+    .mg-sep{font-size:30px;line-height:1;color:var(--mg-cor);padding-bottom:18px}
+    .mg-lado{flex:1;min-width:220px}
+    .mg-txt{font-size:15px;color:var(--text);line-height:1.4}
+    .mg-txt b{color:var(--mg-cor)}
+    .mg-barra{height:8px;background:var(--sur2);border-radius:4px;margin:10px 0 12px;overflow:hidden}
+    .mg-barra i{display:block;height:100%;width:0;background:var(--mg-cor);border-radius:4px;transition:width .6s ease}
+    .mg-btn{display:inline-block;text-decoration:none;background:var(--mg-cor);color:#1a191e;border-radius:10px;padding:10px 18px;font-size:15px;font-weight:600;text-align:center}
+    @media(max-width:760px){
+      .mg-card{padding:16px;gap:12px;flex-direction:column;align-items:stretch;text-align:center}
+      .mg-dig{justify-content:center}
+      .mg-dig b{font-size:36px}
+      .mg-tit,.mg-txt{font-size:15px}
+      .mg-lado{min-width:0;text-align:left}
+      .mg-btn{display:block;font-size:16px;padding:12px}
+    }
+    </style>
+    <div class="mg-card" id="mgCard" role="region" aria-label="Prazo para migrar a carteira">
+      <div class="mg-rel">
+        <div class="mg-tit">A plataforma antiga encerra em</div>
+        <div class="mg-dig">
+          <div><b id="mgD">--</b><small>dias</small></div><span class="mg-sep">:</span>
+          <div><b id="mgH">--</b><small>horas</small></div><span class="mg-sep">:</span>
+          <div><b id="mgM">--</b><small>min</small></div>
+        </div>
+      </div>
+      <div class="mg-lado">
+        <div class="mg-txt" id="mgTxt">Depois de 15/10 a plataforma antiga para de ser atualizada.</div>
+        <div class="mg-barra" id="mgBarra" style="display:none"><i id="mgBarraFill"></i></div>
+        <a class="mg-btn" href="gestao-patrimonial.html#importar">Trazer minha carteira</a>
+      </div>
+    </div>
+    <script>
+    (function(){
+      var FIM = new Date('2026-10-15T23:59:59-03:00').getTime();
+      if (Date.now() > FIM) return;
+      var teste = /[?&]migracao=teste/.test(location.search);
+      function pad(n){ return (n < 10 ? '0' : '') + n; }
+      function relogio(){
+        var c = document.getElementById('mgCard'); if (!c) return;
+        var r = FIM - Date.now();
+        if (r <= 0) { c.classList.remove('show'); return; }
+        var d = Math.floor(r / 864e5), h = Math.floor(r % 864e5 / 36e5), m = Math.floor(r % 36e5 / 6e4);
+        document.getElementById('mgD').textContent = pad(d);
+        document.getElementById('mgH').textContent = pad(h);
+        document.getElementById('mgM').textContent = pad(m);
+        c.style.setProperty('--mg-cor', d >= 8 ? 'var(--gold)' : d >= 4 ? '#e0913a' : '#e05a4a');
+      }
+      function turma(){
+        try {
+          var db = firebase.firestore();
+          db.collection('game-g20-ranking').doc('atual').get().then(function(doc){
+            var g = doc.exists ? ((doc.data() || {}).migracao || null) : null;
+            if (!g || !(g.total > 0)) return;
+            var txt = document.getElementById('mgTxt'), bar = document.getElementById('mgBarra');
+            if (g.pct >= 40) {
+              txt.innerHTML = '<b>' + g.pct + '%</b> dos alunos que já usam a nova plataforma trouxeram a carteira. Falta a sua.';
+              bar.style.display = 'block';
+              setTimeout(function(){ document.getElementById('mgBarraFill').style.width = Math.min(100, g.pct) + '%'; }, 80);
+            } else if (g.novos24 > 1) {
+              txt.innerHTML = '<b>' + g.novos24 + ' alunos</b> trouxeram a carteira nas últimas 24h. Falta a sua.';
+            } else if (g.feitos > 1) {
+              txt.innerHTML = '<b>' + g.feitos + ' alunos</b> já trouxeram a carteira para a nova plataforma. Falta a sua.';
+            }
+          }).catch(function(){});
+        } catch(e){}
+      }
+      function mostrar(){
+        var c = document.getElementById('mgCard'); if (!c) return;
+        relogio(); c.classList.add('show'); turma();
+        setInterval(relogio, 30000);
+      }
+      function iniciar(){
+        if (!window.firebase || !firebase.auth) { setTimeout(iniciar, 400); return; }
+        firebase.auth().onAuthStateChanged(function(u){
+          if (!u) return;
+          var chave = 'g20_migrado_' + u.uid;
+          try { if (!teste && localStorage.getItem(chave) === '1') return; } catch(e){}
+          var db = firebase.firestore(), ref = db.collection('users').doc(u.uid);
+          ref.get().then(function(doc){
+            var d = doc.exists ? (doc.data() || {}) : {};
+            var admin = d.role === 'admin';
+            if (admin) { if (teste) mostrar(); return; }
+            if (d.aprovado !== true) return;
+            if (String(d.turma || '').trim().toLowerCase() === 'turma 21') { try { localStorage.setItem(chave, '1'); } catch(e){} return; }
+            var dados = ref.collection('dados');
+            Promise.all([dados.doc('rvAportes').get(), dados.doc('rendaFixa').get()]).then(function(r){
+              var tem = r.some(function(x){ var v = x.exists ? (x.data() || {}).value : null; return Array.isArray(v) && v.length > 0; });
+              if (tem) { try { localStorage.setItem(chave, '1'); } catch(e){} return; }
+              mostrar();
+            }).catch(function(){});
+          }).catch(function(){});
+        });
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
+    })();
+    </script>
+
     <div class="v21-hero-row">
 
       <!-- CARD 1: GESTÃO PATRIMONIAL (com sparkline) -->
