@@ -355,6 +355,25 @@ function apagar(id){
   }).catch(function(e){ toast('Erro: '+(e.message||'tente de novo')); });
 }
 
+/* Notificação no celular (out/2026): quando o aluno ativou as notificações,
+   ele recebe "💬 O Israel respondeu o seu feedback" na hora; tocando, abre
+   "Minhas mensagens" no Meu Perfil. Gratuito (push do próprio navegador). */
+function _fbPush(uid, texto, id){
+  try {
+    var u = firebase.auth().currentUser; if (!u) return;
+    u.getIdToken().then(function(tk){
+      return fetch('https://g20-proxy.vercel.app/api/push-notify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tk },
+        body: JSON.stringify({ uid: uid, title: '💬 O Israel respondeu o seu feedback', body: String(texto).slice(0, 140),
+                               url: 'perfil.html#mensagens', tag: 'g20-feedback-' + id,
+                               icon: 'https://iorb07-ica.github.io/plataforma-g20/icons/icon-192x192.png?v=2' })
+      });
+    }).then(function(r){ return r && r.json(); }).then(function(j){
+      if (j && j.sent > 0) toast('Notificação enviada ao celular do aluno 📲');
+    }).catch(function(){});
+  } catch(e){}
+}
+
 function salvarResposta(id){
   var ta=document.getElementById('resp-'+id);
   if(!ta)return;
@@ -373,8 +392,13 @@ function salvarResposta(id){
         uid:        alunoUid,
         resposta:   texto,
         feedbackId: id,
+        // out/2026: a pergunta vai junto, para o aluno ver a conversa em "Minhas mensagens"
+        pergunta:   String(((it && it.titulo) ? it.titulo + ': ' : '') + ((it && it.mensagem) || '')).slice(0, 600),
+        tipo:       (it && it.tipo) || '',
+        enviadoEm:  (it && it.criadoEm) || null,
         criadoEm:   firebase.firestore.FieldValue.serverTimestamp()
       };
+      _fbPush(alunoUid, texto, id);
       var notifId = it && it.respostaNotifId;
       if(notifId){
         db.collection('feedback_respostas').doc(notifId).set(payload,{merge:true}).catch(function(){});

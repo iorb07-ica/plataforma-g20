@@ -1910,6 +1910,24 @@ if(localStorage.getItem('g20_uid')){
 
     <!-- ═══ ABA NOTIFICAÇÕES ═══════════════════════════════════════════════ -->
     <div class="perfil-tab-panel" id="panel-notificacoes">
+      <!-- ═══ MINHAS MENSAGENS (out/2026): feedbacks respondidos pelo Israel ═══ -->
+      <div class="section-card open" id="sec-mensagens">
+        <div class="section-header" onclick="toggleSection('sec-mensagens')">
+          <div class="section-title-row">
+            <div class="section-icon">💬</div>
+            <div>
+              <div class="section-title">Minhas mensagens</div>
+              <div class="section-subtitle">As respostas do Israel aos seus feedbacks e dúvidas</div>
+            </div>
+          </div>
+          <span class="section-chevron">▾</span>
+        </div>
+        <div class="section-body" style="display:block">
+          <div id="msgLista" style="display:flex;flex-direction:column;gap:10px;font-size:13.5px;color:var(--text2)">Carregando…</div>
+          <button type="button" onclick="msgNova()" style="margin-top:14px;width:100%;padding:12px 16px;border-radius:12px;border:1px solid rgba(201,169,97,.45);background:rgba(201,169,97,.1);color:var(--gold,#c9a961);font-family:inherit;font-weight:800;font-size:14px;cursor:pointer">✉️ Enviar uma nova mensagem</button>
+        </div>
+      </div>
+
       <!-- ═══ ENTRAR COM FACE ID / BIOMETRIA (passkey) ═══ -->
       <div class="section-card open" id="sec-passkey">
         <div class="section-header" onclick="toggleSection('sec-passkey')">
@@ -2401,6 +2419,40 @@ function atualizarHeroNome() {
 }
 
 // ── AVATAR ────────────────────────────────────────────────────
+/* ═══ MINHAS MENSAGENS (out/2026) ═══ */
+function _msgEsc(v){ return String(v == null ? '' : v).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function msgNova(){
+  var bt = document.querySelector('#g20FeedbackBtn, .g20fb-topbtn, #g20FeedbackFab');
+  if (bt) bt.click(); else showToast('Use o botão de Feedback no topo da página.', 'ok');
+}
+function msgCarregar(){
+  var el = document.getElementById('msgLista'); if (!el || !_uid) return;
+  firebase.firestore().collection('feedback_respostas').where('uid', '==', _uid).limit(40).get().then(function(sn){
+    var itens = [];
+    sn.forEach(function(d){ var x = d.data() || {}; x._ts = (x.criadoEm && x.criadoEm.toMillis) ? x.criadoEm.toMillis() : 0; itens.push(x); });
+    itens.sort(function(a, b){ return b._ts - a._ts; });
+    if (!itens.length) { el.innerHTML = '<div style="padding:6px 0">Você ainda não tem respostas. Quando o Israel responder um feedback ou uma dúvida sua, a conversa aparece aqui (e chega no sino 🔔).</div>'; return; }
+    el.innerHTML = itens.map(function(x){
+      var data = x._ts ? new Date(x._ts).toLocaleDateString('pt-BR') : '';
+      return '<div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 14px">' +
+        (x.pergunta ? '<div style="font-size:12px;color:var(--text3);margin-bottom:4px">Você perguntou</div><div style="color:var(--text);margin-bottom:10px;white-space:pre-wrap">' + _msgEsc(x.pergunta) + '</div>' : '') +
+        '<div style="font-size:12px;color:var(--gold,#c9a961);font-weight:800;margin-bottom:4px">Israel respondeu' + (data ? ' · ' + data : '') + '</div>' +
+        '<div style="color:var(--text);white-space:pre-wrap;line-height:1.55">' + _msgEsc(x.resposta || '') + '</div></div>';
+    }).join('');
+  }).catch(function(){ el.textContent = 'Não consegui carregar as mensagens agora.'; });
+}
+(function(){
+  var n = 0, t = setInterval(function(){
+    if (typeof _uid !== 'undefined' && _uid) { clearInterval(t); msgCarregar(); if (location.hash === '#mensagens') msgAbrir(); }
+    else if (++n > 40) clearInterval(t);
+  }, 500);
+})();
+function msgAbrir(){
+  try { if (typeof switchTab === 'function') switchTab('notificacoes'); } catch(e){}
+  setTimeout(function(){ var s2 = document.getElementById('sec-mensagens'); if (s2) { s2.classList.add('open'); s2.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }, 300);
+}
+window.addEventListener('hashchange', function(){ if (location.hash === '#mensagens') msgAbrir(); });
+
 function handleAvatarChange(event) {
   var file = event.target.files[0];
   if (!file) return;
