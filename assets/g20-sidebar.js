@@ -2920,7 +2920,8 @@
       '#g20Inst .notif{border-top:1px solid rgba(255,255,255,.08);margin-top:14px;padding-top:14px}';
     (document.head || document.documentElement).appendChild(st);
   }
-  function fechar(){ var j = document.getElementById('g20Inst'); if (j) j.remove(); }
+  function adiar(dias){ try { localStorage.setItem('g20_inst_proximo', String(Date.now() + (dias || 7) * 864e5)); } catch(e){} }
+  function fechar(){ var j = document.getElementById('g20Inst'); if (j) { j.remove(); adiar(7); } }
   function passosInstalar(){
     if (IOS) return '<div class="passo"><span class="num">1</span><span>Toque no botão <span class="ico">⬆︎</span> <b>Compartilhar</b> (na barra do Safari, embaixo ou em cima)</span></div>' +
       '<div class="passo"><span class="num">2</span><span>Role e toque em <b>"Adicionar à Tela de Início"</b> <span class="ico">＋</span></span></div>' +
@@ -2964,14 +2965,16 @@
       html += '<h3>🔔 Falta só ativar as notificações</h3><p class="sub">Você já está usando o G20 como app. Ative as notificações para não perder nada.</p>';
     }
     html += blocoNotif();
-    html += '<button type="button" class="bt leve" id="g20InstDepois">Agora não</button>';
+    html += '<button type="button" class="bt leve" id="g20InstDepois">⏰ Avise-me mais tarde</button>';
     if (precisaInstalar) html += '<button type="button" class="bt leve" id="g20InstJa" style="border:none;font-weight:600;font-size:13px;min-height:36px">Já instalei</button>';
+    html += '<p style="text-align:center;font-size:11.5px;color:#8a8492;margin:6px 0 0">Se preferir deixar para depois, lembramos você daqui a 7 dias.</p>';
     html += '</div>';
     j.innerHTML = html;
     document.body.appendChild(j);
     j.addEventListener('click', function(e){ if (e.target === j) fechar(); });
     document.getElementById('g20InstDepois').onclick = fechar;
     var ja = document.getElementById('g20InstJa'); if (ja) ja.onclick = function(){ try { localStorage.setItem('g20_app_ja', String(Date.now())); } catch(e){} fechar(); };
+    var dp = document.getElementById('g20InstDepois'); if (dp) dp.title = 'A janela volta em 7 dias';
     var ag = document.getElementById('g20InstBtnAgora');
     if (ag) ag.onclick = function(){ if (!promptInstalar) return; promptInstalar.prompt(); promptInstalar.userChoice.then(function(){ promptInstalar = null; ag.style.display = 'none'; }); };
     var nt = document.getElementById('g20InstNotif');
@@ -2992,16 +2995,10 @@
   }
   window.G20Instalar = { abrir: function(){ abrir(true); } };
 
-  // atalho fixo no menu lateral para quem não instalou
+  // (out/2026) sem item no menu lateral: criava rolagem e quebrava o menu recolhido.
+  // Quem quiser abrir a janela de novo: G20Instalar.abrir() (ex.: link na Central de Ajuda).
   function itemMenu(){
-    if (instalado()) return;
-    var sb = document.getElementById('sidebar') || document.querySelector('.sidebar');
-    if (!sb || sb.querySelector('.g20-inst-item')) return;
-    var a = document.createElement('a'); a.href = '#'; a.className = 'nav-item g20-inst-item';
-    a.innerHTML = '<span class="ico">📲</span>Instalar o app';
-    a.onclick = function(e){ e.preventDefault(); abrir(true); };
-    var sec = sb.querySelector('.nav-section--ajuda') || sb.querySelector('.nav-section:last-of-type');
-    if (sec) sec.appendChild(a); else sb.appendChild(a);
+    var velho = document.querySelector('.g20-inst-item'); if (velho) velho.remove();
   }
 
   // abre sozinho uma vez por sessão (depois do login e da página carregar)
@@ -3012,8 +3009,10 @@
       if (!window.firebase || !firebase.apps || !firebase.apps.length || !firebase.auth || !firebase.auth().currentUser) return;
     } catch(e){ return; }
     clearInterval(t); itemMenu();
-    var k = 'g20_inst_sessao';
-    try { if (sessionStorage.getItem(k)) return; sessionStorage.setItem(k, '1'); } catch(e){}
+    /* A cada 7 dias (out/2026): antes era uma vez por sessão. "Avise-me mais
+       tarde", "Agora não" ou fechar = volta em 7 dias neste aparelho. */
+    var prox = 0; try { prox = Number(localStorage.getItem('g20_inst_proximo') || 0); } catch(e){}
+    if (prox && Date.now() < prox) return;
     var ja = 0; try { ja = Number(localStorage.getItem('g20_app_ja') || 0); } catch(e){}
     var mostrarInstalar = !instalado() && !(ja && Date.now() - ja < 30 * 864e5);
     var mostrarNotif = permissao() === 'default' && pushSuportado() && (instalado() || !IOS);
