@@ -3051,7 +3051,7 @@
   /* ETAPA DE TESTE: a barra nova aparece para o ADMIN (automático, no app ou no
      navegador) e em quem abrir uma página com ?topo=novo (desliga com ?topo=antigo).
      Para liberar para todos os alunos, troque LIBERADA para true. */
-  var LIBERADA = false;
+  var LIBERADA = true;   // liberada para todos os alunos (out/2026)
   var ligadaNoAparelho = false;
   try {
     var q = (location.search.match(/[?&]topo=(novo|antigo)/) || [])[1];
