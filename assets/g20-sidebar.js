@@ -2527,18 +2527,9 @@
     }
   }
 
-  function soltarTrilhos(){
-    Array.prototype.forEach.call(document.querySelectorAll('[' + ATTR + ']'), function(el){
-      if (el.matches('main,.main,.content')) return;
-      el.removeAttribute(ATTR);                                  /* mede sem a trava */
-      var cs = getComputedStyle(el);
-      var soLado = /(auto|scroll)/.test(cs.overflowX) && el.scrollHeight <= el.clientHeight + 2;
-      if (!soLado) el.setAttribute(ATTR, '1');                   /* rola na vertical: continua marcado */
-    });
-  }
   function aplicar(){
     if (!MOB.matches) { desfazer(); return; }
-    try { soltarTrilhos(); } catch(e){}
+    if (window.__g20Tocando) { agendar(); return; }            /* nunca mexe em nada no meio de um toque */
     var main = document.querySelector('.main') || document.querySelector('main');
     if (!main) return;
     var vh = window.innerHeight || 700, achou = false;
@@ -2597,8 +2588,17 @@
     setTimeout(aplicar, 1500);
     setTimeout(aplicar, 4000);
     /* abas que aparecem depois (ex.: abas do Game) */
-    document.addEventListener('click', agendar, true);
-    window.addEventListener('resize', agendar);
+    document.addEventListener('click', function(e){
+      /* só cliques que podem trocar o conteúdo (abas, botões); arrastar/tocar num trilho não reaplica */
+      if (e.target && e.target.closest && e.target.closest('button,[role="tab"],.tab,.tab-btn,[data-tab],[onclick*="Tab"],[onclick*="tab"]')) agendar();
+    }, true);
+    var _larg = window.innerWidth;
+    window.addEventListener('resize', function(){ if (Math.abs(window.innerWidth - _larg) > 2) { _larg = window.innerWidth; agendar(); } });
+    /* marca quando há um dedo na tela, para nunca alterar estilos durante o gesto */
+    document.addEventListener('touchstart', function(){ window.__g20Tocando = true; }, { passive: true, capture: true });
+    var _solta = function(){ setTimeout(function(){ window.__g20Tocando = false; }, 400); };
+    document.addEventListener('touchend', _solta, { passive: true, capture: true });
+    document.addEventListener('touchcancel', _solta, { passive: true, capture: true });
     if (MOB.addEventListener) MOB.addEventListener('change', aplicar);
   }
 
@@ -3048,16 +3048,33 @@
 (function(){
   'use strict';
   if (window.__g20TopoUnico) return;
-  /* ETAPA DE TESTE: a barra nova só aparece em quem ligou o teste neste aparelho
-     (abrir qualquer página com ?topo=novo; para desligar, ?topo=antigo).
+  /* ETAPA DE TESTE: a barra nova aparece para o ADMIN (automático, no app ou no
+     navegador) e em quem abrir uma página com ?topo=novo (desliga com ?topo=antigo).
      Para liberar para todos os alunos, troque LIBERADA para true. */
   var LIBERADA = false;
+  var ligadaNoAparelho = false;
   try {
     var q = (location.search.match(/[?&]topo=(novo|antigo)/) || [])[1];
     if (q === 'novo') localStorage.setItem('g20_topo_novo', '1');
-    if (q === 'antigo') localStorage.removeItem('g20_topo_novo');
-    if (!LIBERADA && localStorage.getItem('g20_topo_novo') !== '1') return;
-  } catch(e){ if (!LIBERADA) return; }
+    if (q === 'antigo') { localStorage.setItem('g20_topo_novo', '0'); }
+    ligadaNoAparelho = localStorage.getItem('g20_topo_novo') === '1';
+    if (localStorage.getItem('g20_topo_novo') === '0' && !LIBERADA) return;   // admin pediu a barra antiga
+  } catch(e){}
+  function ehAdmin(){
+    try { for (var i = 0; i < sessionStorage.length; i++) { var k = sessionStorage.key(i); if (/^g20_guard_/.test(k) && sessionStorage.getItem(k) === 'admin') return true; } } catch(e){}
+    return false;
+  }
+  if (!LIBERADA && !ligadaNoAparelho && !ehAdmin()) {
+    // o login confere se é admin logo depois que a página abre: espera um pouco
+    var tent = 0, esp = setInterval(function(){
+      if (ehAdmin()) { clearInterval(esp); principal(); }
+      else if (++tent > 40) clearInterval(esp);
+    }, 500);
+    return;
+  }
+  principal();
+  function principal(){
+  if (window.__g20TopoUnico) return;
   window.__g20TopoUnico = true;
 
   var PAG = (location.pathname.split('/').pop() || 'index.html').toLowerCase();
@@ -3263,4 +3280,5 @@
     var n = 0, t = setInterval(function(){ montar(); if (++n > 12) clearInterval(t); }, 500);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
+  }
 })();
