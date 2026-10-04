@@ -287,7 +287,7 @@ async function acCarregar(){
       const em = r.atualizadoEm && r.atualizadoEm.toDate ? r.atualizadoEm.toDate().getTime() : 0; if (em && (!maisAntigo || em < maisAntigo)) maisAntigo = em;
       const c = r.curso || {}; a.feitas = c.feitas || 0; a.pct = acTotalAulas ? Math.round(a.feitas / acTotalAulas * 100) : (c.pct || 0); a.ultima = c.ult ? new Date(c.ult) : null; a.recentes = c.rec7 || 0;
       const u = r.uso || {}; a.seg30 = u.seg30 || 0; a.dias30 = u.dias30 || 0; a.seg7 = u.seg7 || 0;
-      const k = r.carteira || {}; ['rv','rf','bens','patr','ap12','nAtivos','nTx','prov12','origem'].forEach(x => { a[x] = k[x] != null ? k[x] : (typeof k[x] === 'string' ? '' : 0); });
+      const k = r.carteira || {}; ['rv','rf','bens','patr','ap12','nAtivos','nTx','prov12','origem','conferir'].forEach(x => { a[x] = k[x] != null ? k[x] : (typeof k[x] === 'string' ? '' : 0); });
       a.ultAporte = k.ultAporte ? new Date(k.ultAporte + 'T12:00:00') : null;
       const g = r.gf || {}; a.nLanc = g.nLanc || 0; a.ultLanc = g.ultLanc ? new Date(g.ultLanc + 'T12:00:00') : null; a.recAnt = g.recAnt; a.despAnt = g.despAnt; a.econ = g.econ == null ? null : g.econ; a.usaOrc = !!g.usaOrc;
     });
@@ -546,6 +546,7 @@ const AC_MOT = {
   parado:   { t: 'Parou as aulas',       peso: 80,  cor: '#e63946', msg: n => 'Oi ' + n + ', tudo bem? Vi que faz um tempo que você não avança nas aulas do G20. Travou em alguma coisa? Me conta que eu te ajudo a destravar.' },
   naoComecou:{ t: 'Não começou as aulas', peso: 70,  cor: '#f39c12', msg: n => 'Oi ' + n + ', tudo bem? Aqui é o Israel. Vi que você ainda não começou as aulas do G20 na plataforma. Quer uma ajuda para dar o primeiro passo?' },
   esfriando:{ t: 'Esfriando',            peso: 60,  cor: '#f39c12', msg: n => 'Oi ' + n + '! Passando para saber como você está. Faz alguns dias que você não entra na plataforma do G20. Bora seguir juntos?' },
+  conferir: { t: 'Carteira para conferir', peso: 45, cor: '#e8b84b', msg: n => 'Oi ' + n + ', tudo bem? Estou ajudando a turma a conferir a carteira na nova plataforma, porque na migração é comum alguns lançamentos virem com ajustes (quantidades e vendas). Bora conferir a sua juntos? Me chama quando puder.' },
   carteira: { t: 'Não importou a carteira', peso: 40, cor: '#e8b84b', msg: n => 'Oi ' + n + '! Já trouxe a sua carteira para a nova plataforma do G20? Se quiser, eu te ajudo a importar. É rapidinho.' },
   gfParada: { t: 'Gestão Financeira parada', peso: 30, cor: '#e8b84b', msg: n => 'Oi ' + n + '! Vi que a sua Gestão Financeira está parada há um tempo. Bora retomar os lançamentos deste mês? Ela é a base para aumentar o seu aporte.' },
   perfil:   { t: 'Perfil incompleto',    peso: 20,  cor: '#3498db', msg: n => 'Oi ' + n + '! O seu perfil na plataforma do G20 está quase lá. Completando, eu consigo te orientar muito melhor. Leva uns 5 minutos!' }
@@ -558,6 +559,7 @@ function acMotivos(a){
   if (!novo && !a.feitas) m.push('naoComecou');
   else if (a.feitas && a.pct < 100 && dias(a.ultima) > 21 && m.indexOf('sumido') < 0) m.push('parado');
   if (acDinCarregado && !novo && !a.nTx && !a.patr) m.push('carteira');
+  if (a.conferir > 0) m.push('conferir');
   if (acDinCarregado && a.nLanc > 0 && dias(a.ultLanc) > 30) m.push('gfParada');
   if (a.perfil != null && a.perfil < 60) m.push('perfil');
   return m.sort((x, y) => AC_MOT[y].peso - AC_MOT[x].peso);
@@ -577,6 +579,7 @@ function acAtencao(){
     if (a.acesso) det.push('último acesso ' + acRel(a.acesso));
     det.push('aulas ' + a.feitas + '/' + acTotalAulas + (a.ultima ? ' (última ' + acRel(a.ultima) + ')' : ''));
     if (a.perfil != null) det.push('perfil ' + a.perfil);
+    if (a.conferir > 0) det.push(a.conferir + ' ponto(s) na carteira para conferir');
     const fone = a.fone && a.fone.length >= 10 ? (a.fone.length <= 11 ? '55' + a.fone : a.fone) : '';
     const zap = fone ? '<a class="ac-zap" target="_blank" rel="noopener" href="https://wa.me/' + fone + '?text=' + encodeURIComponent(AC_MOT[princ].msg((a.nome || '').split(' ')[0] || '')) + '">WhatsApp</a>' : '<span style="font-size:11.5px;color:var(--text3)">sem telefone no perfil</span>';
     return '<div class="ac-at"><div class="q"><span class="n" data-uid="' + acEsc(a.uid) + '">' + acEsc(a.nome) + '</span> <small style="color:var(--text3)">' + acEsc(a.turma || '') + '</small><div>' +
@@ -588,9 +591,9 @@ function acAtencao(){
 
 function acCsv(){
   const lin = [['Nome','E-mail','Turma','Networking','Foto no perfil','Cadastro','Último acesso','Uso 30 dias (min)','Dias ativos 30d','Nota do perfil','Aulas concluídas','Total de aulas','% do curso','Última aula concluída','Situação']
-    .concat(acDinCarregado ? ['Patrimônio investido (R$)','Renda variável (R$)','Renda fixa (R$)','Bens (R$)','Aportes 12m (R$)','Último aporte','Nº de ativos','Proventos 12m (R$)','Origem da carteira','Lançamentos GF','Último lançamento GF','Receita mês ant. (R$)','Despesa mês ant. (R$)','Taxa de economia mês ant. (%)','Usa orçamento'] : [])];
+    .concat(acDinCarregado ? ['Patrimônio investido (R$)','Renda variável (R$)','Renda fixa (R$)','Bens (R$)','Aportes 12m (R$)','Último aporte','Nº de ativos','Proventos 12m (R$)','Origem da carteira','Lançamentos GF','Último lançamento GF','Receita mês ant. (R$)','Despesa mês ant. (R$)','Taxa de economia mês ant. (%)','Usa orçamento','Pontos para conferir na carteira'] : [])];
   acFiltrados().forEach(a => lin.push([a.nome, a.email, a.turma, a.net === 'com' ? 'com foto' : a.net === 'sem' ? 'sem foto' : 'sem cartão', a.temFoto ? 'sim' : 'não', acFmt(a.cadastro), a.acesso ? a.acesso.toLocaleString('pt-BR') : '', a.seg30 ? Math.round(a.seg30 / 60) : '', a.dias30 || '', a.perfil == null ? '' : a.perfil, a.feitas, acTotalAulas, a.pct, acFmt(a.ultima), a.status]
-    .concat(acDinCarregado ? [acN(a.patr), acN(a.rv), acN(a.rf), acN(a.bens), acN(a.ap12), acFmt(a.ultAporte), a.nAtivos || 0, acN(a.prov12), a.origem || '', a.nLanc || 0, acFmt(a.ultLanc), acN(a.recAnt), acN(a.despAnt), a.econ == null ? '' : a.econ, a.usaOrc ? 'sim' : 'não'] : [])));
+    .concat(acDinCarregado ? [acN(a.patr), acN(a.rv), acN(a.rf), acN(a.bens), acN(a.ap12), acFmt(a.ultAporte), a.nAtivos || 0, acN(a.prov12), a.origem || '', a.nLanc || 0, acFmt(a.ultLanc), acN(a.recAnt), acN(a.despAnt), a.econ == null ? '' : a.econ, a.usaOrc ? 'sim' : 'não', a.conferir || 0] : [])));
   lin[0].push('Atenção');
   acFiltrados().forEach((a, i) => { if (lin[i + 1]) lin[i + 1].push(acMotivos(a).map(k => AC_MOT[k].t).join(' | ')); });
   const csv = lin.map(l => l.map(c => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"').join(';')).join('\n');
