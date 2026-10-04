@@ -668,6 +668,12 @@
     ]}
   ];
 
+  /* ZONA DE TESTE (out/2026): item "Evolução" no menu, só para o admin. */
+  try {
+    if ((JSON.parse(localStorage.getItem('g20_user_profile') || '{}').role) === 'admin')
+      NAV_ITEMS[0].items.push({ href: 'evolucao.html', ico: '🔥', lucide: 'flame', label: 'Evolução', id: '' });
+  } catch(e){}
+
   function buildSectionEl(sec, currentPage) {
     var div = document.createElement('div');
     div.className = 'nav-section ' + sec.cls;
@@ -1826,6 +1832,14 @@
     ['gestao-patrimonial.html', '💼', 'Carteira'],
     ['g20cast.html',            '🎧', 'Cast']
   ];
+  /* ZONA DE TESTE (out/2026): o Painel de Evolução entra no lugar do Flix
+     SÓ para o admin. Os alunos continuam vendo o Flix. No lançamento,
+     trocar a linha do Flix acima por ['evolucao.html', '🔥', 'Evolução']
+     e apagar este bloco. */
+  try {
+    if ((JSON.parse(localStorage.getItem('g20_user_profile') || '{}').role) === 'admin')
+      BARRA[2] = ['evolucao.html', '🔥', 'Evolução'];
+  } catch(e){}
   var FORA_DA_BARRA = /^(admin|login|index|aguardando|boas-vindas|termos|seed|mockup)/i;
 
   function paginaAtual(){
